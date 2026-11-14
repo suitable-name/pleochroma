@@ -46,6 +46,8 @@ export struct CmScheduleRow {
     indices: string,
     // 0 not done, 1 done, 2 changed since it was marked.
     state: int,
+    // The side of the stone: 0 pavilion, 1 girdle, 2 crown. Colors the strip cell's stripe.
+    side: int,
 }
 
 export global CuttingModeModel {

@@ -69,6 +69,10 @@ pub struct RenderContext {
     pub pitch: f32,
     /// Clockwise rotation of the image plane, radians; independent of orbit/zoom.
     pub camera_roll: f32,
+    /// Where the stone sits in the picture, `[x, y]` in image half-heights (x right, y up,
+    /// in the picture's axes after the roll); `[0.0, 0.0]` is centred. Applied with
+    /// `Camera::with_pan` after the roll.
+    pub camera_pan: [f32; 2],
     /// Camera distance from the stone.
     pub distance: f32,
     /// Light yaw.
@@ -383,7 +387,7 @@ pub struct RenderContext {
     /// The render loop still ANDs this with `!remote_active` before applying
     /// `local_preview_scale` as a belt-and-suspenders guard.
     pub camera_moving: bool,
-    /// Whether a mouse button is currently held for an orbit or light drag in either
+    /// Whether a mouse button is currently held for an orbit, pan or light drag in either
     /// viewport -- written by `ViewportModel.camera_drag_begin`/`camera_drag_end`
     /// (`gui::render::camera_lighting::setup_camera_drag_callbacks`), cleared by
     /// `gui::render::render_visibility::recompute_tab_visible` on every tab/view switch.

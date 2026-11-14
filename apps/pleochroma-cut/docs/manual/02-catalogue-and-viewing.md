@@ -174,16 +174,18 @@ says what the figure is. Local designs get an inline pencil to rename, an
 (with a confirm step: the trash icon becomes "Delete? Yes No"). Every icon of the
 header can be reached with Tab, and a screen reader hears each one by name. The
 **Export .gcs** button (the "gcs" icon) is part of the Advanced interface
-(Chapter 17). The **?** at the right opens this section of the manual. Below the
-header are three tabs: **3D Spectral Preview (1)**, **Cutting Instructions (2)**,
-and **Files & Downloads (3)** — covered further in Chapters 1 and 3.
+(Chapter 17). The **?** at the right opens this section of the manual. At the right end
+of the header is the places segment: **Live Render (1)**, **Edit**,
+**Cutting Instructions (2)** and **Files & Downloads (3)** — covered further in Chapters 1 and 3.
 
 ### The Cutting Instructions Tab
 
-The **Cutting Instructions** tab (press 2) lists the selected design's steps as
-a table, one row per tier: the step number, the facet name, its angle, its
-index positions, and any notes. A concave tier takes two lines, the facet and the
-tool line under it.
+The **Cutting Instructions** page (press 2) lists the selected design's steps as
+cards, one per tier in cutting order: the step number, the facet name, its angle, its
+index positions, and any notes (a note is read-only here and opens the tier in
+Edit). A concave tier takes two lines, the facet and the tool line under it. From
+1000 px wide a side panel shows the selected step with its index wheel. When the Edit
+view holds a design, the cards follow that design.
 
 ![The Cutting Instructions tab: the design header above the table of tiers, angles and indices.](../../../../assets/cutting_instructions.png)
 
@@ -197,8 +199,9 @@ printed sheet that says 3 can still be matched to the row.
 - The three pills above the table choose what it shows: **All Steps**,
   **Pavilion** (the steps below the girdle) or **Crown** (the steps above it).
   Each pill carries its own row count.
-- **Copy Instructions** copies the whole table to the clipboard, ready to paste
-  into a document. Clicking a single row copies just that row.
+- **Copy as Text** copies the whole list to the clipboard, ready to paste
+  into a document; **Print / PDF...** prints it and **Start Cut Mode** opens Cut Mode
+  (Chapter 20). A filter box narrows the cards.
 - From the keyboard, Tab into the table, then Up and Down move from row to row
   (skipping the rows the pills hide), Home and End jump to the first and last
   row, and Enter or Space copies the row you are on.
@@ -208,27 +211,64 @@ If a design has no recorded cutting instructions, the tab says so.
 
 ## The 3D Viewport
 
-Open the **3D Spectral Preview** tab's **Live Render** sub-tab.
+Click **Live Render** in the places segment at the right end of the design header
+(Live Render, Edit, Cutting Instructions, Files & Downloads).
 
 ![The Live Render panel in Solid shading.](../../../../assets/solid_rendering.png)
+
+**The layout of the view.** The picture fills the whole area, and its border takes
+the color of the render's own edge, so there are no bars beside it. Everything else
+floats over it as glass:
+
+- **Top left:** the mode segment **Solid**, **Path-Traced** and **Ray-Traced** (below
+  about 1000 px wide it reads Solid, Path and Ray; the full names stay for screen
+  readers). The Live Cut badge, the **Previewing** badge and the **Color Data
+  Updated** badge sit as chips under it.
+- **Top right**, one toolbar: the **Lighting chip** (a picture of the rig, its short
+  name and a chevron; it opens the rig menu, see Lighting below), the view tools
+  **Reset Camera**, **Front**, **Top** and **Turn 90°** (below about 1000 px they fold
+  into a **View** menu), **Tilt Curve** and **Optical Diagnostics**, the accent
+  **Export** button and the **?** button.
+- **Left:** the **FACE-UP** figures card (Brilliance, Fire, Scintillation, Windowing,
+  Extinction, with a bar for each, then Axis and Doubling when set). Click the card
+  to copy the five numbers (**Copy the Five Gemological Numbers**); the chevron in its
+  header folds it to one line such as "Bril 55.7 · Wind 12.1 · Ext 32.2". It folds by
+  itself in a narrow view, and the choice is remembered. A flagged value carries an
+  amber dot and is announced as outside the usual range.
+- **Bottom right:** the **status pill**: a pause or resume button, the stage, "96 / 256
+  samples" and the time left. It turns amber when the render is paused or held back
+  by an export or a batch (the button is then disabled and says why). A muted note
+  chip beside it carries the render's notes, and a thin line along the bottom edge
+  grows from the left as the samples come in.
+- **Bottom left:** a **mouse button** that opens the gestures card (below). It opens
+  by itself the first time, closes when you first drag in the view and does not
+  return by itself.
+- **Problems** (an out-of-date render with its **Recompute** button, a graphics-card
+  status, a refused render) appear as one banner at the top centre, under the toolbar,
+  which says in words what is wrong and holds its fix. The toolbar itself never
+  changes shape.
 
 **Camera and light controls:**
 
 | Action | Effect |
 |---|---|
 | Left-drag | Orbit the camera around the stone, freely: over the table, under the culet, all the way round |
+| Middle-drag, or Ctrl + left-drag (Cmd on macOS) | Move the stone within the picture to frame it, for example together with its reflection; the camera shifts sideways, so the stone is also seen from a slightly different angle. Orbiting, zooming, **Turn 90°** and a restart keep it there; **Reset Camera** and the named views (**Front**, **Top**) centre it again |
 | **Front** / **Top** buttons | Snap to the canonical poses: girdle edge-on with index 0 towards you, or straight down onto the table. Distance and lighting stay as they were |
 | **Turn 90°** button | Turns the stone a quarter turn about its vertical axis and keeps the viewing angle, distance and lighting: an oval that runs top to bottom then lies across the picture, ready for a landscape export |
 | Right-drag, or Shift + left-drag | Move the light; with an HDR map loaded, turn the map instead |
 | Scroll | Zoom |
-| Click the metrics readout | Copy the current metrics to the clipboard |
+| Click the FACE-UP figures card | Copy the five gemological numbers to the clipboard |
+| Mouse button, bottom left | Show or hide this list of gestures in the view |
 
 (Shift + left-drag exists because some laptop trackpads cannot produce a
 genuine right-drag gesture.)
 
-**Toolbar controls:**
+**The controls:**
 
-- **View mode** — Solid, Path-Traced or Ray-Traced. Ray-Traced is deterministic,
+- **View mode** — Solid, Path-Traced or Ray-Traced. Ray-Traced carries an
+  **Approximate** chip, and its tooltip holds the note that it is an approximation.
+  Ray-Traced is deterministic,
   uses the Advanced Render & Output tab's fixed AA taps and Fire, and bypasses denoising.
   It approximates tint and frost and omits polarization, doubling, haze,
   zoning and edge rounding. Its metrics and optical overlay
@@ -237,17 +277,21 @@ genuine right-drag gesture.)
 - **Material and the Previewing badge** — the material belongs to the design; you see and
   change it in the **Stone** tab of the Parameters dock (the gem button on the sidebar,
   below and Chapter 6). While you look at the stone in another material, an
-  amber badge, **Previewing <material>: not the design's material**, shows in the
-  toolbar and carries a **Back to Design** button. The badge also shows in the Edit view's toolbar, in the
+  amber badge, **Previewing <material>: not the design's material**, shows under the
+  mode segment and carries a **Back to Design** button. The badge also shows in the Edit view's toolbar, in the
   Design Settings material row, and in the Export and Tilt Video dialogs, so you
   always know which material a picture or a file will use. Nothing starts a
   preview by itself.
 - **Parameters sidebar** — the sidebar's gem, light and gear buttons open **Stone**,
   **Lighting & Environment** and **Render & Output**. The sidebar is available in
   both Edit and Live Render.
-- **Lighting** — thirteen **lighting rigs** in the list (also in the Lighting &
-  Environment tab). They are listed here in the order the drop-down shows them,
-  in two families:
+- **Lighting** — the **Lighting chip** opens the **rig menu**: your SAVED lightings
+  first (the design's own marked with a star), then the rigs in the groups LIT
+  MODELS, STUDIO and ANALYSIS (and UV in a build with physical color), then **Save
+  Current Lighting...** (a name row, as in the Lighting tab), **Use This Lighting for
+  This Design** and **All Rigs and Settings...**, which opens the Lighting tab. The
+  thirteen **lighting rigs** are also in the Lighting tab's gallery. They are listed
+  here in two families:
   - **Lit models** — what a stone looks like in a real scene. They darken the facets
     that would reflect your own head, the way a face-up stone really shows a dark table
     (the Head Shadow slider below sets how much), and their brilliance, windowing and
@@ -300,7 +344,7 @@ genuine right-drag gesture.)
   white paper under any rig, at any light direction, shows as the same off-white
   sheet the Grading tray gives it. A black velvet stays black and a grey card mid
   grey; only a direct reflection of a light source clips to white.
-- **Exposure** (Lighting & Environment tab, "Overall Brightness") — a correction on top of
+- **Exposure** (Lighting tab, last row of MAIN LIGHT) — a correction on top of
   the meter reading, a slider from 0.2× to 5× (default 1×, shown next to the label): 1×
   is the metered picture, below is darker, above brighter. It works the same for the lit
   models and the Studio rigs. It does not apply while an HDR environment map is loaded,
@@ -308,20 +352,24 @@ genuine right-drag gesture.)
   brightness and is not metered). A stored value outside 0.2× to 5× is pulled back into
   that range when the settings are read. Exports, render jobs and remote renders use the
   metered exposure too, so they look like the viewport.
-- **Light Direction** (Lighting & Environment tab, above Exposure) — where the main light
-  shines from, as two angles. **Light Azimuth** is the angle around the stone, 0° to
-  360° (default 48°). **Light Elevation** is the height above the stone, about 8.6° (low and
-  raking) to about 88.8° (nearly straight overhead) (default 72°). Besides the two sliders,
-  you can move the light in the viewport itself: right-drag, or Shift + left-drag,
+- **Main light** (Lighting tab, MAIN LIGHT, above Exposure) — where the main light
+  shines from, as two angles, drawn as a **dome seen from above** with rings at 30° and
+  60° and 0° marked. Drag the dot, or focus the dome and use the arrow keys (left and
+  right turn the azimuth by 5°, up and down change the elevation by 2°; hold Shift for
+  finer steps). Beside it two typed fields, **Light Azimuth in Degrees** and **Light
+  Elevation in Degrees**, apply on Enter or when you leave them. **Light Azimuth** is the
+  angle around the stone, 0° to 360° (default 48°). **Light Elevation** is the height
+  above the stone, about 8.6° (low and raking) to about 88.8° (nearly straight overhead)
+  (default 72°). You can also move the light in the viewport itself: right-drag, or Shift + left-drag,
   changes both angles at once (the table above). With an HDR map loaded the same drag
   turns the map instead. The direction moves the light tent's
   overhead softbox (the black cards turn with it), the sun of **Daylight sky + direct
   sun**, the glow of **Daylight sky (no sun)**, the window of **Window daylight** and
   the key softbox of the Studio rigs. The **Grading tray** does not depend on it: the
   whole hemisphere is lit evenly, so the light direction changes nothing there. An HDR
-  map ignores it too: while a map is loaded this group becomes **Map Orientation**
-  (below).
-- **Views** (Lighting & Environment tab, the **Saved Lighting** list) — one-click saved looks.
+  map ignores it too: while a map is loaded the dome becomes the map's rotation dial
+  (**Map Rotation**, below).
+- **Views** (Lighting tab, SAVED LIGHTINGS) — one-click saved looks.
   A view is a complete look: it stores the lighting rig *and* the light
   direction (azimuth and elevation), the exposure, the surface glare, the backdrop,
   the head shadow and the HDR environment map if one is loaded; for some views also
@@ -329,43 +377,49 @@ genuine right-drag gesture.)
   sets every one of those values, so a view saved without an HDR map also takes a
   loaded map away and returns to its lighting rig; applying one that stores
   no camera pose leaves the camera alone, its turn around the stone and its zoom
-  alike. The built-in **Grading tray** sets its pose and fits the stone in the picture. Eight views come
+  alike. A camera pose includes where the stone sits in the picture; one saved by an
+  older version centres the stone. The built-in **Grading tray** sets its pose and fits the stone in the picture. Eight views come
   with the app and cannot be renamed or deleted:
 
-  | View | Lighting rig | Light azimuth / elevation | Exposure | Backdrop | Camera |
-  |---|---|---|---|---|---|
-  | Studio Softbox | Gem Studio Ring Lights | 48° / 54° | 1× | Grey | not set |
-  | Daylight Bright | D65 Daylight (6500K) | 30° / 65° | 1.3× | White | not set |
-  | Dramatic Spotlight | Dramatic Dark Spotlight | 300° / 25° | 0.7× | Black | not set |
-  | Light Tent | Light tent + black cards | 48° / 72° | 1× | White | not set |
-  | Grading tray | Grading tray (D65 hemisphere + head shadow) | 48° / 72° | 1× | White | azimuth 0°, elevation 85° (looking almost straight down), fitted to the stone |
-  | Daylight Sun | Daylight sky + direct sun | 30° / 55° | 1.5× | White | not set |
-  | Window daylight | Window daylight | 40° / 30° | 1.2× | White | not set |
-  | Presentation | Gem Studio Ring Lights | 48° / 54° | 1.4× | Black | not set |
+  | View | Lighting rig | Light azimuth / elevation | Exposure | Backdrop | Stone Shadow | Camera |
+  |---|---|---|---|---|---|---|
+  | Studio Softbox | Gem Studio Ring Lights | 48° / 54° | 1× | Grey | on | not set |
+  | Daylight Bright | D65 Daylight (6500K) | 30° / 65° | 1.3× | White | on | not set |
+  | Dramatic Spotlight | Dramatic Dark Spotlight | 300° / 25° | 0.7× | Black | off | not set |
+  | Light Tent | Light tent + black cards | 48° / 72° | 1× | White | on | not set |
+  | Grading tray | Grading tray (D65 hemisphere + head shadow) | 48° / 72° | 1× | White | off | azimuth 0°, elevation 85° (looking almost straight down), fitted to the stone |
+  | Daylight Sun | Daylight sky + direct sun | 30° / 55° | 1.5× | White | on | not set |
+  | Window daylight | Window daylight | 40° / 30° | 1.2× | White | on | not set |
+  | Presentation | Gem Studio Ring Lights | 48° / 54° | 1.4× | Black | off | not set |
 
   The first seven are viewing setups to judge a stone by. **Presentation** is the showcase
   look of a jeweler's photo: the studio ring lights over black velvet, half a stop brighter,
   for the most saturated color and the crispest sparkle when a picture should show the stone
   off rather than measure it.
 
+  The views on a white or grey tray switch the **Stone Shadow** on, so the stone sits on the
+  paper; it shows best from a low angle. On black velvet nothing of it shows, and the
+  Grading tray's even dome casts none worth drawing, so those views switch it off. No view
+  switches on the **Tray Reflection**: a glossy tray mirrors the studio lamps as bright
+  blobs, so add it yourself where it suits the picture.
+
   Every view uses the 16° head shadow. Under the Grading tray's evenly lit dome that
   shadow is the only thing that draws a face-up pattern; a larger one (Head Shadow, about
   24° for head and shoulders at close inspection) shows more of it, but then the
   brilliance figures do not match the ones Optimize scores with.
 
-  The **Save Lighting** button on the viewport toolbar (hidden in Simple mode)
-  captures your current lighting, light direction, exposure and camera pose; the
-  save button in the Saved Lighting heading saves the current
-  lighting without the camera pose, and **Save View as Saved Lighting...** in the
-  Camera section keeps the pose too. The name box opens pre-filled with
+  **Save Current Lighting...** in the rig menu, and **Save Current...** in the title of
+  the SAVED LIGHTINGS section, open the same name row. It holds a switch **Include the
+  camera pose**: off (the default) saves the lighting alone, on also keeps the camera
+  pose. The name box opens pre-filled with
   "<rig> – <date>" (for example "Light tent + black cards – 2026-10-12", numbered
   "(2)", "(3)" if the name is taken), so a saved lighting never shares a name with a
   rig; press Enter to keep it or type your own. Your own views are added to the same list, after
-  the built-in ones, and can be renamed and deleted (the pencil and trash buttons). Every
-  row, built-in or yours, has a small save toggle, the "usable for" mark: switch it on
-  and the view is offered in the export dialog's list of lightings, so one export can
+  the built-in ones, and can be renamed and deleted (the "..." menu of each chip, **Saved Lighting Options**, holds
+  Rename, Usable for Export and Delete). The **Usable for Export** entry is the "usable
+  for" mark: switch it on and the view is offered in the export dialog's list of lightings, so one export can
   render the stone under several of them (Chapter 9). New views start with it off.
-- **Backdrop** (Lighting & Environment tab, Environment section) — the surface the stone
+- **Backdrop** (Lighting tab, SURROUNDINGS, a segment with color dots) — the surface the stone
   lies on: a matte tray under the stone, lit by the lighting rig and extending to the
   horizon. It is seen around the stone and through the stone's windows alike, so what
   shows behind a window is what is really there. Four choices: **White** (the default;
@@ -375,37 +429,40 @@ genuine right-drag gesture.)
   so windows look black). The tray is lit, not a light source: its brightness follows the
   lighting rig, the light direction (for the rigs that have one) and the exposure. In a
   view from the side the horizon is where it physically is, sky above and tray below with
-  a soft band between. Under the Studio rigs' ring lights a white tray is very bright, so
-  two built-in looks bring their own tray: **Studio Softbox** sets Grey and **Dramatic
-  Spotlight** sets Black (you can still pick another pill after applying them). An HDR environment
+  a soft band between. Three built-in looks bring their own tray: **Studio Softbox** sets
+  Grey, because under the Studio rigs' ring lights a white tray is very bright, and
+  **Dramatic Spotlight** and **Presentation** set Black (you can still pick another pill after
+  applying them). An HDR environment
   map ignores the backdrop (the map is the whole world), and the choice greys out while
   one is loaded. The backdrop does not change the numbers: brilliance, extinction,
   windowing and the tilt curves are the same on every choice. Windowing is light that
   leaves through the pavilion; the render shows what that light looks at. Saved settings
   and saved lightings keep their own backdrop choice.
-- **Stone Shadow** (Lighting & Environment tab, Environment section) — off by default.
+- **Stone Shadow** (Lighting tab, SURROUNDINGS) — off by default; five of the built-in
+  views switch it on (see the table above).
   The stone casts its shadow and colored light onto the backdrop, as a stone on paper
   does. A ruby tints its shadow red; a dispersive stone can show rainbow fringes.
   It needs a studio light and a backdrop. The switch dims with an HDR map, As Lit,
-  or "Contrast view (ASET-style)", and a note explains why. The tray touches the culet.
+  or "Contrast view (ASET-style)", and a reason chip on the row (for example "not with
+  HDR") explains why. The tray touches the culet.
   Live viewing computes a Preview map in the background. A camera orbit reuses it;
   a change to the light rebuilds it. Exports, jobs, final images and batches compute a
   Final map before tracing. The setting belongs to saved lighting and this design's
   lighting. Tilt views and videos do not show the stone shadow yet. Metrics and
   catalogue previews omit it.
-- **Tray Reflection** (Lighting & Environment tab, Environment section, under Stone Shadow) — a
+- **Tray Reflection** (Lighting tab, SURROUNDINGS, under Stone Shadow) — a
   0–100 % slider in steps of 1, "Off" at 0 (the default). It turns the tray under the stone into a
   glossy surface; the value is how much light the surface reflects when seen straight on. About
   4 % looks like black acrylic or glass (with the Black backdrop, the classic jewelry-photo look),
   100 % is a mirror, and glancing views reflect more. The stone appears mirrored in it and light
   reaches the pavilion from below; what the surface does not reflect is the ordinary tray,
   including the Stone Shadow when that is on. It needs a studio light with a backdrop, so the
-  row dims with an HDR map, As Lit or "Contrast view (ASET-style)", with the same notes as the
-  Stone Shadow row. The setting belongs to saved lighting and this design's lighting. Tilt views and videos do not show it ("Tilt views don't show the tray
+  row dims with an HDR map, As Lit or "Contrast view (ASET-style)"; while it is dimmed the
+  row shows its name and the reason chip instead of a slider, as the Stone Shadow row does. The setting belongs to saved lighting and this design's lighting. Tilt views and videos do not show it ("Tilt views don't show the tray
   reflection."). Metrics and catalogue previews omit it. The path cache declines it, and so does
   beam tracing (in a build with the `beam` feature), with a note each; with the Spectral GPU
   renderer, a graphics card that cannot run it leaves the render to the processor.
-- **Surface Glare** (Lighting & Environment tab, Observer section) — a 0–100 % slider in steps of 5
+- **Surface Glare** (Lighting tab, the Viewer card) — a 0–100 % slider in steps of 5
   (default 100 %). It scales the white mirror image of the light that a polished
   surface reflects, which is what a cross-polarised photograph removes: at 0 % the
   bright reflection of the light on the table disappears and the inner facets stay
@@ -415,7 +472,7 @@ genuine right-drag gesture.)
   remote and hybrid rendering and every export. The brilliance, windowing and
   extinction numbers, tilt curves and catalogue previews never use it, and the Solid
   view is unaffected. "Reset to 100 %" restores the default.
-- **Head Shadow** (Lighting & Environment tab, Observer section) — a 0–30° slider (default 16°,
+- **Head Shadow** (Lighting tab, the Viewer card) — a 0–30° slider (default 16°,
   0 = Off). On the lit models it is how much of the sky your own head hides: the
   dark table reflections a face-up stone shows. 16° is a head at arm's length. The
   slider also changes the brilliance, windowing and extinction figures under those
@@ -424,11 +481,13 @@ genuine right-drag gesture.)
   Spotlight) ignore it, and so does an HDR map (the slider greys out
   while one is loaded; with a studio rig it greys out too and says "(not used by studio rigs)"). It follows into the live view, remote and hybrid rendering
   and every export; "Reset to 16°" restores the default.
-- **Tilt Curve** — opens the tilt-performance dialog (below). Simple mode hides
-  this button (Chapter 17); switch to Advanced to use it.
-- A reset-camera button, a "Save Lighting" button (captures your full
-  current lighting *and* camera pose as a named saved lighting; Simple mode hides it), a
-  Pause/Live toggle and an **Export** button (Chapter 9).
+- **Tilt Curve** and **Optical Diagnostics** — the analysis group of the toolbar (the
+  texts drop below about 1000 px). Tilt Curve opens the tilt-performance dialog
+  (below); Simple mode hides it (Chapter 17); switch to Advanced to use it.
+- **Reset Camera**, **Front**, **Top** and **Turn 90°** (the View menu in a narrow
+  view), the pause and resume button of the status pill, and the **Export** button
+  (Chapter 9). The pencil that opened the Custom Material editor is gone from the
+  view: **New/Edit Material...** is in the Stone tab's Material Menu.
 - A round **?** button opens this part of the manual. Every button on the toolbar
   also has a hover note saying what it does, and you can reach each one with the
   Tab key and press it with Space or Enter.
@@ -464,8 +523,10 @@ one **Parameters dock**, a panel on the right-hand side with three tabs:
 | Tab | What it holds |
 |---|---|
 | **Stone** | The design's material and color, the stone width, and the stone's render effects |
-| **Lighting & Environment** | The lighting rig, light direction, exposure, HDR map and backdrop, the observer (glare, head shadow), saved lighting, this design's lighting and the camera |
-| **Render & Output** | Live-view quality and compute, the output defaults of the Export and Tilt Video dialogs, the catalogue thumbnails and the tilt curve |
+| **Lighting** | The lighting rig, the main light (dome, exposure), the surroundings (backdrop, Stone Shadow, Tray Reflection, HDR map), the viewer (glare, head shadow), saved lightings and this design's lighting |
+| **Render** | Quality presets (Draft, Balanced, High, Custom), live-view details and compute, the Ray-Traced view, library thumbnails, and where exports start from |
+
+The three tabs are a segment at the top of the panel (**Stone**, **Lighting**, **Render**). The Render tab's name on screen is "Render"; its accessible name is still Render & Output. 
 
 Open it from any of these places; they all lead to the same panel:
 
@@ -495,16 +556,19 @@ instead; **Esc** folds it back to the rail. F1 with the panel open opens the man
 the tab that shows. The round **?** in the dock's header opens
 this section of the manual.
 
-At the foot of each tab, **Reset This Tab** asks for confirmation (press it once to see
+At the foot of each tab, **Reset This Tab** (a quiet link) asks for confirmation (press it once to see
 "Reset <tab>?", then **Confirm**, or **Cancel**). It puts back the defaults of that tab
 only:
 
 - **Stone** resets only the stone's render effects (below). It never touches the
   material, the color or the width, because those are edits of the design you can undo.
-- **Lighting & Environment** returns to the default rig, light direction, exposure, glare,
-  head shadow and backdrop, and drops a loaded HDR map. Saved lighting is kept.
-- **Render & Output** puts the live-view quality, compute and thumbnail values and the
+- **Lighting** returns to the default rig, light direction, exposure, glare,
+  head shadow and backdrop, and drops a loaded HDR map. Saved lightings are kept.
+- **Render** puts the quality preset, the live-view, compute and thumbnail values and the
   output defaults back.
+
+The gestures card and the folded or open state of the figures card and of the tab cards
+are not reset by Reset This Tab.
 
 ## The Stone Tab
 
@@ -513,9 +577,16 @@ and, except where it says otherwise, is saved in the design and can be undone.
 
 ![The Stone tab of the Parameters dock.](../../../../assets/parameters_stone.png)
 
-**Material and color.** One **Material** combo (built-in materials, then your own, then
-"Custom RI..."), the **RI Override** (Advanced), the **Eff. RI** and **Crit.** chips,
-**New/Edit Material...**, and the **Body Color** combo with its tone/saturation/hue editor.
+**Material and color.** The tab opens with an identity card: the material's name, chips
+for its family, dispersion, the effective refractive index (**RI**) and the critical angle (**Critical**) (a click on the RI chip opens the
+**RI Override**, Advanced) and a **Material Menu** (the "..." button) holding **RI
+Override**, **New/Edit Material...** and, while a preview runs, **Preview Color**. Below it
+are the **Material** combo (built-in materials, then your own, then "Custom RI...") and
+**Preview As...**, then the body color as a list of tiles (one per color of the
+material; a stone with two body colors shows split tiles) plus a **Custom** tile that
+opens the tone/saturation/hue editor, and the Color Pattern card.
+The effects sit in cards that fold (Crystal Axis, Girdle & Edges, Clarity, Play-of-Color
+or Schiller); each card remembers whether it was open.
 Choosing a material or color is an undoable edit of the design; the Edit view's Design
 Settings panel shows the same material as a compact read-only chip with an **Edit in
 Stone Tab** link. Chapter 6 explains what the material changes and what it does not.
@@ -573,32 +644,44 @@ pause. **Reset This Tab** turns all four off (one undoable edit).
 ![The Lighting & Environment tab of the Parameters dock.](../../../../assets/parameters_lighting.png)
 
 One set of values describes the lighting everywhere: the live view, the lighting stored
-for a design, your saved lighting and the lighting a render job freezes. The tab has these
-sections:
+for a design, your saved lightings and the lighting a render job freezes. The tab has these
+parts, from the top:
 
-- **Lighting Rig** — the thirteen rigs listed under *Lighting* above (the toolbar's
-  Lighting combo is the same control). A studio rig, a lit model or an HDR map replaces
-  the others.
-- **Light Direction** — Light Azimuth and Light Elevation; you can also move the light by
-  right-dragging, or Shift + left-dragging, in the viewport.
-- **Map Orientation** — replaces Light Direction while an HDR map is loaded.
-  **Map Rotation** turns the map around the stone, 0° to 360°; right-dragging, or
-  Shift + left-dragging, in the viewport turns it too. **Turns with the Camera** keeps
-  the map fixed relative to the view, so orbiting turns the stone under the same
-  surroundings; off keeps the map fixed in the world. Switching it keeps the picture
-  as it is. The turn belongs to the map: it is saved with a saved lighting, and
-  used by exports, render jobs and tilt videos. **Reset** in the Camera group returns
-  a loaded map to its unturned position.
-- **Exposure** — "Overall Brightness".
-- **Environment** — the **HDR Environment Map** loader, **Backdrop**, **Stone Shadow** and **Tray Reflection**.
-- **Observer** — **Surface Glare** and **Head Shadow**. Both grey out while an HDR map is loaded.
-- **Saved Lighting** — your named looks plus the eight built-in ones: apply, save, rename,
-  delete, and the "usable for" switch that offers a look in the export dialog (Chapter 9).
-  A saved lighting holds the whole look: rig, light direction, exposure, glare, backdrop,
-  head shadow, the "Stone Shadow" and "Tray Reflection" settings, the HDR map if any, and optionally the camera pose.
-- **This Design** — **Use This Lighting for This Design** and **Forget for This Design**
-  (the group called "Lighting This Design Opens With"; Chapter 9).
-- **Camera** — **Front**, **Top**, **Turn 90°**, **Reset**, and **Save view as saved lighting...**.
+- **The rig card** — a picture of the rig, its short name, a one-line blurb, a chip
+  (Lit model, Studio or Analysis) and **Change**. Change opens the **gallery of rigs**,
+  grouped as in the rig menu of the viewport (the thirteen rigs listed under *Lighting*
+  above); **Close Lighting Rigs** closes it. A studio rig, a lit model or an HDR map
+  replaces the others.
+- **MAIN LIGHT** — the **dome** seen from above and its two fields, **Light Azimuth in
+  Degrees** and **Light Elevation in Degrees** (see *Main light* above), then **Exposure**.
+  You can also move the light by right-dragging, or Shift + left-dragging, in the viewport.
+  While an HDR map is loaded the dome becomes the map's rotation dial: only the azimuth
+  works, the caption reads **Map Rotation**, and the field is **Map Rotation in Degrees**
+  (0° to 360°; right-dragging, or Shift + left-dragging, in the viewport turns the map
+  too). The row **Turns with the Camera** keeps the map fixed relative to the view, so
+  orbiting turns the stone under the same surroundings; off keeps the map fixed in the
+  world. Switching it keeps the picture as it is. The turn belongs to the map: it is
+  saved with a saved lighting, and used by exports, render jobs and tilt videos.
+- **SURROUNDINGS** — the **Backdrop** segment (As Lit, Black, Grey, White, each with a
+  color dot), the **Stone Shadow** and **Tray Reflection** rows (a row that cannot work
+  shows a reason chip, for example "not with HDR", in place of its slider), and the
+  **HDR Environment Map** row: "None" or the file name, **Choose...** (which picks a .hdr
+  file and loads it in one step) and a clear button once one is loaded.
+- **The Viewer card** (folded until opened, unless a value is off its default) —
+  **Surface Glare** and **Head Shadow**, each with its reset link. Its summary reads
+  "Glare 100 % · head shadow 16°". Both grey out while an HDR map is loaded.
+- **SAVED LIGHTINGS** — chips with a rig picture and the name, the design's own
+  starred. Click a chip to apply it; the "..." menu of a chip (**Saved Lighting
+  Options**) holds Rename, Usable for Export and Delete. **Save Current...** in the
+  section title opens the name row with the switch **Include the camera pose**.
+  Under the chips, **Use This Lighting for This Design** (and **Forget for This
+  Design** once one is saved; the group called "Lighting This Design Opens With";
+  Chapter 9). A saved lighting holds the whole look: rig, light direction, exposure,
+  glare, backdrop, head shadow, the "Stone Shadow" and "Tray Reflection" settings, the
+  HDR map if any, and optionally the camera pose.
+
+The camera buttons are not in this tab any more: the viewport has them (Reset Camera,
+Front, Top, Turn 90°).
 
 Because the tab is in the Edit view too, the Path-Traced and Solid + Path-Traced modes can be lit without
 leaving it, and the Optimize tab's note about the studio rig links straight here
@@ -611,16 +694,25 @@ says what it does.
 
 ![The Render & Output tab of the Parameters dock.](../../../../assets/parameters_render.png)
 
-In **Simple mode** (Chapter 17) the tab shows Target Samples, Render Resolution, Denoise
+**Quality presets.** The tab opens with four tiles, **Draft**, **Balanced**, **High** and
+**Custom**, and a status line saying what is set. A preset sets the target samples, the
+resolution and the bounces; changing any detail below switches the tile to Custom, and
+Custom remembers your own values. Below the tiles the settings sit in cards that fold:
+**Live View Details**, **Compute**, **Ray-Traced View**, **Library Thumbnails**, and an
+**EXPORTS START FROM** card that shows where the Export and Tilt Video dialogs begin.
+The tilt performance curve is no longer on this tab (it is the Tilt Curve button of the
+viewport).
+
+In **Simple mode** (Chapter 17) the tab shows the presets, Target Samples, Render Resolution, Denoise
 Live View and the output defaults. It hides Library Thumbnails (Preview Image Size and
 Preview Samples), Motion Preview Resolution, the Compute section (Live Compute with Live
-Transfer, Local Compute), Max Ray Bounces and the Tilt Performance Curve panel; those are
+Transfer, Local Compute) and Max Ray Bounces; those are
 the Advanced settings below. A hidden setting keeps its value and still applies. (The two
 Library Thumbnails sliders are also shown in the preview question in either interface.) If one of
 them is not at its default, the tab says "Some advanced settings are in use. Switch to
 Advanced to see them."
 
-**Live View Quality**
+**Live View Details** (the first card, open by default; its summary names the preset)
 
 - **Target Samples** — how many samples per pixel the live render converges to, in powers
   of two (8 up to 1024; default 256). More samples mean a cleaner, less grainy image but a
@@ -635,10 +727,15 @@ Advanced to see them."
   model more light bounces (useful for strongly dispersive or heavily
   faceted stones) at a rendering-time cost that grows faster on GPU than
   on CPU. The same six choices appear in the Export and Tilt Video dialogs.
-- **Denoise Live View** — smooths the grain out of the live picture while it builds up. It
-  is the same switch as the Remote Coordinator dialog's "Denoise Merged Image".
+- **Denoise Live View** — a switch that smooths the grain out of the live picture while
+  it builds up. It is the same switch as the Remote Coordinator dialog's "Denoise Merged Image".
 
-**Compute (Advanced)**
+The Target Samples slider, the Render Resolution box, the Motion Preview Resolution
+and Max Ray Bounces choices and the Denoise switch all change the preset tile to
+**Custom** when you touch them.
+
+**Compute (Advanced card)** — its summary reads "This PC · CPU", "This PC · CPU + GPU"
+or "... + remote", and its first row, **This PC**, says what traces the picture.
 
 - **Live Compute** — Local Only, Remote Only, or Local + Remote (default,
   once a remote coordinator is configured) — see Chapters 9 and 10. The remote choices are
@@ -654,26 +751,33 @@ Advanced to see them."
   memory limits), so nothing ever fails to render outright. Concave tools
   (Chapter 16) are traced on the graphics card like any other facet.
 
-**Output Defaults.** The Export and Tilt Video dialogs open with the settings of your last
+**Ray-Traced View (Advanced card)** — **Smoothing** (announced as Anti-Aliasing: Off, 4×,
+8× or 16×) sets how many fixed sample positions each pixel averages, and the **Fire**
+switch separates three color rays with the material's dispersion. A note under them lists
+what the Ray-Traced view leaves out (polarization, double refraction, haze, zoning, edge
+rounding, paths beyond the bounce cap).
+
+**Exports Start From.** The Export and Tilt Video dialogs open with the settings of your last
 run: output size, samples, bounces, color space, compute target and transfer (and, for the
 video, the file-name template). Starting an export or a video remembers the values it used.
-The tab shows both sets as two read-only lines; the controls themselves are in the
-dialogs, where you can still change them for a single run. The links **Open Export
-Dialog...** and **Open Tilt Video...** under the lines open those dialogs. Resetting the tab puts the
-defaults back.
+The card shows both sets as two read-only lines, **Still Picture** and **Tilt Video**; the
+controls themselves are in the dialogs, where you can still change them for a single run.
+The links **Open Export Dialog...** (**Export…**) and **Open Tilt Video...** (**Tilt…**) on
+the lines open those dialogs. Resetting the tab puts the defaults back.
 
-**Library Thumbnails (Advanced)** — **Thumbnail Renderer**, **Thumbnail Backdrop** (White,
-Grey or Black; Grey by default), **Preview Image Size** (96 to 256 pixels) and **Preview
-Samples** (32 to 512) for the small pictures the catalogue draws. The same choices appear as
-**Picture Quality** in the preview question, in either interface (above); both places change
-the same settings.
+**Library Thumbnails (Advanced card)** — **Renderer** (announced as Thumbnail Renderer:
+Path-Traced or Ray-Traced), **Backdrop** (Thumbnail Backdrop: White, Grey or Black; Grey by
+default), **Preview Image Size** (96 to 256 pixels) and **Preview Samples** (32 to 512; shown
+for the Path-Traced renderer only) for the small pictures the catalogue draws. The same
+choices appear as **Picture Quality** in the preview question, in either interface (above);
+both places change the same settings.
 
-**Tilt Performance (Advanced)** — the button that opens the tilt-performance graph
+The tilt-performance graph is not on this tab; it opens from the **Tilt Curve** button
 (below).
 
 ## Reading the Tilt-Performance Graph
 
-Click **Tilt Curve** to open **Tilt Performance Curve Analysis**. This
+Click **Tilt Curve** (in the Live Render toolbar, or in the Edit view's command bar) to open **Tilt Performance Curve Analysis**. This
 answers a real cutting question: how does the stone's performance hold up
 as it tips away from being viewed straight-on?
 

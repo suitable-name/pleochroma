@@ -464,6 +464,7 @@ mod tests {
             head_shadow_deg: 16.0,
             frosted_planes: Vec::new(),
             effects: crate::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         }
     }
 
@@ -565,7 +566,7 @@ mod tests {
             4
         );
         assert_eq!(
-            PROTOCOL_VERSION, 42,
+            PROTOCOL_VERSION, 43,
             "zoning itself needs no protocol bump; the pinned value moves with the other changes"
         );
     }

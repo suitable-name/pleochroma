@@ -30,7 +30,7 @@ fn open_live_render() -> GuideStep {
         "Open Live Render",
         "The export dialog sits in the Live Render toolbar, so the picture you queue is the one you see there.",
     )
-    .actions(["Click Live Render, the pill to the left of Edit, above the picture."])
+    .actions(["Click Live Render in the places segment of the design header."])
     .check("The Live Render view opens with its toolbar and the Export button at the right. It starts on the flat Solid picture; Path-Traced above the picture shows the traced one.")
     .why("A job renders the finished stone under the lighting and material you see in Live Render.")
     .goal(event(LIVE_RENDER_OPENED), "The Live Render view")

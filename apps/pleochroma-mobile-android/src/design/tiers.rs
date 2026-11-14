@@ -26,9 +26,10 @@ use std::rc::Rc;
 
 use pleochroma_mobile_core::{
     app_state::AppState,
+    design_props::checks,
     design_state::{EditOutcome, EditRefusal, Edited, can_redo, can_undo, redo_hint, undo_hint},
 };
-use slint::{ComponentHandle, ModelRc};
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::Shared;
 use crate::{AppWindow, TiersModel, push::toast};
@@ -68,6 +69,57 @@ pub fn push(window: &AppWindow, state: &AppState) {
         sheet::push(window, state);
     }
     angle::push(window, state);
+    push_check_cards(&model, state);
+}
+
+/// Writes what the Checks tab's cards need beyond `PropsModel.warnings` (`TiersModel.check-*`,
+/// parallel to it) when it changed: each card's heading, its "Open <tier>" label and the list
+/// position of that tier's row.
+fn push_check_cards(model: &TiersModel<'_>, state: &AppState) {
+    let warnings = checks(state).warnings;
+    let cards: Vec<(String, String, i32)> = ui::with(|ui| {
+        warnings
+            .into_iter()
+            .map(|warning| {
+                let found = warning.tier.and_then(|tier| {
+                    ui.rows
+                        .iter()
+                        .position(|row| !row.is_concave && row.index == tier)
+                });
+                let (label, position) = found.map_or_else(
+                    || (String::new(), -1),
+                    |position| {
+                        (
+                            format!("Open {}", ui.rows[position].code),
+                            i32::try_from(position).unwrap_or(-1),
+                        )
+                    },
+                );
+                (warning.title, label, position)
+            })
+            .collect()
+    });
+    let changed = ui::with(|ui| {
+        let changed = ui.check_cards != cards;
+        if changed {
+            ui.check_cards.clone_from(&cards);
+        }
+        changed
+    });
+    if changed {
+        let titles: Vec<slint::SharedString> = cards
+            .iter()
+            .map(|(title, _, _)| title.as_str().into())
+            .collect();
+        let labels: Vec<slint::SharedString> = cards
+            .iter()
+            .map(|(_, label, _)| label.as_str().into())
+            .collect();
+        let rows: Vec<i32> = cards.iter().map(|(_, _, row)| *row).collect();
+        model.set_check_titles(ModelRc::new(VecModel::from(titles)));
+        model.set_check_open_labels(ModelRc::new(VecModel::from(labels)));
+        model.set_check_open_rows(ModelRc::new(VecModel::from(rows)));
+    }
 }
 
 /// Runs the edit on the state. Returns what it said and whether the design moved.

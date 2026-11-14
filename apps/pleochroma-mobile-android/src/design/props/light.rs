@@ -72,6 +72,10 @@ fn backdrop_picked(window: &AppWindow, state: &Shared, index: i32) {
     refresh(window, state);
 }
 
+/// The pictures (`PleoRigThumb` kinds) of the rigs the Light tab's grid shows: Light Tent,
+/// Grading Tray, Window Daylight and Ring Lights.
+const GRID_KINDS: [i32; 4] = [0, 1, 4, 10];
+
 /// The Slint rows of the lighting list, with the chosen rig marked.
 fn preset_items(view: &LightingView) -> Vec<LightingItem> {
     lighting_rows()
@@ -83,10 +87,28 @@ fn preset_items(view: &LightingView) -> Vec<LightingItem> {
                 name: row.name.into(),
                 title: row.title.into(),
                 description: row.description.into(),
+                short_name: row.short_name.into(),
+                kind: row.kind,
                 selected,
             }
         })
         .collect()
+}
+
+/// The four tiles of the rig grid: the common rigs, with the chosen rig taking the last tile
+/// when it is not one of them (so the chosen rig is always in view).
+fn grid_items(items: &[LightingItem]) -> Vec<LightingItem> {
+    let mut grid: Vec<LightingItem> = GRID_KINDS
+        .iter()
+        .filter_map(|kind| items.iter().find(|item| item.kind == *kind).cloned())
+        .collect();
+    if !grid.iter().any(|item| item.selected)
+        && let Some(chosen) = items.iter().find(|item| item.selected)
+        && let Some(last) = grid.last_mut()
+    {
+        *last = chosen.clone();
+    }
+    grid
 }
 
 /// Whether a stored slider value differs from the one last pushed. The values are copied
@@ -109,7 +131,9 @@ pub(super) fn push(props: &PropsModel, state: &AppState, pushed: &mut Pushed) {
     if was.is_none_or(|old| {
         old.preset_name != view.preset_name || old.hdr.selected != view.hdr.selected
     }) {
-        props.set_presets(ModelRc::new(VecModel::from(preset_items(&view))));
+        let items = preset_items(&view);
+        props.set_grid_rigs(ModelRc::new(VecModel::from(grid_items(&items))));
+        props.set_presets(ModelRc::new(VecModel::from(items)));
     }
     if was.is_none_or(|old| old.hdr != view.hdr) {
         props.set_hdr_available(view.hdr.available);

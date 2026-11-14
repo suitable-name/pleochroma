@@ -1,8 +1,19 @@
-// Renderer choices are separate from the primary render actions. Explicit sizing keeps
-// long compute labels from increasing the viewport's minimum width.
-import { ComboBox, ScrollView } from "std-widgets.slint";
+// The Render mode's overlay along the foot of the viewport: a glass status pill with the
+// pause / resume (Cancel and Retry for Remote), Settings and Export buttons, the progress
+// line under it, and the settings tray above it. Renderer choices are separate from the
+// primary render actions; explicit sizing keeps long compute labels from increasing the
+// viewport's minimum width.
+//
+// The pill says what the trace does in plain words ("Refining", "41 / 64 · on this device's
+// GPU"); a tap on its text opens the engineering report (`backend-report`) in a dialog.
+import { PageScroll } from "../../shell/page_scroll.slint";
 import { Theme } from "../../theme.slint";
+import { Icons } from "../../icons.slint";
+import { Shell } from "../../models.slint";
 import { Chip } from "../../shell/chips.slint";
+import { IconButton } from "../../shell/icon_button.slint";
+import { StateLayer } from "../../shell/state_layer.slint";
+import { ChoiceField } from "../../shell/inputs.slint";
 import { RenderModel } from "render_model.slint";
 
 component RenderSelect inherits Rectangle {
@@ -11,202 +22,321 @@ component RenderSelect inherits Rectangle {
     in property <int> model-index;
     callback value-selected(int);
     height: 20px + Theme.touch;
+    min-width: 0px;
+    preferred-width: 0px;
 
-    // ComboBox may write its local index during interaction. Rust remains the source
+    // ChoiceField writes its local index during interaction. Rust remains the source
     // of truth, including a refused choice or a backend changed by an async result.
     changed model-index => { choice.current-index = root.model-index; }
-    Text {
-        width: root.width;
-        height: 20px;
-        text: root.field-label;
-        color: Theme.on-surface-variant;
-        font-size: Theme.text-label;
-        overflow: elide;
-    }
-    choice := ComboBox {
-        x: 0px;
-        y: 20px;
-        width: root.width;
-        min-width: 0px;
-        height: Theme.touch;
-        model: root.choices;
-        current-index: root.model-index;
-        accessible-label: root.field-label;
-        selected => {
-            if self.current-index != root.model-index {
-                root.value-selected(self.current-index);
+    // The label has its own line above the field.
+    VerticalLayout {
+        spacing: 0px;
+        Text {
+            height: 20px;
+            text: root.field-label;
+            color: Theme.text-secondary;
+            font-size: max(12px, Theme.text-label);
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        choice := ChoiceField {
+            min-width: 0px;
+            height: Theme.touch;
+            model: root.choices;
+            current-index: root.model-index;
+            label: root.field-label;
+            selected => {
+                if self.current-index != root.model-index {
+                    root.value-selected(self.current-index);
+                }
+                self.current-index = root.model-index;
             }
-            self.current-index = root.model-index;
         }
     }
 }
 
 component RenderChoices inherits Rectangle {
     property <bool> wide-controls: root.width >= 640px;
-    property <length> field-width: root.wide-controls
-        ? max(1px, (root.width - 2 * Theme.space-sm) / 3)
-        : max(1px, (root.width - Theme.space-sm) / 2);
     height: root.wide-controls ? 68px : 144px;
 
-    RenderSelect {
-        x: 0px;
-        width: root.field-width;
-        field-label: "Renderer";
-        choices: ["Path-Traced", "Ray-Traced"];
-        model-index: RenderModel.engine;
-        value-selected(index) => { RenderModel.engine-selected(index); }
-    }
-    RenderSelect {
-        x: root.wide-controls ? root.field-width + Theme.space-sm : 0px;
-        y: root.wide-controls ? 0px : 76px;
-        width: root.wide-controls ? root.field-width : root.width;
-        field-label: "Compute";
-        choices: root.wide-controls
-            ? ["Automatic On Device", "Device CPU", "Device GPU", "Remote (Upload)"]
-            : ["Automatic On Device", "Device CPU", "Device GPU", "Remote · Upload Scene"];
-        model-index: RenderModel.backend;
-        value-selected(index) => { RenderModel.backend-selected(index); }
-    }
-    RenderSelect {
-        x: root.wide-controls ? 2 * (root.field-width + Theme.space-sm)
-            : root.field-width + Theme.space-sm;
-        width: root.field-width;
-        field-label: RenderModel.engine == 0 ? "Samples" : "Quality";
-        choices: RenderModel.quality-choices;
-        model-index: RenderModel.quality;
-        value-selected(index) => { RenderModel.quality-selected(index); }
+    // One row of three when wide; otherwise Renderer and Samples share a row and Compute
+    // takes the next, with 8 px between the rows.
+    VerticalLayout {
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: Theme.space-sm;
+            RenderSelect {
+                horizontal-stretch: 1;
+                field-label: "Renderer";
+                choices: ["Path-Traced", "Ray-Traced"];
+                model-index: RenderModel.engine;
+                value-selected(index) => { RenderModel.engine-selected(index); }
+            }
+            if root.wide-controls: RenderSelect {
+                horizontal-stretch: 1;
+                field-label: "Compute";
+                choices: ["Automatic On Device", "Device CPU", "Device GPU", "Remote (Upload)"];
+                model-index: RenderModel.backend;
+                value-selected(index) => { RenderModel.backend-selected(index); }
+            }
+            RenderSelect {
+                horizontal-stretch: 1;
+                field-label: RenderModel.engine == 0 ? "Samples" : "Quality";
+                choices: RenderModel.quality-choices;
+                model-index: RenderModel.quality;
+                value-selected(index) => { RenderModel.quality-selected(index); }
+            }
+        }
+        if !root.wide-controls: RenderSelect {
+            field-label: "Compute";
+            choices: ["Automatic On Device", "Device CPU", "Device GPU", "Remote · Upload Scene"];
+            model-index: RenderModel.backend;
+            value-selected(index) => { RenderModel.backend-selected(index); }
+        }
     }
 }
 
-// Settings unfold on request. The primary actions stay outside the scroll area, so a short
-// viewport scrolls only the choices.
-export component RenderControls inherits Rectangle {
-    // The height the panel may take; the viewport passes its own height minus the bottom bar.
-    // A component's property default cannot read `parent`, so the default is unbounded.
-    in property <length> height-budget: 10000px;
+// The round glyph button on the pill's left: pause, resume (play) or cancel.
+component PillAction inherits Rectangle {
+    in property <string> label;
+    // 0 pause, 1 play, 2 cancel.
+    in property <int> glyph: 0;
+    callback clicked();
+
+    width: Theme.touch;
+    height: Theme.touch;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 40px;
+        height: 40px;
+        border-radius: 20px;
+        background: Theme.surface-highest;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
+
+        StateLayer {
+            pressed: touch.pressed;
+            hovered: touch.has-hover;
+            border-radius: parent.border-radius;
+        }
+
+        if root.glyph == 0: Rectangle {
+            x: (parent.width - 14px) / 2;
+            y: (parent.height - 16px) / 2;
+            width: 14px;
+            height: 16px;
+            Rectangle { x: 0px; width: 5px; border-radius: 1px; background: Theme.on-surface; }
+            Rectangle { x: 9px; width: 5px; border-radius: 1px; background: Theme.on-surface; }
+        }
+
+        if root.glyph == 1: Path {
+            x: (parent.width - 14px) / 2 + 1px;
+            y: (parent.height - 16px) / 2;
+            width: 14px;
+            height: 16px;
+            viewbox-width: 14;
+            viewbox-height: 16;
+            commands: "M1 0 L13 8 L1 16 Z";
+            fill: Theme.on-surface;
+        }
+
+        if root.glyph == 2: Image {
+            x: (parent.width - 20px) / 2;
+            y: (parent.height - 20px) / 2;
+            width: 20px;
+            height: 20px;
+            source: Icons.close;
+            colorize: Theme.on-surface;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// The glass pill along the foot of the picture.
+component RenderPill inherits Rectangle {
     callback settings-toggled();
-    property <bool> wide-controls: root.width - 2 * Theme.space-sm - 20px >= 640px;
-    property <length> choices-height: root.wide-controls ? 68px : 144px;
-    property <length> status-height: root.height-budget < 160px ? 0px : 48px;
-    property <length> natural-height: 3px + root.status-height + Theme.touch
-        + (RenderModel.controls-open ? root.choices-height + Theme.touch
-            + 4 * Theme.space-xs + (RenderModel.engine == 1 ? 72px : 0px) : 0px);
-    height: min(root.natural-height, max(0px, root.height-budget));
-    background: Theme.surface.with-alpha(0.82);
-    clip: true;
+
+    background: Theme.glass-bg;
+    border-radius: Theme.radius-xl;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
 
     TouchArea { }
 
-    Rectangle {
-        x: 0px;
-        y: 0px;
-        width: root.width;
-        height: 3px;
-        background: Theme.outline-variant;
-        Rectangle {
-            width: parent.width * clamp(RenderModel.progress, 0.0, 1.0);
-            height: parent.height;
-            background: Theme.primary;
-        }
-    }
-    if root.status-height > 0px: Text {
-        x: Theme.space-sm;
-        y: 3px;
-        width: max(1px, root.width - 2 * Theme.space-sm);
-        height: 28px;
-        text: RenderModel.status-text;
-        color: Theme.on-surface-variant;
-        font-size: Theme.text-label;
-        vertical-alignment: center;
-        overflow: elide;
-        accessible-role: AccessibleRole.text;
-        accessible-label: "Render status: " + RenderModel.status-text;
-    }
-    if root.status-height > 0px: Text {
-        x: Theme.space-sm;
-        y: 31px;
-        width: max(1px, root.width - 2 * Theme.space-sm);
-        height: 20px;
-        text: RenderModel.backend-report;
-        color: Theme.on-surface-variant;
-        font-size: Theme.text-label;
-        overflow: elide;
-        accessible-role: AccessibleRole.text;
-        accessible-label: RenderModel.backend-report;
-    }
-    if RenderModel.controls-open: ScrollView {
-        x: 0px;
-        y: 3px + root.status-height;
-        width: root.width;
-        height: max(0px, root.height - 3px - root.status-height - Theme.touch);
-        content-width: self.visible-width;
-        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
-        VerticalLayout {
-            width: parent.visible-width;
-            padding-left: Theme.space-sm;
-            padding-right: Theme.space-sm;
-            padding-top: Theme.space-xs;
-            padding-bottom: Theme.space-xs;
-            spacing: Theme.space-xs;
-            // Keep the scrollbar gutter even when hidden, so the choices do not reflow
-            // when it appears.
-            RenderChoices { width: max(1px, root.width - 2 * Theme.space-sm - 20px); }
-            HorizontalLayout {
-                height: Theme.touch;
-                spacing: Theme.space-xs;
-                alignment: start;
-                Chip {
-                    text: "Light";
-                    selected: RenderModel.light-drag;
-                    clicked => { RenderModel.light-toggled(); }
-                }
-                if RenderModel.engine == 0: Chip {
-                    text: "Denoise";
-                    selected: RenderModel.denoise;
-                    clicked => { RenderModel.denoise-toggled(); }
-                }
-            }
-            Text {
-                text: RenderModel.engine == 1
-                    ? "Approximate tint and frost. No polarization, double images, haze, zones or rounding. Paths are depth-limited; metrics use their own tracer."
-                    : "";
-                height: RenderModel.engine == 1 ? self.preferred-height : 0px;
-                wrap: word-wrap;
-                font-size: Theme.text-label;
-                color: Theme.on-surface-variant;
-                accessible-role: AccessibleRole.text;
-            }
-        }
-    }
     HorizontalLayout {
-        x: 0px;
-        y: max(0px, root.height - Theme.touch);
-        width: root.width;
-        height: Theme.touch;
-        padding-left: Theme.space-sm;
-        padding-right: Theme.space-sm;
-        spacing: Theme.space-xs;
-        alignment: start;
-        if RenderModel.can-pause: Chip {
-            text: RenderModel.backend == 3 ? "Cancel" : (RenderModel.paused ? "Resume" : "Pause");
-            selected: RenderModel.paused;
+        padding: 4px;
+        spacing: 0px;
+
+        if RenderModel.can-pause: PillAction {
+            label: RenderModel.backend == 3 ? "Cancel" : (RenderModel.paused ? "Resume" : "Pause");
+            glyph: RenderModel.backend == 3 ? 2 : (RenderModel.paused ? 1 : 0);
             clicked => { RenderModel.pause-toggled(); }
         }
+
         if !RenderModel.can-pause && RenderModel.can-render: Chip {
             text: "Retry";
             clicked => { RenderModel.restart-requested(); }
         }
-        Chip {
-            text: "Settings";
-            accessible-label: "Render Settings";
+
+        // Title and detail; a tap opens the engineering report.
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Render status: " + RenderModel.status-text;
+            accessible-action-default => { root.show-details(); }
+
+            VerticalLayout {
+                padding-left: Theme.space-sm;
+                padding-right: Theme.space-xs;
+                alignment: center;
+                Text {
+                    text: RenderModel.pill-title;
+                    color: Theme.on-surface;
+                    font-size: Theme.text-label-large;
+                    font-weight: 700;
+                    overflow: elide;
+                }
+                Text {
+                    text: RenderModel.pill-detail;
+                    color: Theme.text-secondary;
+                    font-size: max(12px, Theme.text-label);
+                    overflow: elide;
+                }
+            }
+
+            TouchArea {
+                clicked => { root.show-details(); }
+            }
+        }
+
+        IconButton {
+            icon: Icons.settings;
+            label: "Render Settings";
             selected: RenderModel.controls-open;
             clicked => { root.settings-toggled(); }
         }
-        Rectangle { horizontal-stretch: 1; }
-        Chip {
-            text: "Export";
+
+        IconButton {
+            icon: Icons.share;
+            label: "Export";
             enabled: RenderModel.can-render;
             clicked => { RenderModel.export-requested(); }
+        }
+    }
+
+    function show-details() {
+        Shell.show-info("Render Details", RenderModel.pill-title + "\n" + RenderModel.pill-detail + "\n\n" + RenderModel.backend-report);
+    }
+}
+
+// The overlay of the Render view. Its height is what it needs (the pill, the progress line
+// and, with Settings open, the tray); the viewport places it on the bottom edge.
+export component RenderControls inherits Rectangle {
+    // The height the overlay may take; the viewport passes its own height less the top row.
+    // A component's property default cannot read `parent`, so the default is unbounded.
+    in property <length> height-budget: 10000px;
+    // The edge margins: the viewport adds the system-bar and cutout insets.
+    in property <length> pad-left: Theme.space-sm;
+    in property <length> pad-right: Theme.space-sm;
+    in property <length> pad-bottom: Theme.space-sm;
+    callback settings-toggled();
+
+    property <bool> wide-controls: root.width - 2 * Theme.space-sm - 20px >= 640px;
+    property <length> choices-height: root.wide-controls ? 68px : 144px;
+    property <length> pill-height: 56px;
+    // The pill with its bottom margin, above the progress line.
+    property <length> foot: 3px + root.pad-bottom + root.pill-height;
+    property <length> tray-natural: root.choices-height + Theme.touch + 4 * Theme.space-xs
+        + (RenderModel.engine == 1 ? 72px : 0px) + 2 * Theme.space-xs;
+    property <length> tray-height: RenderModel.controls-open
+        ? min(root.tray-natural, max(0px, root.height-budget - root.foot - Theme.space-sm))
+        : 0px;
+    height: root.foot + (root.tray-height > 0px ? root.tray-height + Theme.space-sm : 0px);
+
+    // The progress line on the viewport's bottom edge.
+    Rectangle {
+        x: 0px;
+        y: root.height - 3px;
+        width: root.width;
+        height: 3px;
+        background: Theme.outline-variant;
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width * clamp(RenderModel.progress, 0.0, 1.0);
+            height: parent.height;
+            background: Theme.accent;
+        }
+    }
+
+    RenderPill {
+        x: root.pad-left;
+        y: root.height - 3px - root.pad-bottom - root.pill-height;
+        width: max(1px, root.width - root.pad-left - root.pad-right);
+        height: root.pill-height;
+        settings-toggled => { root.settings-toggled(); }
+    }
+
+    if root.tray-height > 0px: Rectangle {
+        x: root.pad-left;
+        y: 0px;
+        width: max(1px, root.width - root.pad-left - root.pad-right);
+        height: root.tray-height;
+        // Opaque: the choices must read over any picture.
+        background: Theme.surface-container;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
+        clip: true;
+
+        TouchArea { }
+
+        // The kit's touch scroller (no Material scrollbar box at the edge).
+        PageScroll {
+            width: parent.width;
+            height: parent.height;
+            VerticalLayout {
+                padding-left: Theme.space-sm;
+                padding-right: Theme.space-sm;
+                padding-top: Theme.space-xs;
+                padding-bottom: Theme.space-xs;
+                spacing: Theme.space-xs;
+                RenderChoices { width: max(1px, root.width - root.pad-left - root.pad-right - 2 * Theme.space-sm); }
+                HorizontalLayout {
+                    height: Theme.touch;
+                    spacing: Theme.space-xs;
+                    alignment: start;
+                    Chip {
+                        text: "Light";
+                        selected: RenderModel.light-drag;
+                        clicked => { RenderModel.light-toggled(); }
+                    }
+                    if RenderModel.engine == 0: Chip {
+                        text: "Denoise";
+                        selected: RenderModel.denoise;
+                        clicked => { RenderModel.denoise-toggled(); }
+                    }
+                }
+                Text {
+                    text: RenderModel.engine == 1
+                        ? "Approximate tint and frost. No polarization, double images, haze, zones or rounding. Paths are depth-limited; metrics use their own tracer."
+                        : "";
+                    height: RenderModel.engine == 1 ? self.preferred-height : 0px;
+                    wrap: word-wrap;
+                    font-size: max(12px, Theme.text-label);
+                    color: Theme.text-secondary;
+                    accessible-role: AccessibleRole.text;
+                }
+            }
         }
     }
 }

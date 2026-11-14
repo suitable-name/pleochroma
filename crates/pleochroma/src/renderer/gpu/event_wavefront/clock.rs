@@ -5,8 +5,9 @@
 //! chunk-time EMA and the ~30 ms chunk target therefore work in the browser exactly as
 //! they do natively.
 //!
-//! [`race_deadline`] only takes effect on wasm32: native readback is already bounded by
-//! `compute::GPU_WAIT_TIMEOUT`'s poll loop, so there it is a plain `await`.
+//! [`race_deadline`] only takes effect on wasm32. Native readback bounds its own poll loop by
+//! the same deadline, never shorter than `compute::GPU_WAIT_TIMEOUT`, so there it is a plain
+//! `await`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

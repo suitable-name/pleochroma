@@ -6,12 +6,12 @@ import { Chip } from "../shell/chips.slint";
 import { ListRow } from "../shell/list_row.slint";
 import { Toggle } from "../shell/toggle.slint";
 import { TextButton, PrimaryButton } from "../shell/buttons.slint";
-import { LineEdit } from "std-widgets.slint";
+import { TextField } from "../shell/inputs.slint";
 import { LibraryModel, TagChipData } from "library_model.slint";
 import { ModalSheet } from "modal_sheet.slint";
 
 component SectionLabel inherits Text {
-    color: Theme.on-surface-variant;
+    color: Theme.text-secondary;
     font-size: Theme.text-label-large;
     font-weight: 500;
 }
@@ -25,6 +25,8 @@ component ChoiceRow inherits Rectangle {
     height: Theme.touch;
 
     Flickable {
+        width: parent.width;
+        height: parent.height;
         content-width: lay.preferred-width;
         content-height: root.height;
 
@@ -54,6 +56,8 @@ component ChoiceStrip inherits Rectangle {
     height: Theme.touch;
 
     Flickable {
+        width: parent.width;
+        height: parent.height;
         content-width: lay.preferred-width;
         content-height: root.height;
 
@@ -170,7 +174,7 @@ export component FilterSheet inherits ModalSheet {
 
         if index == LibraryModel.tag-index: Icon {
             source: Icons.check;
-            tint: Theme.primary;
+            tint: Theme.accent;
             glyph: 20px;
         }
     }
@@ -206,10 +210,10 @@ export component TagSheet inherits ModalSheet {
     HorizontalLayout {
         spacing: Theme.space-sm;
 
-        LineEdit {
+        TextField {
             text <=> LibraryModel.tag-new-text;
             placeholder-text: "New Tag";
-            accessible-label: "New Tag";
+            label: "New Tag";
             horizontal-stretch: 1;
 
             accepted => {

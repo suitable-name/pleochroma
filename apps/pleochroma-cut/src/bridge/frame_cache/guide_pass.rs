@@ -14,7 +14,7 @@
 //!
 //! # Why caching, and on what key
 //!
-//! The guide buffers depend only on the camera (including roll and field of view), the
+//! The guide buffers depend only on the camera (including roll, pan and field of view), the
 //! active facet geometry, and the material's `n_d` (the path signature refracts at it)
 //! -- never on which backend produced the radiance, and never on light direction or
 //! exposure. [`GuideCache`] recomputes only when
@@ -259,7 +259,8 @@ impl GuideCache {
         Self::key_for_camera(width, height, &camera, geom, n_d)
     }
 
-    /// Keys the actual image-plane basis, including roll, for tracing and picking.
+    /// Keys the actual eye and image-plane basis, including roll and pan, for tracing and
+    /// picking.
     #[must_use]
     pub fn key_for_camera(
         width: u32,
@@ -321,6 +322,19 @@ mod tests {
             GuideCache::key_for_camera(32, 24, &rolled, geometry, 1.5),
         );
         assert_eq!(original.origin, rolled.origin);
+    }
+
+    #[test]
+    fn panned_cameras_have_distinct_guide_keys_with_the_same_view_direction() {
+        let planes = StandardGemCuts::standard_round_brilliant();
+        let geometry = StoneGeometry::planes_only(&planes);
+        let original = Camera::new(0.6, 0.45, 2.4, DEFAULT_FOV_DEG);
+        let panned = Camera::new(0.6, 0.45, 2.4, DEFAULT_FOV_DEG).with_pan([0.3, -0.2]);
+        assert_ne!(
+            GuideCache::key_for_camera(32, 24, &original, geometry, 1.5),
+            GuideCache::key_for_camera(32, 24, &panned, geometry, 1.5),
+        );
+        assert_eq!(original.forward, panned.forward);
     }
 
     #[test]

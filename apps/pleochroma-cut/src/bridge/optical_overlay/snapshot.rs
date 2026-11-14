@@ -31,6 +31,9 @@ pub struct OpticalSnapshot {
     pub material: GemMaterial,
     pub pose: [f32; 3],
     pub camera_roll: f32,
+    /// The live view's pan (`RenderContext::camera_pan`), so the overlay lies on the panned
+    /// picture.
+    pub camera_pan: [f32; 2],
     pub lighting: LightingPreset,
     pub light_pose: [f32; 2],
     pub head_shadow: f32,
@@ -122,6 +125,7 @@ impl OpticalSnapshot {
             material,
             pose: [ctx.yaw, ctx.pitch, ctx.distance],
             camera_roll: ctx.camera_roll,
+            camera_pan: ctx.camera_pan,
             lighting: ctx.lighting_preset,
             light_pose: [ctx.light_yaw, ctx.light_pitch],
             head_shadow: ctx.head_shadow_deg,
@@ -135,6 +139,7 @@ impl OpticalSnapshot {
     pub fn camera(&self) -> Camera {
         Camera::new(self.pose[0], self.pose[1], self.pose[2], DEFAULT_FOV_DEG)
             .with_roll(self.camera_roll)
+            .with_pan(self.camera_pan)
     }
     pub fn geometry(&self) -> StoneGeometry<'_> {
         StoneGeometry {
@@ -160,6 +165,7 @@ impl OpticalSnapshot {
         self.owner == other.owner
             && self.pose.map(f32::to_bits) == other.pose.map(f32::to_bits)
             && self.camera_roll.to_bits() == other.camera_roll.to_bits()
+            && self.camera_pan.map(f32::to_bits) == other.camera_pan.map(f32::to_bits)
             && self.material == other.material
             && self.lighting == other.lighting
             && self.light_pose.map(f32::to_bits) == other.light_pose.map(f32::to_bits)
@@ -205,6 +211,21 @@ mod tests {
         )]);
         let tools = capture(&mut ctx);
         assert!(!material.same_input(&tools));
+    }
+    /// The overlay lies on the panned picture: the pan is captured, moves the camera's eye and
+    /// is part of the optical input.
+    #[test]
+    fn a_pan_is_part_of_the_optical_input_and_the_camera() {
+        let mut ctx = RenderContext::default();
+        let centred = capture(&mut ctx);
+        assert_eq!(centred.camera_pan, [0.0, 0.0]);
+        ctx.camera_pan = [0.3, -0.2];
+        let panned = capture(&mut ctx);
+        assert_eq!(panned.camera_pan, [0.3, -0.2]);
+        assert!(!centred.same_input(&panned));
+        assert!(panned.same_input(&capture(&mut ctx)));
+        assert_ne!(centred.camera().origin, panned.camera().origin);
+        assert_eq!(centred.camera().forward, panned.camera().forward);
     }
     /// The overlay is scored under the turned map: another yaw is another optical input, and a
     /// map that follows the camera carries the camera's yaw in.

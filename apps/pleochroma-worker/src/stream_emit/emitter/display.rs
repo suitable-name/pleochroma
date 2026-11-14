@@ -109,6 +109,7 @@ struct GuideInputs {
     pitch: f32,
     distance: f32,
     camera_roll: f32,
+    camera_pan: [f32; 2],
     planes: Vec<GpuFacetPlane>,
     /// Concave tools: a tool hit carries facet id `planes.len() + k`, so the denoiser's
     /// edge guides see a tool's walls as distinct facets rather than seeing through them.
@@ -160,6 +161,7 @@ impl DisplayDenoiser {
             pitch: scene.pitch,
             distance: scene.distance,
             camera_roll: scene.camera_roll,
+            camera_pan: scene.camera_pan,
             planes: scene.planes.clone(),
             tools: scene.tools.clone(),
             n_d: scene.material.dispersion.n_d(),
@@ -317,7 +319,8 @@ fn run(
     pictures: &mpsc::Sender<DisplayPicture>,
 ) {
     let camera = Camera::new(inputs.yaw, inputs.pitch, inputs.distance, DEFAULT_FOV_DEG)
-        .with_roll(inputs.camera_roll);
+        .with_roll(inputs.camera_roll)
+        .with_pan(inputs.camera_pan);
     let Some(guides) = generate_guide_buffers_cancellable_geom_with_index(
         inputs.width,
         inputs.height,
@@ -414,6 +417,7 @@ mod tests {
             head_shadow_deg: 16.0,
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         }
     }
 
@@ -427,7 +431,8 @@ mod tests {
     /// the viewer's fov, then `denoise_and_tonemap_frame`.
     fn reference(scene: &SceneState, samples: u32, total: &[Vec3]) -> Vec<u8> {
         let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-            .with_roll(scene.camera_roll);
+            .with_roll(scene.camera_roll)
+            .with_pan(scene.camera_pan);
         let guides = generate_guide_buffers_with_index(
             scene.width,
             scene.height,

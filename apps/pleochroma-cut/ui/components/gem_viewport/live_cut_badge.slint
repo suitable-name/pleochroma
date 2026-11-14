@@ -15,8 +15,8 @@ import { PillButton } from "../pill_button.slint";
 // the cut, so they always describe what the picture shows.
 export component LiveCutBadge inherits Rectangle {
     height: 28px;
-    min-width: 120px;
-    max-width: 440px;
+    // As wide as its content; the words elide past 200 px.
+    width: cut_row.preferred-width;
     background: Theme.hint-surface;
     border-radius: Theme.radius-sm;
     border-width: 1px;
@@ -27,13 +27,13 @@ export component LiveCutBadge inherits Rectangle {
 
     Tooltip { text: @markdown("The Cut slider in the Edit tab has this design cut back to **\{SolidPreviewModel.cut_label}**, and this picture follows it. Exports and tilt videos always show the finished stone. Press Show Finished to put the slider back."); }
 
-    HorizontalLayout {
+    cut_row := HorizontalLayout {
         padding-left: 10px;
         padding-right: 3px;
         spacing: 8px;
 
         Text {
-            horizontal-stretch: 1;
+            max-width: 200px;
             text: "Cut: " + SolidPreviewModel.cut_label;
             font-size: 11px;
             font-weight: 700;

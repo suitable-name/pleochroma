@@ -15,6 +15,7 @@ import { VariantsModel } from "design/variants.slint";
 import { OptimizeModel } from "design/optimization.slint";
 import { RetargetModel } from "design/retarget.slint";
 import { ViewportModel } from "design/viewport/viewport_model.slint";
+import { ChoiceSheet } from "shell/inputs.slint";
 
 export global Navigation {
     in-out property <bool> design-menu-open: false;
@@ -24,7 +25,7 @@ export global Navigation {
     changed render-visible => { if !render-visible { RenderModel.controls-open = false; } }
     changed design-visible => { if !design-visible { camera-menu-open = false; } }
     out property <int> target:
-        Shell.dialog-visible ? 1 : Shell.info-visible ? 2 :
+        Shell.dialog-visible ? 1 : Shell.info-visible ? 2 : ChoiceSheet.open ? 29 :
         CutModel.mode-open ? 6 : DocumentModel.gallery-open ? 7 :
         design-visible && VariantsModel.open ? 22 :
         design-visible && RetargetModel.open ? 24 :
@@ -41,14 +42,23 @@ export global Navigation {
         design-visible && design-menu-open ? 14 :
         render-visible && RenderModel.controls-open ? 25 :
         design-visible && camera-menu-open ? 26 :
+        design-visible && TiersModel.menu != 0 ? 27 :
+        design-visible && PropsModel.design-tab == 1 && PropsModel.fold-material-menu ? 28 :
         Shell.destination == 0 && LibraryModel.tag-sheet-open ? 15 :
         Shell.destination == 0 && LibraryModel.filter-open ? 16 :
         Shell.destination == 0 && LibraryModel.sort-open ? 17 :
         Shell.destination == 0 && LibraryModel.selecting ? 18 :
         design-visible && Shell.sheet-detent == 2 ? 19 :
         Shell.destination == 3 && Shell.more-page != 0 ? 20 :
-        Shell.destination != 1 ? 21 : 0;
+        // Nothing open: Back goes to the Library, and on the Library the first Back only
+        // arms the exit ("Press Back again to exit"); the second, within 2 s, is left to
+        // Android, which closes the app.
+        Shell.destination != 0 ? 21 :
+        !exit-armed ? 30 : 0;
     out property <bool> can-handle-back: target != 0;
+    // Set by the first Back on the Library root; `AppWindow`'s timer clears it after 2 s.
+    in-out property <bool> exit-armed: false;
+    out property <string> exit-hint: "Press Back again to exit";
     in-out property <int> version: 0;
     in-out property <float> gesture-progress: 0;
     callback state-changed(int, int);
@@ -87,12 +97,20 @@ export global Navigation {
         else if (target == 18) { LibraryModel.clear-selection(); }
         else if (target == 19) { Shell.sheet-detent = 1; }
         else if (target == 20) { if (Shell.more-page == 4) { RemoteModel.close(); } else { Shell.more-page = Shell.more-page == 3 ? 2 : 0; } }
-        else if (target == 21) { Shell.select-destination(1); }
+        else if (target == 21) { Shell.select-destination(0); }
         else if (target == 22) { VariantsModel.close(); }
         else if (target == 23) { OptimizeModel.close(); }
         else if (target == 24) { RetargetModel.close(); }
         else if (target == 25) { RenderModel.controls-open = false; }
         else if (target == 26) { camera-menu-open = false; }
+        else if (target == 27) { TiersModel.menu = 0; }
+        else if (target == 28) { PropsModel.fold-material-menu = false; }
+        else if (target == 29) { ChoiceSheet.open = false; }
+        else if (target == 30) {
+            exit-armed = true;
+            Shell.toast-text = exit-hint;
+            Shell.toast-visible = true;
+        }
         return true;
     }
 }

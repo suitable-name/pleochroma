@@ -53,7 +53,7 @@ fn cylinder_and_cone() -> Guide {
         )
         .actions([
             "It is written on two lines: the facet line (name, angle, indices) and the tool line (tool, theta, displacement, D/W).",
-            "The concave form is in the Tier tab; the + Add Concave Tier button in the tier table's toolbar opens it blank, in the Simple and the Advanced interface alike.",
+            "The concave form is in the Tier tab; Concave Tier in the Add Tier menu above the tier list opens it blank, in the Simple and the Advanced interface alike.",
         ])
         .why("Concave rows come after the flat ones in the table, and nothing can meet a concave tier by name.")
         .highlight("inspector_tier")
@@ -65,13 +65,13 @@ fn cylinder_and_cone() -> Guide {
             "A cylinder leaves a straight groove, like a mandrel pressed along the stone.",
         )
         .actions([
-            "Click + Add Concave Tier in the tier table's toolbar.",
+            "Open the Add Tier menu above the tier list and click Concave Tier.",
             "Name: Groove",
             "Angle (deg): -42",
             "Indices: 0, 24, 48, 72",
-            "Tool: Cylinder (CYL)",
+            "Tool: click the Cylinder tile",
             "D/W: 0.25",
-            "Tick Reciprocating (stroked back and forth).",
+            "Stroke: Back and Forth (Reciprocating).",
             "Click Add Concave Tier.",
         ])
         .check("a Groove row with a Tool badge in the MEETS column and Tool cut in the SOLVE column.")
@@ -92,11 +92,11 @@ fn cylinder_and_cone() -> Guide {
             "A cone and a disc need one more number: the included angle of the tool.",
         )
         .actions([
-            "Click + Add Concave Tier in the tier table's toolbar.",
+            "Open the Add Tier menu above the tier list and click Concave Tier.",
             "Name: Bevel",
             "Angle (deg): -44",
             "Indices: 6, 30, 54, 78",
-            "Tool: Cone (CON)",
+            "Tool: click the Cone tile",
             "Tool Angle: 60",
             "D/W: 0.3",
             "Click Add Concave Tier.",
@@ -153,16 +153,16 @@ fn sphere_and_disc() -> Guide {
     .step(
         GuideStep::new(
             "Add a sphere dimple",
-            "A dimple is pressed straight in, so leave Reciprocating unticked.",
+            "A dimple is pressed straight in, so leave Stroke on One Way.",
         )
         .actions([
-            "Click + Add Concave Tier in the tier table's toolbar.",
+            "Open the Add Tier menu above the tier list and click Concave Tier.",
             "Name: Dimple",
             "Angle (deg): -40",
             "Indices: 0, 24, 48, 72",
-            "Tool: Sphere (SPH)",
+            "Tool: click the Sphere tile",
             "D/W: 0.2",
-            "Leave Reciprocating unticked.",
+            "Stroke: One Way (plunge).",
             "Click Add Concave Tier.",
         ])
         .check("a Dimple row in the table, and the Tool Angle field greyed out while Sphere is chosen.")
@@ -180,17 +180,17 @@ fn sphere_and_disc() -> Guide {
     .step(
         GuideStep::new(
             "Add a disc",
-            "A disc is stroked across the stone, so tick Reciprocating this time.",
+            "A disc is stroked across the stone, so set Stroke to Back and Forth this time.",
         )
         .actions([
-            "Click + Add Concave Tier in the tier table's toolbar.",
+            "Open the Add Tier menu above the tier list and click Concave Tier.",
             "Name: Wheel",
             "Angle (deg): -38",
             "Indices: 12, 36, 60, 84",
-            "Tool: Disc (DSC)",
+            "Tool: click the Disc tile",
             "Tool Angle: 90",
             "D/W: 2",
-            "Tick Reciprocating.",
+            "Stroke: Back and Forth.",
             "Click Add Concave Tier.",
         ])
         .check("a Wheel row in the table.")
@@ -214,7 +214,7 @@ fn sphere_and_disc() -> Guide {
         )
         .actions([
             "Click the Wheel row.",
-            "Untick Reciprocating.",
+            "Set Stroke to One Way.",
             "Click Save Concave Tier.",
         ])
         .check("the tool line of Wheel reads plunge when you hover its Tool badge.")

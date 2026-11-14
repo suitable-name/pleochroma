@@ -8,7 +8,7 @@
 
 use super::overlay_states::{
     Base, DENY_FILTERS, DENY_JOBS, NONE, State, deny, edit_tab, inspector, jobs_with_rows,
-    parameters, press, wait_retarget_checked,
+    parameters, parameters_stone_open, press, wait_retarget_checked,
 };
 use crate::support::{
     HarnessApp,
@@ -371,7 +371,8 @@ fn panel_states_rest() -> Vec<State> {
                 a.ui()
                     .global::<pleochroma_cut::SettingsModel>()
                     .set_c_axis_override_enabled(true);
-                parameters(a, 0);
+                // The Crystal Axis card is folded until opened.
+                parameters_stone_open(a);
             },
         ),
         state(

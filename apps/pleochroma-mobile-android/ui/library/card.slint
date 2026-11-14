@@ -58,7 +58,7 @@ component TagPill inherits Rectangle {
     height: 22px;
     width: min(lay.preferred-width, 96px);
     border-radius: 11px;
-    background: Theme.secondary-container;
+    background: Theme.accent-surface;
 
     lay := HorizontalLayout {
         padding-left: 8px;
@@ -66,7 +66,7 @@ component TagPill inherits Rectangle {
 
         Text {
             text: root.text;
-            color: Theme.on-secondary-container;
+            color: Theme.accent;
             font-size: Theme.text-label;
             vertical-alignment: center;
             overflow: elide;
@@ -81,9 +81,9 @@ component SelectMark inherits Rectangle {
     width: 24px;
     height: 24px;
     border-radius: 12px;
-    background: root.on ? Theme.primary : Theme.surface.with-alpha(0.85);
+    background: root.on ? Theme.accent : #0b0e15d9;
     border-width: 2px;
-    border-color: root.on ? Theme.primary : Theme.outline;
+    border-color: root.on ? Theme.accent : Theme.text-secondary;
 
     if root.on: Icon {
         source: Icons.check;
@@ -101,7 +101,7 @@ export component GridCard inherits Rectangle {
     background: Theme.surface-container;
     border-radius: Theme.radius-lg;
     border-width: root.data.selected ? 2px : 1px;
-    border-color: root.data.selected ? Theme.primary : Theme.outline-variant;
+    border-color: root.data.selected ? Theme.accent : Theme.outline-variant;
     clip: true;
     accessible-role: AccessibleRole.button;
     accessible-label: root.data.title + ", " + root.data.subtitle;
@@ -115,7 +115,7 @@ export component GridCard inherits Rectangle {
         y: 0px;
         width: root.width;
         height: root.thumb-h;
-        background: Theme.surface-high;
+        background: #0b0e15;
         opacity: root.data.ignored ? 0.5 : 1.0;
 
         if root.data.has-thumb: Image {
@@ -146,11 +146,11 @@ export component GridCard inherits Rectangle {
         width: hidden-label.preferred-width + 16px;
         height: 22px;
         border-radius: 11px;
-        background: Theme.surface.with-alpha(0.85);
+        background: #0b0e15d9;
 
         hidden-label := Text {
             text: "Ignored";
-            color: Theme.on-surface-variant;
+            color: Theme.text-secondary;
             font-size: Theme.text-label;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -181,14 +181,14 @@ export component GridCard inherits Rectangle {
 
             Text {
                 text: root.data.designer;
-                color: Theme.on-surface-variant;
+                color: Theme.text-secondary;
                 font-size: Theme.text-body;
                 overflow: elide;
             }
 
             Text {
                 text: root.data.subtitle;
-                color: Theme.primary;
+                color: Theme.accent;
                 font-size: Theme.text-label;
                 font-weight: 500;
                 overflow: elide;
@@ -228,7 +228,7 @@ export component ListCard inherits Rectangle {
     callback tapped();
     callback long-pressed();
 
-    background: root.data.selected ? Theme.secondary-container.with-alpha(0.6) : transparent;
+    background: root.data.selected ? Theme.accent-surface.with-alpha(0.6) : transparent;
     accessible-role: AccessibleRole.button;
     accessible-label: root.data.title + ", " + root.data.subtitle;
     accessible-checkable: root.selecting;
@@ -243,7 +243,7 @@ export component ListCard inherits Rectangle {
 
         Rectangle {
             width: 48px;
-            background: Theme.surface-high;
+            background: #0b0e15;
             border-radius: Theme.radius-sm;
             clip: true;
             opacity: root.data.ignored ? 0.5 : 1.0;
@@ -286,7 +286,7 @@ export component ListCard inherits Rectangle {
 
                 Text {
                     text: root.data.designer == "" ? root.data.subtitle : root.data.designer + " · " + root.data.subtitle;
-                    color: Theme.on-surface-variant;
+                    color: Theme.text-secondary;
                     font-size: Theme.text-body;
                     overflow: elide;
                 }
@@ -295,7 +295,7 @@ export component ListCard inherits Rectangle {
 
         if root.data.ignored: Text {
             text: "Ignored";
-            color: Theme.on-surface-variant;
+            color: Theme.text-secondary;
             font-size: Theme.text-label;
             vertical-alignment: center;
         }

@@ -23,9 +23,12 @@ const REFLECTION_TAIL: usize = size_of::<f32>();
 const ORIENTATION_TAIL: usize = size_of::<f32>() + 1;
 /// The `estimator`: one postcard varint byte (0 branching, 1 exit collection).
 const ESTIMATOR_TAIL: usize = 1;
-/// The bytes written after `camera_roll`: the shadow byte, the reflectance, the orientation
-/// and the estimator.
-const AFTER_ROLL_TAIL: usize = SHADOW_BYTE + REFLECTION_TAIL + ORIENTATION_TAIL + ESTIMATOR_TAIL;
+/// The `camera_pan`: two `f32`, the last bytes of the wire form.
+const PAN_TAIL: usize = 2 * size_of::<f32>();
+/// The bytes written after `camera_roll`: the shadow byte, the reflectance, the orientation,
+/// the estimator and the pan.
+const AFTER_ROLL_TAIL: usize =
+    SHADOW_BYTE + REFLECTION_TAIL + ORIENTATION_TAIL + ESTIMATOR_TAIL + PAN_TAIL;
 
 fn sample_scene() -> SceneState {
     // Alexandrite has both absorption bands and biaxial_delta_beta_alpha = Some(..) --
@@ -74,6 +77,7 @@ fn sample_scene() -> SceneState {
         head_shadow_deg: 16.0,
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        camera_pan: [0.0, 0.0],
     }
 }
 
@@ -162,7 +166,7 @@ fn scene_state_with_and_without_fluorescence_round_trips_through_postcard() {
     // The emitter list is followed on the wire by `head_shadow_deg` (an f32), the empty
     // frosted-plane list (one zero length byte), the engine (three bytes), the default effects
     // record, `camera_roll` (f32), `stone_shadow` (one byte), `tray_reflection` (f32),
-    // `hdr_orientation` (five bytes) and `estimator` (one byte).
+    // `hdr_orientation` (five bytes), `estimator` (one byte) and `camera_pan` (eight bytes).
     let tail = postcard::to_allocvec(&glowing.fluorescence).unwrap();
     let emitters_end = bytes.len() - EFFECTS_TAIL - ROLL_TAIL - AFTER_ROLL_TAIL - 8;
     assert_eq!(
@@ -225,7 +229,8 @@ fn a_v39_scene_byte_layout_does_not_decode_as_v40() {
 #[test]
 fn a_v40_scene_byte_layout_does_not_decode_as_v41() {
     let bytes = postcard::to_allocvec(&sample_scene()).unwrap();
-    let v40 = &bytes[..bytes.len() - REFLECTION_TAIL - ORIENTATION_TAIL - ESTIMATOR_TAIL];
+    let v40 =
+        &bytes[..bytes.len() - REFLECTION_TAIL - ORIENTATION_TAIL - ESTIMATOR_TAIL - PAN_TAIL];
     assert!(
         postcard::from_bytes::<SceneState>(v40).is_err(),
         "the old layout must not decode as a scene"
@@ -235,7 +240,7 @@ fn a_v40_scene_byte_layout_does_not_decode_as_v41() {
     mirrored.tray_reflection = 0.04;
     let mirrored_bytes = postcard::to_allocvec(&mirrored).unwrap();
     assert_eq!(mirrored_bytes.len(), bytes.len(), "same layout");
-    let reflection_end = mirrored_bytes.len() - ORIENTATION_TAIL - ESTIMATOR_TAIL;
+    let reflection_end = mirrored_bytes.len() - ORIENTATION_TAIL - ESTIMATOR_TAIL - PAN_TAIL;
     assert_eq!(
         &mirrored_bytes[reflection_end - REFLECTION_TAIL..reflection_end],
         &0.04_f32.to_le_bytes()
@@ -265,7 +270,7 @@ fn a_v41_scene_byte_layout_does_not_decode_as_v42() {
 
     let plain = sample_scene();
     let bytes = postcard::to_allocvec(&plain).unwrap();
-    let orientation_end = bytes.len() - ESTIMATOR_TAIL;
+    let orientation_end = bytes.len() - ESTIMATOR_TAIL - PAN_TAIL;
     assert_eq!(
         &bytes[orientation_end - ORIENTATION_TAIL..orientation_end],
         &[0, 0, 0, 0, 0]
@@ -283,7 +288,7 @@ fn a_v41_scene_byte_layout_does_not_decode_as_v42() {
     };
     let turned_bytes = postcard::to_allocvec(&turned).unwrap();
     assert_eq!(turned_bytes.len(), bytes.len(), "same layout");
-    let turned_end = turned_bytes.len() - ESTIMATOR_TAIL;
+    let turned_end = turned_bytes.len() - ESTIMATOR_TAIL - PAN_TAIL;
     let tail = &turned_bytes[turned_end - ORIENTATION_TAIL..turned_end];
     assert_eq!(&tail[..4], &2.5_f32.to_le_bytes());
     assert_eq!(tail[4], 1);
@@ -647,6 +652,58 @@ fn camera_roll_round_trips_and_legacy_json_defaults_to_zero() {
     assert_ne!(changed, scene, "roll changes remote scene identity");
 }
 
+/// The camera pan is the last eight wire bytes (two `f32`). A scene without it does not decode,
+/// a set pan survives postcard and JSON, a centred one leaves the JSON key out, and JSON without
+/// the key reads as centred.
+#[test]
+fn v43_appends_the_camera_pan_as_the_last_bytes() {
+    let plain = sample_scene();
+    assert_eq!(plain.camera_pan, [0.0, 0.0]);
+    let bytes = postcard::to_allocvec(&plain).unwrap();
+    assert!(
+        postcard::from_bytes::<SceneState>(&bytes[..bytes.len() - PAN_TAIL]).is_err(),
+        "the layout without the pan must not decode as a scene"
+    );
+    assert!(
+        serde_json::to_value(&plain)
+            .unwrap()
+            .get("camera_pan")
+            .is_none(),
+        "a centred scene's JSON has no key"
+    );
+
+    let mut panned = sample_scene();
+    panned.camera_pan = [0.375, -1.25];
+    let panned_bytes = postcard::to_allocvec(&panned).unwrap();
+    assert_eq!(panned_bytes.len(), bytes.len(), "same layout");
+    let tail = &panned_bytes[panned_bytes.len() - PAN_TAIL..];
+    assert_eq!(&tail[..4], &0.375_f32.to_le_bytes());
+    assert_eq!(&tail[4..], &(-1.25_f32).to_le_bytes());
+    assert_eq!(
+        &panned_bytes[..panned_bytes.len() - PAN_TAIL],
+        &bytes[..bytes.len() - PAN_TAIL]
+    );
+    let decoded: SceneState = postcard::from_bytes(&panned_bytes).unwrap();
+    assert_eq!(decoded, panned);
+    assert_eq!(decoded.camera_pan[0].to_bits(), 0.375_f32.to_bits());
+
+    let mut json = serde_json::to_value(&panned).unwrap();
+    assert!(json.get("camera_pan").is_some());
+    assert_eq!(
+        serde_json::from_value::<SceneState>(json.clone()).unwrap(),
+        panned
+    );
+    json.as_object_mut().unwrap().remove("camera_pan");
+    assert_eq!(
+        serde_json::from_value::<SceneState>(json)
+            .unwrap()
+            .camera_pan,
+        [0.0, 0.0],
+        "an old scene.json reads as centred"
+    );
+    assert_ne!(plain, panned, "the pan changes remote scene identity");
+}
+
 /// A custom material's own inclusions (stored families and play-of-color structure) travel in
 /// the effects record, because the material's serde bytes skip them. They survive postcard and
 /// `scene.json`, and the worker rebuilds a material that scatters like the sender's.
@@ -734,19 +791,20 @@ fn v34_a_materials_own_inclusions_travel_beside_the_material() {
     assert!(old.effects.material_inclusions.is_none());
 }
 
-/// The estimator is the very last wire byte (0 branching, 1 exit collection). A scene without
-/// it does not decode, both values round-trip, and JSON writes no key for branching and reads
-/// a missing one as branching.
+/// The estimator is the wire byte before the pan (0 branching, 1 exit collection). A scene
+/// without it does not decode, both values round-trip, and JSON writes no key for branching and
+/// reads a missing one as branching.
 #[test]
-fn v42_appends_the_estimator_as_the_last_byte() {
+fn v42_appends_the_estimator_before_the_pan() {
     use pleochroma::optics::raytracer::Estimator;
 
     let plain = sample_scene();
     assert_eq!(plain.estimator, Estimator::Branching);
     let bytes = postcard::to_allocvec(&plain).unwrap();
-    assert_eq!(bytes[bytes.len() - 1], 0);
+    let estimator_at = bytes.len() - PAN_TAIL - ESTIMATOR_TAIL;
+    assert_eq!(bytes[estimator_at], 0);
     assert!(
-        postcard::from_bytes::<SceneState>(&bytes[..bytes.len() - ESTIMATOR_TAIL]).is_err(),
+        postcard::from_bytes::<SceneState>(&bytes[..estimator_at]).is_err(),
         "the layout without the estimator must not decode as a scene"
     );
 
@@ -754,11 +812,8 @@ fn v42_appends_the_estimator_as_the_last_byte() {
     collect.estimator = Estimator::ExitCollection;
     let collect_bytes = postcard::to_allocvec(&collect).unwrap();
     assert_eq!(collect_bytes.len(), bytes.len(), "same layout");
-    assert_eq!(collect_bytes[collect_bytes.len() - 1], 1);
-    assert_eq!(
-        &collect_bytes[..collect_bytes.len() - ESTIMATOR_TAIL],
-        &bytes[..bytes.len() - ESTIMATOR_TAIL]
-    );
+    assert_eq!(collect_bytes[estimator_at], 1);
+    assert_eq!(&collect_bytes[..estimator_at], &bytes[..estimator_at]);
     assert_eq!(
         postcard::from_bytes::<SceneState>(&collect_bytes).unwrap(),
         collect

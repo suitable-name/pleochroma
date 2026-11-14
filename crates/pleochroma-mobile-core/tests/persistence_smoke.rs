@@ -24,7 +24,7 @@ fn destination_and_setting_persist_across_restarts() {
         let mut state = AppState::new(platform);
         assert_eq!(state.destination, Destination::Design);
         state.set_destination(Destination::Cut);
-        state.update_settings(|settings| settings.theme = ThemeChoice::Dark);
+        state.update_settings(|settings| settings.theme = ThemeChoice::HighContrast);
         // Dropping the state drops its settings store, which writes the pending save.
     }
 
@@ -32,7 +32,7 @@ fn destination_and_setting_persist_across_restarts() {
         let platform: Arc<dyn Platform> = Arc::new(MockPlatform::new(dirs));
         let state = AppState::new(platform);
         assert_eq!(state.destination, Destination::Cut);
-        assert_eq!(state.settings.theme, ThemeChoice::Dark);
+        assert_eq!(state.settings.theme, ThemeChoice::HighContrast);
     }
 
     let _ = std::fs::remove_dir_all(root);

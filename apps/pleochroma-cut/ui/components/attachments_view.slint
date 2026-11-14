@@ -1,128 +1,233 @@
-import { ScrollView, Button } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 import { FileItem } from "../types.slint";
 import { Theme } from "../theme.slint";
 import { LibraryModel } from "../models/library.slint";
+import { EditorModel } from "../models/editor.slint";
+import { ExportModel } from "../models/export.slint";
+import { TiltModel } from "../models/tilt.slint";
+import { GuideModel } from "../models/guide.slint";
+import { KitButton, KitIconButton } from "kit/kit.slint";
 
+// The link icon of the "Copy URL" button.
+global FilesIcons {
+    out property <string> link: "M10 14 A4 4 0 0 0 15.7 14 L18.5 11.2 A4 4 0 0 0 12.8 5.5 L11.5 6.8 M14 10 A4 4 0 0 0 8.3 10 L5.5 12.8 A4 4 0 0 0 11.2 18.5 L12.5 17.2";
+    out property <string> download: "M12 4 V15 M7 10 L12 15 L17 10 M5 19 H19";
+    out property <string> folder: "M3 6 H10 L12 8 H21 V19 H3 Z";
+}
+
+// A small title in capitals.
+component FilesTitle inherits Text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: Theme.text-muted;
+    vertical-alignment: center;
+}
+
+// One attached file as a card: its name and size, Save a Copy..., Open and the link button.
+component FileCard inherits Rectangle {
+    in property <FileItem> file;
+    callback save_copy();
+    callback open_file();
+    callback copy_url();
+
+    height: 130px;
+    border-radius: 14px;
+    background: Theme.surface-raised;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                width: 44px;
+                height: 52px;
+                border-radius: 8px;
+                background: Theme.accent-cyan-surface;
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    source: @image-url("../icons/page.svg");
+                    colorize: Theme.accent-cyan;
+                    width: 22px;
+                    height: 22px;
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                alignment: center;
+                spacing: 3px;
+                Text { text: root.file.name; font-size: 14px; font-weight: 700; color: Theme.text-primary; overflow: elide; }
+                Text { text: root.file.size_str != "" ? root.file.size_str : "Binary Content"; font-size: 12px; color: Theme.text-muted; overflow: elide; }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            KitButton {
+                text: "Save a Copy…";
+                icon: FilesIcons.download;
+                h: 30px;
+                hint: "Write a copy of this file to a place you choose.";
+                clicked => { root.save_copy(); }
+            }
+            KitButton {
+                text: "Open";
+                h: 30px;
+                enabled: root.file.url != "";
+                hint: root.file.url != "" ? "Open this file's link in your browser." : "This file has no link to open.";
+                clicked => { root.open_file(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            KitIconButton {
+                d: FilesIcons.link;
+                size: 30px;
+                icon_size: 14px;
+                label: "Copy URL";
+                enabled: root.file.url != "";
+                hint: "Copy the link to this file to the clipboard.";
+                clicked => { root.copy_url(); }
+            }
+        }
+    }
+}
+
+// The Files tab: the files attached to the design as cards (Save a Copy..., Open, Copy URL), and
+// below them what can be made from the design, with the folder the exports go to. Every Make button
+// opens the dialog or runs the export that exists elsewhere in the app; nothing is tracked here.
 export component AttachmentsView inherits Rectangle {
     in property <[FileItem]> files: LibraryModel.current_files;
 
     callback export_file(string);
     export_file(name) => { LibraryModel.export_file(name); }
+    callback open_file(string);
+    open_file(url) => { LibraryModel.open_diagram_url(url); }
     callback copy_file_url(string);
     copy_file_url(url) => { LibraryModel.copy_text(url); }
+
+    // The exports of the design open in Edit need that design; the still and the tilt video are
+    // rendered from the live view and ask for what they need in their own dialogs.
+    property <bool> has_edit_design: EditorModel.enabled && EditorModel.has_design && GuideModel.allows_file_ops();
+    property <string> edit_reason: "Open the design in Edit first.";
+
+    // Cards per row: at least 330 px a card.
+    property <length> gap: 14px;
+    property <length> grid_w: max(0px, root.width - 28px - 16px);
+    property <int> cols: Math.max(1, Math.floor((root.grid_w + root.gap) / (330px + root.gap)));
+    property <length> card_w: (root.grid_w - (root.cols - 1) * root.gap) / root.cols;
+    property <int> card_rows: Math.ceil(root.files.length / root.cols);
+    property <length> grid_h: root.card_rows <= 0 ? 0px : root.card_rows * (130px + root.gap) - root.gap;
 
     background: Theme.bg-darkest;
     border-radius: Theme.radius-md;
     border-width: 1px;
     border-color: Theme.border-subtle;
 
-    VerticalLayout {
-        padding: 14px;
-        spacing: 12px;
+    ScrollView {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        content-height: page.preferred-height + 28px;
 
-        HorizontalLayout {
-            alignment: space-between;
+        page := VerticalLayout {
+            x: 14px;
+            y: 14px;
+            width: root.width - 28px - 16px;
+            spacing: 14px;
+            alignment: start;
 
-            Text {
-                text: "Attached Files (" + root.files.length + ")";
-                font-size: 13px;
-                font-weight: 700;
-                color: Theme.text-primary;
-                vertical-alignment: center;
-            }
+            FilesTitle { text: "ATTACHED TO THIS DESIGN · " + root.files.length; height: 22px; }
 
-            Text {
-                text: "Exported files are saved to ./exports/";
-                font-size: 11px;
-                color: Theme.text-muted;
-                vertical-alignment: center;
-            }
-        }
-
-        if root.files.length == 0: VerticalLayout {
-            alignment: center;
-            spacing: 8px;
-            vertical-stretch: 1;
-
-            // Centred by a layout of its own: a fixed-size Image in the column sits at the left
-            // of its cell (`horizontal-alignment` only places the picture inside the Image).
-            HorizontalLayout {
+            if root.files.length == 0: VerticalLayout {
+                height: 120px;
                 alignment: center;
-                Image { source: @image-url("../icons/folder.svg"); colorize: Theme.text-muted; width: 32px; height: 32px; }
-            }
-            Text { text: "No files or GemCAD data attached to this diagram"; font-size: 13px; color: Theme.text-muted; horizontal-alignment: center; }
-        }
-
-        if root.files.length > 0: ScrollView {
-            VerticalLayout {
                 spacing: 8px;
 
-                for file in root.files: Rectangle {
-                    height: 52px;
-                    background: Theme.bg-card;
-                    border-radius: Theme.radius-sm;
-                    border-width: 1px;
-                    border-color: Theme.border-subtle;
+                // Centred by a layout of its own: a fixed-size Image in the column sits at the left
+                // of its cell (`horizontal-alignment` only places the picture inside the Image).
+                HorizontalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/folder.svg"); colorize: Theme.text-muted; width: 32px; height: 32px; }
+                }
+                Text { text: "No files or GemCAD data attached to this diagram"; font-size: 13px; color: Theme.text-muted; horizontal-alignment: center; }
+            }
 
-                    HorizontalLayout {
-                        padding-left: 14px;
-                        padding-right: 14px;
-                        alignment: space-between;
+            if root.files.length > 0: Rectangle {
+                height: root.grid_h;
+                for item[i] in root.files: FileCard {
+                    x: Math.mod(i, root.cols) * (root.card_w + root.gap);
+                    y: Math.floor(i / root.cols) * (130px + root.gap);
+                    width: root.card_w;
+                    file: item;
+                    save_copy => { root.export_file(item.name); }
+                    open_file => { root.open_file(item.url); }
+                    copy_url => { root.copy_file_url(item.url); }
+                }
+            }
 
-                        HorizontalLayout {
-                            spacing: 12px;
-                            alignment: start;
+            Rectangle { height: 1px; background: Theme.border-subtle; }
 
-                            // Centred by a layout of its own: a fixed-size Image in the row sits at
-                            // the top of its cell.
-                            VerticalLayout {
-                                alignment: center;
-                                Image {
-                                    source: @image-url("../icons/page.svg");
-                                    colorize: Theme.text-secondary;
-                                    width: 20px;
-                                    height: 20px;
-                                }
-                            }
+            HorizontalLayout {
+                height: 28px;
+                spacing: 10px;
+                FilesTitle { text: "MADE FROM THIS DESIGN"; }
+                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    text: "Exports are saved to the folder you choose when you export, or to ./exports/";
+                    font-size: 12px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
 
-                            VerticalLayout {
-                                alignment: center;
-                                spacing: 2px;
-
-                                Text {
-                                    text: file.name;
-                                    font-size: 13px;
-                                    font-weight: 600;
-                                    color: Theme.text-primary;
-                                }
-
-                                Text {
-                                    text: file.size_str != "" ? file.size_str : "Binary Content";
-                                    font-size: 11px;
-                                    color: Theme.text-muted;
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 8px;
-                            alignment: center;
-
-                            Button {
-                                text: "Save / Export";
-                                icon: @image-url("../icons/save.svg");
-                                colorize-icon: true;
-                                clicked => { root.export_file(file.name); }
-                            }
-
-                            Button {
-                                text: "Copy URL";
-                                icon: @image-url("../icons/link.svg");
-                                colorize-icon: true;
-                                clicked => { root.copy_file_url(file.url); }
-                            }
+            // Make: each button opens the dialog or runs the export the app already has.
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "Make:"; font-size: 13px; color: Theme.text-muted; vertical-alignment: center; }
+                KitButton {
+                    text: "Picture…";
+                    hint: "Render a picture of the design in the Live Render view and save it.";
+                    clicked => { ExportModel.is_open = true; }
+                }
+                KitButton {
+                    text: "Tilt Video…";
+                    hint: "Open the tilt performance window, where the tilt video is set up and exported.";
+                    clicked => {
+                        if !TiltModel.dialog_open {
+                            TiltModel.toggle_dialog();
                         }
                     }
+                }
+                KitButton {
+                    text: "Cutting Sheet (PDF)…";
+                    enabled: root.has_edit_design;
+                    hint: root.has_edit_design ? "The standard one-page cutting instructions of the design open in Edit, ready to print." : root.edit_reason;
+                    clicked => { EditorModel.export_cutting_sheet_pdf(); }
+                }
+                KitButton {
+                    text: "Edited .asc…";
+                    enabled: root.has_edit_design;
+                    hint: root.has_edit_design ? "Write the design as edited in Edit to an .asc file. Your library is not updated." : root.edit_reason;
+                    clicked => { EditorModel.export_asc(); }
+                }
+                if GuideModel.shows_advanced(): KitButton {
+                    text: ".gcs…";
+                    enabled: root.has_edit_design;
+                    hint: root.has_edit_design ? "Experimental: write the design open in Edit as a Gem Cut Studio file." : root.edit_reason;
+                    clicked => { EditorModel.export_gcs(); }
+                }
+                Rectangle { horizontal-stretch: 1; min-width: 0px; }
+                KitButton {
+                    text: "Open Exports Folder";
+                    icon: FilesIcons.folder;
+                    hint: "Show the folder your exports go to in the file manager.";
+                    clicked => { ExportModel.open_exports_folder(ExportModel.directory); }
                 }
             }
         }

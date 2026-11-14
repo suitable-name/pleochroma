@@ -1,16 +1,354 @@
 // Small building blocks shared by the Stone, Light and Checks tabs: a section header, a
 // labelled block with an optional info button, a number field, a labelled slider and a
-// picker row, and a radio mark.
+// picker row, and a radio mark; and the kit look of the Stone and Light tabs: a card, a
+// folding card, a color swatch, a fact chip, a rig tile and a rig row.
 //
 // Everything reuses the shell's tokens and components; the verdict colors are the theme's
 // success / warning / error roles (`Theme.verdict-*`).
-import { Slider } from "std-widgets.slint";
+import { PleoRigThumb } from "../../../../../ui-shared/rig_thumb.slint";
 import { Theme } from "../../theme.slint";
 import { Icons } from "../../icons.slint";
 import { Icon } from "../../shell/icon.slint";
 import { StateLayer } from "../../shell/state_layer.slint";
 import { InfoButton } from "../../shell/info.slint";
+import { TierIcons } from "../tiers/tier_icons.slint";
 import { PropsModel } from "props_model.slint";
+
+// The radio mark at the end of a lighting-rig row.
+export component RadioMark inherits Rectangle {
+    in property <bool> checked: false;
+
+    width: 20px;
+    height: 20px;
+    border-radius: 10px;
+    border-width: 2px;
+    border-color: root.checked ? Theme.primary : Theme.outline;
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: root.checked ? Theme.primary : transparent;
+    }
+}
+
+// A raised card with the page's side margin: the card surface, a soft border and the card
+// radius. Put the content in as the children; it gets `inner-padding` on every side (0 for
+// content that brings its own, like a `SliderBlock`). `selected` is the cyan "chosen" look.
+export component Card inherits VerticalLayout {
+    in property <length> inner-padding: Theme.space-lg;
+    in property <bool> selected: false;
+
+    padding-left: Theme.space-lg;
+    padding-right: Theme.space-lg;
+    padding-top: Theme.space-xs;
+    padding-bottom: Theme.space-xs;
+
+    Rectangle {
+        height: body.preferred-height;
+        background: root.selected ? Theme.accent-surface : Theme.surface-high;
+        border-radius: Theme.radius-lg;
+        border-width: root.selected ? 2px : 1px;
+        border-color: root.selected ? Theme.accent : Theme.outline-variant;
+
+        body := VerticalLayout {
+            padding: root.inner-padding;
+            @children
+        }
+    }
+}
+
+// A card that folds: a 56 px header (title left, a one-line summary right, a chevron) that is
+// the whole tap target, and the children below it while open. `open` is two-way so the owner
+// can keep the fold (the tab does, for the session).
+export component FoldCard inherits VerticalLayout {
+    in property <string> title;
+    in property <string> summary: "";
+    in-out property <bool> open: false;
+
+    padding-left: Theme.space-lg;
+    padding-right: Theme.space-lg;
+    padding-top: Theme.space-xs;
+    padding-bottom: Theme.space-xs;
+
+    Rectangle {
+        height: column.preferred-height;
+        background: Theme.surface-high;
+        border-radius: Theme.radius-lg;
+        border-width: 1px;
+        border-color: root.open ? Theme.outline : Theme.outline-variant;
+        clip: true;
+
+        column := VerticalLayout {
+            head := Rectangle {
+                height: max(Theme.row-height, header.preferred-height);
+                accessible-role: AccessibleRole.button;
+                accessible-label: root.summary == "" ? root.title : root.title + ", " + root.summary;
+                accessible-expandable: true;
+                accessible-expanded: root.open;
+                accessible-action-default => {
+                    root.open = !root.open;
+                }
+
+                StateLayer {
+                    pressed: touch.pressed;
+                    hovered: touch.has-hover;
+                }
+
+                header := HorizontalLayout {
+                    padding-left: Theme.space-lg;
+                    padding-right: Theme.space-md;
+                    padding-top: Theme.space-sm;
+                    padding-bottom: Theme.space-sm;
+                    spacing: Theme.space-md;
+
+                    Text {
+                        text: root.title;
+                        color: Theme.on-surface;
+                        font-size: Theme.text-body-large;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: root.summary;
+                        color: Theme.on-surface-variant;
+                        font-size: Theme.text-body;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+
+                    Rectangle {
+                        width: 24px;
+
+                        Icon {
+                            source: TierIcons.chevron-down;
+                            tint: Theme.on-surface-variant;
+                            transform-rotation: root.open ? 180deg : 0deg;
+                        }
+                    }
+                }
+
+                touch := TouchArea {
+                    clicked => {
+                        root.open = !root.open;
+                    }
+                }
+            }
+
+            // The content: no height (and invisible, so out of reach) while folded.
+            Rectangle {
+                visible: root.open;
+                height: root.open ? inner.preferred-height : 0px;
+                clip: true;
+
+                inner := VerticalLayout {
+                    padding-bottom: Theme.space-sm;
+
+                    // The hairline between the header and the content.
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.outline-variant;
+                    }
+
+                    @children
+                }
+            }
+        }
+    }
+}
+
+// A swatch of a body color. `known` false (a Custom Color has no color of its own) draws an
+// empty, outlined tile.
+export component Swatch inherits Rectangle {
+    in property <color> tone;
+    in property <bool> known: true;
+    in property <length> size: 28px;
+
+    width: root.size;
+    height: root.size;
+    border-radius: Theme.radius-sm;
+    background: root.known ? root.tone : Theme.surface-highest;
+    border-width: 1px;
+    border-color: Theme.outline;
+}
+
+// A small pill with one fact (`RI 2.417`). It fills the width it is given, so a grid of them
+// lines up.
+export component FactChip inherits Rectangle {
+    in property <string> text;
+
+    height: 32px;
+    border-radius: 16px;
+    background: Theme.surface-highest;
+    border-width: 1px;
+    border-color: Theme.outline-variant;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    Text {
+        x: Theme.space-md;
+        width: parent.width - 2 * Theme.space-md;
+        height: parent.height;
+        text: root.text;
+        color: Theme.on-surface;
+        font-size: Theme.text-label-large;
+        font-weight: 600;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+}
+
+// One tile of the rig grid: the rig's picture over its short name. The whole tile is one
+// 48 px+ tap target; the chosen rig is the cyan one. `title` and `detail` are the accessible
+// name (the full title and one sentence, as the list row says).
+export component RigTile inherits Rectangle {
+    in property <int> kind;
+    in property <string> name;
+    in property <string> title;
+    in property <string> detail: "";
+    in property <bool> selected: false;
+    callback clicked();
+
+    height: content.preferred-height;
+    background: root.selected ? Theme.accent-surface : Theme.surface-high;
+    border-radius: Theme.radius-lg;
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? Theme.accent : Theme.outline-variant;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.detail == "" ? root.title : root.title + ", " + root.detail;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+        border-radius: root.border-radius;
+    }
+
+    content := VerticalLayout {
+        padding: Theme.space-md;
+        spacing: Theme.space-sm;
+
+        HorizontalLayout {
+            alignment: center;
+
+            PleoRigThumb {
+                kind: root.kind;
+                size: 56px;
+            }
+        }
+
+        Text {
+            text: root.name;
+            color: Theme.on-surface;
+            font-size: Theme.text-body;
+            font-weight: root.selected ? 700 : 500;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// One row of the full list of rigs: the picture, the title and one sentence, a radio mark.
+// It grows with its text.
+export component RigRow inherits Rectangle {
+    in property <int> kind;
+    in property <string> title;
+    in property <string> detail: "";
+    in property <bool> selected: false;
+    callback clicked();
+
+    height: max(Theme.row-height, content.preferred-height);
+    background: root.selected ? Theme.accent-surface : transparent;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.detail == "" ? root.title : root.title + ", " + root.detail;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+    }
+
+    content := HorizontalLayout {
+        padding-left: Theme.space-lg;
+        padding-right: Theme.space-lg;
+        padding-top: Theme.space-sm;
+        padding-bottom: Theme.space-sm;
+        spacing: Theme.space-lg;
+
+        Rectangle {
+            width: 40px;
+
+            PleoRigThumb {
+                y: (parent.height - self.height) / 2;
+                kind: root.kind;
+                size: 40px;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 2px;
+
+            Text {
+                text: root.title;
+                color: Theme.on-surface;
+                font-size: Theme.text-body-large;
+                font-weight: root.selected ? 700 : 400;
+                wrap: word-wrap;
+            }
+
+            if root.detail != "": Text {
+                text: root.detail;
+                color: Theme.on-surface-variant;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            cross-axis-alignment: center;
+
+            RadioMark {
+                checked: root.selected;
+            }
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.outline-variant;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
 
 // A section title: small, primary colored, with the page's side padding.
 export component SectionHeader inherits Rectangle {
@@ -120,9 +458,10 @@ export component NumberField inherits Rectangle {
     Rectangle {
         y: (parent.height - self.height) / 2;
         height: Theme.row-height - Theme.space-sm;
-        border-radius: Theme.radius-sm;
+        border-radius: Theme.radius-md;
+        background: Theme.surface;
         border-width: 1px;
-        border-color: Theme.outline;
+        border-color: touch.pressed ? Theme.accent : Theme.outline;
 
         StateLayer {
             pressed: touch.pressed;
@@ -162,6 +501,105 @@ export component NumberField inherits Rectangle {
     }
 }
 
+// The kit's slider: a cyan fill and thumb on a dark track (the std Material slider is purple
+// and cannot be recolored). 48 px high; `released` fires once when the finger lifts or after
+// an accessibility step.
+component PleoSlider inherits Rectangle {
+    in-out property <float> value;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback released();
+
+    property <length> pad: 14px;
+    property <length> track-width: max(1px, root.width - 2 * root.pad);
+    property <float> span: max(0.000001, root.maximum - root.minimum);
+    property <float> fraction: clamp((root.value - root.minimum) / root.span, 0, 1);
+
+    function set-from(x: length) {
+        if !root.enabled {
+            return;
+        }
+        let raw = root.minimum + root.span * clamp((x - root.pad) / root.track-width, 0, 1);
+        let snapped = root.step > 0 ? root.minimum + round((raw - root.minimum) / root.step) * root.step : raw;
+        root.value = clamp(snapped, root.minimum, root.maximum);
+    }
+
+    function nudge(direction: float) {
+        if !root.enabled {
+            return;
+        }
+        let amount = root.step > 0 ? root.step : root.span / 100;
+        root.value = clamp(root.value + direction * amount, root.minimum, root.maximum);
+        root.released();
+    }
+
+    height: Theme.touch;
+    opacity: root.enabled ? 1.0 : 0.45;
+    accessible-role: AccessibleRole.slider;
+    accessible-label: root.label;
+    accessible-value: root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: root.step;
+    accessible-enabled: root.enabled;
+    accessible-action-increment => {
+        root.nudge(1);
+    }
+    accessible-action-decrement => {
+        root.nudge(-1);
+    }
+
+    // The track and its cyan fill.
+    Rectangle {
+        x: root.pad;
+        y: (root.height - self.height) / 2;
+        width: root.track-width;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.outline-variant;
+    }
+
+    Rectangle {
+        x: root.pad;
+        y: (root.height - self.height) / 2;
+        width: root.track-width * root.fraction;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+
+    // The thumb.
+    Rectangle {
+        x: root.pad + root.track-width * root.fraction - self.width / 2;
+        y: (root.height - self.height) / 2;
+        width: touch.pressed ? 26px : 22px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.accent;
+        border-width: 2px;
+        border-color: Theme.surface;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                root.set-from(self.mouse-x);
+            } else if event.kind == PointerEventKind.up {
+                root.released();
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.set-from(self.mouse-x);
+            }
+        }
+    }
+}
+
 // A titled slider. Bind `value` two-way to the model; `released` fires when the finger
 // lifts (or a key step ends), so a drag is one change, not hundreds.
 export component SliderBlock inherits SettingBlock {
@@ -172,16 +610,15 @@ export component SliderBlock inherits SettingBlock {
     in property <bool> enabled: true;
     callback released();
 
-    Slider {
+    PleoSlider {
         value <=> root.value;
         minimum: root.minimum;
         maximum: root.maximum;
         step: root.step;
         enabled: root.enabled;
-        min-height: Theme.touch;
-        accessible-label: root.title;
+        label: root.title;
 
-        released(v) => {
+        released => {
             root.released();
         }
     }
@@ -196,6 +633,7 @@ export component PickerRow inherits Rectangle {
     callback clicked();
 
     height: 64px;
+    background: root.selected ? Theme.accent-surface : transparent;
     accessible-role: AccessibleRole.button;
     accessible-label: root.detail == "" ? root.title : root.title + ", " + root.detail;
     accessible-checkable: true;
@@ -367,22 +805,3 @@ export component MetricLine inherits Rectangle {
     }
 }
 
-// The radio mark at the end of a lighting-rig row.
-export component RadioMark inherits Rectangle {
-    in property <bool> checked: false;
-
-    width: 20px;
-    height: 20px;
-    border-radius: 10px;
-    border-width: 2px;
-    border-color: root.checked ? Theme.primary : Theme.outline;
-
-    Rectangle {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: 10px;
-        height: 10px;
-        border-radius: 5px;
-        background: root.checked ? Theme.primary : transparent;
-    }
-}

@@ -136,51 +136,46 @@ pub(super) fn click_tier_row(film: &mut Film<'_>, name: &str) -> Result<i32, Str
     ))
 }
 
-/// Commits the Tier form with its pinned `label` button ("Add Tier" or "Save Tier"). An added
-/// tier must show up in the table: when the click does not add it, the click is repeated once and
-/// then Return is pressed in a form field (which saves too), each only while the table still has
-/// `tiers_before` rows, so a tier is never added twice.
+/// Commits the Tier form. `label` only names the step in messages ("Add Tier" or "Save Tier").
+///
+/// An edited tier has no Save Tier button any more: the focused field applies on Enter (leaving
+/// it applies too), so Return is pressed in the field the route typed last. A new tier is added
+/// with the form's "Add This Tier" button. An added tier must show up in the table: when the click
+/// does not add it, the click is repeated once and then Return is pressed in a form field (which
+/// adds too), each only while the table still has `tiers_before` rows, so a tier is never added
+/// twice.
 pub(super) fn commit_tier_form(
     film: &mut Film<'_>,
     label: &str,
     adding: bool,
     tiers_before: usize,
 ) -> Result<(), String> {
+    const ADD_BUTTON: &str = "Add This Tier";
     let editor = film.ui.global::<EditorModel>();
-    let find = |film: &Film<'_>| {
-        targets::role_label(
-            &film.view(),
-            label,
-            uiprobe::AccessibleRole::Button,
-            Some("EditorInspector"),
-        )
-    };
-    let Some(commit) = find(film) else {
-        let seen: Vec<String> = film
-            .view()
-            .by_label(label)
-            .iter()
-            .map(|element| {
-                format!(
-                    "{:?} enabled={:?}",
-                    element.accessible_role(),
-                    element.accessible_enabled()
-                )
-            })
-            .collect();
+    if !adding {
+        film.rec
+            .press_keys(film.ui.window(), "Return")
+            .map_err(|e| format!("{label}: Return in the Tier form: {e:?}"))?;
+        pump(80);
+        return Ok(());
+    }
+    let Some(commit) = film.inspector_form_control(ADD_BUTTON, uiprobe::AccessibleRole::Button)?
+    else {
         return Err(format!(
-            "tier form commit {label:?} is not visible and enabled; elements with that label: \
-             {seen:?}; form error {:?}; locked hint {:?}; inspector: [{}]",
+            "tier form commit {ADD_BUTTON:?} ({label}) is not visible and enabled; form error \
+             {:?}; locked hint {:?}; inspector: [{}]",
             editor.get_tier_form_error(),
             film.ui.global::<GuideModel>().get_locked_hint(),
             film.inspector_dump()
         ));
     };
-    film.click_pinned_commit(&commit)?;
+    film.click_and_invoke(&commit)?;
     pump(80);
-    if !adding {
-        return Ok(());
-    }
+    let find = |film: &mut Film<'_>| {
+        film.inspector_form_control(ADD_BUTTON, uiprobe::AccessibleRole::Button)
+            .ok()
+            .flatten()
+    };
     let added = || editor.get_tiers().row_count() == tiers_before + 1;
     if pacing::wait_real(Duration::from_millis(1200), added) {
         return Ok(());
@@ -189,7 +184,7 @@ pub(super) fn commit_tier_form(
         && editor.get_tier_form_error().is_empty()
         && let Some(again) = find(film)
     {
-        film.click_pinned_commit(&again)?;
+        film.click_and_invoke(&again)?;
         if pacing::wait_real(Duration::from_millis(1200), added) {
             return Ok(());
         }
@@ -208,34 +203,36 @@ pub(super) fn commit_tier_form(
             }
         }
     }
+    let button_at = find(film).map(|button| (button.x, button.y, button.w, button.h));
     Err(format!(
         "{label}: unexpected tier count after the real form commit: before={tiers_before}, \
-         after={}, selected row {}, form_error={:?}, commit button {:?}, guide_waiting={:?}",
+         after={}, selected row {}, form_error={:?}, commit button {button_at:?}, guide_waiting={:?}",
         editor.get_tiers().row_count(),
         editor.get_selected_tier_index(),
         editor.get_tier_form_error(),
-        find(film).map(|button| (button.x, button.y, button.w, button.h)),
         film.ui.global::<GuideModel>().get_current().waiting
     ))
 }
 
 /// Types `scale` into the Exact Scale Value field of the Tier form that the tier table's Add
-/// Anchor opened (which already reads Meets: Exact Scale Value) and saves the tier with the
-/// form's pinned Save Tier button.
+/// Anchor opened (which already reads Meets: Exact Scale Value) and applies it with Enter (the
+/// form has no Save Tier button any more).
 pub(super) fn type_scale_and_save(film: &mut Film<'_>, scale: &str) -> Result<(), String> {
     let editor = film.ui.global::<EditorModel>();
+    // Meets is a segment group now: the picked segment is a radio button with the full name.
     let meets = film
-        .inspector_form_control("Meets", uiprobe::AccessibleRole::Combobox)?
-        .ok_or("the Meets selector of the Tier form is not visible")?;
-    let shown = meets
+        .inspector_form_control("Exact Scale Value", uiprobe::AccessibleRole::RadioButton)?
+        .ok_or("the Meets segment Exact Scale Value of the Tier form is not visible")?;
+    let picked = meets
         .handle
         .as_ref()
-        .and_then(ElementHandle::accessible_value)
-        .unwrap_or_default();
-    if !shown.contains("Exact Scale Value") {
-        return Err(format!(
-            "Add Anchor did not open the Tier form on Exact Scale Value: Meets reads {shown:?}"
-        ));
+        .and_then(ElementHandle::accessible_checked)
+        .unwrap_or(false);
+    if !picked {
+        return Err(
+            "Add Anchor did not open the Tier form on Exact Scale Value: the segment is not picked"
+                .to_owned(),
+        );
     }
     let field = film
         .input_spot("Exact Scale Value")?

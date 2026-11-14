@@ -5,7 +5,6 @@ import { EditorModel } from "../models/editor.slint";
 import { GuideModel } from "../models/guide.slint";
 import { HelpTopics } from "../models/help.slint";
 import { DesignSettingsModel } from "../models/design_settings.slint";
-import { SectionHeader } from "section_header.slint";
 import { ParametersModel } from "../models/parameters.slint";
 import { MaterialChip, PreviewBadge } from "material_chip.slint";
 // The material is shown here as a read-only chip (`MaterialChip`, with the amber "Previewing"
@@ -14,42 +13,186 @@ import { ViewportModel } from "../models/viewport.slint";
 import { GuideLockTip } from "guide_lock.slint";
 import { HelpButton } from "help_button.slint";
 import { TipButton } from "compact_controls.slint";
-import { ToggleRow } from "toggle_switch.slint";
 import { AdvancedNote } from "advanced_note.slint";
 import { SettingLabel } from "settings_dialog/setting_label.slint";
+import { KitIcon, KitIcons } from "kit/icons.slint";
+import { KitSwitchRow } from "kit/panel.slint";
+import { ChoiceSeg } from "editor_inspector/choice_seg.slint";
 
-// The Edit sub-tab's design settings: the material (a read-only chip, edited in the Stone tab),
-// index gear, symmetry order and Mirror, the title and details, and the printed proportions.
-// Each row ends in a stretch spacer, so nothing stretches to fill the dock's width. The whole
-// section collapses via `EditorModel.settings_collapsed` (`SectionHeader`, title "DESIGN").
+// A section caption of the Design sheet, in small capitals.
+component SheetCaption inherits Text {
+    font-size: 10px;
+    font-weight: 700;
+    color: Theme.text-muted;
+    accessible-role: AccessibleRole.text;
+}
+
+// One labelled row of the sheet: the name, then the control.
+component SheetRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <length> label_width: 96px;
+    spacing: 10px;
+    Text {
+        width: root.label_width;
+        text: root.label;
+        font-size: 12px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    @children
+}
+
+// A text field of the sheet. It applies through `commit` on Enter and when it is left (never per
+// key); `escaped` fires on Esc, and the sheet drops the open edit.
+component SheetField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    // What a screen reader says for the field.
+    in property <string> reader_label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    callback commit();
+    callback escaped();
+
+    height: 32px;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    LineEdit {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        text <=> root.text;
+        placeholder-text: root.placeholder;
+        accessible-label: root.reader_label;
+        accessible-description: root.hint;
+        accepted => { root.commit(); }
+        changed has-focus => {
+            EditorModel.text_focus = self.has-focus;
+            if !self.has-focus {
+                root.commit();
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.escaped();
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
+// A printed proportion as a toggle chip. Off, it is a chip with its name; on (a value is typed, or
+// the chip was pressed), a field for the value follows. Blanking a value and leaving the field turns
+// the chip off again; blank means not typed.
+component PrintedChip inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <string> text;
+    in property <string> reader_label;
+    in property <bool> enabled: true;
+    callback commit();
+    callback escaped();
+
+    property <bool> opened: false;
+    property <bool> on: root.text != "" || root.opened;
+    spacing: 4px;
+    Rectangle {
+        width: chip_txt.preferred-width + 20px;
+        height: 28px;
+        border-radius: 14px;
+        background: root.on ? Theme.accent-cyan-surface : Theme.bg-input;
+        border-width: chip_focus.has-focus ? 2px : 1px;
+        border-color: chip_focus.has-focus ? Theme.accent-cyan-hover : (root.on ? Theme.accent-cyan : Theme.border-subtle);
+        accessible-role: AccessibleRole.checkbox;
+        accessible-label: "Printed " + root.label;
+        accessible-description: "Press to type this printed proportion; it is on while it has a value.";
+        accessible-checkable: true;
+        accessible-checked: root.on;
+        accessible-enabled: root.enabled;
+        accessible-action-default => { root.opened = !root.opened; }
+        chip_focus := FocusScope {
+            enabled: root.enabled;
+            key-pressed(event) => {
+                if event.text == Key.Space || event.text == Key.Return {
+                    root.opened = !root.opened;
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        chip_txt := Text {
+            x: 10px;
+            height: parent.height;
+            text: root.label;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.on ? Theme.accent-cyan : Theme.text-secondary;
+            vertical-alignment: center;
+        }
+        TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => {
+                if root.on && root.text != "" {
+                    // Already holding a value: the chip stays on; the field is the way to change it.
+                    root.opened = true;
+                } else {
+                    root.opened = !root.opened;
+                }
+            }
+        }
+    }
+    if root.on: SheetField {
+        width: 70px;
+        enabled: root.enabled;
+        text <=> root.text;
+        placeholder: root.label;
+        reader_label: root.reader_label;
+        commit => {
+            root.commit();
+            if root.text == "" {
+                root.opened = false;
+            }
+        }
+        escaped => { root.escaped(); }
+    }
+}
+
+// The Edit sub-tab's design settings. The panel itself is one line: the design's gear, symmetry,
+// reference angle and material, and an "Edit..." button that opens the Design sheet (a popup with
+// the gear, symmetry, material, title, header, footnote and printed proportions). The sheet has no
+// Apply buttons (Fable E1/E2):
 //
-// The Simple interface (`GuideModel.shows_advanced()` false) keeps the material, the gear and
-// the title. It hides the symmetry order and Mirror, the extra header lines, the footnotes, the
-// gear reference angle and the printed proportions. A hidden field keeps its value and still
-// applies. The note at the bottom says so when one is off its default
-// (`DesignSettingsModel.advanced_in_use`).
+// - the gear and the symmetry are segments. A change keeps a confirm step that states what it does:
+//   a gear change opens `GearRemapDialog` (the remap of every index, in red where it loses precision)
+//   and the sheet steps aside; a symmetry change shows the effect in the sheet (how many tiers would
+//   become incomplete orbits) with Apply Symmetry and Cancel;
+// - every other field applies on Enter or when it is left, as one undo step. The X button keeps what
+//   the open field holds and closes the sheet; Esc drops the open edit and closes it;
+// - the printed proportions are toggle chips.
 //
-// Every label has a tooltip, every field and button a screen-reader name, and every control
-// takes Tab. The labels carry the plain-language explanations (`SettingLabel`).
+// The Simple interface (`GuideModel.shows_advanced()` false) keeps the gear, the material and the
+// title. It hides the symmetry order and Mirror, the extra header lines, the footnotes, the gear
+// reference angle and the printed proportions. A hidden field keeps its value and still applies. The
+// note at the bottom says so when one is off its default (`DesignSettingsModel.advanced_in_use`).
 export component EditorDesignSettings inherits Rectangle {
     background: Theme.bg-darkest;
     border-radius: Theme.radius-sm;
     // The worked-example guide's outline while a step targets this panel
-    // (`GuideModel.highlight_target == "design_settings"`); same pattern as
-    // `editor_tier_table.slint`'s `guide_highlighted`.
+    // (`GuideModel.highlight_target == "design_settings"`).
     property <bool> guide_highlighted: GuideModel.highlight_target == "design_settings";
     border-width: root.guide_highlighted ? 2px : 1px;
     border-color: root.guide_highlighted ? Theme.accent-cyan : Theme.border-subtle;
-    clip: true;
-    // Zero stretch, so spare dock height goes to the tier table instead of inflating the fields.
-    // Do not use `height: content.preferred-height`: a layout's preferred height defaults to
-    // 100% of its parent, so that binding is circular.
+    clip: false;
+    // Zero stretch, so spare dock height goes to the tier table instead of inflating the panel.
     vertical-stretch: 0;
+    min-height: 48px;
+    preferred-height: 48px;
+    max-height: 48px;
 
-    // `false` while the worked-example guide locks this panel (`GuideAllow.design_settings`):
-    // every combo, field, toggle and Apply button below ANDs it
-    // into its own `enabled:`, and the `GuideLockTip` at the end of this component
-    // explains why on hover. The read-only chips stay readable.
+    // `false` while the worked-example guide locks this panel (`GuideAllow.design_settings`): every
+    // field and segment below ANDs it into its own `enabled:`, and the `GuideLockTip` at the end of
+    // this component explains why on hover.
     property <bool> unlocked: GuideModel.allows_design_settings();
 
     // Whether the Advanced controls show: the Advanced interface, or a guide step that needs them.
@@ -64,360 +207,543 @@ export component EditorDesignSettings inherits Rectangle {
             + EditorModel.printed_pw_text + EditorModel.printed_hw_text,
         EditorModel.mirror);
 
-    // Unapplied-edit markers for the Gear/Symmetry/Details/Printed Apply buttons: an amber "*",
-    // as in `editor_inspector.slint`.
-    property <bool> gear_pending: false;
+    // The gear's tooth count, for the summary: the combo's gears, or the typed one.
+    property <string> gear_text: EditorModel.gear_index == 0 ? "96"
+        : (EditorModel.gear_index == 1 ? "80"
+        : (EditorModel.gear_index == 2 ? "77"
+        : (EditorModel.gear_index == 3 ? "72"
+        : (EditorModel.gear_index == 4 ? "64"
+        : (EditorModel.gear_index == 5 ? "120" : EditorModel.gear_custom_text)))));
+    property <string> material_label: (EditorModel.material_combo_index >= 0 && EditorModel.material_combo_index < EditorModel.material_combo_options.length)
+        ? EditorModel.material_combo_options[EditorModel.material_combo_index]
+        : "";
+    property <string> summary: root.gear_text + " gear"
+        + (root.advanced ? " \u{b7} " + EditorModel.symmetry_order_text + "-fold" + (EditorModel.mirror ? " mirror" : "") : "")
+        + (root.advanced ? " \u{b7} ref " + EditorModel.design_gear_reference_angle + "\u{b0}" : "")
+        + (root.material_label != "" ? " \u{b7} " + root.material_label + (EditorModel.effective_ri_text != "" ? " RI " + EditorModel.effective_ri_text : "") : "");
+
+    // --- What the sheet last applied, for Esc and for X ----------------------------------------
+    // Snapshots taken when the sheet opens and after every apply. Esc puts them back; apply compares
+    // with them, so an unchanged field applies nothing and spends no undo step.
+    property <string> a_title;
+    property <string> a_extra;
+    property <string> a_foot;
+    property <string> a_ref;
+    property <string> a_vol;
+    property <string> a_lw;
+    property <string> a_cw;
+    property <string> a_pw;
+    property <string> a_hw;
+    // A symmetry change waiting for its confirm: the values the design has, to restore on Cancel.
     property <bool> symmetry_pending: false;
-    // "Apply Details" pending marker -- same treatment.
-    property <bool> meta_pending: false;
-    // "Apply Printed" pending marker -- same treatment.
-    property <bool> printed_pending: false;
-    // `form_reset_pulse` (`ui/models/editor.slint`) bumps on New/Load Selected/
-    // Open -- a different design underneath these fields, where a leftover
-    // "pending" flag from the previous design would mislead. Local alias so
-    // `changed` can watch a global's property, as `editor_inspector.slint` does.
+    property <string> saved_order;
+    property <bool> saved_mirror;
+    // The "Other" gear and symmetry entries open their own field.
+    property <bool> gear_other: EditorModel.gear_index == 6;
+    property <bool> order_other: false;
+
+    function take_snapshots() {
+        root.a_title = EditorModel.design_title;
+        root.a_extra = EditorModel.design_extra_headers;
+        root.a_foot = EditorModel.design_footnotes;
+        root.a_ref = EditorModel.design_gear_reference_angle;
+        root.a_vol = EditorModel.printed_vol_w3_text;
+        root.a_lw = EditorModel.printed_lw_text;
+        root.a_cw = EditorModel.printed_cw_text;
+        root.a_pw = EditorModel.printed_pw_text;
+        root.a_hw = EditorModel.printed_hw_text;
+    }
+    function apply_meta() {
+        if root.unlocked && (EditorModel.design_title != root.a_title || EditorModel.design_extra_headers != root.a_extra
+            || EditorModel.design_footnotes != root.a_foot || EditorModel.design_gear_reference_angle != root.a_ref) {
+            root.a_title = EditorModel.design_title;
+            root.a_extra = EditorModel.design_extra_headers;
+            root.a_foot = EditorModel.design_footnotes;
+            root.a_ref = EditorModel.design_gear_reference_angle;
+            EditorModel.apply_design_meta(EditorModel.design_title, EditorModel.design_extra_headers, EditorModel.design_footnotes, EditorModel.design_gear_reference_angle);
+        }
+    }
+    function apply_printed() {
+        if root.unlocked && (EditorModel.printed_vol_w3_text != root.a_vol || EditorModel.printed_lw_text != root.a_lw
+            || EditorModel.printed_cw_text != root.a_cw || EditorModel.printed_pw_text != root.a_pw
+            || EditorModel.printed_hw_text != root.a_hw) {
+            root.a_vol = EditorModel.printed_vol_w3_text;
+            root.a_lw = EditorModel.printed_lw_text;
+            root.a_cw = EditorModel.printed_cw_text;
+            root.a_pw = EditorModel.printed_pw_text;
+            root.a_hw = EditorModel.printed_hw_text;
+            EditorModel.apply_printed_proportions(
+                EditorModel.printed_vol_w3_text,
+                EditorModel.printed_lw_text,
+                EditorModel.printed_cw_text,
+                EditorModel.printed_pw_text,
+                EditorModel.printed_hw_text
+            );
+        }
+    }
+    // Esc: the open edit goes back to what was applied. Nothing else differs, since every other
+    // field applied when it was left.
+    function discard_edits() {
+        EditorModel.design_title = root.a_title;
+        EditorModel.design_extra_headers = root.a_extra;
+        EditorModel.design_footnotes = root.a_foot;
+        EditorModel.design_gear_reference_angle = root.a_ref;
+        EditorModel.printed_vol_w3_text = root.a_vol;
+        EditorModel.printed_lw_text = root.a_lw;
+        EditorModel.printed_cw_text = root.a_cw;
+        EditorModel.printed_pw_text = root.a_pw;
+        EditorModel.printed_hw_text = root.a_hw;
+        root.cancel_symmetry();
+    }
+    // X: keeps what the open field holds.
+    function commit_all() {
+        root.apply_meta();
+        root.apply_printed();
+    }
+    public function open_sheet() {
+        root.take_snapshots();
+        root.symmetry_pending = false;
+        root.order_other = false;
+        sheet.show();
+    }
+    function close_sheet() {
+        sheet.close();
+    }
+
+    // --- Symmetry: a change waits for its confirm ----------------------------------------------
+    function start_symmetry(order_text: string, mirror: bool) {
+        if !root.symmetry_pending {
+            root.saved_order = EditorModel.symmetry_order_text;
+            root.saved_mirror = EditorModel.mirror;
+        }
+        root.symmetry_pending = true;
+        EditorModel.symmetry_order_text = order_text;
+        EditorModel.mirror = mirror;
+        EditorModel.request_symmetry_preview(order_text, mirror);
+    }
+    function confirm_symmetry() {
+        EditorModel.apply_symmetry(EditorModel.symmetry_order_text, EditorModel.mirror);
+        root.symmetry_pending = false;
+    }
+    function cancel_symmetry() {
+        if root.symmetry_pending {
+            EditorModel.symmetry_order_text = root.saved_order;
+            EditorModel.mirror = root.saved_mirror;
+            EditorModel.request_symmetry_preview(root.saved_order, root.saved_mirror);
+            root.symmetry_pending = false;
+        }
+    }
+    // The segment of the symmetry order shown as picked: 0..5 for 1, 2, 3, 4, 6, 8; 6 for any other.
+    property <float> order_value: EditorModel.symmetry_order_text.to-float();
+    property <int> order_picked: root.order_other ? 6
+        : (root.order_value == 1 ? 0 : (root.order_value == 2 ? 1 : (root.order_value == 3 ? 2
+        : (root.order_value == 4 ? 3 : (root.order_value == 6 ? 4 : (root.order_value == 8 ? 5 : 6))))));
+
+    // `form_reset_pulse` (`ui/models/editor.slint`) bumps on New/Load Selected/Open -- a different
+    // design underneath these fields, where a leftover pending change would mislead.
     property <int> tracked_form_reset_pulse: EditorModel.form_reset_pulse;
     changed tracked_form_reset_pulse => {
-        root.gear_pending = false;
         root.symmetry_pending = false;
-        root.meta_pending = false;
-        root.printed_pending = false;
+        root.take_snapshots();
     }
 
-    // Mirrors `EditorModel.gear_remap_open` (an `in property`, read-only from this
-    // side) into a local property purely so `changed` can watch it, and clears
-    // the "Apply Gear *" pending marker when the `GearRemapDialog` modal closes
-    // (Confirm and Cancel both flip `gear_remap_open` back to `false` from Rust).
-    // The dialog itself has no access to this component's local `gear_pending`.
-    property <bool> tracked_gear_remap_open: EditorModel.gear_remap_open;
-    changed tracked_gear_remap_open => {
-        if !root.tracked_gear_remap_open {
-            root.gear_pending = false;
+    // The panel: one line.
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 10px;
+        Text {
+            text: "Design";
+            font-size: 13px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            accessible-role: AccessibleRole.text;
+        }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.summary;
+            font-size: 11px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "Design settings: " + root.summary;
+        }
+        VerticalLayout {
+            alignment: center;
+            TipButton {
+                text: "Edit...";
+                reader_label: "Edit Design Settings";
+                hint: "Open the Design sheet: index gear, symmetry, material, title, header lines\nand the printed proportions. Each field applies when you press Enter or leave it.";
+                clicked => { root.open_sheet(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            HelpButton {
+                topic: HelpTopics.design-settings;
+                hint: "Open the manual page on the design settings";
+            }
         }
     }
 
-    content := VerticalLayout {
-        padding: 8px;
-        spacing: 6px;
+    sheet := PopupWindow {
+        x: min(0px, root.width - 500px);
+        y: root.height + 4px;
+        width: 500px;
+        height: min(sheet_body.preferred-height + 24px, 640px);
+        close-policy: no-auto-close;
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: Theme.surface-dialog;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: "Design";
+            accessible-description: "Index gear, symmetry, material, title, header and the printed proportions. Fields apply on Enter or when left. Escape drops the open edit.";
+            sheet_keys := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Escape {
+                        root.discard_edits();
+                        root.close_sheet();
+                        return accept;
+                    }
+                    reject
+                }
+                ScrollView {
+                    width: parent.width;
+                    height: parent.height;
+                    horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                    sheet_body := VerticalLayout {
+                        padding: 16px;
+                        padding-right: 22px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "Design";
+                                font-size: 16px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            // X keeps what the open field holds (it applies as the field is left).
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 8px;
+                                background: x_touch.has-hover ? Theme.bg-card-hover : transparent;
+                                border-width: x_focus.has-focus ? 2px : 0px;
+                                border-color: Theme.accent-cyan-hover;
+                                accessible-role: AccessibleRole.button;
+                                accessible-label: "Close Design Settings";
+                                accessible-description: "Keeps what the open field holds and closes the sheet. Escape drops the open edit instead.";
+                                accessible-action-default => { root.commit_all(); root.close_sheet(); }
+                                Tooltip { text: @markdown("Close the sheet and keep what you typed. Esc drops the open edit."); }
+                                x_focus := FocusScope {
+                                    key-pressed(event) => {
+                                        if event.text == Key.Space || event.text == Key.Return {
+                                            root.commit_all();
+                                            root.close_sheet();
+                                            return accept;
+                                        }
+                                        return reject;
+                                    }
+                                }
+                                KitIcon {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    d: KitIcons.close;
+                                    ink: Theme.text-secondary;
+                                }
+                                x_touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.commit_all(); root.close_sheet(); }
+                                }
+                            }
+                        }
 
-        SectionHeader {
-            title: "DESIGN";
-            hint: "The index gear, symmetry and details of the open design, and its material\nat a glance (edited in the Stone tab). Click to show or hide them.";
-            collapsed: EditorModel.settings_collapsed;
-            toggled => { EditorModel.settings_collapsed = !EditorModel.settings_collapsed; }
-            // The manual page for this panel stays reachable while it is collapsed.
-            VerticalLayout {
-                alignment: center;
-                HelpButton {
-                    topic: HelpTopics.design-settings;
-                    hint: "Open the manual page on the design settings";
+                        SheetCaption { text: "SYMMETRY"; }
+                        // The index gear. A pick asks for confirmation in `GearRemapDialog`, which
+                        // shows how every index is renumbered, so the sheet steps aside for it.
+                        SheetRow {
+                            label: "Index gear";
+                            ChoiceSeg {
+                                horizontal-stretch: 1;
+                                enabled: root.unlocked;
+                                group_label: "Index Gear";
+                                hint: "The number of teeth on the faceting machine's index wheel (96 is the usual).\nChanging it asks you to confirm first, because every index position is renumbered;\na gear that is not a multiple of the old one loses some precision, shown in red\nbefore you confirm. See the glossary.";
+                                labels: ["64", "72", "77", "80", "96", "120", "Other"];
+                                picked: [4, 3, 2, 1, 0, 5, 6][EditorModel.gear_index];
+                                selected(i) => {
+                                    EditorModel.gear_index = [4, 3, 2, 1, 0, 5, 6][i];
+                                    if i < 6 {
+                                        root.close_sheet();
+                                        EditorModel.gear_apply(EditorModel.gear_index, EditorModel.gear_custom_text);
+                                    }
+                                }
+                            }
+                        }
+                        if root.gear_other: SheetRow {
+                            label: "Teeth";
+                            SheetField {
+                                horizontal-stretch: 1;
+                                enabled: root.unlocked;
+                                text <=> EditorModel.gear_custom_text;
+                                placeholder: "teeth of your gear";
+                                reader_label: "Custom Gear Teeth";
+                                hint: "The tooth count of a gear that is not in the list. Press Enter to change the gear;\na window then asks you to confirm.";
+                                commit => {
+                                    root.close_sheet();
+                                    EditorModel.gear_apply(6, EditorModel.gear_custom_text);
+                                }
+                                escaped => { root.discard_edits(); root.close_sheet(); }
+                            }
+                        }
+                        // Symmetry and Mirror are advanced; the Simple interface leaves them out.
+                        if root.advanced: SheetRow {
+                            label: "Symmetry";
+                            ChoiceSeg {
+                                horizontal-stretch: 1;
+                                enabled: root.unlocked;
+                                group_label: "Symmetry Order";
+                                hint: "How many times the facet pattern repeats around the stone (8 for a standard\nround brilliant). A change shows what it would do before you apply it.";
+                                labels: ["1", "2", "3", "4", "6", "8", "Other"];
+                                picked: root.order_picked;
+                                selected(i) => {
+                                    if i == 6 {
+                                        root.order_other = true;
+                                    } else {
+                                        root.order_other = false;
+                                        root.start_symmetry(["1", "2", "3", "4", "6", "8"][i], EditorModel.mirror);
+                                    }
+                                }
+                            }
+                            Text {
+                                text: "-fold";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                        if root.advanced && root.order_picked == 6: SheetRow {
+                            label: "Order";
+                            SheetField {
+                                horizontal-stretch: 1;
+                                enabled: root.unlocked;
+                                text <=> EditorModel.symmetry_order_text;
+                                placeholder: "whole number";
+                                reader_label: "Symmetry Order";
+                                hint: "How many times the pattern repeats around the stone. Press Enter to review the change.";
+                                commit => { root.start_symmetry(EditorModel.symmetry_order_text, EditorModel.mirror); }
+                                escaped => { root.discard_edits(); root.close_sheet(); }
+                            }
+                        }
+                        if root.advanced: KitSwitchRow {
+                            label: "Mirror";
+                            on: EditorModel.mirror;
+                            enabled: root.unlocked;
+                            toggled => { root.start_symmetry(EditorModel.symmetry_order_text, !EditorModel.mirror); }
+                        }
+                        // The confirm step of a symmetry change: what it does, then Apply or Cancel.
+                        if root.advanced && root.symmetry_pending: Rectangle {
+                            background: Theme.surface-warning;
+                            border-radius: 8px;
+                            border-width: 1px;
+                            border-color: Theme.accent-amber;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 8px;
+                                Text {
+                                    text: EditorModel.symmetry_order_text + "-fold" + (EditorModel.mirror ? " with a mirror" : "")
+                                        + ": " + (EditorModel.symmetry_preview_text != "" ? EditorModel.symmetry_preview_text : "this changes the pattern the schedule repeats.");
+                                    font-size: 12px;
+                                    color: Theme.text-primary;
+                                    wrap: word-wrap;
+                                    accessible-role: AccessibleRole.text;
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    TipButton {
+                                        enabled: root.unlocked;
+                                        text: "Apply Symmetry";
+                                        reader_label: "Apply Symmetry";
+                                        primary: true;
+                                        hint: "Use the symmetry order and Mirror setting shown. It is one step you can undo.\nTiers whose pattern would be left incomplete are counted above.";
+                                        clicked => { root.confirm_symmetry(); }
+                                    }
+                                    TipButton {
+                                        text: "Cancel";
+                                        reader_label: "Cancel Symmetry Change";
+                                        hint: "Keep the design's symmetry and change nothing.";
+                                        clicked => { root.cancel_symmetry(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                }
+                            }
+                        }
+                        if root.advanced: SheetRow {
+                            label: "Ref. angle";
+                            SheetField {
+                                width: 90px;
+                                enabled: root.unlocked;
+                                text <=> EditorModel.design_gear_reference_angle;
+                                placeholder: "0";
+                                reader_label: "Gear Reference Angle in Degrees";
+                                hint: "Where the index wheel's zero tooth points, in degrees around the stone. Leave it\nat 0 unless your machine's wheel is set differently. The 3D handles and the\ndiagram follow it.";
+                                commit => { root.apply_meta(); }
+                                escaped => { root.discard_edits(); root.close_sheet(); }
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "where index 0 points";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: Theme.border-subtle; }
+                        SheetCaption { text: "MATERIAL"; }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            material-chip-l136 := MaterialChip {
+                                show_ri: true;
+                                row_height: 28px;
+                                hint: "The design's material. Press to edit it in the Stone tab.";
+                            }
+                            if ViewportModel.previewing: PreviewBadge {
+                                compact: true;
+                                row_height: 28px;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                TipButton {
+                                    text: "Edit in Stone Tab";
+                                    hint: "Open the Stone tab to change the material, refractive\nindex, body color, size and render effects.";
+                                    clicked => {
+                                        root.close_sheet();
+                                        ParametersModel.show_tab(0);
+                                    }
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        Rectangle { height: 1px; background: Theme.border-subtle; }
+                        SheetCaption { text: "PRINTED ON THE DIAGRAM"; }
+                        SheetRow {
+                            label: "Title";
+                            SheetField {
+                                horizontal-stretch: 1;
+                                enabled: root.unlocked;
+                                text <=> EditorModel.design_title;
+                                reader_label: "Design Title";
+                                hint: "The design's name: the first header line of the .asc file. It is the window\ntitle and the default name of a saved or exported file.";
+                                commit => { root.apply_meta(); }
+                                escaped => { root.discard_edits(); root.close_sheet(); }
+                            }
+                        }
+                        if root.advanced: SheetRow {
+                            label: "Header";
+                            SheetField {
+                                horizontal-stretch: 1;
+                                enabled: root.unlocked;
+                                text <=> EditorModel.design_extra_headers;
+                                reader_label: "Extra Header Lines";
+                                hint: "More header lines for the .asc file after the title, such as the designer or a\ndate. Separate several with \"; \".";
+                                commit => { root.apply_meta(); }
+                                escaped => { root.discard_edits(); root.close_sheet(); }
+                            }
+                        }
+                        if root.advanced: SheetRow {
+                            label: "Footnote";
+                            SheetField {
+                                horizontal-stretch: 1;
+                                enabled: root.unlocked;
+                                text <=> EditorModel.design_footnotes;
+                                reader_label: "Footnotes";
+                                hint: "Note lines written at the end of the .asc file. Separate several with \"; \".";
+                                commit => { root.apply_meta(); }
+                                escaped => { root.discard_edits(); root.close_sheet(); }
+                            }
+                        }
+                        // Printed proportions (Vol/W^3, L/W, C/W, P/W, H/W, as on a GemCad sheet): Deep
+                        // Solve checks against them for designs with no measured values. Advanced only.
+                        if root.advanced: VerticalLayout {
+                            spacing: 6px;
+                            SheetRow {
+                                label: "Proportions";
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 6px;
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        PrintedChip {
+                                            label: "Vol/W\u{b3}";
+                                            reader_label: "Printed Volume over Width Cubed";
+                                            enabled: root.unlocked;
+                                            text <=> EditorModel.printed_vol_w3_text;
+                                            commit => { root.apply_printed(); }
+                                            escaped => { root.discard_edits(); root.close_sheet(); }
+                                        }
+                                        PrintedChip {
+                                            label: "L/W";
+                                            reader_label: "Printed Length over Width";
+                                            enabled: root.unlocked;
+                                            text <=> EditorModel.printed_lw_text;
+                                            commit => { root.apply_printed(); }
+                                            escaped => { root.discard_edits(); root.close_sheet(); }
+                                        }
+                                        PrintedChip {
+                                            label: "C/W";
+                                            reader_label: "Printed Crown Height over Width";
+                                            enabled: root.unlocked;
+                                            text <=> EditorModel.printed_cw_text;
+                                            commit => { root.apply_printed(); }
+                                            escaped => { root.discard_edits(); root.close_sheet(); }
+                                        }
+                                        PrintedChip {
+                                            label: "P/W";
+                                            reader_label: "Printed Pavilion Height over Width";
+                                            enabled: root.unlocked;
+                                            text <=> EditorModel.printed_pw_text;
+                                            commit => { root.apply_printed(); }
+                                            escaped => { root.discard_edits(); root.close_sheet(); }
+                                        }
+                                        PrintedChip {
+                                            label: "H/W";
+                                            reader_label: "Printed Total Height over Width";
+                                            enabled: root.unlocked;
+                                            text <=> EditorModel.printed_hw_text;
+                                            commit => { root.apply_printed(); }
+                                            escaped => { root.discard_edits(); root.close_sheet(); }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                    }
+                                }
+                            }
+                        }
+                        if root.advanced_note_visible: AdvancedNote { }
+                        Text {
+                            text: "Each field applies when you press Enter or leave it, as one step you can undo. X keeps the open field; Esc drops it.";
+                            font-size: 10px;
+                            color: Theme.text-muted;
+                            wrap: word-wrap;
+                            accessible-role: AccessibleRole.text;
+                        }
+                    }
                 }
             }
         }
-
-        if !EditorModel.settings_collapsed: VerticalLayout {
-            spacing: 6px;
-
-        // Row 1: the material, read-only. It is edited in the Stone tab (one place for the
-        // stone's material, colour, size and effects); this chip shows what the design has.
-        HorizontalLayout {
-            spacing: 10px;
-            material-chip-l136 := MaterialChip {
-                show_ri: true;
-                row_height: 28px;
-                hint: "The design's material. Press to edit it in the Stone tab.";
-            }
-            if ViewportModel.previewing: PreviewBadge {
-                compact: true;
-                row_height: 28px;
-            }
-            VerticalLayout {
-                alignment: center;
-                TipButton {
-                    text: "Edit in Stone Tab";
-                    hint: "Open the Stone tab to change the material, refractive\nindex, body color, size and render effects.";
-                    clicked => { ParametersModel.show_tab(0); }
-                }
-            }
-            Rectangle { horizontal-stretch: 1; }
-        }
-
-        Rectangle { height: 1px; background: Theme.border-subtle; }
-
-        // Row 2: index gear / symmetry.
-        HorizontalLayout {
-            spacing: 10px;
-            VerticalLayout {
-                spacing: 3px;
-                SettingLabel {
-                    text: "Index Gear";
-                    hint: "The number of teeth on the faceting machine's index wheel (96 is the\nusual). Changing it asks you to confirm first, because every index\nposition is renumbered; a gear that is not a multiple of the old one\nloses some precision, shown in red before you confirm. See the glossary.";
-                }
-                ComboBox {
-                    enabled: root.unlocked;
-                    min-width: 0px;
-                    preferred-width: 120px;
-                    max-width: 160px;
-                    model: ["96", "80", "77", "72", "64", "120", "Custom"];
-                    current-index <=> EditorModel.gear_index;
-                    accessible-label: "Index Gear";
-                    accessible-description: "The tooth count of the index wheel. Press Apply Gear to use it.";
-                    selected => { root.gear_pending = true; }
-                }
-            }
-            if EditorModel.gear_index == 6: VerticalLayout {
-                spacing: 3px;
-                SettingLabel {
-                    text: "Custom Teeth";
-                    hint: "The tooth count of a gear that is not in the list.";
-                }
-                LineEdit {
-                    enabled: root.unlocked;
-                    width: 70px;
-                    text <=> EditorModel.gear_custom_text;
-                    accessible-label: "Custom Gear Teeth";
-                    accessible-description: "The tooth count of your own index gear. Press Apply Gear to use it.";
-                    edited => { root.gear_pending = true; }
-                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                }
-            }
-            VerticalLayout {
-                // Bottom-aligned to the fields' baseline, as with Apply Material.
-                alignment: end;
-                tip-button-gear-pending := TipButton {
-                    enabled: root.unlocked;
-                    // Gear applies through the `GearRemapDialog` confirmation rather
-                    // than immediately, so this marks "a remap has been requested
-                    // and not yet confirmed" -- cleared by Confirm or Cancel there.
-                    text: root.gear_pending ? "Apply Gear *" : "Apply Gear";
-                    reader_label: "Apply Gear";
-                    hint: "Change the index gear. A window asks you to confirm\nand shows how every index position is renumbered.";
-                    primary: root.gear_pending;
-                    clicked => { EditorModel.gear_apply(EditorModel.gear_index, EditorModel.gear_custom_text); }
-                }
-            }
-            // Symmetry and Mirror are advanced; the Simple interface leaves them out.
-            if root.advanced: VerticalLayout {
-                spacing: 3px;
-                // Tooltip previews how many tiers the CURRENTLY typed symmetry
-                // order/mirror would leave with an incomplete orbit, before Apply
-                // Symmetry commits anything -- requested live as the field is edited.
-                SettingLabel {
-                    text: "Symmetry Order";
-                    // The column is only as wide as the 60px field; this keeps the whole name.
-                    min-width: 100px;
-                    hint: "How many times the facet pattern repeats around the\nstone (8 for a standard round brilliant). \{EditorModel.symmetry_preview_text}";
-                }
-                LineEdit {
-                    enabled: root.unlocked;
-                    width: 60px;
-                    text <=> EditorModel.symmetry_order_text;
-                    accessible-label: "Symmetry Order";
-                    accessible-description: "How many times the pattern repeats around the stone. Press Enter to apply.";
-                    edited => {
-                        EditorModel.request_symmetry_preview(self.text, EditorModel.mirror);
-                        root.symmetry_pending = true;
-                    }
-                    // Enter commits, matching the RI Override field above.
-                    accepted => {
-                        EditorModel.apply_symmetry(EditorModel.symmetry_order_text, EditorModel.mirror);
-                        root.symmetry_pending = false;
-                    }
-                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                }
-            }
-            if root.advanced: VerticalLayout {
-                alignment: end;
-                width: 96px;
-                ToggleRow {
-                    // As tall as the fields and buttons beside it, so its label and switch
-                    // sit on their centre line instead of a few pixels low.
-                    min-height: 32px;
-                    text: "Mirror";
-                    hint: "Also make the pattern a mirror image of itself, so every facet\nhas a partner on the other side. Press Apply Symmetry to use it.";
-                    checked: EditorModel.mirror;
-                    enabled: root.unlocked;
-                    toggled => {
-                        EditorModel.mirror = !EditorModel.mirror;
-                        root.symmetry_pending = true;
-                        // Mirror is the other half of the proposed change
-                        // the symmetry preview describes, so refresh it
-                        // here too, not only on the order field's `edited`.
-                        EditorModel.request_symmetry_preview(EditorModel.symmetry_order_text, EditorModel.mirror);
-                    }
-                }
-            }
-            if root.advanced: VerticalLayout {
-                // Bottom-aligned to the fields' baseline, as with Apply Material.
-                alignment: end;
-                tip-button-symmetry-pending := TipButton {
-                    enabled: root.unlocked;
-                    // Amber "*" marks unapplied edits, as with Apply Material.
-                    text: root.symmetry_pending ? "Apply Symmetry *" : "Apply Symmetry";
-                    reader_label: "Apply Symmetry";
-                    hint: "Use the symmetry order and Mirror setting shown. Tiers whose pattern\nwould be left incomplete are listed in the Symmetry Order tooltip.";
-                    primary: root.symmetry_pending;
-                    clicked => {
-                        EditorModel.apply_symmetry(EditorModel.symmetry_order_text, EditorModel.mirror);
-                        root.symmetry_pending = false;
-                    }
-                }
-            }
-            Rectangle { horizontal-stretch: 1; }
-        }
-
-        Rectangle { height: 1px; background: Theme.border-subtle; }
-
-        // Row 3: design metadata, committed as one `Edit::SetMeta`. `design_title` is the first
-        // .asc header line. `design_extra_headers` and `design_footnotes` hold the further lines,
-        // split on "; " (there is no multi-line text control). The title stays in the Simple
-        // interface; the other fields are advanced.
-        // Title and (advanced) the gear reference angle, with Apply Details at the row's end
-        // for the Simple interface too; the extra header and footnote lines, which want
-        // room, follow on their own row.
-        HorizontalLayout {
-            spacing: 10px;
-            VerticalLayout {
-                horizontal-stretch: 1;
-                spacing: 3px;
-                SettingLabel {
-                    text: "Title";
-                    hint: "The design's name: the first header line of the .asc file. It is\nthe window title and the default name of a saved or exported file.";
-                }
-                LineEdit {
-                    enabled: root.unlocked;
-                    min-width: 120px;
-                    horizontal-stretch: 1;
-                    text <=> EditorModel.design_title;
-                    accessible-label: "Design Title";
-                    accessible-description: "The name of the design. Press Apply Details to use it.";
-                    edited => { root.meta_pending = true; }
-                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                }
-            }
-            if root.advanced: VerticalLayout {
-                spacing: 3px;
-                SettingLabel {
-                    text: "Gear Ref. Angle";
-                    // The column is only as wide as the 70px field; this keeps the whole name.
-                    min-width: 100px;
-                    hint: "Where the index wheel's zero tooth points, in degrees around\nthe stone. Leave it at 0 unless your machine's wheel is set\ndifferently. The 3D handles and the diagram follow it.";
-                }
-                LineEdit {
-                    enabled: root.unlocked;
-                    width: 70px;
-                    text <=> EditorModel.design_gear_reference_angle;
-                    accessible-label: "Gear Reference Angle in Degrees";
-                    accessible-description: "Where the index wheel's zero tooth points. Press Apply Details to use it.";
-                    edited => { root.meta_pending = true; }
-                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                }
-            }
-            VerticalLayout {
-                // Bottom-aligned to the fields' baseline, as with Apply Material.
-                alignment: end;
-                tip-button-meta-pending := TipButton {
-                    enabled: root.unlocked;
-                    // Amber "*" marks unapplied edits, as with Apply Material.
-                    text: root.meta_pending ? "Apply Details *" : "Apply Details";
-                    reader_label: "Apply Details";
-                    hint: "Use the title and the other details shown. It is one step you can undo.";
-                    primary: root.meta_pending;
-                    clicked => {
-                        EditorModel.apply_design_meta(EditorModel.design_title, EditorModel.design_extra_headers, EditorModel.design_footnotes, EditorModel.design_gear_reference_angle);
-                        root.meta_pending = false;
-                    }
-                }
-            }
-        }
-
-        if root.advanced: HorizontalLayout {
-            spacing: 10px;
-            VerticalLayout {
-                horizontal-stretch: 1;
-                spacing: 3px;
-                SettingLabel {
-                    text: "Extra Header Lines";
-                    hint: "More header lines for the .asc file after the title, such\nas the designer or a date. Separate several with \"; \".";
-                }
-                LineEdit {
-                    enabled: root.unlocked;
-                    min-width: 100px;
-                    horizontal-stretch: 1;
-                    text <=> EditorModel.design_extra_headers;
-                    accessible-label: "Extra Header Lines";
-                    accessible-description: "More header lines after the title. Separate several with a semicolon. Press Apply Details to use them.";
-                    edited => { root.meta_pending = true; }
-                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                }
-            }
-            VerticalLayout {
-                horizontal-stretch: 1;
-                spacing: 3px;
-                SettingLabel {
-                    text: "Footnotes";
-                    hint: "Note lines written at the end of the .asc file. Separate several with \"; \".";
-                }
-                LineEdit {
-                    enabled: root.unlocked;
-                    min-width: 100px;
-                    horizontal-stretch: 1;
-                    text <=> EditorModel.design_footnotes;
-                    accessible-label: "Footnotes";
-                    accessible-description: "Note lines for the end of the file. Separate several with a semicolon. Press Apply Details to use them.";
-                    edited => { root.meta_pending = true; }
-                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                }
-            }
-        }
-
-        if root.advanced: Rectangle { height: 1px; background: Theme.border-subtle; }
-
-        // Row 4: typed printed proportions (Vol/W^3, L/W, C/W, P/W, H/W, as on a GemCad sheet).
-        // Deep Solve checks against them for designs with no measured values, such as a New,
-        // remote-loaded or natively saved design. Advanced only.
-        if root.advanced: HorizontalLayout {
-            spacing: 10px;
-            VerticalLayout {
-                spacing: 3px;
-                SettingLabel {
-                    text: "Printed Proportions (Vol/W\u{b3}, L/W, C/W, P/W, H/W)";
-                    hint: "The proportions printed on a GemCad-style sheet: volume over width\ncubed, length over width, crown, pavilion and total height over\nwidth. Deep Solve checks the solved stone against them when the\ndesign has no measured values of its own. Blank means not typed.";
-                }
-                HorizontalLayout {
-                    spacing: 4px;
-                    LineEdit { enabled: root.unlocked; width: 60px; text <=> EditorModel.printed_vol_w3_text; placeholder-text: "Vol/W\u{b3}"; accessible-label: "Printed Volume over Width Cubed"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
-                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_lw_text; placeholder-text: "L/W"; accessible-label: "Printed Length over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
-                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_cw_text; placeholder-text: "C/W"; accessible-label: "Printed Crown Height over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
-                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_pw_text; placeholder-text: "P/W"; accessible-label: "Printed Pavilion Height over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
-                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_hw_text; placeholder-text: "H/W"; accessible-label: "Printed Total Height over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
-                }
-            }
-            VerticalLayout {
-                alignment: end;
-                tip-button-printed-pending := TipButton {
-                    enabled: root.unlocked;
-                    text: root.printed_pending ? "Apply Printed *" : "Apply Printed";
-                    reader_label: "Apply Printed";
-                    hint: "Use the printed proportions shown. Blank fields mean not typed.";
-                    primary: root.printed_pending;
-                    clicked => {
-                        EditorModel.apply_printed_proportions(
-                            EditorModel.printed_vol_w3_text,
-                            EditorModel.printed_lw_text,
-                            EditorModel.printed_cw_text,
-                            EditorModel.printed_pw_text,
-                            EditorModel.printed_hw_text
-                        );
-                        root.printed_pending = false;
-                    }
-                }
-            }
-            Rectangle { horizontal-stretch: 1; }
-        }
-
-        if root.advanced_note_visible: AdvancedNote { }
-        } // if !EditorModel.settings_collapsed
     }
 
     GuideLockTip { locked: !root.unlocked; }

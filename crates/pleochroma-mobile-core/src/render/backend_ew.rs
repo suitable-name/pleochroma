@@ -7,6 +7,10 @@
 //! browser, a pass traces with the reduced compile-friendly kernel variant of the stone's class
 //! (`browser_pass_class`), and a stone that needs a feature that variant compiled out is traced
 //! on the CPU instead.
+//!
+//! A driver can still reject one of the split kernels, and wgpu then loses the whole device.
+//! The stone's class stays on the CPU for the rest of the process, and a fresh device traces the
+//! other classes at once.
 use super::{BackendManager, TraceBackend, replace_due};
 use glam::Vec3;
 use pleochroma::optics::materials::GemMaterial;
@@ -39,6 +43,14 @@ const DUTY_GAP: std::time::Duration = std::time::Duration::from_millis(2);
 #[cfg(feature = "device-gpu")]
 const FEATURE_NOT_COMPILED: &str =
     "this stone needs a GPU kernel feature the device GPU does not compile";
+
+/// The report for a stone whose class has a kernel the device's GPU driver could not build.
+const KERNEL_REJECTED: &str = "the GPU driver cannot build the path tracer for this kind of stone";
+
+/// Why a session is lost after its driver could not build a kernel. A stone of another class
+/// that still holds the session reads it until a fresh device replaces the session.
+#[cfg(feature = "device-gpu")]
+const KERNEL_LOST: &str = "the GPU driver could not build a path tracing kernel";
 
 /// The report of a build without device GPU support.
 #[cfg(not(feature = "device-gpu"))]
@@ -90,6 +102,13 @@ pub(in crate::render) enum EwPass {
         expect(dead_code, reason = "only the device GPU build traces a range")
     )]
     Refused(String),
+    /// The driver could not build a kernel of the pass class, which lost the device. Only that
+    /// class moves to the CPU.
+    #[cfg_attr(
+        not(feature = "device-gpu"),
+        expect(dead_code, reason = "only the device GPU build traces a range")
+    )]
+    KernelRejected,
 }
 
 /// One acquired device GPU with its event-wavefront renderer. Only the process-wide probe
@@ -103,6 +122,9 @@ pub(in crate::render) struct EwGpuSession {
     label: String,
     /// Why the session is unusable, `None` while it is healthy. The first reason is kept.
     lost: Mutex<Option<String>>,
+    /// Set when the session was lost because the driver could not build a kernel. That class
+    /// stays on the CPU from then on, so a fresh device may replace this one at once.
+    kernel_rejected: AtomicBool,
 }
 
 impl EwGpuSession {
@@ -113,6 +135,7 @@ impl EwGpuSession {
             renderer: None,
             label: String::new(),
             lost: Mutex::new(Some(reason.to_owned())),
+            kernel_rejected: AtomicBool::new(false),
         }
     }
 
@@ -127,11 +150,13 @@ impl EwGpuSession {
                     renderer: Some(Mutex::new(EventWavefrontRenderer::new(ctx))),
                     label,
                     lost: Mutex::new(None),
+                    kernel_rejected: AtomicBool::new(false),
                 };
                 (session, None)
             }
             Err(error) => {
                 let reason = error.to_string();
+                tracing::warn!(%reason, "no device GPU for path tracing");
                 (Self::disabled(&reason), Some(reason))
             }
         }
@@ -159,6 +184,11 @@ impl EwGpuSession {
     /// Whether the session lost its device.
     pub(in crate::render) fn is_lost(&self) -> bool {
         self.lost_reason().is_some()
+    }
+
+    /// Whether the session was lost because the driver could not build a kernel.
+    pub(in crate::render) fn lost_to_rejected_kernel(&self) -> bool {
+        self.kernel_rejected.load(Ordering::Acquire)
     }
 
     /// Records `reason` as the loss of this session, keeping an earlier reason.
@@ -196,11 +226,33 @@ impl EwGpuSession {
         pass
     }
 
-    /// Marks the session lost for `reason` and returns that as the pass result.
+    /// Marks the session lost for `reason`, logs the reason in full (the status line may cut
+    /// it short) and returns it as the pass result.
     #[cfg(feature = "device-gpu")]
     fn lose(&self, reason: String) -> EwPass {
+        tracing::warn!(
+            adapter = %self.label,
+            %reason,
+            "device GPU path tracing lost; the CPU traces instead"
+        );
         self.mark_lost(reason.clone());
         EwPass::Lost(reason)
+    }
+
+    /// Marks the session lost because the driver could not build `kernel` for pass class
+    /// `class`, logging the device's failure in full.
+    #[cfg(feature = "device-gpu")]
+    fn reject_kernel(&self, kernel: &str, class: u32, detail: &str) -> EwPass {
+        tracing::warn!(
+            adapter = %self.label,
+            kernel,
+            class,
+            %detail,
+            "the GPU driver could not build a path tracing kernel; its class is traced on the CPU"
+        );
+        self.kernel_rejected.store(true, Ordering::Release);
+        self.mark_lost(KERNEL_LOST.to_owned());
+        EwPass::KernelRejected
     }
 
     /// Marks the session lost for `reason` and returns that as the pass result.
@@ -246,6 +298,9 @@ impl EwGpuSession {
             ));
             match result {
                 Ok(()) => {}
+                Err(EwError::KernelCompile { kernel, detail, .. }) => {
+                    return self.reject_kernel(kernel.entry_point(), class, &detail);
+                }
                 Err(
                     error @ (EwError::DeviceLost(_)
                     | EwError::ChunkTimeout
@@ -277,45 +332,75 @@ impl EwGpuSession {
 }
 
 impl BackendManager {
-    /// Whether a lost path-tracing session may be replaced now; records the replacement when
-    /// it may, so a device that is lost on every use is not re-acquired on every epoch.
-    fn replace_lost_spectral(&self) -> bool {
+    /// Whether the lost path-tracing `session` may be replaced now; records the replacement
+    /// when it may. A session lost to a kernel the driver rejected is replaced at once: its
+    /// class now stays on the CPU, so the fresh device is never asked for that pipeline. Any
+    /// other loss waits for the cool-down, so a device that is lost on every use is not
+    /// re-acquired on every epoch.
+    fn replace_lost_spectral(&self, session: &EwGpuSession) -> bool {
         let mut last = self
             .gpu
             .spectral_replaced
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let now = Instant::now();
-        let due = replace_due(*last, now);
+        let due = session.lost_to_rejected_kernel() || replace_due(*last, now);
         if due {
             *last = Some(now);
         }
         due
     }
 
+    /// Whether the GPU driver could not build a kernel of pass class `class` on this device.
+    fn class_rejected(&self, class: u32) -> bool {
+        self.gpu
+            .spectral_rejected
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&class)
+    }
+
+    /// Records that the GPU driver could not build a kernel of pass class `class`.
+    fn reject_class(&self, class: u32) {
+        let mut rejected = self
+            .gpu
+            .spectral_rejected
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !rejected.contains(&class) {
+            rejected.push(class);
+        }
+    }
+
     /// Routes a stone that passed the shared scene gates to the event wavefront, or to the CPU
     /// with the reason in the report. Called only by worker-owned scene preparation.
     pub(super) fn prepare_event_wavefront(&self, scene: &OwnedScene, epoch: u64) -> TraceBackend {
-        if let Err(reason) = pass_class(scene.material()) {
-            self.cpu_fallback(epoch, reason);
+        let class = match pass_class(scene.material()) {
+            Ok(class) => class,
+            Err(reason) => {
+                self.cpu_fallback(epoch, reason);
+                return TraceBackend::Cpu;
+            }
+        };
+        // The driver could not build a kernel of this class: no device is acquired for it.
+        if self.class_rejected(class) {
+            self.cpu_fallback(epoch, KERNEL_REJECTED);
             return TraceBackend::Cpu;
         }
         // One cached probe per process, including failed probes. The lock covers only the
         // (slow, once-per-process) probe itself; the answer is cloned out so that routing,
         // recovery and reporting never hold it. A session that lost its device is replaced by
-        // a fresh one, but not more often than the cool-down allows; a failed probe is
-        // remembered and never retried.
+        // a fresh one, but not more often than the cool-down allows unless a rejected kernel
+        // lost it; a failed probe is remembered and never retried.
         let (session, decline) = {
             let mut slot = self
                 .gpu
                 .spectral
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            if slot
-                .as_ref()
-                .is_some_and(|(session, decline)| decline.is_none() && session.is_lost())
-                && self.replace_lost_spectral()
-            {
+            if slot.as_ref().is_some_and(|(session, decline)| {
+                decline.is_none() && session.is_lost() && self.replace_lost_spectral(session)
+            }) {
                 *slot = None;
             }
             slot.get_or_insert_with(|| {
@@ -368,6 +453,11 @@ impl BackendManager {
         match gpu.accumulate(scene, class, range, &mut sum, &stopped) {
             EwPass::Done => Some(sum),
             EwPass::Cancelled => None,
+            EwPass::KernelRejected => {
+                self.reject_class(class);
+                self.cpu_fallback(epoch, KERNEL_REJECTED);
+                trace_chunk_abortable(scene, range, aborted)
+            }
             EwPass::Lost(reason) | EwPass::Refused(reason) => {
                 self.cpu_fallback(epoch, &reason);
                 trace_chunk_abortable(scene, range, aborted)
@@ -526,8 +616,36 @@ mod tests {
     #[test]
     fn a_lost_session_is_replaced_at_most_once_per_cool_down() {
         let manager = BackendManager::new();
-        assert!(manager.replace_lost_spectral());
-        assert!(!manager.replace_lost_spectral());
+        let session = EwGpuSession::disabled("GPU device lost or unresponsive: test");
+        assert!(manager.replace_lost_spectral(&session));
+        assert!(!manager.replace_lost_spectral(&session));
+    }
+
+    #[test]
+    fn a_session_lost_to_a_rejected_kernel_is_replaced_inside_the_cool_down() {
+        let manager = BackendManager::new();
+        *manager.gpu.spectral_replaced.lock().expect("stamp") = Some(Instant::now());
+        let rejected =
+            EwGpuSession::disabled("the GPU driver could not build a path tracing kernel");
+        rejected.kernel_rejected.store(true, Ordering::Release);
+        assert!(rejected.lost_to_rejected_kernel());
+        assert!(manager.replace_lost_spectral(&rejected));
+        let lost = EwGpuSession::disabled("GPU device lost or unresponsive: test");
+        assert!(!manager.replace_lost_spectral(&lost));
+    }
+
+    #[test]
+    fn a_rejected_class_is_recorded_once_and_alone() {
+        let manager = BackendManager::new();
+        assert!(!manager.class_rejected(14));
+        manager.reject_class(14);
+        manager.reject_class(14);
+        assert!(manager.class_rejected(14));
+        assert!(!manager.class_rejected(45));
+        assert_eq!(
+            *manager.gpu.spectral_rejected.lock().expect("rejected"),
+            vec![14]
+        );
     }
 
     #[test]
@@ -538,6 +656,10 @@ mod tests {
         assert!(Arc::ptr_eq(
             &live.gpu.spectral_replaced,
             &export.gpu.spectral_replaced
+        ));
+        assert!(Arc::ptr_eq(
+            &live.gpu.spectral_rejected,
+            &export.gpu.spectral_rejected
         ));
     }
 
@@ -574,47 +696,65 @@ mod tests {
         assert!(manager.report().contains("device lost"));
     }
 
-    /// Traces a small stone through the real event wavefront and compares its mean luminance
-    /// with the CPU's.
+    #[cfg(feature = "device-gpu")]
+    #[test]
+    fn a_stone_of_a_rejected_class_stays_on_the_cpu_without_a_device() {
+        let manager = BackendManager::new();
+        manager.begin(1);
+        let sapphire = scene("Sapphire", 16, 12);
+        let class = pass_class(sapphire.material()).expect("a plain sapphire has a pass class");
+        assert_ne!(Ok(class), pass_class(&GemMaterial::diamond()));
+        manager.reject_class(class);
+        let backend = manager.prepare_event_wavefront(&sapphire, 1);
+        assert!(matches!(backend, TraceBackend::Cpu));
+        assert_eq!(manager.report(), format!("Device CPU · {KERNEL_REJECTED}"));
+        assert!(manager.gpu.spectral.lock().expect("probe").is_none());
+    }
+
+    /// Traces a small stone of each kind (isotropic, uniaxial, biaxial: one pass class each)
+    /// through the real event wavefront and compares its mean luminance with the CPU's.
     #[cfg(feature = "device-gpu")]
     #[test]
     #[ignore = "needs a GPU adapter"]
     fn the_event_wavefront_agrees_with_the_cpu_on_mean_luminance() {
-        let scene = scene("Diamond", 32, 24);
         let manager = BackendManager::new();
-        manager.begin(1);
-        let backend = manager.prepare_event_wavefront(&scene, 1);
-        assert!(
-            matches!(backend, TraceBackend::Gpu(..)),
-            "{}",
-            manager.report()
-        );
-        let range = ChunkRange {
-            sample_offset: 0,
-            spp: 16,
-            ..range()
-        };
-        let gpu = manager
-            .trace(
-                &backend,
-                &scene,
-                range,
-                &AtomicBool::new(false),
-                &|| false,
-                1,
-            )
-            .expect("GPU frame");
-        assert!(
-            manager.report().starts_with("Device GPU"),
-            "{}",
-            manager.report()
-        );
-        let cpu = trace_chunk_abortable(&scene, range, &|| false).expect("CPU frame");
-        let mean = |sums: &[Vec3]| sums.iter().map(|s| s.y).sum::<f32>() / sums.len() as f32;
-        let (gpu, cpu) = (mean(&gpu), mean(&cpu));
-        assert!(
-            (gpu - cpu).abs() <= 0.25 * cpu.max(1e-6),
-            "GPU {gpu} vs CPU {cpu}"
-        );
+        for (epoch, material) in (1_u64..).zip(["Diamond", "Sapphire", "Tanzanite"]) {
+            let scene = scene(material, 32, 24);
+            manager.begin(epoch);
+            let backend = manager.prepare_event_wavefront(&scene, epoch);
+            assert!(
+                matches!(backend, TraceBackend::Gpu(..)),
+                "{material}: {}",
+                manager.report()
+            );
+            let range = ChunkRange {
+                sample_offset: 0,
+                spp: 16,
+                ..range()
+            };
+            let gpu = manager
+                .trace(
+                    &backend,
+                    &scene,
+                    range,
+                    &AtomicBool::new(false),
+                    &|| false,
+                    epoch,
+                )
+                .expect("GPU frame");
+            assert!(
+                manager.report().starts_with("Device GPU"),
+                "{material}: {}",
+                manager.report()
+            );
+            let cpu = trace_chunk_abortable(&scene, range, &|| false).expect("CPU frame");
+            let mean = |sums: &[Vec3]| sums.iter().map(|s| s.y).sum::<f32>() / sums.len() as f32;
+            let (gpu, cpu) = (mean(&gpu), mean(&cpu));
+            println!("{material}: mean luminance GPU {gpu} CPU {cpu}");
+            assert!(
+                (gpu - cpu).abs() <= 0.25 * cpu.max(1e-6),
+                "{material}: GPU {gpu} vs CPU {cpu}"
+            );
+        }
     }
 }

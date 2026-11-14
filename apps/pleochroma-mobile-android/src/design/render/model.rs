@@ -5,7 +5,9 @@ use pleochroma_mobile_core::{
     render::{PauseReason, RenderFrame, RenderStatus},
     viewport::{
         light_dial::light_dial,
-        render_view::{light_picture_stale, progress_fraction, quality_index, status_line},
+        render_view::{
+            light_picture_stale, pill_line, progress_fraction, quality_index, status_line,
+        },
     },
 };
 use slint::{
@@ -23,6 +25,9 @@ pub(super) fn push(window: &AppWindow, state: &AppState) {
     let solved = state.solve.current_tiers(generation).is_some();
 
     model.set_status_text(status_line(state).into());
+    let (pill_title, pill_detail) = pill_line(state);
+    model.set_pill_title(pill_title.into());
+    model.set_pill_detail(pill_detail.into());
     model.set_backend(state.settings.render.backend.index());
     model.set_engine(i32::from(
         state.settings.render.engine_spec().engine.index(),
@@ -92,6 +97,10 @@ pub(super) fn show_frame(window: &AppWindow, frame: &RenderFrame) {
     }
     bytes.copy_from_slice(&frame.rgba);
     let model = window.global::<RenderModel>();
+    // The corner pixel is the picture's backdrop; it fills the view around the fitted frame.
+    if let [r, g, b, _, ..] = frame.rgba[..] {
+        model.set_backdrop(slint::Color::from_rgb_u8(r, g, b));
+    }
     model.set_frame(Image::from_rgba8(buffer));
     model.set_has_frame(true);
 }

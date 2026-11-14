@@ -81,7 +81,7 @@ pub const HIGHLIGHT_TARGETS: &[&str] = &[
     "crystal_axis_toggle",
     // The Live Render tab above the picture.
     "live_render_tab",
-    // The Lighting drop-down of the Live Render toolbar.
+    // The Lighting chip of the Live Render toolbar (it opens the rig menu).
     "lighting_combo",
     // The three tabs of the Parameters dock (pill in the panel and the toolbar button of the
     // same tab). A step that names one opens it (`ParametersModel.show_tab`).

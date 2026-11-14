@@ -239,6 +239,22 @@ pub struct GpuSceneRef<'a> {
     pub estimator: Option<crate::optics::raytracer::Estimator>,
 }
 
+/// The pipeline families a shader warm-up builds besides the production ones
+/// ([`GpuBackend::warm_pipelines_cancellable`]).
+///
+/// The default builds none of them: exactly what
+/// [`GpuBackend::prepare_geom_surface_cancellable`] builds. Defined in both build
+/// configurations, like [`GpuSceneRef`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GpuWarmFamilies {
+    /// The live megakernel and its reduce, which adaptive live passes run on
+    /// ([`GpuBackend::try_accumulate_geom_surface_live_cancellable`]).
+    pub live: bool,
+    /// The path cache's phase B, its completion and the live reduce, which cached passes run on
+    /// ([`GpuBackend::try_accumulate_cached_live_cancellable`]).
+    pub path_cache: bool,
+}
+
 /// One picture of a batch: its scene, sample range and its own output buffer.
 ///
 /// The unit of [`GpuBackend::try_accumulate_batch_cancellable`]; `out` receives exactly

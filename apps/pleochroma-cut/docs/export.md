@@ -11,8 +11,11 @@ frozen Ray-Traced jobs use format 2 and Path-Traced jobs use format 1. The shado
 use format 3; any still with "Tray Reflection" above 0 uses format 4, with or without the shadow.
 A stone with color zones makes any Path-Traced job format 5; the zones are saved in the job file.
 A job lit by a turned HDR map (the map rotation above 0, or "Turns with the Camera" on) is format 6, which wins over the others; the rotation is saved in the job file.
+Pictures, tilt videos and jobs frame the stone where the live view has it (its pan); a job whose
+stone is off-centre is format 7, which wins over every other format, so an older build refuses
+it instead of rendering it centred. Catalogue thumbnails stay centred.
 Tilt videos do not show the tray reflection.
-The desktop app and remote workers must all use protocol 42. See the
+The desktop app and remote workers must all use protocol 43. See the
 [rendering manual](manual/09-rendering-and-export.md) for the approximation's limits.
 
 **Import**: the Import Designs panel has **Choose File...** (one `.psdd`, `.asc`,

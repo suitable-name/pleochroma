@@ -106,14 +106,21 @@ fn environment(scene: &SceneSnapshot, cam_yaw: f32) -> EnvironmentSource<'_> {
         },
     )
 }
+/// The camera of the swept `pose` (`[yaw, pitch]`) at the scene's distance, with the live view's
+/// roll and pan, so the preview frames the stone as the viewport does. The beauty preview and the
+/// diagnostics over it share it.
+fn hover_camera(scene: &SceneSnapshot, pose: [f32; 2]) -> Camera {
+    Camera::new(pose[0], pose[1], scene.distance, DEFAULT_FOV_DEG)
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan)
+}
 fn render(
     scene: &SceneSnapshot,
     pose: [f32; 2],
     edge: u32,
     cancel: impl Fn() -> bool,
 ) -> Option<Vec<u8>> {
-    let camera =
-        Camera::new(pose[0], pose[1], scene.distance, DEFAULT_FOV_DEG).with_roll(scene.camera_roll);
+    let camera = hover_camera(scene, pose);
     let soa = build_plane_soa(&scene.active_planes);
     let mut accum = vec![Vec3::ZERO; (edge * edge) as usize];
     for y in 0..edge {
@@ -194,8 +201,7 @@ fn overlay_diagnostics(
     if let Some(reason) = export::refusal(scene) {
         return Ok(format!("Diagnostics unavailable: {reason}"));
     }
-    let camera =
-        Camera::new(pose[0], pose[1], scene.distance, DEFAULT_FOV_DEG).with_roll(scene.camera_roll);
+    let camera = hover_camera(scene, pose);
     let request = OpticalImageRequest {
         camera: &camera,
         width: edge,

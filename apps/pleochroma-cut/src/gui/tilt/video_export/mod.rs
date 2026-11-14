@@ -563,8 +563,10 @@ fn build_request(
     scene.engine = engine;
     // "Turn Stone 90°": a quarter turn of the picture on top of the live view's own roll, for
     // every frame (`frames` adds each axis's roll to it; the Start and End pictures match).
+    // The pan turns with the picture, so the eye stays where the live view has it.
     if model.get_quarter_turn() {
         scene.camera_roll += std::f32::consts::FRAC_PI_2;
+        scene.camera_pan = frames::turned_pan(scene.camera_pan, std::f32::consts::FRAC_PI_2);
     }
     if !scene.engine.is_ray() && ui.global::<crate::OpticalModel>().get_include_video() {
         scene.optical_diagnostics = Some(crate::bridge::optical_overlay::presentation(ui));

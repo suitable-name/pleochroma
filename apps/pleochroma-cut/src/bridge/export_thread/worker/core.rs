@@ -459,7 +459,8 @@ fn with_export_ctx_taps<R>(
     f: impl FnOnce(Result<&ExportCtx<'_>, String>) -> R,
 ) -> R {
     let camera = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
 
     // A loaded HDR panorama (`SceneSnapshot::env_map`) replaces the analytic studio rig as
     // this render's environment, as in the live render loop. The GPU traces it like any other

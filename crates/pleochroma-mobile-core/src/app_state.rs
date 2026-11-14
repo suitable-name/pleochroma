@@ -247,8 +247,8 @@ mod tests {
     #[test]
     fn update_settings_applies_the_edit() {
         let (mut state, _mock) = state();
-        state.update_settings(|settings| settings.theme = ThemeChoice::Dark);
-        assert_eq!(state.settings.theme, ThemeChoice::Dark);
+        state.update_settings(|settings| settings.theme = ThemeChoice::HighContrast);
+        assert_eq!(state.settings.theme, ThemeChoice::HighContrast);
     }
 
     #[test]

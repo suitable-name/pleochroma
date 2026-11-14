@@ -104,7 +104,9 @@ fn scintillation_off_leaves_every_existing_field_unchanged() {
 
 #[test]
 fn offset_poses_are_the_grid_offsets() {
-    let cameras = temporal_cameras(POSE, 0.5);
+    let mut request = Camera::new(POSE[0], POSE[1], POSE[2], 42.0);
+    request.fov_tan = 0.5;
+    let cameras = temporal_cameras(POSE, &request);
     assert_eq!(cameras.len(), SCINT_TEMPORAL_YAW_OFFSETS_DEG.len());
     assert_eq!(
         SCINT_TEMPORAL_YAW_OFFSETS_DEG[BASE_POSE].to_bits(),
@@ -140,6 +142,49 @@ fn offset_poses_are_the_grid_offsets() {
         assert!((camera.forward - forward).length() < 1e-5);
         assert!((camera.right - right).length() < 1e-5);
         assert!((camera.up - up).length() < 1e-5);
+    }
+}
+
+/// A rolled, panned map camera: the base pose is the camera itself, and every offset pose is
+/// the orbit camera of its yaw with the same roll and pan.
+#[test]
+fn offset_poses_keep_the_roll_and_the_pan() {
+    let (roll, pan) = (0.3, [0.25, -0.4]);
+    let request = Camera::new(POSE[0], POSE[1], POSE[2], 42.0)
+        .with_roll(roll)
+        .with_pan(pan);
+    let cameras = temporal_cameras(POSE, &request);
+    let base = &cameras[BASE_POSE];
+    for (got, want) in [
+        (base.origin, request.origin),
+        (base.forward, request.forward),
+        (base.right, request.right),
+        (base.up, request.up),
+    ] {
+        assert_eq!(
+            got.to_array().map(f32::to_bits),
+            want.to_array().map(f32::to_bits)
+        );
+    }
+    for (camera, offset_deg) in cameras.iter().zip(SCINT_TEMPORAL_YAW_OFFSETS_DEG) {
+        let yaw = POSE[0] + offset_deg.to_radians();
+        let expected = Camera::new(yaw, POSE[1], POSE[2], 42.0)
+            .with_roll(roll)
+            .with_pan(pan);
+        assert!(
+            (camera.origin - expected.origin).length() < 1e-5,
+            "{offset_deg}"
+        );
+        assert!(
+            (camera.forward - expected.forward).length() < 1e-5,
+            "{offset_deg}"
+        );
+        assert!(
+            (camera.right - expected.right).length() < 1e-5,
+            "{offset_deg}"
+        );
+        assert!((camera.up - expected.up).length() < 1e-5, "{offset_deg}");
+        assert_eq!(camera.fov_tan.to_bits(), request.fov_tan.to_bits());
     }
 }
 

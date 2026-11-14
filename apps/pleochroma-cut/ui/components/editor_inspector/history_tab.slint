@@ -4,12 +4,21 @@ import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { HistoryModel, HistoryRowData, HistoryThumb } from "../../models/history.slint";
 import { VariantsModel } from "../../models/variants.slint";
+import { TrialsModel } from "../../models/trials.slint";
 import { CompactIcon } from "../compact_controls.slint";
 import { VariantsSection } from "variants_section.slint";
 import { TrialsView } from "trials_view.slint";
+import { KitSegmentBar, KitSegment, KitBadge, KitIconButton } from "../kit/kit.slint";
 
-// One step of the history: a small picture of the design at that step, what the step did,
-// and where it stands (the current step, or one that was undone).
+// A flag: "keep this as a trial".
+global HistoryIcons {
+    out property <string> flag: "M5 21 V4 H17 L14 8 L17 12 H5";
+}
+
+// One step of the history on a time line: a dot on the line (filled for the step the design stands
+// at, hollow for one that was undone), a small picture of the design at that step, what the step
+// did, and where it stands (the current step, or one that was undone). The step the design stands
+// at carries the "Keep as Trial" flag (Advanced).
 //
 // The data property is called `step`, not `row`: `row` is a built-in layout property of
 // every element and cannot be redeclared.
@@ -19,10 +28,10 @@ component HistoryRowView inherits Rectangle {
     in property <bool> usable;
     // The keyboard cursor is on this row.
     in property <bool> cursor;
-    // Whether Tab can stop on the row's save button. Only the row the cursor is on says yes, so a
+    // Whether Tab can stop on the row's buttons. Only the row the cursor is on says yes, so a
     // long list never puts one Tab stop per row between the list and the rest of the window.
     in property <bool> reachable;
-    // The Advanced interface also shows the small save button on each row.
+    // The Advanced interface also shows the small save button on each row and the flag.
     in property <bool> advanced;
     callback chosen();
     // The small save button on the row: keep the design as it was at this step as a variant.
@@ -41,13 +50,29 @@ component HistoryRowView inherits Rectangle {
 
     // The card plus the 4px gap that separates it from the next row (a ListView has no
     // `spacing`).
-    height: 84px;
+    height: 64px;
+
+    // The time line: it runs through every row, ending at the top row and at "Start".
+    if root.step.position < HistoryModel.step_count: Rectangle { x: 8px; y: 0px; width: 2px; height: 32px; background: Theme.border-medium; }
+    if !root.step.start: Rectangle { x: 8px; y: 32px; width: 2px; height: parent.height - 32px; background: Theme.border-medium; }
+    Rectangle {
+        x: 3px;
+        y: 26px;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: root.step.current ? Theme.accent-cyan : (root.step.undone ? Theme.bg-input : Theme.text-secondary);
+        border-width: root.step.undone ? 1px : 0px;
+        border-color: Theme.border-medium;
+    }
 
     card := Rectangle {
+        x: 24px;
         y: 0px;
-        height: 80px;
-        background: root.step.current ? Theme.surface-selected : ((touch.has-hover && root.usable) ? Theme.bg-card-hover : Theme.bg-input);
-        border-radius: Theme.radius-sm;
+        width: parent.width - 24px;
+        height: 60px;
+        background: root.step.current ? Theme.surface-selected : ((touch.has-hover && root.usable) ? Theme.bg-card-hover : Theme.surface-raised);
+        border-radius: 10px;
         border-width: root.cursor ? 2px : 1px;
         border-color: root.cursor ? Theme.accent-cyan-hover : (root.step.current ? Theme.accent-cyan : Theme.border-subtle);
         clip: true;
@@ -71,16 +96,18 @@ component HistoryRowView inherits Rectangle {
         }
 
         HorizontalLayout {
-            padding: 4px;
-            spacing: 8px;
+            padding: 5px;
+            padding-right: 8px;
+            spacing: 10px;
 
             // The picture. A fixed box either way, so a row without a picture yet never
             // shifts the layout when it arrives.
             Rectangle {
-                width: 72px;
-                height: 72px;
+                width: 64px;
+                height: 48px;
                 background: Theme.surface-sunken;
-                border-radius: Theme.radius-sm;
+                border-radius: 8px;
+                clip: true;
                 opacity: root.step.undone ? 0.6 : 1.0;
 
                 if root.thumb.state == 1: Image {
@@ -113,42 +140,41 @@ component HistoryRowView inherits Rectangle {
 
                 Text {
                     text: root.step.title;
-                    font-size: 11px;
-                    font-weight: 700;
-                    color: Theme.text-primary;
-                    wrap: word-wrap;
-                    opacity: root.step.undone ? 0.6 : 1.0;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: root.step.undone ? Theme.text-muted : Theme.text-primary;
+                    overflow: elide;
                 }
                 Text {
-                    text: root.step.detail;
+                    text: root.step.detail + (root.step.undone ? " · undone" : "");
                     font-size: 10px;
                     color: Theme.text-muted;
-                    wrap: word-wrap;
-                    opacity: root.step.undone ? 0.6 : 1.0;
-                }
-                if root.step.current: HorizontalLayout {
-                    Rectangle {
-                        background: Theme.primary;
-                        border-radius: Theme.radius-sm;
-                        width: pill_text.preferred-width + 12px;
-                        height: pill_text.preferred-height + 4px;
-                        pill_text := Text {
-                            text: "Now";
-                            font-size: 9px;
-                            font-weight: 700;
-                            color: Theme.text-on-primary;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                    }
-                    Rectangle { horizontal-stretch: 1; }
+                    overflow: elide;
                 }
             }
 
-            // Keeps the design as it was at this step as a variant (Advanced). It sits over the
-            // card's own touch area, so a click on it never jumps to the step.
+            if root.step.current: VerticalLayout {
+                alignment: center;
+                KitBadge { text: "Now"; fill: Theme.accent-cyan-surface; ink: Theme.accent-cyan; }
+            }
+
+            // Keeps the design as it stands as a trial (Advanced), with its figures. It sits over
+            // the card's own touch area, so a click on it never jumps to the step.
+            if root.advanced && root.step.current: VerticalLayout {
+                alignment: center;
+                KitIconButton {
+                    d: HistoryIcons.flag;
+                    size: 26px;
+                    icon_size: 13px;
+                    label: "Keep as Trial";
+                    hint: "Keep the design as it is now as a trial, with its\nfigures. Shortcut: Ctrl+Shift+K. See the Trials view.";
+                    enabled: root.usable && TrialsModel.design_open;
+                    clicked => { TrialsModel.keep_trial(); }
+                }
+            }
+            // Keeps the design as it was at this step as a variant (Advanced).
             if root.advanced: VerticalLayout {
-                alignment: start;
+                alignment: center;
                 CompactIcon {
                     enabled: root.usable;
                     reachable: root.reachable;
@@ -161,8 +187,8 @@ component HistoryRowView inherits Rectangle {
     }
 }
 
-// The Inspector's "History" tab: every step of the open design's undo history, newest at
-// the top, ending with "Start" (the design as opened or created). A click -- or Enter on
+// The Inspector's "History" tab, "Steps" view: every step of the open design's undo history,
+// newest at the top, ending with "Start" (the design as opened or created). A click -- or Enter on
 // the row the keyboard cursor is on -- goes to that step. Steps after the current one are
 // the undone ones: dimmed, still there to go forward to until a new change is made.
 //
@@ -171,14 +197,11 @@ component HistoryRowView inherits Rectangle {
 // The whole list is one Tab stop. Up/Down move the cursor between steps (Up is newer), Home
 // goes to the newest, End to "Start", Enter or Space goes to the step the cursor is on.
 // Everything else (Ctrl+Z and the like) falls through to the window's shortcuts.
-//
-// This is the "Steps" view of `HistoryTab` below.
 component HistorySteps inherits Rectangle {
     // Clicking is allowed unless the worked-example guide locks undo/redo or the editor is
     // busy -- the same condition as the Undo and Redo buttons.
     property <bool> usable: EditorModel.enabled && GuideModel.allows_history();
-    // The Simple interface leaves out the per-row save button (the "Save as variant..." button
-    // of the Variants view does the same for the design as it is now).
+    // The Simple interface leaves out the per-row save button and the flag.
     property <bool> advanced: GuideModel.shows_advanced();
     // The position the keyboard cursor is on; -1 follows the current step.
     property <int> cursor_position: -1;
@@ -186,7 +209,7 @@ component HistorySteps inherits Rectangle {
         ? min(root.cursor_position, HistoryModel.step_count)
         : HistoryModel.current_position;
     // One row's height in the list, gap included (`HistoryRowView.height`).
-    property <length> row_height: 84px;
+    property <length> row_height: 64px;
 
     init => {
         HistoryModel.opened();
@@ -251,16 +274,10 @@ component HistorySteps inherits Rectangle {
             spacing: 6px;
 
             Text {
-                text: "History";
-                font-size: 12px;
-                font-weight: 700;
-                color: Theme.text-primary;
-            }
-            Text {
                 text: HistoryModel.step_count == 0
                     ? "No changes yet. Every change you make is listed here, so you can go back to any of them."
-                    : "Click a step to go back to it. Steps after the current one are undone: they stay here until you make a new change.";
-                font-size: 10px;
+                    : "Click a step to go back to it. Undone steps stay here until you make a new change.";
+                font-size: 11px;
                 color: Theme.text-muted;
                 wrap: word-wrap;
             }
@@ -289,96 +306,71 @@ component HistorySteps inherits Rectangle {
     }
 }
 
-// One of the pills that switch the History tab between its views. It takes Tab, answers
-// Space and Enter, shows a ring while it has focus and is a tab (picked or not) to a screen
-// reader.
-component HistoryViewPill inherits Rectangle {
-    in property <string> label;
-    // One plain sentence: what the view holds. Shown as the tooltip.
-    in property <string> hint;
-    in property <bool> active;
-    callback clicked();
-
-    height: 26px;
-    width: view_text.preferred-width + 20px;
-    background: root.active ? Theme.primary : (view_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
-    border-radius: Theme.radius-sm;
-    border-width: view_focus.has-focus ? 2px : 1px;
-    border-color: view_focus.has-focus ? Theme.accent-cyan-hover : (root.active ? Theme.accent-cyan : Theme.border-subtle);
-    accessible-role: AccessibleRole.tab;
-    accessible-label: root.label;
-    accessible-description: root.hint;
-    accessible-checkable: true;
-    accessible-checked: root.active;
-    accessible-action-default => { root.clicked(); }
-
-    Tooltip { text: @markdown("\{root.hint}"); }
-
-    view_focus := FocusScope {
-        key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return {
-                root.clicked();
-                return accept;
-            }
-            reject
+// The Inspector's "History" tab. Three views, chosen by the segment at its top: the steps of the
+// open design's undo history (`HistorySteps`), the trials kept this session (`TrialsView`, state in
+// `models/trials.slint`) and the variants saved for the design (`VariantsSection`, state in
+// `models/variants.slint`). The Inspector header's "?" button opens this tab's manual page
+// (`HelpTopics.history`).
+//
+// Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface shows the steps alone
+// (no segment, no Trials, no Variants); a view left open when the interface switches to Simple
+// falls back to the steps.
+export component HistoryTab inherits Rectangle {
+    property <bool> advanced: GuideModel.shows_advanced();
+    property <int> tracked_view: VariantsModel.view;
+    function leave_hidden_view() {
+        if !root.advanced && VariantsModel.view != 0 {
+            VariantsModel.view = 0;
         }
     }
-    view_touch := TouchArea {
-        clicked => { root.clicked(); }
-    }
-    view_text := Text {
-        text: root.label;
-        font-size: 10px;
-        font-weight: 600;
-        color: root.active ? Theme.text-on-primary : Theme.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-}
+    init => { root.leave_hidden_view(); }
+    changed advanced => { root.leave_hidden_view(); }
+    changed tracked_view => { root.leave_hidden_view(); }
 
-// The Inspector's "History" tab. Three views, chosen by the pills at its top: the steps of the
-// open design's undo history (`HistorySteps`), the variants saved for the design
-// (`VariantsSection`, state in `models/variants.slint`) and the trials kept this session
-// (`TrialsView`, state in `models/trials.slint`). The Inspector header's "?" button opens
-// this tab's manual page (`HelpTopics.history`).
-export component HistoryTab inherits Rectangle {
     VerticalLayout {
-        spacing: 6px;
+        spacing: 8px;
 
-        HorizontalLayout {
-            spacing: 6px;
-            HistoryViewPill {
-                label: "Steps";
-                hint: "Every change you made to this design, newest first. Click one to go back to it.";
-                active: VariantsModel.view == 0;
-                clicked => { VariantsModel.view = 0; }
-            }
-            HistoryViewPill {
-                label: "Variants";
-                hint: "Named copies of this design that you keep to\ncome back to or to compare. See the glossary.";
-                active: VariantsModel.view == 1;
-                clicked => {
-                    VariantsModel.view = 1;
-                    // The guide's Variants lesson waits for the view to be opened.
-                    GuideModel.event("variants_opened");
+        if root.advanced: HorizontalLayout {
+            KitSegmentBar {
+                width: view_row.preferred-width + 4px;
+                view_row := HorizontalLayout {
+                    x: 2px;
+                    padding: 2px;
+                    spacing: 2px;
+                    KitSegment {
+                        text: "Steps";
+                        hint: "Every change you made to this design, newest first. Click one to go back to it.";
+                        on: VariantsModel.view == 0;
+                        picked => { VariantsModel.view = 0; }
+                    }
+                    KitSegment {
+                        text: "Trials";
+                        hint: "Designs you kept this session to compare and come back to,\nwith their figures. They are not saved with the design.";
+                        on: VariantsModel.view == 2;
+                        picked => { VariantsModel.view = 2; }
+                    }
+                    KitSegment {
+                        text: "Variants";
+                        hint: "Named copies of this design that you keep to\ncome back to or to compare. See the glossary.";
+                        on: VariantsModel.view == 1;
+                        picked => {
+                            VariantsModel.view = 1;
+                            // The guide's Variants lesson waits for the view to be opened.
+                            GuideModel.event("variants_opened");
+                        }
+                    }
                 }
-            }
-            HistoryViewPill {
-                label: "Trials";
-                hint: "Designs you kept this session to compare and come back to,\nwith their figures. They are not saved with the design.";
-                active: VariantsModel.view == 2;
-                clicked => { VariantsModel.view = 2; }
             }
             Rectangle { horizontal-stretch: 1; }
         }
 
-        if VariantsModel.view == 0: HistorySteps {
+        if VariantsModel.view == 0 || !root.advanced: HistorySteps {
             vertical-stretch: 1;
         }
-        if VariantsModel.view == 1: VariantsSection {
+        if VariantsModel.view == 1 && root.advanced: VariantsSection {
             vertical-stretch: 1;
         }
-        if VariantsModel.view == 2: TrialsView {
+        if VariantsModel.view == 2 && root.advanced: TrialsView {
             vertical-stretch: 1;
         }
     }

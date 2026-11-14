@@ -1,0 +1,117 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon } from "../kit/icons.slint";
+
+// Parts of the tier list's popup menus (a row's "..." menu, Add Tier, the list menu). Each item is
+// a button for a screen reader and the lesson routes: `label` is its accessible name (the name the
+// control had before it moved into a menu), `text` what is drawn.
+
+// The popup's surface.
+export component TierMenuSurface inherits Rectangle {
+    background: Theme.popup-surface;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+}
+
+// A small muted heading inside a menu.
+export component TierMenuCaption inherits Rectangle {
+    in property <string> text;
+    height: 22px;
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        font-size: 10px;
+        font-weight: 700;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+export component TierMenuSeparator inherits Rectangle {
+    height: 9px;
+    Rectangle {
+        x: 8px;
+        y: 4px;
+        width: parent.width - 16px;
+        height: 1px;
+        background: Theme.border-subtle;
+    }
+}
+
+// One menu item.
+export component TierMenuItem inherits Rectangle {
+    in property <string> text;
+    // The accessible name; the text when empty.
+    in property <string> label;
+    in property <string> hint;
+    // A `KitIcons` path drawn before the text; none when empty.
+    in property <string> icon;
+    in property <color> ink: Theme.text-primary;
+    in property <bool> enabled: true;
+    // A tick at the end, for an item that is on.
+    in property <bool> checked: false;
+    // A chevron at the end, for an item that opens a further page.
+    in property <bool> submenu: false;
+    callback activated();
+
+    height: 28px;
+    border-radius: 6px;
+    background: (item_touch.has-hover && root.enabled) ? Theme.bg-card-hover : transparent;
+    border-width: item_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    opacity: root.enabled ? 1.0 : 0.45;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.activated();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    item_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.activated();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 14px; ink: root.ink; }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            font-size: 12px;
+            color: root.ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.checked: VerticalLayout {
+            alignment: center;
+            Text { text: "on"; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+        }
+        if root.submenu: VerticalLayout {
+            alignment: center;
+            Text { text: ">"; font-size: 12px; color: Theme.text-muted; }
+        }
+    }
+    item_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.activated(); }
+    }
+}

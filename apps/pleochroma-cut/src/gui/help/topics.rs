@@ -22,8 +22,8 @@ pub const CONCAVE_TIER: &str = "16-concave-tiers#adding-a-concave-tier";
 pub const PREFORM_TAB: &str = "04-editing-tiers#preform-proportions-and-yield";
 /// The Optimize tab.
 pub const OPTIMIZE_TAB: &str = "08-deep-solve-optimize-adopt#optimize";
-/// The Schedule tab.
-pub const SCHEDULE_TAB: &str = "03-loading-and-tier-list#the-inspectors-schedule-tab";
+/// The cut order. The inspector's Schedule tab is retired; its page is Cutting Instructions.
+pub const SCHEDULE_TAB: &str = "03-loading-and-tier-list#the-cutting-order-cutting-instructions";
 /// The tier table and its columns.
 pub const TIER_TABLE: &str = "03-loading-and-tier-list#reading-the-tier-list";
 /// The Design Settings panel above the tier table.

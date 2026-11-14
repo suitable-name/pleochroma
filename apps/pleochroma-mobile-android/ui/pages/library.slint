@@ -2,12 +2,11 @@
 //
 //   top bar        Import, Grid / List and Sort; selection mode swaps it for a bar with
 //                  Select All, Tag, Ignore, Share and Delete
-//   search row     the search box and the filter button
-//   filter chips   Shape, Gear, Refractive Index, Mine, Tag, Show Ignored
+//   search row     the search pill and the Filter pill (`library/search_bar.slint`)
+//   filter chips   Mine and Show Ignored, then a removable chip per filter that is set
 //   body           2-up cards on a phone, 3 or 4 on wider windows; rows in list mode
 //
 // All data comes through `LibraryModel`; `src/library.rs` is the Rust side.
-import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Shell } from "../models.slint";
@@ -21,11 +20,41 @@ import { LibraryModel } from "../library/library_model.slint";
 import { LibraryIcons } from "../library/library_icons.slint";
 import { CardGrid } from "../library/card_grid.slint";
 import { FilterSheet, TagSheet } from "../library/filter_sheet.slint";
+import { SearchRow, FilterChips } from "../library/search_bar.slint";
+
+// A card for the empty and error states: the card surface with a soft border, the state's
+// icon, text and buttons centered inside.
+component EmptyCard inherits Rectangle {
+    HorizontalLayout {
+        alignment: center;
+        padding: Theme.space-lg;
+
+        Rectangle {
+            max-width: 640px;
+            horizontal-stretch: 1;
+            background: Theme.surface-container;
+            border-radius: Theme.radius-lg;
+            border-width: 1px;
+            border-color: Theme.outline-variant;
+            clip: true;
+
+            @children
+        }
+    }
+}
 
 // The bar of selection mode.
 component SelectionBar inherits Rectangle {
     height: Theme.top-bar-height;
     background: Theme.secondary-container;
+
+    // The hairline along the bar's bottom edge.
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.accent;
+        opacity: 0.4;
+    }
 
     HorizontalLayout {
         padding-left: Theme.space-xs;
@@ -98,111 +127,6 @@ component SelectionBar inherits Rectangle {
     }
 }
 
-// The search box and the button that opens the filter sheet.
-component SearchRow inherits Rectangle {
-    callback filter-clicked();
-
-    height: Theme.touch + Theme.space-sm;
-
-    HorizontalLayout {
-        padding-left: Theme.space-lg;
-        padding-right: Theme.space-xs;
-        padding-bottom: Theme.space-sm;
-        spacing: Theme.space-sm;
-
-        LineEdit {
-            text <=> LibraryModel.query-text;
-            placeholder-text: "Search Designs";
-            accessible-label: "Search Designs";
-            horizontal-stretch: 1;
-
-            edited(value) => {
-                LibraryModel.search-edited(value);
-            }
-        }
-
-        IconButton {
-            icon: LibraryIcons.filter;
-            label: LibraryModel.filter-count > 0 ? "Filters, " + LibraryModel.filter-count + " set" : "Filters";
-            selected: LibraryModel.filter-count > 0;
-            clicked => {
-                root.filter-clicked();
-            }
-        }
-    }
-}
-
-// The chip row under the search box. Shape, Gear, Refractive Index and Tag open the
-// filter sheet; Mine and Show Ignored switch at once.
-component FilterChips inherits Rectangle {
-    callback open-filters();
-
-    height: Theme.touch;
-
-    Flickable {
-        content-width: lay.preferred-width;
-        content-height: root.height;
-
-        lay := HorizontalLayout {
-            x: 0px;
-            y: 0px;
-            height: root.height;
-            width: self.preferred-width;
-            padding-left: Theme.space-lg;
-            padding-right: Theme.space-lg;
-            spacing: Theme.space-sm;
-
-            Chip {
-                text: LibraryModel.shape-text;
-                selected: LibraryModel.shape-index > 0;
-                clicked => {
-                    root.open-filters();
-                }
-            }
-
-            Chip {
-                text: LibraryModel.gear-text;
-                selected: LibraryModel.gear-index > 0;
-                clicked => {
-                    root.open-filters();
-                }
-            }
-
-            Chip {
-                text: LibraryModel.ri-text;
-                selected: LibraryModel.ri-index > 0;
-                clicked => {
-                    root.open-filters();
-                }
-            }
-
-            Chip {
-                text: "Mine";
-                selected: LibraryModel.mine-only;
-                clicked => {
-                    LibraryModel.set-mine-only(!LibraryModel.mine-only);
-                }
-            }
-
-            Chip {
-                text: LibraryModel.tag-text;
-                selected: LibraryModel.tag-index >= 0;
-                clicked => {
-                    root.open-filters();
-                }
-            }
-
-            Chip {
-                text: "Show Ignored";
-                selected: LibraryModel.show-ignored;
-                clicked => {
-                    LibraryModel.set-show-ignored(!LibraryModel.show-ignored);
-                }
-            }
-        }
-    }
-}
-
 export component LibraryPage inherits Rectangle {
     property <bool> shown: Shell.destination == 0;
     // The page has something to search: it is open and its library is not empty.
@@ -262,53 +186,62 @@ export component LibraryPage inherits Rectangle {
 
             Text {
                 text: LibraryModel.busy-text;
-                color: Theme.on-surface-variant;
+                color: Theme.text-secondary;
                 font-size: Theme.text-body;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
         }
 
-        if LibraryModel.error != "": EmptyState {
+        if LibraryModel.error != "": EmptyCard {
             vertical-stretch: 1;
-            icon: Icons.library;
-            title: "Library Unavailable";
-            body: LibraryModel.error;
-            primary-text: "Try Again";
-            primary-clicked => {
-                LibraryModel.page-shown();
+
+            EmptyState {
+                icon: Icons.library;
+                title: "Library Unavailable";
+                body: LibraryModel.error;
+                primary-text: "Try Again";
+                primary-clicked => {
+                    LibraryModel.page-shown();
+                }
             }
         }
 
         if LibraryModel.error == "" && !LibraryModel.opened: Text {
             vertical-stretch: 1;
             text: "Opening Library";
-            color: Theme.on-surface-variant;
+            color: Theme.text-secondary;
             font-size: Theme.text-body-large;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
 
-        if LibraryModel.error == "" && LibraryModel.opened && LibraryModel.empty-kind == 1: EmptyState {
+        if LibraryModel.error == "" && LibraryModel.opened && LibraryModel.empty-kind == 1: EmptyCard {
             vertical-stretch: 1;
-            icon: Icons.library;
-            title: "Your Library Is Empty";
-            body: "Import designs from .psdd, .asc, .gem or .gcs files, or save a design from the Design page.";
-            primary-text: "Import Designs";
-            primary-icon: Icons.open;
-            primary-clicked => {
-                LibraryModel.import-designs();
+
+            EmptyState {
+                icon: Icons.library;
+                title: "Your Library Is Empty";
+                body: "Import designs from .psdd, .asc, .gem or .gcs files, or save a design from the Design page.";
+                primary-text: "Import Designs";
+                primary-icon: Icons.open;
+                primary-clicked => {
+                    LibraryModel.import-designs();
+                }
             }
         }
 
-        if LibraryModel.error == "" && LibraryModel.opened && LibraryModel.empty-kind == 2: EmptyState {
+        if LibraryModel.error == "" && LibraryModel.opened && LibraryModel.empty-kind == 2: EmptyCard {
             vertical-stretch: 1;
-            icon: LibraryIcons.search;
-            title: "No Designs Match";
-            body: "No design fits the search and the filters.";
-            primary-text: "Clear Filters";
-            primary-clicked => {
-                LibraryModel.clear-filters();
+
+            EmptyState {
+                icon: LibraryIcons.search;
+                title: "No Designs Match";
+                body: "No design fits the search and the filters.";
+                primary-text: "Clear Filters";
+                primary-clicked => {
+                    LibraryModel.clear-filters();
+                }
             }
         }
 
@@ -333,6 +266,8 @@ export component LibraryPage inherits Rectangle {
             height: sort-rows.preferred-height;
             background: Theme.surface-high;
             border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.glass-edge;
             clip: true;
             drop-shadow-color: Theme.shadow;
             drop-shadow-blur: Theme.shadow-blur-3;

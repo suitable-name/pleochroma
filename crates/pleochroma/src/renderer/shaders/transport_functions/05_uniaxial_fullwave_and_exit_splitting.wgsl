@@ -235,18 +235,16 @@ fn narrow_compat_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let c = narrow_compat_cases[idx];
     let raw_dirs = array<vec4<f32>, 8>(c.dir0, c.dir1, c.dir2, c.dir3, c.dir4, c.dir5, c.dir6, c.dir7);
     var dirs: array<vec3<f32>, 8>;
-    var dirs_valid: array<bool, 8>;
-    var hero_match: array<bool, 8>;
+    var dirs_valid: u32 = 0u;
     for (var k: u32 = 0u; k < 8u; k = k + 1u) {
         dirs[k] = raw_dirs[k].xyz;
-        dirs_valid[k] = raw_dirs[k].w > 0.5;
-        hero_match[k] = ((c.hero_match_mask >> k) & 1u) != 0u;
+        dirs_valid = dirs_valid | (u32(raw_dirs[k].w > 0.5) << k);
     }
     var compat: array<u32, 8>;
     for (var k: u32 = 0u; k < 8u; k = k + 1u) {
         compat[k] = 0xFFu;
     }
-    narrow_compat(&compat, dirs, dirs_valid, hero_match);
+    narrow_compat(&compat, dirs, dirs_valid, c.hero_match_mask);
     let base = idx * 8u;
     for (var k: u32 = 0u; k < 8u; k = k + 1u) {
         narrow_compat_out[base + k] = compat[k];

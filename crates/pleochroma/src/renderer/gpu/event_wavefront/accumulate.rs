@@ -25,7 +25,7 @@ use crate::{
                     ChunkRayBuffers, SceneBuffers, bind_kernel, execute_chunk, scene_binding_bytes,
                 },
                 clock,
-                kernels::EwKernel,
+                kernels::{EwKernel, needed_kernels_with_surface},
                 pipelines::EwPipelines,
             },
             frame::{classify_material, environment_params, material_class, tables_supported_by},
@@ -333,6 +333,40 @@ impl EventWavefrontRenderer {
         self.pipelines.ensure(&self.ctx.device, kernel, class)
     }
 
+    /// Builds the pipelines of `kernels` for `material_class` that are not built yet, one at a
+    /// time. When the driver cannot build a kernel, wgpu loses the whole device. On native
+    /// targets the failure is recorded before `create_compute_pipeline` returns, so the check
+    /// right after each kernel names the one that failed; a browser reports it later, as a
+    /// lost device.
+    ///
+    /// # Errors
+    ///
+    /// [`EwError::KernelCompile`] for the kernel after which the device recorded a failure,
+    /// [`EwError::DeviceLost`] for a failure recorded before the first build.
+    fn compile_kernels(
+        &mut self,
+        kernels: &[EwKernel],
+        material_class: u32,
+    ) -> Result<(), EwError> {
+        // A failure already recorded (by the scene upload, say) is no kernel's.
+        self.check_uncaptured_error()?;
+        for &kernel in kernels {
+            if self.pipelines.contains(kernel, material_class) {
+                continue;
+            }
+            self.pipelines
+                .ensure(&self.ctx.device, kernel, material_class);
+            if let Some(detail) = self.ctx.failure() {
+                return Err(EwError::KernelCompile {
+                    kernel,
+                    class: material_class,
+                    detail,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Encodes and submits a test dispatch of 1 workgroup with `chunk_rays = 0`.
     ///
     /// This triggers GPU driver shader compilation and pipeline validation without
@@ -497,7 +531,8 @@ impl EventWavefrontRenderer {
     ///
     /// [`EwError::InvalidBufferSize`] if `accum` does not hold one entry per pixel,
     /// [`EwError::NonFiniteSample`] in diagnostic mode if a finalized sample is nonfinite,
-    /// [`EwError::UnsupportedMaterial`] if the material has no GPU support, or any GPU,
+    /// [`EwError::UnsupportedMaterial`] if the material has no GPU support,
+    /// [`EwError::KernelCompile`] if the driver cannot build one of the kernels, or any GPU,
     /// readback or device-loss error raised while running a chunk.
     #[allow(
         clippy::future_not_send,
@@ -702,6 +737,9 @@ impl EventWavefrontRenderer {
     ) -> Result<(), EwError> {
         let num_pixels = accum.len();
         self.upload_scene(scene, packed, (spp, material_class))?;
+        let kernels =
+            needed_kernels_with_surface(material_class, scene, self.surface.needs_ground_arm());
+        self.compile_kernels(&kernels, material_class)?;
 
         let max_storage_binding = self.ctx.device.limits().max_storage_buffer_binding_size;
         let byte_budget_pixels = chunk_pixels_for(

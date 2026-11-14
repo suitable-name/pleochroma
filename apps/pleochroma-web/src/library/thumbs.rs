@@ -62,6 +62,7 @@ pub fn render_png(
             pitch: DEFAULT_CAMERA_PITCH,
             roll: 0.0,
             distance: DEFAULT_POSE.distance,
+            pan: [0.0, 0.0],
         },
         size: THUMBNAIL_SIZE,
         selected_tier: None,

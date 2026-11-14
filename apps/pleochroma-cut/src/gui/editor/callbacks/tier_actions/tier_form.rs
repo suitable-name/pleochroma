@@ -351,6 +351,20 @@ fn save_tier_now(ui: &MainWindow, services: &SaveServices<'_>, form: &TierFormIn
         report_tier_form_error(ui, &message, "name");
         return;
     }
+    // Fields apply when they are left, so a field left untouched hands over the tier as it
+    // is: nothing changed, and no undo step is spent on it.
+    if index >= 0
+        && relation_text.is_none()
+        && target.is_none()
+        && usize::try_from(index)
+            .ok()
+            .and_then(|row| st.design.tiers.get(row))
+            == Some(&tier)
+    {
+        drop(st);
+        clear_tier_form_error(ui);
+        return;
+    }
     // The edit: the tier as the form describes it and, for `=...`, its relation in the same
     // undo step. The session then keeps every relation true and refuses what cannot be.
     let applied = plan_tier_save(

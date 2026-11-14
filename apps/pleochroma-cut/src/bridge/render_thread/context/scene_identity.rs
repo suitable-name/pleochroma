@@ -35,7 +35,7 @@ struct SceneKey {
     engine: pleochroma::renderer::engine::EngineSpec,
     planes_owner: super::PlanesOwner,
     dims: [u32; 3],
-    floats: [u32; 12],
+    floats: [u32; 14],
     c_axis: Option<[u32; 3]>,
     /// The Second Axis override, as bit patterns like [`Self::c_axis`].
     alpha_axis: Option<[u32; 3]>,
@@ -71,11 +71,13 @@ const fn dims(ctx: &RenderContext) -> [u32; 3] {
     [ctx.width, ctx.height, ctx.max_bounces]
 }
 
-const fn floats(ctx: &RenderContext) -> [u32; 12] {
+const fn floats(ctx: &RenderContext) -> [u32; 14] {
     [
         ctx.yaw.to_bits(),
         ctx.pitch.to_bits(),
         ctx.camera_roll.to_bits(),
+        ctx.camera_pan[0].to_bits(),
+        ctx.camera_pan[1].to_bits(),
         ctx.distance.to_bits(),
         ctx.light_yaw.to_bits(),
         ctx.light_pitch.to_bits(),
@@ -88,11 +90,12 @@ const fn floats(ctx: &RenderContext) -> [u32; 12] {
     ]
 }
 
-/// The entries of [`floats`] that are not lighting: the camera (yaw, pitch, roll,
+/// The entries of [`floats`] that are not lighting: the camera (yaw, pitch, roll, pan,
 /// distance), the scattering strength, the edge rounding and the stone width.
-const fn pose_floats(floats: &[u32; 12]) -> [u32; 7] {
+const fn pose_floats(floats: &[u32; 14]) -> [u32; 9] {
     [
-        floats[0], floats[1], floats[2], floats[3], floats[7], floats[8], floats[9],
+        floats[0], floats[1], floats[2], floats[3], floats[4], floats[5], floats[9], floats[10],
+        floats[11],
     ]
 }
 
@@ -488,9 +491,10 @@ mod tests {
         let mut ctx = RenderContext::default();
         ctx.scene_generation();
         let mut last = ctx.pose_generation();
-        let changes: [fn(&mut RenderContext); 8] = [
+        let changes: [fn(&mut RenderContext); 9] = [
             |c| c.pitch += 0.1,
             |c| c.camera_roll = std::f32::consts::FRAC_PI_2,
+            |c| c.camera_pan = [0.3, -0.2],
             |c| c.distance += 1.0,
             |c| c.material_name = "Spinel".to_string(),
             |c| c.material_override = Some(GemMaterial::diamond()),
@@ -504,6 +508,24 @@ mod tests {
             assert!(ctx.pose_generation() > last, "a pose edit bumps the pose");
             last = ctx.pose_generation();
         }
+    }
+
+    /// Panning alone moves the picture: a new scene and a new pose, each component on its own.
+    #[test]
+    fn a_pan_alone_restarts_the_scene_and_the_pose() {
+        let mut ctx = RenderContext::default();
+        let scene = ctx.scene_generation();
+        let pose = ctx.pose_generation();
+        ctx.camera_pan = [0.25, 0.0];
+        let panned = ctx.scene_generation();
+        assert!(panned > scene, "a pan is a scene change");
+        assert!(ctx.pose_generation() > pose, "and a pose change");
+        assert_eq!(ctx.scene_generation(), panned, "nothing changed since");
+        ctx.camera_pan = [0.25, -0.5];
+        assert!(
+            ctx.scene_generation() > panned,
+            "the vertical component counts too"
+        );
     }
 
     /// The map's yaw and its camera switch are scene members only while a map is loaded.
@@ -613,9 +635,10 @@ mod tests {
     fn every_kind_of_scene_change_bumps_the_generation() {
         let mut ctx = RenderContext::default();
         let mut last = ctx.scene_generation();
-        let changes: [fn(&mut RenderContext); 16] = [
+        let changes: [fn(&mut RenderContext); 17] = [
             |c| c.yaw += 0.1,
             |c| c.camera_roll = std::f32::consts::FRAC_PI_2,
+            |c| c.camera_pan = [0.0, 0.5],
             |c| c.exposure = 2.0,
             |c| c.material_name = "Spinel".to_string(),
             |c| c.material_override = Some(GemMaterial::diamond()),

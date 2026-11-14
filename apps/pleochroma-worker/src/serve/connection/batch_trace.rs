@@ -95,6 +95,7 @@ fn trace_on_gpu<'a>(
                 DEFAULT_FOV_DEG,
             )
             .with_roll(item.scene.camera_roll)
+            .with_pan(item.scene.camera_pan)
         })
         .collect();
     let finishes: Vec<Vec<FacetFinish>> = items

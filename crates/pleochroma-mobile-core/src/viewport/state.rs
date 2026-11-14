@@ -37,7 +37,33 @@ impl ViewportState {
             handle_scale: handle_scale_for(large_handles, compact),
             snap,
             max_edge,
+            single_panel: compact,
         });
+    }
+
+    /// The diagram panel drawn now: `0` Crown, `1` Pavilion, `2` Profile, or `-1` for all
+    /// three. A compact window always draws one (the Crown until another is chosen).
+    #[must_use]
+    pub fn panel(&self) -> i32 {
+        if self.options.get().single_panel && !(0..=2).contains(&self.enlarged_panel) {
+            0
+        } else {
+            self.enlarged_panel
+        }
+    }
+
+    /// Chooses the diagram panel (the phone's Crown / Pavilion / Profile segment).
+    /// Returns whether the picture changed.
+    pub fn set_diagram_panel(&mut self, panel: i32) -> bool {
+        if !(0..=2).contains(&panel) || self.panel() == panel {
+            return false;
+        }
+        self.enlarged_panel = panel;
+        self.diagram_view = ViewTransform::IDENTITY;
+        self.info = None;
+        self.info_facet = None;
+        self.touch();
+        true
     }
 
     /// Marks the picture as owing a new job.
@@ -60,7 +86,7 @@ impl ViewportState {
     pub fn raster_size(&self) -> (u32, u32) {
         frame::raster_size(
             self.mode,
-            self.enlarged_panel >= 0,
+            self.panel() >= 0,
             self.view_size,
             self.scale_factor.get(),
             self.options.get().max_edge,
@@ -301,6 +327,11 @@ impl ViewportState {
     fn double_tap(&mut self, x: f32, y: f32) {
         match self.mode {
             ViewMode::Solid | ViewMode::Render => self.set_standard_view(RESET_VIEW),
+            // One panel at a time: there is nothing to enlarge, the double tap fits it.
+            ViewMode::Diagram if self.options.get().single_panel => {
+                self.enlarged_panel = self.panel();
+                self.diagram_view = ViewTransform::IDENTITY;
+            }
             ViewMode::Diagram => {
                 let panel = self.frame.as_ref().and_then(|frame| {
                     let size = self.image_size()?;
@@ -528,7 +559,7 @@ impl ViewportState {
             camera: self.camera,
             size: self.raster_size(),
             mode: self.mode.raster_mode(),
-            enlarged_panel: self.enlarged_panel,
+            enlarged_panel: self.panel(),
             want_handles: self.handles_on,
             revision: self.revision,
         }
@@ -568,7 +599,7 @@ impl ViewportState {
             selected_facet: self.outlined_facet(inputs.generation, inputs.selected_tier),
             provisional_facets: self.slice.outline.clone(),
             moved_facets: self.moved_facets.clone(),
-            enlarged_panel: self.enlarged_panel,
+            enlarged_panel: self.panel(),
             remembered_facet: self.anchor_facet(),
             want_handles: self.handles_on,
             provisional: provisional.is_some(),

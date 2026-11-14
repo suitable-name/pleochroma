@@ -23,7 +23,9 @@ component KeypadKey inherits Rectangle {
     min-width: 64px;
     height: 64px;
     border-radius: Theme.radius-lg;
-    background: root.variant == 2 ? Theme.primary : (root.variant == 1 ? Theme.secondary-container : Theme.surface-high);
+    background: root.variant == 2 ? Theme.accent : (root.variant == 1 ? Theme.surface-highest : Theme.surface-high);
+    border-width: root.variant == 2 ? 0px : 1px;
+    border-color: Theme.outline-variant;
     accessible-role: AccessibleRole.button;
     accessible-label: root.text;
     accessible-action-default => {
@@ -39,7 +41,7 @@ component KeypadKey inherits Rectangle {
 
     Text {
         text: root.text;
-        color: root.variant == 2 ? Theme.on-primary : (root.variant == 1 ? Theme.on-secondary-container : Theme.on-surface);
+        color: root.variant == 2 ? Theme.on-primary : (root.variant == 1 ? Theme.accent : Theme.on-surface);
         font-size: Theme.text-title-large;
         font-weight: 500;
         horizontal-alignment: center;
@@ -74,6 +76,8 @@ export component Keypad inherits Rectangle {
             height: 72px;
             background: Theme.surface-highest;
             border-radius: Theme.radius-lg;
+            border-width: 1px;
+            border-color: Theme.outline-variant;
             accessible-role: AccessibleRole.text;
             accessible-label: root.caption + " " + root.readout + root.unit;
 
@@ -83,7 +87,7 @@ export component Keypad inherits Rectangle {
                 width: parent.width - 2 * Theme.space-lg;
                 height: 18px;
                 text: root.caption;
-                color: Theme.on-surface-variant;
+                color: Theme.text-secondary;
                 font-size: Theme.text-label;
                 visible: root.caption != "";
             }
@@ -96,7 +100,7 @@ export component Keypad inherits Rectangle {
 
                 Text {
                     text: root.readout;
-                    color: root.typing ? Theme.primary : Theme.on-surface;
+                    color: root.typing ? Theme.accent : Theme.on-surface;
                     font-size: Theme.text-headline;
                     font-weight: 500;
                     vertical-alignment: center;
@@ -105,7 +109,7 @@ export component Keypad inherits Rectangle {
 
                 Text {
                     text: root.unit;
-                    color: Theme.on-surface-variant;
+                    color: Theme.text-secondary;
                     font-size: Theme.text-headline;
                     vertical-alignment: center;
                 }

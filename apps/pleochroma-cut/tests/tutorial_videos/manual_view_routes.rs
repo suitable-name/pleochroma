@@ -40,15 +40,8 @@ impl Film<'_> {
     }
 
     pub(super) fn film_restore_auto_solve(&mut self) -> Result<(), String> {
-        let targets::Resolved::Found(combo) = targets::resolve(&self.view(), "auto_solve") else {
-            return Err("Auto-Solve combo is missing".into());
-        };
-        self.click_and_invoke(&combo)?;
-        // SolveGroup's list is Off, 150 ms, 300 ms, 1 s, 3 s. Reach its beginning
-        // with bounded arrows, then visibly choose the recommended 300 ms setting.
-        for key in ["Up", "Up", "Up", "Up", "Down", "Down", "Return"] {
-            self.key(key)?;
-        }
+        // The chevron of the Solve button opens the choice; pick the recommended 300 ms.
+        self.pick_auto_solve_item("Auto-Solve 300 ms")?;
         if self.ui.global::<EditorModel>().get_auto_solve_budget_ms() != 300 {
             return Err("Auto-Solve did not read back as 300 ms".into());
         }

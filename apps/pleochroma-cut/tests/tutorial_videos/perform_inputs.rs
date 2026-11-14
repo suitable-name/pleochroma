@@ -211,43 +211,6 @@ impl Film<'_> {
             .map(|element| element.accessible_enabled() != Some(false))
     }
 
-    /// Clicks a button of the Inspector's pinned row (Add Tier, Save Tier, Add Concave Tier,
-    /// Save Concave Tier). The row sits at the foot of the dock, so the button can be cut off by
-    /// the dock's edge: the click goes to the part that is on view, and the wheel turns over the
-    /// button (which does not scroll by itself) until enough of it is.
-    pub(crate) fn click_pinned_commit(&mut self, spot: &Spot) -> Result<(), String> {
-        let mut last = String::new();
-        for _ in 0..6 {
-            let view = self.view();
-            let dock = targets::run(&view, &targets::Query::Id("EditorView::dock_scroll"))
-                .ok_or("editor dock scroll area is missing")?;
-            let fresh = spot.handle.as_ref().map_or_else(|| spot.clone(), Spot::of);
-            let shown = fresh.clipped_to(&dock, view.size);
-            if let Some(shown) = &shown
-                && shown.w >= fresh.w * 0.8
-                && shown.h >= fresh.h * 0.8
-            {
-                return self.click_and_invoke(shown);
-            }
-            last = format!(
-                "button [{:.0}, {:.0}, {:.0} x {:.0}], dock [{:.0}, {:.0}, {:.0} x {:.0}], window {:?}",
-                fresh.x, fresh.y, fresh.w, fresh.h, dock.x, dock.y, dock.w, dock.h, view.size
-            );
-            // The button lies below the dock: the content must move up (negative wheel).
-            let wheel = if fresh.y >= dock.y + dock.h / 2.0 {
-                -120.0
-            } else {
-                120.0
-            };
-            let target = shown.unwrap_or(dock);
-            self.wheel_over(&target, wheel)?;
-            pump(60);
-        }
-        Err(format!(
-            "the pinned commit button never came fully into view of the dock: {last}"
-        ))
-    }
-
     /// One activation per control: the pointer press/release is the activation. The
     /// accessible handle supplies bounds and disabled-state readback only.
     pub(crate) fn click_and_invoke(&mut self, spot: &Spot) -> Result<(), String> {

@@ -50,7 +50,7 @@ fn cheater_offset() -> Guide {
         .actions([
             "Click the Crown Main row.",
             "In the Tier tab, type 0.5 in Cheater Offset (deg).",
-            "Click Set, or press Enter.",
+            "Press Enter, or click away; there is no Set button.",
         ])
         .check("the field keeps 0.5, and the cutting sheet shows cheater: +0.50 deg for Crown Main.")
         .why("The field takes a sum too, for example 12+0.5.")
@@ -101,10 +101,10 @@ fn tier_notes() -> Guide {
         .actions([
             "Click the Pavilion Main row.",
             "In the Tier tab, find Note under the facet chips.",
-            "Type check the meet here, then click Set or press Enter.",
+            "Type check the meet here, then press Enter or click away.",
         ])
         .check("the field keeps your text, and the cutting sheet prints it with the tier.")
-        .why("A note takes effect at once; there is no Save Tier step for it.")
+        .why("A note applies when you leave the field; there is no save step for it.")
         .goal(
             check("Pavilion Main has a note", |ctx| {
                 position(ctx.design, "Pavilion Main")
@@ -159,7 +159,7 @@ fn duplicate_a_tier() -> Guide {
             "Duplicate copies a whole tier: its angle, indices and Meets.",
         )
         .actions([
-            "Click the copy icon at the end of the Crown Main row, or pick the row and press Ctrl+D.",
+            "Open the \u{2026} menu (Actions for Tier N) at the end of the Crown Main row and click Duplicate, or pick the row and press Ctrl+D.",
         ])
         .check("a new row called Crown Main (2) right below Crown Main.")
         .why("The copy sits right after the original, since cutting order matters. Its name counts up, so it never clashes with another tier.")
@@ -209,8 +209,8 @@ fn move_a_tier() -> Guide {
             "The order of the rows decides the order the facets are cut: the pavilion and girdle rows first, then the crown rows, and the table last.",
         )
         .actions([
-            "Find the up and down buttons at the end of the Girdle row.",
-            "Click the up button once, or pick the row and press Alt+Up.",
+            "Open the \u{2026} menu (Actions for Tier N) at the end of the Girdle row; it holds Move Up and Move Down.",
+            "Click Move Up once, or pick the row and press Alt+Up.",
         ])
         .check("Girdle now sits above Pavilion Main.")
         .why("A move is one Undo step. Names and Meets do not depend on position, so moving never breaks a link.")
@@ -272,7 +272,7 @@ fn delete_a_tier() -> Guide {
             "Remove takes one tier, with all its facets, out of the design.",
         )
         .actions([
-            "Click the trash icon at the end of the Table row, or pick the row and press Delete.",
+            "Open the \u{2026} menu (Actions for Tier N) at the end of the Table row and click Delete, or pick the row and press Delete.",
         ])
         .check("the Table row is gone, and a note says Removed Table, Undo.")
         .why("Nothing else changes: the other tiers keep their angles and depths.")
@@ -325,7 +325,7 @@ fn multi_select() -> Guide {
             "A group of ticked tiers can be changed in one go.",
         )
         .actions([
-            "Click Select above the tier table to show tick boxes, then tick Crown Main and Pavilion Main.",
+            "Open the Tier List Menu above the tier list and click Select to show tick boxes, then tick Crown Main and Pavilion Main.",
             "Or Ctrl+click rows one at a time, or Shift+click to pick a range.",
         ])
         .check("a bar above the table says 2 selected.")

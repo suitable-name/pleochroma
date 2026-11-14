@@ -46,6 +46,7 @@ fn concave_fixture() -> StoneGeometryBuf {
 fn concave_camera(yaw: f32, pitch: f32) -> CameraPose {
     CameraPose {
         roll: 0.0,
+        pan: [0.0, 0.0],
         yaw,
         pitch,
         distance: 2.4,

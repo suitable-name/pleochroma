@@ -392,6 +392,7 @@ fn slice_line() -> SliceLine {
         b: ScreenPoint::new(600.0, 320.0),
         size: ScreenSize::new(800.0, 600.0),
         pose: (0.5, 0.3, 4.0, 0.0),
+        pan: [0.0, 0.0],
     }
 }
 
@@ -461,6 +462,25 @@ fn flip_on_the_stored_endpoints_negates_the_normal() {
     );
     assert_eq!(SliceSide::Right.flipped(), SliceSide::Left);
     assert_eq!(SliceSide::Left.flipped(), SliceSide::Right);
+}
+
+#[test]
+fn a_pan_keeps_the_plane_of_a_line_drawn_on_the_same_pixels() {
+    // A pan moves the eye parallel to the picture, not the ray directions through its pixels,
+    // so a line drawn on the same pixels of a panned frame cuts with the same normal.
+    let line = slice_line();
+    let panned = SliceLine {
+        pan: [0.4, -0.3],
+        ..line
+    };
+    for side in [SliceSide::Right, SliceSide::Left] {
+        let centred = line.normal(side).expect("a long line has a plane");
+        let moved = panned.normal(side).expect("a long line has a plane");
+        assert!(
+            moved.abs_diff_eq(centred, 1e-6),
+            "{side:?}: {moved:?} vs {centred:?}"
+        );
+    }
 }
 
 #[test]

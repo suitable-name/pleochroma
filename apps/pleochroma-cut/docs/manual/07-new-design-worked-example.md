@@ -203,7 +203,7 @@ girdle band.
    it for you, or switch to Advanced to pick it from the list.)
 3. **Name**: `G1`.
 4. **Indices**: `0, 12, 24, 36, 48, 60, 72, 84`.
-5. Click **Add Tier**.
+5. Click **Add This Tier**.
 
 Check the tier table's own CODE column (just left of ANGLE; Chapter 3) reads
 **G1** for this row before moving on -- that is your confirmation the girdle classified
@@ -238,7 +238,7 @@ meets alone: it needs one stated number in each block.
    the guide, switch to Advanced.)
 3. **Name**: `P1`.
 4. **Indices**: `0, 12, 24, 36, 48, 60, 72, 84`.
-5. Click **Add Tier**.
+5. Click **Add This Tier**.
 
 ## Step 4: Crown Main Facets
 
@@ -253,7 +253,7 @@ Eight facets, one per repeat, angled above the girdle.
    guide's step shows the Advanced controls for the same reason as Step 3.)
 3. **Name**: `C1`.
 4. **Indices**: `0, 12, 24, 36, 48, 60, 72, 84`.
-5. Click **Add Tier**.
+5. Click **Add This Tier**.
 
 The two numbers belong together. With the girdle at `1.0` as typed in Step 2
 and the angles in degrees, the pavilion's top edge on the girdle face is at
@@ -274,7 +274,7 @@ One flat facet at the top, not indexed around the gear.
    controls.)
 3. **Name**: `T`.
 4. **Indices**: leave blank.
-5. Click **Add Tier**.
+5. Click **Add This Tier**.
 
 **Why not Unspecified Vertex?** That meet cuts the table until its plane passes
 through some vertex of the facets already there. This crown has only its eight
@@ -343,18 +343,18 @@ compare the tier's Indices field against the intended list.
    Gravity Override** blank: the carat-weight estimate then uses the
    specific gravity of the material you set in the Stone tab in Step 6
    (Diamond). The Girdle Diameter is the same value as the Stone tab's **Stone
-   Width (mm)**; it sets how deep a colored stone's color looks, so for a colorless
+   Width**; it sets how deep a colored stone's color looks, so for a colorless
    Diamond it changes nothing you can see, and the Specific Gravity Override never
-   changes the render. Click **Apply Yield
-   Inputs**, then Solve again --
+   changes the render. Press Enter in the field (the yield inputs apply on Enter
+   or when you leave the field), then Solve again --
    Volumetric Yield and Est. Carat Weight show values, and the
    same tab's Proportions group shows table %, crown height, pavilion
    depth, total depth, and length-to-width for this stone. (With auto-solve
    on, the solve happens by itself.)
-2. Switch to the Live Render tab to see the stone rendered -- it already shows the Diamond
-   you picked in Step 6. Pick a lighting rig (the Lighting & Environment tab) and check the brilliance/windowing/
-   extinction readouts. (The in-app guide completes this step on Apply Yield
-   Inputs and lists the Live Render visit on its closing step.)
+2. Switch to Live Render (the places segment in the design header) to see the stone rendered -- it already shows the Diamond
+   you picked in Step 6. Pick a lighting rig (the Lighting chip, or the Lighting tab) and check the brilliance/windowing/
+   extinction readouts in the FACE-UP card. (The in-app guide completes this step when the
+   girdle diameter is applied and lists the Live Render visit on its closing step.)
 
 ## Step 10: A Note on Manufacturability
 

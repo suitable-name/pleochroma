@@ -3,6 +3,7 @@ import { Theme } from "../../theme.slint";
 import { SettingsModel } from "../../models/settings.slint";
 import { CrystalAxisModel } from "../../models/crystal_axis.slint";
 import { PillButton, SegmentPill } from "../pill_button.slint";
+import { KitFillSegments } from "../kit/kit.slint";
 import { SettingLabel } from "setting_label.slint";
 import { HelpButton } from "../help_button.slint";
 import { HelpTopics } from "../../models/help.slint";
@@ -59,16 +60,17 @@ export component CrystalAxisSection inherits VerticalLayout {
 
     init => { CrystalAxisModel.refresh(); }
 
+    // The folding card above names this section ("Crystal Axis"); the row keeps its explanation
+    // as a tooltip and the manual's "?" beside it (at the far right edge the scroll bar covers it).
     HorizontalLayout {
         spacing: 6px;
         SettingLabel {
-            text: "Crystal Axis";
+            text: "Optical axis direction";
             horizontal-stretch: 0;
             hint: SettingsModel.c_axis_override_available
                 ? "The direction of the stone's special optical axis, which decides the color and the doubling you see through the table. As Material keeps the axis the material has. Set for This Stone turns it, to see how the stone looks cut at another angle."
                 : "Not available: this material is isotropic and has no crystal axis.";
         }
-        // Beside the label: at the far right edge the scroll bar covers it.
         VerticalLayout {
             alignment: center;
             HelpButton {
@@ -89,25 +91,12 @@ export component CrystalAxisSection inherits VerticalLayout {
     if SettingsModel.c_axis_override_available: VerticalLayout {
         spacing: 8px;
 
-        HorizontalLayout {
-            spacing: 4px;
-            SegmentPill {
-                text: "As Material";
-                hint: "Keep the crystal axis the material has. The stone is rendered as it was cut from the rough.";
-                selected: !SettingsModel.c_axis_override_enabled;
-                picked => {
-                    SettingsModel.c_axis_override_enabled = false;
-                    SettingsModel.c_axis_override_changed(false);
-                }
-            }
-            SegmentPill {
-                text: "Set for This Stone";
-                hint: "Choose the direction of the crystal axis for this stone. It is saved with the design.";
-                selected: SettingsModel.c_axis_override_enabled;
-                picked => {
-                    SettingsModel.c_axis_override_enabled = true;
-                    SettingsModel.c_axis_override_changed(true);
-                }
+        KitFillSegments {
+            labels: ["As Material", "Set for This Stone"];
+            picked: SettingsModel.c_axis_override_enabled ? 1 : 0;
+            selected(i) => {
+                SettingsModel.c_axis_override_enabled = i == 1;
+                SettingsModel.c_axis_override_changed(i == 1);
             }
         }
 

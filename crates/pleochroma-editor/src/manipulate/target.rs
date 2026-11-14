@@ -14,7 +14,18 @@ use super::{
 };
 use pleochroma::optics::raytracer::Camera;
 use pleochroma_cut_core::Design;
-use pleochroma_solid::{facet_map::FacetMap, preview::FrameGeometry};
+use pleochroma_solid::{
+    facet_map::FacetMap,
+    preview::{CameraPose, FrameGeometry},
+};
+
+/// The camera the solid view drew `pose` with, roll and pan included, so handles and slice
+/// lines stay on the stone.
+pub(super) fn camera_for_pose(pose: CameraPose) -> Camera {
+    Camera::new(pose.yaw, pose.pitch, pose.distance, CAMERA_FOV_DEG)
+        .with_roll(pose.roll)
+        .with_pan(pose.pan)
+}
 
 /// The field of view the solid raster and the path tracer share.
 pub const CAMERA_FOV_DEG: f32 = pleochroma::optics::raytracer::DEFAULT_FOV_DEG;
@@ -152,7 +163,7 @@ pub fn target_for(
         centroid,
     );
     let pose = geometry.camera;
-    let camera = Camera::new(pose.yaw, pose.pitch, pose.distance, CAMERA_FOV_DEG);
+    let camera = camera_for_pose(pose);
     let size = ScreenSize::new(geometry.size.0 as f32, geometry.size.1 as f32);
     #[expect(
         clippy::cast_possible_truncation,

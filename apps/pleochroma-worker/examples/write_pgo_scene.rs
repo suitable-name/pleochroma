@@ -68,6 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         head_shadow_deg: 16.0,
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        camera_pan: [0.0, 0.0],
     };
 
     let file = File::create(&out)?;

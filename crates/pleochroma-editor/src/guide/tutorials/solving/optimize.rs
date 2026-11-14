@@ -141,7 +141,7 @@ fn optimize() -> Guide {
             "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1).",
             "Set Material to Quartz. It applies at once.",
         ])
-        .check("the Stone tab shows Quartz, with its Eff. RI and critical angle (Crit.) beside it.")
+        .check("the Stone tab shows Quartz, with its RI and critical angle (Critical) chips beside it.")
         .goal(Goal::Material("Quartz".to_owned()), "the material set to Quartz")
         .highlight("stone_tab")
         .allow(SETTINGS),
@@ -275,7 +275,7 @@ fn retarget_shift() -> Guide {
             "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1).",
             "Set Material to Quartz. It applies at once.",
         ])
-        .check("the Stone tab shows Quartz, with its Eff. RI and critical angle (Crit.) beside it.")
+        .check("the Stone tab shows Quartz, with its RI and critical angle (Critical) chips beside it.")
         .goal(Goal::Material("Quartz".to_owned()), "the material set to Quartz")
         .highlight("stone_tab")
         .allow(SETTINGS),
@@ -365,7 +365,7 @@ fn retarget_optimize() -> Guide {
             "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1).",
             "Set Material to Quartz. It applies at once.",
         ])
-        .check("the Stone tab shows Quartz, with its Eff. RI and critical angle (Crit.) beside it.")
+        .check("the Stone tab shows Quartz, with its RI and critical angle (Critical) chips beside it.")
         .goal(Goal::Material("Quartz".to_owned()), "the material set to Quartz")
         .highlight("stone_tab")
         .allow(SETTINGS),

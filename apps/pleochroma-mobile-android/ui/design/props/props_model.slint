@@ -24,6 +24,10 @@ export struct LightingItem {
     name: string,
     title: string,
     description: string,
+    // The name under the rig's picture.
+    short-name: string,
+    // The `PleoRigThumb` picture (0 to 12; see `ui-shared/rig_thumb.slint`).
+    kind: int,
     selected: bool,
 }
 
@@ -130,6 +134,21 @@ export global PropsModel {
     in property <int> stone-page: 0;
     in property <string> material-title: "";
     in property <string> material-detail: "";
+    // The material card: the crystal family line and the chips (RI, Critical, Disp., SG; a
+    // chip with no value is left out).
+    in property <string> material-family: "";
+    in property <[string]> material-chips;
+    // The face-up color of the body color (a transparent one when it has none, as a Custom
+    // Color), for the card's swatch and the Body Color row's.
+    in property <color> body-swatch: transparent;
+    in property <bool> body-swatch-known: false;
+    // Which of the Stone tab's folds are open (the material card's "..." menu and the three
+    // effect cards). Kept here so the fold survives a visit to the material picker; nothing
+    // is saved across a restart.
+    in-out property <bool> fold-material-menu: false;
+    in-out property <bool> fold-clarity: false;
+    in-out property <bool> fold-edges: false;
+    in-out property <bool> fold-axis: false;
     in property <string> effective-ri: "";
     in property <string> color-label: "Material Default";
     in property <bool> color-enabled: true;
@@ -189,6 +208,13 @@ export global PropsModel {
 
     // --- Light tab ---------------------------------------------------------------------
     in property <[LightingItem]> presets;
+    // The four rigs of the grid: the common ones, or the chosen rig in the last tile.
+    in property <[LightingItem]> grid-rigs;
+    // The full list of rigs (`presets`) is shown instead of the Light tab. Slint owns it, as
+    // for the keypad sheet: opening raises the page's sheet to full height, and the sheet
+    // leaving full height (the Back key, a drag down) closes the list.
+    in-out property <bool> rigs-open: false;
+    property <int> rigs-detent-before: 1;
     in-out property <float> exposure: 1;
     in-out property <float> azimuth: 48;
     in-out property <float> elevation: 72;
@@ -218,6 +244,29 @@ export global PropsModel {
     callback hdr-clear();
     callback hdr-use(bool);
     callback hdr-follow-changed(bool);
+
+    // Opens the full list of rigs at full page height.
+    public function open-rigs() {
+        if (!rigs-open) {
+            rigs-detent-before = Shell.sheet-detent;
+        }
+        Shell.sheet-detent = 2;
+        rigs-open = true;
+    }
+
+    // Closes the list and gives the page's sheet back its old height.
+    public function close-rigs() {
+        if (rigs-open) {
+            rigs-open = false;
+            Shell.sheet-detent = rigs-detent-before;
+        }
+    }
+
+    // The page's sheet left full height (the Back key, a drag down): close without touching
+    // the detent again.
+    public function dismiss-rigs() {
+        rigs-open = false;
+    }
 
     // --- Checks tab --------------------------------------------------------------------
     // False while no solve matches the design; `checks-note` then says what is missing.

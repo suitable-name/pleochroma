@@ -70,6 +70,7 @@ const ARM_GENERIC: u32 = 5u;
 const PHASE_NEXT: u32 = 0u;        // go on to the next phase in this bounce
 const PHASE_END_STEP: u32 = 1u;    // this bounce is over, ray alive (scatter continued)
 const PHASE_TERMINATE: u32 = 2u;   // ray dead; finalize it
+const PHASE_PARK: u32 = 3u;        // unchanged; the other half of a split arm takes the ray
 
 // A bounce step that stopped after its surface phase. The arm runs later, in
 // `transport_bounce_back`.

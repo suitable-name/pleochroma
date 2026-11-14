@@ -1,0 +1,727 @@
+// The input kit: the four parts that replace the stock Material widgets (`LineEdit`, `ComboBox`,
+// `SpinBox`, `CheckBox`), whose fixed metrics ignore the system font size and whose look is not
+// the app's. Every part is 48 px high (or more), takes its sizes from `Theme`, and follows the
+// theme preference, High Contrast included.
+//
+//   TextField    one single-line text input (also the search box: `pill` + `searching`).
+//   ChoiceField  a field showing the current choice; a tap opens the choice list.
+//   Stepper      "-", the value, "+" for an integer in a range.
+//   ToggleRow    a wrapping label, an optional detail line and a switch; the whole row is the target.
+//   ProgressBar  a cyan 4 px bar, determinate (`progress`) or `indeterminate`.
+//
+// The choice list is NOT a `PopupWindow`: a popup lives inside its field and cannot be closed
+// from the Back key's global target. It is one `ChoiceSheetHost` that `AppWindow` places above
+// the pages (and below the dialogs), driven by the `ChoiceSheet` global; `Navigation` target 29
+// closes it. A field that opens the list stamps its request with `ChoiceSheet.serial`, and the
+// host answers with `picked-serial` and `picked-index`, so the pick reaches only that field.
+import { PleoPalette } from "../../../../ui-shared/palette.slint";
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { Shell } from "../models.slint";
+import { Icon } from "icon.slint";
+import { IconButton } from "icon_button.slint";
+import { StateLayer } from "state_layer.slint";
+import { Toggle } from "toggle.slint";
+import { LibraryIcons } from "../library/library_icons.slint";
+
+// One single-line text input. `label` is the accessible name (an `accessible-label` set on the
+// field is used when `label` is empty); `placeholder` (alias `placeholder-text`) shows while the
+// field is empty. `pill` rounds it fully (the search box); `searching` adds the magnifier and
+// the clear button; `compact` tightens the padding and the type for two fields in one row.
+// `edited(text)` fires on every change the user types, `accepted(text)` on Enter.
+export component TextField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> label;
+    in property <string> placeholder: "";
+    in property <string> placeholder-text: "";
+    in property <InputType> input-type: InputType.text;
+    in property <bool> enabled: true;
+    in property <bool> pill: false;
+    in property <bool> searching: false;
+    in property <bool> compact: false;
+    out property <bool> has-focus: input.has-focus;
+    callback edited(string);
+    callback accepted(string);
+
+    /// Puts the keyboard focus in the field.
+    public function focus-field() {
+        input.focus();
+    }
+
+    property <string> hint: root.placeholder-text != "" ? root.placeholder-text : root.placeholder;
+    property <length> pad: root.compact ? Theme.space-sm : Theme.space-md;
+    property <length> font: root.compact ? Theme.text-body : Theme.text-body-large;
+
+    min-width: 0px;
+    height: Theme.touch;
+    border-radius: root.pill ? Theme.touch / 2 : (root.compact ? Theme.radius-sm : Theme.radius-md);
+    background: PleoPalette.bg-input;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? Theme.accent : PleoPalette.border-medium;
+    opacity: root.enabled ? 1.0 : Theme.disabled-content;
+
+    HorizontalLayout {
+        padding-left: root.searching ? Theme.space-lg : root.pad;
+        padding-right: root.searching && root.text != "" ? 0px : root.pad;
+        spacing: Theme.space-sm;
+
+        if root.searching: Rectangle {
+            width: 20px;
+
+            Icon {
+                source: LibraryIcons.search;
+                tint: Theme.text-secondary;
+                glyph: 20px;
+            }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+
+            input := TextInput {
+                width: parent.width;
+                height: parent.height;
+                text <=> root.text;
+                enabled: root.enabled;
+                input-type: root.input-type;
+                single-line: true;
+                color: Theme.on-surface;
+                selection-background-color: Theme.accent-surface;
+                selection-foreground-color: Theme.on-surface;
+                font-size: root.font;
+                vertical-alignment: center;
+                accessible-role: AccessibleRole.text-input;
+                accessible-label: root.label != "" ? root.label : root.accessible-label;
+                accessible-placeholder-text: root.hint;
+                accessible-enabled: root.enabled;
+
+                edited => {
+                    root.edited(self.text);
+                }
+                accepted => {
+                    root.accepted(self.text);
+                }
+            }
+
+            if root.text == "" && root.hint != "": Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.hint;
+                color: Theme.text-secondary;
+                font-size: root.font;
+                vertical-alignment: center;
+                overflow: elide;
+                // Taps fall through to the input.
+                accessible-role: AccessibleRole.none;
+            }
+        }
+
+        if root.searching && root.text != "": IconButton {
+            icon: Icons.close;
+            label: "Clear Search Text";
+            clicked => {
+                root.text = "";
+                root.edited("");
+            }
+        }
+    }
+}
+
+// The request and the answer of the one open choice list (see the file header).
+export global ChoiceSheet {
+    /// True while the list is on screen. `Navigation` target 29 sets it false.
+    in-out property <bool> open: false;
+    in-out property <string> title;
+    in-out property <[string]> choices;
+    /// The current choice, -1 for none.
+    in-out property <int> current: -1;
+    /// Counts the requests; a field remembers the serial it opened the list with.
+    in-out property <int> serial: 0;
+    in-out property <int> picked-serial: 0;
+    in-out property <int> picked-index: -1;
+
+    public function show(title: string, choices: [string], current: int) -> int {
+        root.title = title;
+        root.choices = choices;
+        root.current = current;
+        root.serial += 1;
+        root.open = true;
+        return root.serial;
+    }
+
+    public function pick(index: int) {
+        root.picked-index = index;
+        root.picked-serial = root.serial;
+        root.open = false;
+    }
+}
+
+// A 48 px field with the current choice and a chevron. A tap (or Enter / Space on the focused
+// field) opens the choice list; picking sets `current-index` (two-way, like the `ComboBox`) and
+// fires `selected(index)` with the new index. `label` is the accessible name and the list's
+// title; `title` overrides the list's title.
+export component ChoiceField inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    in property <bool> enabled: true;
+    in property <string> label;
+    in property <string> title: "";
+    in property <bool> compact: false;
+    out property <bool> has-focus: fs.has-focus;
+    callback selected(int);
+
+    /// Puts the keyboard focus on the field.
+    public function focus-field() {
+        fs.focus();
+    }
+
+    property <int> my-serial: 0;
+    property <int> picked-serial: ChoiceSheet.picked-serial;
+    property <bool> lit: fs.has-focus || (ChoiceSheet.open && root.my-serial != 0);
+    property <bool> valid: root.current-index >= 0 && root.current-index < root.model.length;
+
+    function open-list() {
+        if root.enabled {
+            root.my-serial = ChoiceSheet.show(root.title != "" ? root.title : root.label, root.model, root.current-index);
+        }
+    }
+
+    changed picked-serial => {
+        if root.my-serial != 0 && root.my-serial == ChoiceSheet.picked-serial {
+            root.my-serial = 0;
+            root.current-index = ChoiceSheet.picked-index;
+            root.selected(ChoiceSheet.picked-index);
+        }
+    }
+
+    min-width: 0px;
+    height: Theme.touch;
+    border-radius: root.compact ? Theme.radius-sm : Theme.radius-md;
+    background: PleoPalette.bg-input;
+    border-width: root.lit ? 2px : 1px;
+    border-color: root.lit ? Theme.accent : PleoPalette.border-medium;
+    opacity: root.enabled ? 1.0 : Theme.disabled-content;
+    accessible-role: AccessibleRole.combobox;
+    accessible-label: root.label;
+    accessible-value: root.valid ? root.model[root.current-index] : "";
+    accessible-enabled: root.enabled;
+    accessible-expanded: ChoiceSheet.open && root.my-serial != 0;
+    accessible-action-default => {
+        root.open-list();
+    }
+    accessible-action-expand => {
+        root.open-list();
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+        enabled: root.enabled;
+        border-radius: root.border-radius;
+    }
+
+    HorizontalLayout {
+        padding-left: root.compact ? Theme.space-sm : Theme.space-md;
+        padding-right: root.compact ? Theme.space-sm : Theme.space-md;
+        spacing: Theme.space-sm;
+
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.valid ? root.model[root.current-index] : "";
+            color: Theme.on-surface;
+            font-size: root.compact ? Theme.text-body : Theme.text-body-large;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.none;
+        }
+
+        Rectangle {
+            width: 20px;
+
+            // The chevron.
+            Path {
+                width: 16px;
+                height: 16px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M 4 8 L 12 16 L 20 8";
+                stroke: Theme.text-secondary;
+                stroke-width: 2.5px;
+                stroke-line-cap: round;
+                stroke-line-join: round;
+                fill: transparent;
+            }
+        }
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.open-list();
+                return accept;
+            }
+            return reject;
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            clicked => {
+                fs.focus();
+                root.open-list();
+            }
+        }
+    }
+}
+
+// One "-" or "+" button of the `Stepper`: steps on press, then repeats while held, faster the
+// longer it is held (x10, then x100) when the range is wide.
+component StepButton inherits Rectangle {
+    in property <bool> plus: false;
+    in property <bool> enabled: true;
+    in property <bool> wide-range: false;
+    in property <string> label;
+    callback step(int);
+
+    property <int> ticks: 0;
+    property <bool> down: touch.pressed;
+    property <int> held: max(0, root.ticks - 5);
+
+    changed down => {
+        root.ticks = 0;
+    }
+
+    width: Theme.touch;
+    height: Theme.touch;
+    border-radius: Theme.touch / 2;
+    opacity: root.enabled ? 1.0 : Theme.disabled-content;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.step(1);
+        }
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+        enabled: root.enabled;
+        border-radius: root.border-radius;
+    }
+
+    // The sign, drawn as bars so it stays crisp at every scale.
+    Rectangle {
+        width: 14px;
+        height: 2px;
+        border-radius: 1px;
+        background: Theme.on-surface;
+    }
+
+    if root.plus: Rectangle {
+        width: 2px;
+        height: 14px;
+        border-radius: 1px;
+        background: Theme.on-surface;
+    }
+
+    Timer {
+        interval: 80ms;
+        running: touch.pressed && root.enabled;
+        triggered => {
+            root.ticks += 1;
+            if root.ticks > 5 {
+                root.step(root.wide-range ? (root.held < 12 ? 1 : (root.held < 24 ? 10 : 100)) : 1);
+            }
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.step(1);
+            }
+        }
+    }
+}
+
+// An integer in `minimum` to `maximum`, changed by `step` with the "-" and "+" buttons (hold
+// to repeat; the Up and Down keys work on the focused stepper). The buttons are disabled at the
+// limits. `value` is two-way, like the `SpinBox`; `edited(value)` fires on every change the user
+// makes. Accessible role spinbox, with increment and decrement actions.
+export component Stepper inherits Rectangle {
+    in property <int> minimum: 0;
+    in property <int> maximum: 100;
+    in property <int> step: 1;
+    in-out property <int> value: 0;
+    in property <bool> enabled: true;
+    in property <string> label;
+    out property <bool> has-focus: fs.has-focus;
+    callback edited(int);
+
+    /// Puts the keyboard focus on the stepper.
+    public function focus-field() {
+        fs.focus();
+    }
+
+    function nudge(direction: int, scale: int) {
+        if root.enabled {
+            let next = clamp(root.value + direction * scale * max(1, root.step), root.minimum, root.maximum);
+            if next != root.value {
+                root.value = next;
+                root.edited(next);
+            }
+        }
+    }
+
+    min-width: 3 * Theme.touch;
+    height: Theme.touch;
+    border-radius: Theme.touch / 2;
+    background: PleoPalette.bg-input;
+    border-width: fs.has-focus ? 2px : 1px;
+    border-color: fs.has-focus ? Theme.accent : PleoPalette.border-medium;
+    accessible-role: AccessibleRole.spinbox;
+    accessible-label: root.label;
+    accessible-value: "" + root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: root.step;
+    accessible-enabled: root.enabled;
+    accessible-action-increment => {
+        root.nudge(1, 1);
+    }
+    accessible-action-decrement => {
+        root.nudge(-1, 1);
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.UpArrow {
+                root.nudge(1, 1);
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.nudge(-1, 1);
+                return accept;
+            }
+            return reject;
+        }
+
+        HorizontalLayout {
+            StepButton {
+                plus: false;
+                label: root.label != "" ? "Decrease " + root.label : "Decrease";
+                enabled: root.enabled && root.value > root.minimum;
+                wide-range: root.maximum - root.minimum >= 200 * max(1, root.step);
+                step(scale) => {
+                    fs.focus();
+                    root.nudge(-1, scale);
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: root.value;
+                color: Theme.on-surface;
+                font-size: Theme.text-body-large;
+                font-weight: 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                opacity: root.enabled ? 1.0 : Theme.disabled-content;
+                accessible-role: AccessibleRole.none;
+            }
+
+            StepButton {
+                plus: true;
+                label: root.label != "" ? "Increase " + root.label : "Increase";
+                enabled: root.enabled && root.value < root.maximum;
+                wide-range: root.maximum - root.minimum >= 200 * max(1, root.step);
+                step(scale) => {
+                    fs.focus();
+                    root.nudge(1, scale);
+                }
+            }
+        }
+    }
+}
+
+// A settings row: the label (it wraps), an optional detail line under it, and a switch at the
+// right. The whole row is the target. `checked` is two-way, like the `CheckBox`; `toggled()`
+// fires after the user changed it.
+export component ToggleRow inherits Rectangle {
+    in property <string> text;
+    in property <string> detail: "";
+    in-out property <bool> checked: false;
+    in property <bool> enabled: true;
+    callback toggled();
+
+    function flip() {
+        if root.enabled {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+
+    min-width: 0px;
+    min-height: Theme.touch;
+    preferred-height: max(Theme.touch, content.preferred-height);
+    accessible-role: AccessibleRole.switch;
+    accessible-label: root.text;
+    accessible-description: root.detail;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        root.flip();
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+        enabled: root.enabled;
+        border-radius: Theme.radius-md;
+    }
+
+    content := HorizontalLayout {
+        padding-left: Theme.space-xs;
+        spacing: Theme.space-md;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            alignment: center;
+            padding-top: Theme.space-sm;
+            padding-bottom: Theme.space-sm;
+            spacing: 2px;
+            opacity: root.enabled ? 1.0 : Theme.disabled-content;
+
+            Text {
+                text: root.text;
+                color: Theme.on-surface;
+                font-size: Theme.text-body-large;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.none;
+            }
+
+            if root.detail != "": Text {
+                text: root.detail;
+                color: Theme.text-secondary;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.none;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+
+            Toggle {
+                checked: root.checked;
+                enabled: root.enabled;
+                accessible-role: AccessibleRole.none;
+                toggled(value) => {
+                    root.flip();
+                }
+            }
+        }
+    }
+
+    // Under the switch, over the rest of the row; the switch has its own area on top.
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.flip();
+        }
+    }
+}
+
+component ChoiceRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> current: false;
+    callback picked();
+
+    height: Theme.touch;
+    background: root.current ? Theme.accent-surface : transparent;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.text;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.current;
+    accessible-action-default => {
+        root.picked();
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-lg;
+        padding-right: Theme.space-lg;
+        spacing: Theme.space-md;
+
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.text;
+            color: root.current ? Theme.accent : Theme.on-surface;
+            font-size: Theme.text-body-large;
+            font-weight: root.current ? 500 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.none;
+        }
+
+        if root.current: Icon {
+            source: Icons.check;
+            tint: Theme.accent;
+            y: (parent.height - self.height) / 2;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.picked();
+        }
+    }
+}
+
+// The choice list: a scrim over the page (a tap on it closes the list) and a bottom sheet (a
+// centered card from 600 px up) with the title, a Close button and one 48 px row per choice,
+// a check and the cyan surface on the current one. `AppWindow` places one above the pages.
+export component ChoiceSheetHost inherits Rectangle {
+    property <bool> wide: root.width >= 600px;
+    property <length> head-h: 56px;
+    property <length> rows-h: ChoiceSheet.choices.length * Theme.touch;
+    property <bool> shown: ChoiceSheet.open;
+
+    visible: ChoiceSheet.open;
+
+    // Bring the current row into view when the list opens.
+    changed shown => {
+        if root.shown {
+            let room = flick.height;
+            flick.content-y = -clamp(ChoiceSheet.current * Theme.touch - room / 2 + Theme.touch / 2, 0px, max(0px, root.rows-h - room));
+        }
+    }
+
+    Rectangle {
+        background: Theme.scrim.with-alpha(0.32);
+
+        TouchArea {
+            clicked => {
+                ChoiceSheet.open = false;
+            }
+        }
+    }
+
+    panel := Rectangle {
+        property <length> foot: root.wide ? Theme.space-sm : Shell.inset-bottom + Theme.space-sm;
+
+        width: root.wide ? min(root.width - 2 * Theme.space-xl, 480px) : root.width;
+        height: min(root.height * 0.7, root.head-h + root.rows-h + self.foot);
+        x: (root.width - self.width) / 2;
+        y: root.wide ? (root.height - self.height) / 2 : root.height - self.height;
+        background: Theme.surface-container;
+        border-top-left-radius: Theme.radius-xl;
+        border-top-right-radius: Theme.radius-xl;
+        border-bottom-left-radius: root.wide ? Theme.radius-xl : 0px;
+        border-bottom-right-radius: root.wide ? Theme.radius-xl : 0px;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
+        drop-shadow-color: Theme.shadow;
+        drop-shadow-blur: Theme.shadow-blur-3;
+        drop-shadow-offset-y: -Theme.shadow-offset-1;
+        clip: true;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: ChoiceSheet.title;
+
+        // Swallows taps so they do not reach the scrim.
+        TouchArea { }
+
+        HorizontalLayout {
+            y: 0px;
+            height: root.head-h;
+            padding-left: Theme.space-lg;
+            padding-right: Theme.space-xs;
+
+            Text {
+                text: ChoiceSheet.title;
+                color: Theme.on-surface;
+                font-size: Theme.text-title;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+
+            IconButton {
+                icon: Icons.close;
+                label: "Close";
+                clicked => {
+                    ChoiceSheet.open = false;
+                }
+            }
+        }
+
+        flick := Flickable {
+            x: 0px;
+            y: root.head-h;
+            width: parent.width;
+            height: parent.height - root.head-h - panel.foot;
+            content-width: self.width;
+            content-height: root.rows-h;
+
+            VerticalLayout {
+                x: 0px;
+                y: 0px;
+                width: flick.width;
+                alignment: start;
+
+                for choice[index] in ChoiceSheet.choices: ChoiceRow {
+                    text: choice;
+                    current: index == ChoiceSheet.current;
+                    picked => {
+                        ChoiceSheet.pick(index);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The kit's progress bar, replacing the std `ProgressIndicator` (Material purple): a 4 px cyan
+// bar on the outline track. `progress` is 0 to 1; `indeterminate` slides a third-width segment
+// back and forth instead.
+export component ProgressBar inherits Rectangle {
+    in property <float> progress: 0;
+    in property <bool> indeterminate: false;
+
+    // One sweep every 1.4 s, as a 0..1 phase.
+    property <float> phase: Math.mod(animation-tick() / 1400ms, 1.0);
+    property <float> sweep: root.phase < 0.5 ? root.phase * 2 : 2 - root.phase * 2;
+
+    height: 4px;
+    min-width: 48px;
+    border-radius: 2px;
+    background: Theme.outline-variant;
+    clip: true;
+    accessible-role: AccessibleRole.progress-indicator;
+    accessible-value: root.indeterminate ? 0 : clamp(root.progress, 0, 1) * 100;
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+
+    Rectangle {
+        x: root.indeterminate ? (root.width - self.width) * root.sweep : 0px;
+        width: root.indeterminate ? root.width / 3 : root.width * clamp(root.progress, 0, 1);
+        height: root.height;
+        border-radius: root.border-radius;
+        background: Theme.accent;
+    }
+}

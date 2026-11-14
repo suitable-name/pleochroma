@@ -1,6 +1,6 @@
 //! The Baseline: the copy of the design that every later change is read against, and the strip
 //! under the Inspector's tabs that shows the design now next to it
-//! (`ui/components/editor_inspector/baseline_strip.slint`, state in `ui/models/baseline.slint`).
+//! (the command bar's Baseline menu and the figures card; state in `ui/models/baseline.slint`).
 //!
 //! The Baseline is the holder `retarget_actions::snapshot` keeps: a design and its solved
 //! masts. It is replaced by

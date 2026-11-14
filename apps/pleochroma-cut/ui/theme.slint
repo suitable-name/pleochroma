@@ -26,88 +26,92 @@
 //
 // New code uses a token from this file, never a hex literal, so this switch reaches it.
 import { Palette } from "std-widgets.slint";
+import { PleoPalette } from "../../../ui-shared/palette.slint";
 
 export global Theme {
     /// Whether the high-contrast palette is on. Set from Rust, per window.
-    in-out property <bool> high-contrast: false;
+    in-out property <bool> high-contrast <=> PleoPalette.high-contrast;
 
     // Pins the standard widgets' palette to dark (see the header). A `changed` handler does not
-    // run at start-up; the `fluent-dark` style in `build.rs` covers that.
-    changed high-contrast => {
+    // run at start-up; the `fluent-dark` style in `build.rs` covers that. It watches a copy of
+    // the flag, because the Slint compiler cannot lower a `changed` handler on the two-way
+    // bound `high-contrast` above.
+    property <bool> high-contrast-watch: root.high-contrast;
+    changed high-contrast-watch => {
         Palette.color-scheme = ColorScheme.dark;
     }
 
     // Dark Theme Palette
-    out property <color> bg-darkest: root.high-contrast ? #000000 : #0f1117;
-    out property <color> bg-dark: root.high-contrast ? #0a0a0a : #161922;
-    out property <color> bg-card: root.high-contrast ? #121212 : #1c202c;
-    out property <color> bg-card-hover: root.high-contrast ? #262626 : #252b3b;
-    out property <color> bg-input: root.high-contrast ? #000000 : #12141c;
-    out property <color> bg-elevated: root.high-contrast ? #1e1e1e : #262c3d;
+    out property <color> bg-darkest: PleoPalette.bg-darkest;
+    out property <color> bg-dark: PleoPalette.bg-dark;
+    out property <color> bg-card: PleoPalette.bg-card;
+    out property <color> bg-card-hover: PleoPalette.bg-card-hover;
+    out property <color> bg-input: PleoPalette.bg-input;
+    out property <color> bg-elevated: PleoPalette.bg-elevated;
 
     // Borders & Dividers
-    out property <color> border-subtle: root.high-contrast ? #8c8c8c : #252b3b;
-    out property <color> border-medium: root.high-contrast ? #b0b0b0 : #333b50;
-    out property <color> border-accent: root.high-contrast ? #ffd400 : #3b82f6;
+    out property <color> border-subtle: PleoPalette.border-subtle;
+    out property <color> border-medium: PleoPalette.border-medium;
+    out property <color> border-accent: PleoPalette.border-accent;
 
     // Accent & Highlights
-    out property <color> primary: root.high-contrast ? #1a66ff : #3b82f6;
-    out property <color> primary-hover: root.high-contrast ? #0b4bd0 : #60a5fa;
-    out property <color> primary-glow: root.high-contrast ? #1a66ff66 : #3b82f633;
-    out property <color> accent-cyan: root.high-contrast ? #00e0ff : #38bdf8;
+    out property <color> primary: PleoPalette.primary;
+    out property <color> primary-hover: PleoPalette.primary-hover;
+    out property <color> primary-glow: PleoPalette.primary-glow;
+    out property <color> accent-cyan: PleoPalette.accent-cyan;
     /// `accent-cyan` when hovered, as `primary-hover` is for `primary`.
-    out property <color> accent-cyan-hover: root.high-contrast ? #80efff : #7dd3fc;
+    out property <color> accent-cyan-hover: PleoPalette.accent-cyan-hover;
     /// The dark fill under `accent-cyan` content, such as the header's remote-library pill.
-    out property <color> accent-cyan-surface: root.high-contrast ? #003844 : #164e63;
-    out property <color> accent-emerald: root.high-contrast ? #00e676 : #10b981;
-    out property <color> accent-amber: root.high-contrast ? #ffb300 : #f59e0b;
-    out property <color> accent-ruby: root.high-contrast ? #ff5c7a : #f43f5e;
-    out property <color> accent-purple: root.high-contrast ? #d28bff : #a855f7;
+    out property <color> accent-cyan-surface: PleoPalette.accent-cyan-surface;
+    out property <color> accent-emerald: PleoPalette.accent-emerald;
+    out property <color> accent-amber: PleoPalette.accent-amber;
+    out property <color> accent-ruby: PleoPalette.accent-ruby;
+    out property <color> accent-purple: PleoPalette.accent-purple;
     /// `accent-amber` at low opacity, as `primary-glow` is for `primary`. The tier table's
     /// multi-selected row highlight.
-    out property <color> accent-amber-glow: root.high-contrast ? #ffb30066 : #f59e0b33;
+    out property <color> accent-amber-glow: PleoPalette.accent-amber-glow;
 
     // Text & Typography
-    out property <color> text-primary: root.high-contrast ? #ffffff : #f1f5f9;
-    out property <color> text-secondary: root.high-contrast ? #e6e6e6 : #94a3b8;
-    out property <color> text-muted: root.high-contrast ? #c4c4c4 : #64748b;
+    out property <color> text-primary: PleoPalette.text-primary;
+    out property <color> text-secondary: PleoPalette.text-secondary;
+    out property <color> text-muted: PleoPalette.text-muted;
     // Already white, the highest contrast there is: the same in both palettes. The
     // high-contrast `primary` was chosen dark enough to carry it at 4.5:1.
-    out property <color> text-on-primary: #ffffff;
+    out property <color> text-on-primary: PleoPalette.text-on-primary;
     /// Text that is present but not actionable: a disabled label, or a chart's axis tick labels,
     /// which must recede behind the data. One step dimmer than `text-muted`. Its normal value
     /// equals `border-control`'s, but the two roles are named apart so they can move separately.
-    out property <color> text-disabled: root.high-contrast ? #9a9a9a : #475569;
+    out property <color> text-disabled: PleoPalette.text-disabled;
     /// Dark text or icon colour on an `accent-amber` fill, such as a toggle's "on" state.
-    out property <color> text-on-amber: root.high-contrast ? #000000 : #0f172a;
+    out property <color> text-on-amber: PleoPalette.text-on-amber;
 
     /// Ink on a light or saturated fill: the general form of `text-on-amber`, as
     /// `text-on-primary` is the white counterpart for dark fills.
-    out property <color> text-on-accent: root.high-contrast ? #000000 : #0f172a;
+    out property <color> text-on-accent: PleoPalette.text-on-accent;
 
     // Control surfaces inside a dialog. They are separate from the `bg-*` scale of the main
     // window, because a dialog sits on its own `surface-dialog` card.
     /// A field, divider or hovered secondary button in a dialog: one step above the card.
-    out property <color> surface-raised: root.high-contrast ? #262626 : #1e293b;
+    out property <color> surface-raised: PleoPalette.surface-raised;
     /// A recessed secondary button or chip row in a dialog: one step below the card.
-    out property <color> surface-sunken: root.high-contrast ? #000000 : #0f172a;
+    out property <color> surface-sunken: PleoPalette.surface-sunken;
     /// A small square control (a dialog's own close button) at rest.
-    out property <color> surface-control: root.high-contrast ? #1a1a1a : #1a202c;
+    out property <color> surface-control: PleoPalette.surface-control;
     /// ...and hovered.
-    out property <color> surface-control-hover: root.high-contrast ? #333333 : #2d3748;
+    out property <color> surface-control-hover: PleoPalette.surface-control-hover;
     /// A disabled button's flat fill. Its normal value equals `border-dialog`'s, but it is a
     /// fill, not a border, so the two are named apart.
-    out property <color> surface-disabled: root.high-contrast ? #2e2e2e : #334155;
+    out property <color> surface-disabled: PleoPalette.surface-disabled;
 
     /// A selected list row's fill. Not shared with `brand-mark-bg`, which has the same value for a
     /// brand reason, so a palette change can move one without the other.
-    out property <color> surface-selected: root.high-contrast ? #0b3fa8 : #1e3a8a;
+    out property <color> surface-selected: PleoPalette.surface-selected;
     /// An informational banner's fill (the catalogue's "showing N just-imported
     /// designs" strip).
-    out property <color> surface-info: root.high-contrast ? #0b3a63 : #1e3a5f;
+    out property <color> surface-info: PleoPalette.surface-info;
     /// A warning banner's fill -- the dark amber counterpart to `accent-amber`
     /// content, as `surface-info` is to a blue one.
-    out property <color> surface-warning: root.high-contrast ? #5c3000 : #422006;
+    out property <color> surface-warning: PleoPalette.surface-warning;
 
     // Radii
     out property <length> radius-sm: 4px;
@@ -116,50 +120,50 @@ export global Theme {
 
     // Overlay and modal surfaces: the backdrop, card, border and shadow of every modal dialog.
     /// The full-viewport semi-transparent backdrop shown behind every modal dialog.
-    out property <color> overlay-backdrop: root.high-contrast ? #000000cc : #00000088;
+    out property <color> overlay-backdrop: PleoPalette.overlay-backdrop;
     /// A modal dialog card's own background, distinct from `bg-elevated` (used for
     /// smaller in-panel popups like the Log popup rather than full dialogs).
-    out property <color> surface-dialog: root.high-contrast ? #0d0d0d : #11151f;
+    out property <color> surface-dialog: PleoPalette.surface-dialog;
     /// A modal dialog card's own border color.
-    out property <color> border-dialog: root.high-contrast ? #b0b0b0 : #334155;
+    out property <color> border-dialog: PleoPalette.border-dialog;
     /// A small control's border while unchecked: one step brighter than `border-dialog`, so it
     /// reads as interactive. Its checked state is `accent-cyan`.
-    out property <color> border-control: root.high-contrast ? #b0b0b0 : #475569;
+    out property <color> border-control: PleoPalette.border-control;
     /// The drop-shadow color under a floating modal dialog card.
-    out property <color> modal-shadow: root.high-contrast ? #000000 : #000000bb;
+    out property <color> modal-shadow: PleoPalette.modal-shadow;
     /// The translucent card of a small floating popup, unlike the opaque `surface-dialog`.
     /// Used by the Details popup of `editor_status_strip.slint`.
-    out property <color> popup-surface: root.high-contrast ? #0d0d0df2 : #111827ee;
+    out property <color> popup-surface: PleoPalette.popup-surface;
 
     // Semantic state, distinct from the decorative `accent-*` colours (which charts also reuse).
     /// Danger, error and destructive-action colour.
-    out property <color> danger: root.high-contrast ? #ff6b6b : #f87171;
+    out property <color> danger: PleoPalette.danger;
     /// A destructive button's flat fill at rest and when hovered, under `danger` text and icons.
-    out property <color> danger-surface: root.high-contrast ? #2b0000 : #1f1111;
-    out property <color> danger-surface-hover: root.high-contrast ? #4d0000 : #450a0a;
+    out property <color> danger-surface: PleoPalette.danger-surface;
+    out property <color> danger-surface-hover: PleoPalette.danger-surface-hover;
     /// A destructive button's border.
-    out property <color> danger-border: root.high-contrast ? #ff6b6b : #7f1d1d;
+    out property <color> danger-border: PleoPalette.danger-border;
     /// Success and confirmation colour: a lighter shade of `accent-emerald`, so it reads as ink
     /// or an icon on a dark surface rather than as a fill.
-    out property <color> success: root.high-contrast ? #3ddc84 : #34d399;
+    out property <color> success: PleoPalette.success;
 
     // Toast backgrounds, translucent so a toast does not hide the content it floats over. The
     // high-contrast fills are nearly opaque (93 %), so their text keeps its contrast.
     /// The success toast's translucent card fill.
-    out property <color> toast-success-surface: root.high-contrast ? #003d24ee : #064e3bcc;
+    out property <color> toast-success-surface: PleoPalette.toast-success-surface;
     /// The error toast's translucent card fill.
-    out property <color> toast-error-surface: root.high-contrast ? #4d0010ee : #7f1d1dcc;
+    out property <color> toast-error-surface: PleoPalette.toast-error-surface;
     /// The warning toast's translucent card fill.
-    out property <color> toast-warning-surface: root.high-contrast ? #4d3300ee : #78350fcc;
+    out property <color> toast-warning-surface: PleoPalette.toast-warning-surface;
     /// The neutral/info toast's translucent card fill.
-    out property <color> toast-info-surface: root.high-contrast ? #000000ee : #0f172acc;
+    out property <color> toast-info-surface: PleoPalette.toast-info-surface;
     /// The drop-shadow under a toast -- lighter than `modal-shadow`, since a toast
     /// sits closer to the content than a modal dialog card does.
-    out property <color> toast-shadow: root.high-contrast ? #000000 : #000000aa;
+    out property <color> toast-shadow: PleoPalette.toast-shadow;
     /// A hover fill for a control that has no surface of its own and must tint
     /// whatever it floats over -- the toast's close button. Deliberately white at
     /// low alpha rather than a named surface, so it works on all four toast fills.
-    out property <color> overlay-hover: root.high-contrast ? #ffffff44 : #ffffff22;
+    out property <color> overlay-hover: PleoPalette.overlay-hover;
 
     // ---- Tokens for one feature each ----------------------------------------------
     // The normal values are the colours these features already show.
@@ -168,106 +172,110 @@ export global Theme {
     /// The recessed row or field behind a group of choice chips (frame-rate, bounce and
     /// colour-space pills, the step field, the progress track). Text on it: 10:1 or more
     /// for `text-muted` in high contrast.
-    out property <color> surface-chip: root.high-contrast ? #1a1a1a : #131b2e;
+    out property <color> surface-chip: PleoPalette.surface-chip;
     /// An unselected pill that sits on a panel (the library's tag chips). A FILL, so it is
     /// not `border-dialog`, which turns light in high contrast and would swallow the label.
-    out property <color> surface-chip-off: root.high-contrast ? #333333 : #334155;
+    out property <color> surface-chip-off: PleoPalette.surface-chip-off;
     /// Fill of a selected channel or axis pill, one tint per series. Each is the series
     /// colour at about 20 % over the dark surface under it, so the series-coloured label
     /// keeps 4.5:1 or more on it.
-    out property <color> tint-cyan: root.high-contrast ? #00e0ff33 : #0284c733;
-    out property <color> tint-amber: root.high-contrast ? #ffb30033 : #d9770633;
-    out property <color> tint-red: root.high-contrast ? #ef444433 : #b91c1c33;
-    out property <color> tint-purple: root.high-contrast ? #d28bff33 : #a855f733;
+    out property <color> tint-cyan: PleoPalette.tint-cyan;
+    out property <color> tint-amber: PleoPalette.tint-amber;
+    out property <color> tint-red: PleoPalette.tint-red;
+    out property <color> tint-purple: PleoPalette.tint-purple;
     /// The same for a pill with no series colour of its own (the "Angle" value pill).
-    out property <color> tint-neutral: root.high-contrast ? #ffffff40 : #33415577;
+    out property <color> tint-neutral: PleoPalette.tint-neutral;
 
     // The tilt-performance graph dialog and its chart.
     /// The graph dialog's card (a hair bluer than `surface-dialog`).
-    out property <color> surface-graph: root.high-contrast ? #0d0d0d : #0f1523;
+    out property <color> surface-graph: PleoPalette.surface-graph;
     /// The chart's floating hover card, translucent over the lines.
-    out property <color> surface-graph-popup: root.high-contrast ? #0d0d0df2 : #0f1523ee;
+    out property <color> surface-graph-popup: PleoPalette.surface-graph-popup;
     /// The plot area and its frame.
-    out property <color> chart-bg: root.high-contrast ? #000000 : #050811;
-    out property <color> chart-border: root.high-contrast ? #8c8c8c : #1e293b;
+    out property <color> chart-bg: PleoPalette.chart-bg;
+    out property <color> chart-border: PleoPalette.chart-border;
     /// The horizontal reference lines at 25 / 75 % and at 50 %.
-    out property <color> chart-grid: root.high-contrast ? #ffffff40 : #1e293b44;
-    out property <color> chart-grid-mid: root.high-contrast ? #ffffff66 : #1e293b66;
+    out property <color> chart-grid: PleoPalette.chart-grid;
+    out property <color> chart-grid-mid: PleoPalette.chart-grid-mid;
     /// The faint vertical guide at 0 degrees, and the hover crosshair.
-    out property <color> chart-guide: root.high-contrast ? #ffffff59 : #33415577;
-    out property <color> chart-crosshair: root.high-contrast ? #ffffffcc : #94a3b877;
+    out property <color> chart-guide: PleoPalette.chart-guide;
+    out property <color> chart-crosshair: PleoPalette.chart-crosshair;
     /// The extinction series (red) -- data colour, the same in both palettes: 5.6:1 on black.
     /// Brilliance and windowing use `accent-cyan` and `accent-amber`.
-    out property <color> chart-extinction: #ef4444;
+    out property <color> chart-extinction: PleoPalette.chart-extinction;
 
     // A "this needs your attention" banner in orange (stale cached curve, long video run).
     // Not `surface-warning`, the dark-amber banner.
     /// The banner fill, translucent in the normal palette.
-    out property <color> notice-surface: root.high-contrast ? #331a00 : #7c2d1233;
+    out property <color> notice-surface: PleoPalette.notice-surface;
     /// Its border, and the fill of the action button inside it (ink on it: `text-on-accent`).
-    out property <color> notice-accent: root.high-contrast ? #ff8a3d : #ea580c;
-    out property <color> notice-accent-hover: root.high-contrast ? #ffa566 : #f97316;
+    out property <color> notice-accent: PleoPalette.notice-accent;
+    out property <color> notice-accent-hover: PleoPalette.notice-accent-hover;
     /// Its text: 12:1 on `notice-surface` in high contrast.
-    out property <color> notice-text: root.high-contrast ? #ffd2a1 : #fdba74;
+    out property <color> notice-text: PleoPalette.notice-text;
 
     // Small badges in the catalogue (fill; the label uses the matching `accent-*`).
-    out property <color> badge-amber-bg: root.high-contrast ? #4d3300 : #78350f;
-    out property <color> badge-emerald-bg: root.high-contrast ? #003d24 : #065f46;
-    out property <color> badge-purple-bg: root.high-contrast ? #2e0a66 : #4c1d95;
+    out property <color> badge-amber-bg: PleoPalette.badge-amber-bg;
+    out property <color> badge-emerald-bg: PleoPalette.badge-emerald-bg;
+    out property <color> badge-purple-bg: PleoPalette.badge-purple-bg;
     /// The label on `badge-amber-bg` and on `badge-purple-bg` (the Rough Planner's verdict and
     /// state badges): light on the dark fills, 7:1 or more in high contrast.
-    out property <color> badge-amber-text: root.high-contrast ? #fff1b8 : #fde68a;
-    out property <color> badge-purple-text: root.high-contrast ? #f3e8ff : #e9d5ff;
+    out property <color> badge-amber-text: PleoPalette.badge-amber-text;
+    out property <color> badge-purple-text: PleoPalette.badge-purple-text;
     /// The "Competition Design" badge: fill and label (10:1 in high contrast).
-    out property <color> badge-orange-bg: root.high-contrast ? #4d1f00 : #7c2d12;
-    out property <color> badge-orange-text: root.high-contrast ? #ffd9b3 : #fed7aa;
+    out property <color> badge-orange-bg: PleoPalette.badge-orange-bg;
+    out property <color> badge-orange-text: PleoPalette.badge-orange-text;
 
     // The kit's glass panel over a picture, the hairline round a swatch chip, and the colour an
     // empty swatch shows (data, the same in both palettes).
-    out property <color> glass-bg: root.high-contrast ? #000000f2 : #0b0e15d0;
-    out property <color> glass-edge: root.high-contrast ? #b0b0b0 : #ffffff14;
-    out property <color> chip-edge: root.high-contrast ? #b0b0b0 : #ffffff22;
-    out property <color> swatch-empty: root.high-contrast ? #b0b0b0 : #888888;
+    out property <color> glass-bg: PleoPalette.glass-bg;
+    out property <color> glass-edge: PleoPalette.glass-edge;
+    out property <color> chip-edge: PleoPalette.chip-edge;
+    out property <color> swatch-empty: PleoPalette.swatch-empty;
 
     // Overlays drawn over the Live Render picture. In high contrast they are almost opaque
     // so the text stays readable over a bright render.
     /// What shows behind the render picture before the first frame arrives.
-    out property <color> viewport-bg: root.high-contrast ? #000000 : #080a0f;
+    out property <color> viewport-bg: PleoPalette.viewport-bg;
     /// The metrics strip over the picture.
-    out property <color> hud-surface: root.high-contrast ? #000000f2 : #0f172aee;
+    out property <color> hud-surface: PleoPalette.hud-surface;
     /// The mouse-hint pills along the bottom edge, and their text and icons.
-    out property <color> hint-surface: root.high-contrast ? #000000eb : #1e293bdd;
-    out property <color> hint-text: root.high-contrast ? #ffffff : #cbd5e1;
+    out property <color> hint-surface: PleoPalette.hint-surface;
+    out property <color> hint-text: PleoPalette.hint-text;
     /// The dimmer behind the in-window modal cards.
-    out property <color> scrim-light: root.high-contrast ? #000000b0 : #00000055;
+    out property <color> scrim-light: PleoPalette.scrim-light;
 
     // Shadows under a floating card: the strong one under the performance-graph and remote
     // dialogs, the medium one under the import dialog. (`modal-shadow` and `toast-shadow`
     // are the other two.) Fully black in high contrast, like those.
-    out property <color> shadow-heavy: root.high-contrast ? #000000 : #000000ee;
-    out property <color> shadow-medium: root.high-contrast ? #000000 : #000000aa;
+    out property <color> shadow-heavy: PleoPalette.shadow-heavy;
+    out property <color> shadow-medium: PleoPalette.shadow-medium;
 
     /// The round knob of a switch (on a track that is `border-dialog` when off and an
     /// accent colour when on). White would vanish on the light high-contrast tracks, so it
     /// is black there: 9:1 on `border-dialog`, 10:1 or more on every accent track.
-    out property <color> toggle-knob: root.high-contrast ? #000000 : #ffffff;
+    out property <color> toggle-knob: PleoPalette.toggle-knob;
 
     /// The logo mark in the header (the same blue as `surface-selected`, for a brand reason
     /// rather than a role, so a re-palette can move one without the other).
-    out property <color> brand-mark-bg: root.high-contrast ? #0b3fa8 : #1e3a8a;
+    out property <color> brand-mark-bg: PleoPalette.brand-mark-bg;
 
     // The Compare window's overlay legend. Data colours: they must match the red and
     // green the overlay raster draws, so they are the same in both palettes.
-    out property <color> compare-removed: #ef4444;
-    out property <color> compare-added: #22c55e;
+    out property <color> compare-removed: PleoPalette.compare-removed;
+    out property <color> compare-added: PleoPalette.compare-added;
 
     // The "Clear" and "Keep" swatches of the material editor's body-colour row. (The coloured
     // swatches are data -- the colour they stand for -- and stay literals in that file.)
     /// "Clear" when it is the chosen swatch: the pale grey-white of an uncoloured stone. Its
     /// label is `text-on-accent`.
-    out property <color> swatch-clear: root.high-contrast ? #ffffff : #e2e8f0;
+    out property <color> swatch-clear: PleoPalette.swatch-clear;
     /// "Clear" when it is not chosen: a faint translucent grey over the dialog card.
-    out property <color> swatch-clear-off: root.high-contrast ? #ffffff40 : #94a3b844;
+    out property <color> swatch-clear-off: PleoPalette.swatch-clear-off;
     /// "Keep" (keep the saved colour, which matches no swatch): fainter still.
-    out property <color> swatch-keep: root.high-contrast ? #ffffff26 : #94a3b822;
+    out property <color> swatch-keep: PleoPalette.swatch-keep;
+
+    // Pure white and pure black swatches: data colours, the same in both palettes.
+    out property <color> swatch-white: PleoPalette.swatch-white;
+    out property <color> swatch-black: PleoPalette.swatch-black;
 }

@@ -75,9 +75,10 @@ pub use lighting::{
     set_hdr_follows_camera, set_light_values, set_lighting,
 };
 pub use materials::{
-    ColorRow, CustomMaterialInput, MaterialRow, MaterialSummary, add_custom_material,
-    body_color_available, body_color_names, color_rows, custom_material_from_form, material_rows,
-    material_summary, select_material, set_color_entry, set_refractive_index_override,
+    ColorRow, CustomMaterialInput, MaterialIdentity, MaterialRow, MaterialSummary,
+    add_custom_material, body_color_available, body_color_names, body_color_swatch, color_rows,
+    custom_material_from_form, material_identity, material_rows, material_summary, select_material,
+    set_color_entry, set_refractive_index_override,
 };
 pub use number_entry::{NumberEntry, NumberView};
 pub use stone::{

@@ -408,7 +408,7 @@ fn apply_material(ui: &MainWindow, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The Preform tab: type the Girdle Diameter, then Apply Yield Inputs.
+/// The Preform tab: type the Girdle Diameter and press Enter (it applies on its own).
 fn apply_yield(ui: &MainWindow, girdle_diameter_mm: f64) {
     let editor = ui.global::<EditorModel>();
     let text = girdle_diameter_mm.to_string();

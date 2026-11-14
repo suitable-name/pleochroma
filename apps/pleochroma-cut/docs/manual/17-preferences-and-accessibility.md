@@ -42,11 +42,10 @@ nothing else, so your designs, your settings and your files are never affected.
 A brand-new installation starts in **Simple**. An installation that already has saved
 settings starts in **Advanced**, with every control shown.
 
-In the two viewports and their dialogs, Simple mode hides the **Tilt Curve** and
-**Save Lighting** buttons; in the Parameters dock's Render & Output tab, Library
-Thumbnails (Preview Image Size and Preview Samples), Motion Preview Resolution, the
-Compute section (Live Compute with its live transfer, Local Compute), Max Ray Bounces
-and the Tilt Performance Curve panel (Chapter 2); the two Library Thumbnails sliders
+In the two viewports and their dialogs, Simple mode hides the **Tilt Curve** button;
+in the Parameters dock's Render tab, the Library Thumbnails card (Preview Image Size and
+Preview Samples), Motion Preview Resolution, the Compute card (Live Compute with its live
+transfer, Local Compute), the Ray-Traced View card and Max Ray Bounces (Chapter 2); the two Library Thumbnails sliders
 also appear as Picture Quality in the preview question, in both modes (Chapter 2); in
 the Stone tab, the RI Override;
 and in the tilt video export, Max Ray Bounces, Color Space, Transfer and the
@@ -58,18 +57,17 @@ Tab button restores a tab's defaults in both modes, hidden settings included.
 In the editor, Simple mode hides these (each one is listed again in the chapter
 where it is described):
 
-- **Tier table and Tier tab** (Chapters 3 and 4): the Schedule tab; the MAST, SOLVE,
+- **Tier table and Tier tab** (Chapters 3 and 4): the MAST, SOLVE,
   and ORBIT columns; the Adopt, Pin and Detach buttons; Adopt All; Steps and Mirror; the
   table filter; the imported-meet line; and "Exact Scale Value" in the Meets list
   (it is shown when the tier already uses it). The Optimize tab's advanced controls
   are hidden too. In History and Variants, the per-row save-as-variant icon and
-  "Compare Text" are hidden. The Baseline strip (Chapter 5) keeps Set as Baseline and
-  Keep as Trial in both interfaces and hides Compare and Measure Tilt. The Tune view
-  (Chapter 8) hides its mini sweep, Figure list, Jump to Best, Pair With and the
-  order buttons. The Angle Sweep's Two Tiers mode is in the Angle Sweep dialog, which
+  "Compare Text" are hidden. The VS BASELINE figures card of the Edit viewport (Chapter 5) shows the figures
+  alone in Simple and adds the changes and Keep as Trial in Advanced. The Optimize
+  tab hides its Tune view, Run settings, Trials and Variants (Chapter 8). The Angle Sweep's Two Tiers mode is in the Angle Sweep dialog, which
   is itself Advanced (Edit > Angle Sweep). The Tier tab's "+ Add Concave Tier" and Offset stay
   visible.
-- **Command bar** (Chapter 3): Deep Solve, Set Baseline, Compare and Tilt Curves.
+- **Command bar** (Chapter 3): Deep Solve, the Baseline menu, Tilt Batch... and Tilt Chart.
   The File menu drops its Gem Cut Studio (.gcs) entry.
 - **Design settings panel** (Chapter 6): Symmetry Order, Mirror and
   Apply Symmetry, Extra Header Lines, Footnotes, Gear Ref. Angle and the

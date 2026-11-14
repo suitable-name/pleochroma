@@ -5,7 +5,9 @@
 
 use super::{
     emitter::PendingDelta,
-    sizing::{next_batch_size, remember_converged_subbatch, seeded_batch_size},
+    sizing::{
+        TARGET_SUBBATCH_FINAL_ONLY, next_batch_size, remember_converged_subbatch, seeded_batch_size,
+    },
 };
 use crate::{
     assets::{self, TrayRef, TrayStop},
@@ -26,7 +28,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 /// State shared by `run_tracer` (the writer) and the emitter in `run_stream` (the reader),
@@ -93,6 +95,9 @@ pub(super) struct TracerJob {
     /// first sub-batch and held for the whole run. A coordinator lane shares one pin across
     /// the chunks of a job, so the map and mirror are built once per job, not per chunk.
     pub(super) pin: Arc<assets::TrayPin>,
+    /// The duration the sub-batches adapt toward: short for a streamed request, long for one
+    /// that sends its radiance once (see `super::sizing`'s "Why two targets").
+    pub(super) subbatch: Duration,
 }
 
 /// Traces `[job.first_sample, job.first_sample + job.samples)` in adaptive sub-batches (see
@@ -217,7 +222,7 @@ fn trace_all_batches(
         }
         return;
     }
-    let mut batch_size: u32 = seeded_batch_size(key);
+    let mut batch_size: u32 = seeded_batch_size(key, job.subbatch);
 
     // Only `Hybrid` attempts a split. A scene the GPU cannot trace is CPU-only and never
     // calibrates one either.
@@ -282,11 +287,11 @@ fn trace_all_batches(
 
         reporter.fold_and_notify(batch_first, this_batch, buf, &mut produced);
 
-        batch_size = next_batch_size(batch_size, elapsed);
+        batch_size = next_batch_size(batch_size, elapsed, job.subbatch);
     }
 
-    // Store the converged state for later jobs with the same resource profile.
-    remember_converged_subbatch(key, batch_size);
+    // Store the converged state for later jobs with the same resource profile and target.
+    remember_converged_subbatch(key, job.subbatch, batch_size);
     if started_on_split_path {
         render_core::hybrid::finalize_split_cache(key, gpu_frac);
     }
@@ -331,6 +336,8 @@ pub fn trace_range(
         threads,
         compute_mode,
         pin: Arc::clone(pin),
+        // The chunk's sum is returned once, at the end.
+        subbatch: TARGET_SUBBATCH_FINAL_ONLY,
     };
     run_tracer(&job, gpu, &state, cancel, &progress_tx);
     let mut guard = state

@@ -15,7 +15,7 @@
 
 use super::{
     super::{Piece, existing_install},
-    overlay_states::{Base, NONE, State, edit_tab, open_cutting_mode, parameters},
+    overlay_states::{Base, NONE, State, edit_tab, open_cutting_mode, parameters_stone_open},
     state_pieces,
     states_reach::scroll_scope,
 };
@@ -91,7 +91,8 @@ fn oriented_design(a: &HarnessApp, material: &str, pick: Pick) {
 /// The Parameters panel on the Stone tab, scrolled by `dy` so the Crystal Axis section shows.
 fn stone_tab(a: &HarnessApp, material: &str, pick: Pick, dy: f32) {
     oriented_design(a, material, pick);
-    parameters(a, 0);
+    // The Crystal Axis card is folded until opened; the folds are read when the tab mounts.
+    parameters_stone_open(a);
     scroll_scope(a, "ParametersPanel", 0.0, dy);
 }
 

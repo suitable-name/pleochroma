@@ -340,7 +340,8 @@ fn rust_tag_constants_match_the_wgsl_common_unit() {
     use super::{
         ARM_FROSTED, ARM_GENERIC, ARM_TIR, ARM_UNI_ENTRY, ARM_UNI_INTERNAL, TAG_ARM_BASE, TAG_DONE,
         TAG_EXTEND, TAG_FINALIZE, TAG_NEE_HG, TAG_SCATTER, TAG_SCATTER_ORIENTED, TAG_SPLIT,
-        TAG_SURFACE, TAG_TAIL, TAG_UNI_ENTRY_TRANSMIT, TAG_ZONE_ABSORB,
+        TAG_SURFACE, TAG_TAIL, TAG_UNI_ENTRY_FINISH, TAG_UNI_ENTRY_TRANSMIT,
+        TAG_UNI_INTERNAL_TRANSMIT, TAG_ZONE_ABSORB,
     };
 
     const WGSL: &str = include_str!("../../shaders/event_wavefront/00_common.wgsl");
@@ -369,6 +370,8 @@ fn rust_tag_constants_match_the_wgsl_common_unit() {
         ("TAG_SCATTER_ORIENTED", TAG_SCATTER_ORIENTED),
         ("TAG_ZONE_ABSORB", TAG_ZONE_ABSORB),
         ("TAG_UNI_ENTRY_TRANSMIT", TAG_UNI_ENTRY_TRANSMIT),
+        ("TAG_UNI_ENTRY_FINISH", TAG_UNI_ENTRY_FINISH),
+        ("TAG_UNI_INTERNAL_TRANSMIT", TAG_UNI_INTERNAL_TRANSMIT),
     ] {
         assert_eq!(wgsl_value(name), rust, "{name} drifted from the WGSL unit");
     }

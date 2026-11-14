@@ -310,9 +310,51 @@ pub(super) fn frame_unsettled(host: &Rc<Host>) -> Option<String> {
             "frame {} is on screen, frame {} is being drawn",
             view.applied, view.generation
         ))
+    } else if host
+        .window
+        .global::<RoughPlanModel>()
+        .get_view_image()
+        .size()
+        .width
+        == 0
+    {
+        Some("no picture is set".to_owned())
     } else {
         None
     }
+}
+
+/// The view's state in one line, for the screenshot report: the scene shown, the frame on
+/// screen and the newest asked for, the image area, and the picture's size. UI harness only.
+#[cfg(feature = "ui-harness")]
+pub(super) fn frame_report(host: &Rc<Host>) -> String {
+    let session = host.session.borrow();
+    let view = &session.view;
+    let scene = view.scene.as_deref().map_or_else(
+        || "none".to_owned(),
+        |scene| {
+            let kind = match scene.kind {
+                SceneKind::Model(_) => "model",
+                SceneKind::Fit(_) => "fit",
+            };
+            format!("{kind} #{}", scene.serial)
+        },
+    );
+    let image = host
+        .window
+        .global::<RoughPlanModel>()
+        .get_view_image()
+        .size();
+    format!(
+        "scene {scene}, frame {} of {}, area {:?}, building {}, moving {}, picture {} x {}",
+        view.applied,
+        view.generation,
+        view.view_size,
+        view.building,
+        view.interactive(),
+        image.width,
+        image.height
+    )
 }
 
 /// Mirrors whether a result scene is being built into the window (`view_busy`), which shows

@@ -51,7 +51,8 @@ fn solve() -> GuideOverlay {
 }
 
 fn auto_solve() -> GuideOverlay {
-    GuideOverlay::new("solving-auto-solve").edit(auto_list())
+    // The desktop's Auto-Solve menu wording is restored by `data_desktop_ui`.
+    GuideOverlay::new("solving-auto-solve")
 }
 
 fn status() -> GuideOverlay {
@@ -100,7 +101,7 @@ fn verdict() -> GuideOverlay {
 
 fn verdict_fixes() -> GuideOverlay {
     GuideOverlay::new("solving-verdict-fixes").step(StepOverlay::of("Take the table away").line(
-        "Click the trash button at the end of the Table row (or press Delete).",
+        "Open the ... menu (Actions for Tier N) at the end of the Table row and click Delete (or press Delete).",
         "Click the x button at the end of the Table row (or press Delete).",
     ))
 }

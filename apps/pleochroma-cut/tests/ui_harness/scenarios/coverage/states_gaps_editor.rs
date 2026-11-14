@@ -28,7 +28,9 @@
 
 use super::{
     super::{Piece, existing_install},
-    overlay_states::{Base, NONE, State, edit_tab, inspector, live_tab, parameters, press},
+    overlay_states::{
+        Base, NONE, State, edit_tab, inspector, live_tab, parameters_stone_open, press,
+    },
     overlays, state_pieces,
     states_axis::design_material,
     states_dialogs::{material_open, saved_material},
@@ -111,12 +113,12 @@ fn press_typed(app: &HarnessApp, label: &str, kind: &str) -> bool {
 // Top tab pill
 // ---------------------------------------------------------------------------------------------
 
-/// The Files & Downloads pill, pressed through its accessible label (the pill's text carries the
-/// "(3)" shortcut, its accessible name does not), then the 3D pill back. Proves each press selects
-/// its tab. The smoke engine never presses the pill: its deny rule "download" (network) matches
+/// The Files & Downloads segment of the places segment, pressed through its accessible label (the
+/// segment's text carries no shortcut hint, and its accessible name is the full name), then the
+/// Live Render segment back. Proves each press selects its tab. The smoke engine never presses the pill: its deny rule "download" (network) matches
 /// the word in the label, but the pill only switches to the local Attachments view.
 fn files_tab_pill(ctx: &mut Ctx<'_>) {
-    for (label, tab) in [("Files & Downloads", 2), ("3D Spectral Preview", 0)] {
+    for (label, tab) in [("Files & Downloads", 2), ("Live Render", 0)] {
         let pressed = press(ctx.app, label, None);
         ctx.expect(
             pressed,
@@ -383,7 +385,8 @@ fn editor_axis_families_size(a: &HarnessApp) {
 fn silk_turn(a: &HarnessApp, dy: f32) {
     edit_tab(a);
     let _ = design_material(a, "sapphire");
-    parameters(a, 0);
+    // The Clarity card (silk) is folded until opened.
+    parameters_stone_open(a);
     let effects = a.ui().global::<RenderEffectsModel>();
     effects.invoke_refresh();
     let _ = wait_until(Duration::from_secs(8), || {
@@ -490,6 +493,19 @@ fn table_states() -> Vec<State> {
             scope: Some("EditorInspector"),
             deny: NONE,
             open: tune_buttons,
+        },
+        State {
+            // The sweep chart, its metric legend and readout are folded until "Show sweep" (or
+            // Jump to Best) opens them.
+            name: "Inspector: Optimize, Tune, sweep shown",
+            base: Base::Edited,
+            scope: Some("EditorInspector"),
+            deny: NONE,
+            open: |a| {
+                tune_buttons(a);
+                let _ = press(a, "Show sweep", None);
+                pump(400);
+            },
         },
     ]
 }

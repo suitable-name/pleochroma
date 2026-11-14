@@ -94,7 +94,10 @@ pub(super) fn drive(film: &mut Film<'_>, step: usize) -> Result<(), String> {
         // Play-of-color.
         ("materials-opal-play-of-color", 3) => switch_structure_on(film, "Show Play-of-Color"),
         ("materials-labradorite-schiller", 3) => switch_structure_on(film, "Show Schiller"),
-        ("materials-opal-play-of-color", 4) => click_stone_label(film, "Pinfire"),
+        ("materials-opal-play-of-color", 4) => {
+            open_structure_card(film)?;
+            click_stone_label(film, "Pinfire")
+        }
         ("materials-opal-play-of-color", 5) => drag_and_finish(film, "Color Range, Low End"),
         ("materials-opal-play-of-color", 6) => reseed(film),
         ("materials-opal-play-of-color", 7) => choose_material_again(film, "Precious Opal (Black)"),
@@ -216,9 +219,23 @@ fn click_stone_label(film: &mut Film<'_>, label: &str) -> Result<(), String> {
     film.hold(pacing::RESULT_HOLD)
 }
 
+/// Opens the Stone tab's Play-of-Color (Schiller) fold card, which starts folded. Its title is the
+/// material's own ("Play-of-Color" or "Schiller") while one is available.
+fn open_structure_card(film: &mut Film<'_>) -> Result<(), String> {
+    let model = film.ui.global::<RenderEffectsModel>();
+    let title = if model.get_structure_available() {
+        model.get_structure_title().to_string()
+    } else {
+        "Play-of-Color".to_owned()
+    };
+    film.open_stone_fold(&title, 8)
+}
+
 /// Clicks the silk preset `name` and waits for the design to hold it.
 fn choose_silk_preset(film: &mut Film<'_>, name: &str) -> Result<(), String> {
     let model = film.ui.global::<RenderEffectsModel>();
+    // The silk presets are in the Clarity card, which starts folded.
+    film.open_stone_fold("Clarity", 4)?;
     if !model.get_inclusion_preset().is_empty() {
         return Err("a silk preset is already chosen before the lesson chooses one".into());
     }
@@ -232,6 +249,7 @@ fn choose_silk_preset(film: &mut Film<'_>, name: &str) -> Result<(), String> {
 /// Set Silk Turn, a nudge of the Silk Turn slider and Show Silk Directions.
 fn turn_silk(film: &mut Film<'_>) -> Result<(), String> {
     let model = film.ui.global::<RenderEffectsModel>();
+    film.open_stone_fold("Clarity", 4)?;
     click_stone_label(film, "Set Silk Turn")?;
     if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_inclusion_turn_set()) {
         return Err("Set Silk Turn did not switch the turn on".into());
@@ -250,6 +268,7 @@ fn cats_eye(film: &mut Film<'_>) -> Result<(), String> {
     choose_material_again(film, "Chrysoberyl (Yellow)")?;
     // Sets the axis for this stone first when the stone has none, then the Second Axis.
     second_axis(film)?;
+    film.open_stone_fold("Clarity", 4)?;
     click_stone_label(film, "Cat's-Eye Silk")?;
     if model.get_inclusion_preset().as_str() != "Cat's-Eye Silk" {
         return Err("clicking Cat's-Eye Silk did not choose that preset".into());
@@ -263,6 +282,7 @@ fn switch_structure_on(film: &mut Film<'_>, label: &str) -> Result<(), String> {
     if model.get_structure_on() {
         return Err(format!("{label} is already on before the lesson clicks it"));
     }
+    open_structure_card(film)?;
     click_stone_label(film, label)?;
     if !model.get_structure_on() {
         return Err(format!("clicking {label} did not switch it on"));
@@ -272,6 +292,7 @@ fn switch_structure_on(film: &mut Film<'_>, label: &str) -> Result<(), String> {
 
 /// Drags the Stone tab slider `label` a little along its track and waits for the design.
 fn drag_and_finish(film: &mut Film<'_>, label: &str) -> Result<(), String> {
+    open_structure_card(film)?;
     film.drag_stone_slider(label)?;
     wait_step_done(film, label)
 }
@@ -280,6 +301,7 @@ fn drag_and_finish(film: &mut Film<'_>, label: &str) -> Result<(), String> {
 fn reseed(film: &mut Film<'_>) -> Result<(), String> {
     let model = film.ui.global::<RenderEffectsModel>();
     let before = model.get_structure_seed();
+    open_structure_card(film)?;
     click_stone_label(film, "Reseed")?;
     if model.get_structure_seed() == before {
         return Err("Reseed did not draw a new seed".into());
@@ -293,6 +315,16 @@ fn reseed(film: &mut Film<'_>) -> Result<(), String> {
 /// Curves, nudges one coefficient and saves.
 fn curve_material(film: &mut Film<'_>) -> Result<(), String> {
     let editor = film.ui.global::<ViewportModel>();
+    // New/Edit Material... is an item of the identity card's "..." menu.
+    let menu = film.stone_control("Material Menu", |view| {
+        targets::role_label(
+            view,
+            "Material Menu",
+            AccessibleRole::Button,
+            Some("ParametersPanel"),
+        )
+    })?;
+    film.click_and_invoke(&menu)?;
     let open = film.stone_control("New/Edit Material...", |view| {
         targets::role_label(
             view,

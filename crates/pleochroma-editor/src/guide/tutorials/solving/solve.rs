@@ -70,7 +70,7 @@ fn solve() -> Guide {
             "Find the Solve button at the left of the command bar. F5 does the same.",
             "Find the status strip under the tier table: one dot and one line say where the design stands.",
         ])
-        .why("Solve is the one action that asks the solver for every mast, the depth of each tier. Everything else, such as Save Tier, Remove or Undo, skips it and marks the design not solved instead, so a slow solve never freezes a typing session.")
+        .why("Solve is the one action that asks the solver for every mast, the depth of each tier. Everything else, such as editing a tier, Remove or Undo, skips it and marks the design not solved instead, so a slow solve never freezes a typing session.")
         .highlight("solve_button")
         .allow(SOLVE),
     )
@@ -80,12 +80,12 @@ fn solve() -> Guide {
             "The Auto-Solve list can solve for you after every edit. For this lesson switch it off, so you can watch what Solve does.",
         )
         .actions([
-            "Open the Auto-Solve list next to the Solve button and choose Off.",
-            "If it already says Off, choose 1 s and then Off again.",
+            "Open the chevron on the right of the Solve button (the Auto-Solve menu) and choose Auto-Solve Off.",
+            "If it already says Off, choose Auto-Solve 1 s and then Auto-Solve Off again.",
         ])
-        .check("the Auto-Solve list reads Off.")
+        .check("the Auto-Solve menu marks Off.")
         .why("With auto-solve on, a design that solves quickly is solved again by itself a moment after every edit, so you would never see it marked not solved. The last step of this lesson says how to put it back.")
-        .goal(event(events::AUTO_SOLVE_OFF), "the Auto-Solve list set to Off")
+        .goal(event(events::AUTO_SOLVE_OFF), "the Auto-Solve menu set to Off")
         .highlight("auto_solve")
         .allow(SOLVE),
     )
@@ -95,9 +95,8 @@ fn solve() -> Guide {
             "Change one angle and watch the design lose its solved state.",
         )
         .actions([
-            "Click the Crown Main row in the tier table.",
-            "In the Tier tab, change Angle (deg) to 36.",
-            "Click Save Tier.",
+            "Click the Crown Main row in the tier list.",
+            "In the Tier tab, change Angle (deg) to 36 and press Enter.",
         ])
         .check("the status strip reads: Not solved -- click Solve to compute masts and validate this design.")
         .why("The MAST and SOLVE columns of the tier table show placeholders instead of numbers that might no longer be true, and the viewport keeps the last solved stone rather than a half-updated one.")
@@ -140,8 +139,8 @@ fn solve() -> Guide {
             "Choose the setting you want to work with.",
         )
         .actions([
-            "Open the Auto-Solve list. 300 ms is the usual choice: a small design then solves itself shortly after you stop typing.",
-            "Choose Off if you would rather press Solve yourself.",
+            "Open the chevron on the Solve button. Auto-Solve 300 ms is the usual choice: a small design then solves itself shortly after you stop typing.",
+            "Choose Auto-Solve Off if you would rather press Solve yourself.",
         ])
         .why("The setting is remembered across sessions. See the Auto-Solve lesson for how the time limit works.")
         .highlight("auto_solve")
@@ -163,7 +162,7 @@ fn auto_solve() -> Guide {
             "After an edit, a small design can solve itself, so you skip the click on Solve.",
         )
         .actions([
-            "Find the Auto-Solve list next to the Solve button: Off, 150 ms, 300 ms, 1 s and 3 s.",
+            "Find the chevron on the right of the Solve button (the Auto-Solve menu): Auto-Solve Off, 150 ms, 300 ms, 1 s and 3 s.",
             "After an edit, if this design's last solve took less than the time you chose, a new solve starts by itself after a short pause.",
             "The pause lets you finish typing, so a burst of keystrokes causes one solve, not one for every key.",
         ])
@@ -177,11 +176,11 @@ fn auto_solve() -> Guide {
             "Start with auto-solve off to see what it replaces.",
         )
         .actions([
-            "Open the Auto-Solve list and choose Off.",
-            "If it already says Off, choose 1 s and then Off again.",
+            "Open the Auto-Solve menu (the chevron on the Solve button) and choose Auto-Solve Off.",
+            "If it already says Off, choose Auto-Solve 1 s and then Auto-Solve Off again.",
         ])
-        .check("the Auto-Solve list reads Off.")
-        .goal(event(events::AUTO_SOLVE_OFF), "the Auto-Solve list set to Off")
+        .check("the Auto-Solve menu marks Off.")
+        .goal(event(events::AUTO_SOLVE_OFF), "the Auto-Solve menu set to Off")
         .highlight("auto_solve")
         .allow(SOLVE),
     )
@@ -191,9 +190,8 @@ fn auto_solve() -> Guide {
             "With auto-solve off, an edit only marks the design as not solved.",
         )
         .actions([
-            "Click the Crown Main row in the tier table.",
-            "In the Tier tab, change Angle (deg) to 36.",
-            "Click Save Tier.",
+            "Click the Crown Main row in the tier list.",
+            "In the Tier tab, change Angle (deg) to 36 and press Enter.",
         ])
         .check("the status strip reads Not solved and stays that way until you press Solve.")
         .goal(
@@ -208,10 +206,10 @@ fn auto_solve() -> Guide {
             "Choose 300 ms",
             "Now let the design solve itself.",
         )
-        .actions(["Open the Auto-Solve list and choose 300 ms."])
-        .check("the Auto-Solve list reads 300 ms.")
+        .actions(["Open the Auto-Solve menu (the chevron on the Solve button) and choose Auto-Solve 300 ms."])
+        .check("the Auto-Solve menu marks 300 ms.")
         .why("Off means edits only ever mark the design not solved, exactly as the program always did. Any other setting turns the automatic solve on for designs that solve within that time.")
-        .goal(event(events::AUTO_SOLVE_ON), "the Auto-Solve list set to a time")
+        .goal(event(events::AUTO_SOLVE_ON), "the Auto-Solve menu set to a time")
         .highlight("auto_solve")
         .allow(SOLVE),
     )
@@ -221,7 +219,7 @@ fn auto_solve() -> Guide {
             "Put the angle back and do not press Solve.",
         )
         .actions([
-            "Click the Crown Main row, change Angle (deg) to 34.5 and click Save Tier.",
+            "Click the Crown Main row, change Angle (deg) to 34.5 and press Enter.",
             "Wait a moment without pressing anything.",
         ])
         .check("the strip goes from Not solved to Closed solid on its own.")
@@ -291,9 +289,8 @@ fn status() -> Guide {
             "Break the design on purpose to see the commonest failure.",
         )
         .actions([
-            "Click the Girdle row in the tier table.",
-            "In the Tier tab, set Meets to Unspecified Vertex.",
-            "Click Save Tier.",
+            "Click the Girdle row in the tier list.",
+            "In the Tier tab, set Meets to Unspecified Vertex (Vertex segment); it applies at once.",
         ])
         .check("the Girdle row no longer shows an exact scale value.")
         .why("Every block, crown, pavilion and girdle, needs one tier with an exact scale value to hang its depths on. The Girdle is the only tier of its block, so now that block has no anchor.")
@@ -322,12 +319,12 @@ fn status() -> Guide {
             "Give the girdle its anchor back.",
         )
         .actions([
-            "Click the Girdle row, set Meets back to Exact Scale Value and type 1 in the box beside it.",
-            "Click Save Tier. Pressing Ctrl+Z to undo the edit works too.",
+            "Click the Girdle row, set Meets back to Exact Scale Value (Scale segment) and type 1 in the box beside it.",
+            "Press Enter. Pressing Ctrl+Z to undo the edit works too.",
             "Click Solve.",
         ])
         .check("the strip reads Closed solid again.")
-        .why("The tier table's Add Anchor button on a block's rows does the same for a block that has none.")
+        .why("Add Anchor in a row's ... menu (Actions for Tier N) does the same for a block that has none.")
         .goal(
             Goal::All(vec![
                 Goal::tier("Girdle", 90.0).with_meet(MeetKind::ExactScale),
@@ -423,7 +420,7 @@ fn verdict() -> Guide {
             "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1).",
             "Set Material to Opal. It applies at once. Its refractive index, 1.45, is lower than most gems.",
         ])
-        .check("the Stone tab shows Opal, with its Eff. RI and critical angle (Crit.) beside it.")
+        .check("the Stone tab shows Opal, with its RI and critical angle (Critical) chips beside it.")
         .why("A lower index means a larger critical angle: a pavilion facet that was steep enough to keep light inside in diamond now lets it out. That shows as windowing.")
         .goal(Goal::Material("Opal".to_owned()), "the material set to Opal")
         .highlight("stone_tab")
@@ -488,10 +485,10 @@ fn verdict_fixes() -> Guide {
             "A crown with no table is a reason the verdict can fix.",
         )
         .actions([
-            "Click the Table row in the tier table.",
-            "Click the trash button at the end of the Table row (or press Delete).",
+            "Click the Table row in the tier list.",
+            "Open the ... menu (Actions for Tier N) at the end of the Table row and click Delete (or press Delete).",
         ])
-        .check("the Table row is gone from the tier table.")
+        .check("the Table row is gone from the tier list.")
         .why("You can undo it. The stone still closes: without a flat top the star facets meet in a point.")
         .goal(check("no tier called Table", table_is_gone), "the Table tier removed")
         .highlight("tier_table")
@@ -517,7 +514,7 @@ fn verdict_fixes() -> Guide {
             "Click the verdict badge.",
             "Find the reason that says the crown has no table and click Add a Table beside it.",
         ])
-        .check("a Table row is back at the end of the tier table, and a message says what was added.")
+        .check("a Table row is back at the end of the tier list, and a message says what was added.")
         .why("A Fix is planned on a copy of the design first and refused, with a plain sentence and no change, when it cannot be made safely. When it goes ahead it is one undo step: a single Ctrl+Z puts everything back.")
         .goal(Goal::TierExists("Table".to_owned()), "a Table tier")
         .highlight("verdict_badge")
@@ -529,9 +526,8 @@ fn verdict_fixes() -> Guide {
             "Make a second reason for the verdict to fix.",
         )
         .actions([
-            "Click the Crown Main row in the tier table.",
-            "In the Indices box of the Tier tab, change 12 to 12.5.",
-            "Click Save Tier.",
+            "Click the Crown Main row in the tier list.",
+            "In the Indices box of the Tier tab, change 12 to 12.5 and press Enter.",
         ])
         .check("the Crown Main indices now include 12.5.")
         .why("A tooth of the 96-tooth gear is a whole number. A position such as 12.5 lies between two teeth and cannot be cut exactly.")
@@ -589,7 +585,7 @@ fn preform() -> Guide {
             "Open the Preform tab",
             "The Preform tab describes the whole design, not one tier.",
         )
-        .actions(["Click Preform in the inspector below the tier table."])
+        .actions(["Click Preform in the inspector below the tier list."])
         .check("the tab shows Preform, Proportions and Yield.")
         .goal(Goal::InspectorTab(1), "the Preform tab open")
         .highlight("preform_tab")
@@ -673,7 +669,7 @@ fn yield_and_carat() -> Guide {
             "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1).",
             "Set Material to Quartz. It applies at once.",
         ])
-        .check("the Stone tab shows Quartz, with its Eff. RI and critical angle (Crit.) beside it.")
+        .check("the Stone tab shows Quartz, with its RI and critical angle (Critical) chips beside it.")
         .why("Quartz has a specific gravity of 2.65. A design with no material has no density to estimate a weight from, unless you type a Specific Gravity Override.")
         .goal(Goal::Material("Quartz".to_owned()), "the material set to Quartz")
         .highlight("stone_tab")
@@ -684,7 +680,7 @@ fn yield_and_carat() -> Guide {
             "Open the Preform tab",
             "The Yield group sits at the bottom of the Preform tab.",
         )
-        .actions(["Click Preform in the inspector below the tier table."])
+        .actions(["Click Preform in the inspector below the tier list."])
         .check("the tab shows Preform, Proportions and Yield, with Yield at the bottom.")
         .goal(Goal::InspectorTab(1), "the Preform tab open")
         .highlight("preform_tab")
@@ -696,10 +692,10 @@ fn yield_and_carat() -> Guide {
             "The design is drawn in model units. A real size in millimetres turns them into a weight.",
         )
         .actions([
-            "In the Yield group, set Girdle Diameter (mm) to 8.",
-            "Click Apply Yield Inputs.",
+            "In the Yield group, set Stone width (Girdle Diameter, mm) to 8 and press Enter.",
+            "Yield values apply when you press Enter or leave the field; there is no Apply button for them.",
         ])
-        .check("Apply Yield Inputs is no longer highlighted.")
+        .check("the Yield group shows the 8 mm width, and the Stone tab's Stone width reads the same.")
         .why("Eff. RI and its source are shown above the fields. Specific Gravity Override takes a number or a calculation and has no slider, because it is measured or looked up, not tuned. Leave it blank to use the material's own.")
         .goal(Goal::YieldApplied, "a girdle diameter applied")
         .highlight("preform_tab")

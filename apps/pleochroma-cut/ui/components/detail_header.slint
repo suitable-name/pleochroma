@@ -8,11 +8,13 @@ import { GuideModel } from "../models/guide.slint";
 import { HelpTopics } from "../models/help.slint";
 import { HelpButton } from "help_button.slint";
 import { TouchButton } from "touch_button.slint";
+import { PlacesSegment } from "app/tab_pill_row.slint";
 
 // Keyboard and screen reader notes for this header: every icon is a button that Tab reaches
 // (focus ring from the theme), Space or Enter presses, and a screen reader hears its name and
-// what it does. Each chip is one text item ("Gear: 60-index") rather than two. The Simple
-// interface leaves out the Gem Cut Studio export; Advanced shows it.
+// what it does. Each chip is one text item ("Gear: 60-index") rather than two. Save (the original
+// .asc) stays in view; the other actions are in the "..." menu, where a row keeps the name its icon
+// had. The Simple interface leaves out the Gem Cut Studio export; Advanced shows it.
 
 // A single "label: value" metric chip, 20px tall, for the one-row header. `DesignChipsRow` uses
 // it for every chip except Shape, which has its own edit pencil and combo. `hint` says in plain
@@ -50,33 +52,41 @@ component MetricChip inherits Rectangle {
     }
 }
 
-// The smaller chip of the one-line (compact) header.
+// The smaller chip of the one-line (compact) header. The chip is 22 px tall and centred in the row;
+// the component itself fills the row's height, so it sits on the row's centre line.
 component CompactChip inherits Rectangle {
     in property <string> label;
     in property <string> value;
     in property <string> hint;
     in property <color> value_color: Theme.text-primary;
     in property <bool> italic: false;
-    background: Theme.bg-input;
-    border-radius: Theme.radius-sm;
-    border-width: 1px;
-    border-color: Theme.border-subtle;
+    preferred-width: chip_layout.preferred-width;
+    max-width: chip_layout.preferred-width;
+    horizontal-stretch: 0;
     accessible-role: AccessibleRole.text;
     accessible-label: root.label + " " + root.value;
     accessible-description: root.hint;
     if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
-    HorizontalLayout {
-        padding-left: 6px; padding-right: 6px; padding-top: 3px; padding-bottom: 3px; spacing: 3px;
-        Text { text: root.label; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-        Text {
-            text: root.value;
-            font-size: 10px;
-            font-italic: root.italic;
-            font-weight: 600;
-            color: root.value_color;
-            vertical-alignment: center;
-            overflow: elide;
-            accessible-role: AccessibleRole.none;
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 22px;
+        background: Theme.bg-input;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-subtle;
+        chip_layout := HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 3px;
+            Text { text: root.label; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
+            Text {
+                text: root.value;
+                font-size: 10px;
+                font-italic: root.italic;
+                font-weight: 600;
+                color: root.value_color;
+                vertical-alignment: center;
+                overflow: elide;
+                accessible-role: AccessibleRole.none;
+            }
         }
     }
 }
@@ -144,12 +154,92 @@ component HeaderAction inherits Rectangle {
     }
 }
 
-// The icon actions of the selected design. Instantiated TWICE by `DetailHeaderView` (the
-// one-line header and the full header) so the buttons are defined once. `with_metadata` adds
-// the metadata editor (the full header only).
+// One row of the header's "..." menu. Space or Enter runs it; Escape closes the menu (`dismissed`).
+// `danger` colors a destructive row. The name a screen reader hears is `label` (the visible `text`
+// when empty), so a row keeps the name its old icon button had.
+component HeaderMenuItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> text;
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    in property <color> ink: Theme.text-secondary;
+    callback activated();
+    callback dismissed();
+
+    public function take_focus() {
+        item_focus.focus();
+    }
+
+    height: 32px;
+    border-radius: 8px;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: root.enabled && (item_touch.has-hover || item_focus.has-focus) ? (root.danger ? Theme.danger-surface : Theme.bg-card-hover) : transparent;
+    border-width: item_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.activated();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    item_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) && root.enabled {
+                root.activated();
+                return accept;
+            } else if event.text == Key.Escape {
+                root.dismissed();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                colorize: root.danger ? Theme.danger : root.ink;
+                width: 14px;
+                height: 14px;
+                image-fit: contain;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 12px;
+            color: root.danger ? Theme.danger : Theme.text-primary;
+            vertical-alignment: center;
+            accessible-role: AccessibleRole.none;
+        }
+    }
+    item_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.activated(); }
+    }
+}
+
+// The icon actions of the selected design, in the header's right cluster: Save (the original .asc,
+// always in view) and the "..." menu that holds the rest -- Open on the Web, Copy Link, Build This
+// Design, Edit Metadata, the Gem Cut Studio export and, last and apart, Delete. Instantiated TWICE by
+// `DetailHeaderView` (the one-line header and the full header) so the actions are defined once.
+// `with_metadata` adds the metadata editor (the full header only).
 //
-// Delete asks first: the trash icon turns into "Delete? Yes No". Pressing it from the keyboard
-// leaves Yes and No one Tab away.
+// Delete is never next to Save: it sits at the foot of the menu, below a divider, and asks first.
+// Its row turns into "Delete this design? Yes, No" inside the menu. The menu closes on a pick, on
+// Escape and on a click outside it, and any of those ends the question.
 component DetailActions inherits HorizontalLayout {
     in property <DiagramDetailData> detail;
     in property <bool> with_metadata: false;
@@ -164,20 +254,6 @@ component DetailActions inherits HorizontalLayout {
     spacing: 4px;
     alignment: end;
 
-    if root.detail.url != "" && !root.detail.is_local: HeaderAction {
-        icon: @image-url("../icons/globe.svg");
-        label: "Open on the Web";
-        hint: "Open this design's page on the web, in your browser.";
-        clicked => { root.open_url(root.detail.url); }
-    }
-
-    if root.detail.url != "" && !root.detail.is_local: HeaderAction {
-        icon: @image-url("../icons/clipboard.svg");
-        label: "Copy Link";
-        hint: "Copy the web address of this design to the clipboard.";
-        clicked => { root.copy_url(root.detail.url); }
-    }
-
     // This exports the ORIGINAL file stored in the catalogue (not the user's in-editor
     // changes) -- `editor_view.slint`'s "Export Edited .asc" is the other, unrelated ".asc"
     // export. The hint below is the disambiguator between the two.
@@ -188,66 +264,143 @@ component DetailActions inherits HorizontalLayout {
         clicked => { root.export_asc(); }
     }
 
-    // The catalogue's cutting instructions as a Gem Cut Studio file
-    // (`gui::library::local::export`); experimental, see the hint. Advanced only.
-    if GuideModel.shows_advanced(): HeaderAction {
-        word: "gcs";
-        label: "Export as Gem Cut Studio File";
-        hint: "Save the cutting instructions as a Gem Cut Studio (.gcs) file. Experimental: it follows the published Gem Cut Studio 1.1 file description, and chiral designs are untested.";
-        clicked => { root.export_gcs(); }
-    }
+    anchor := Rectangle {
+        property <bool> menu_open: false;
+        width: 28px;
+        height: 28px;
 
-    // "Build this design": turns this design into a step-by-step lesson that rebuilds it from
-    // an empty design, one tier at a time, and finishes by comparing the rebuild with the
-    // original (`BuildDesignModel`, Rust: `gui::editor::guide::build_design`). Works for local
-    // and remote designs.
-    HeaderAction {
-        icon: @image-url("../icons/steps.svg");
-        label: "Build This Design";
-        hint: "A step-by-step lesson that rebuilds this design from an empty design, one tier at a time.";
-        enabled: !BuildDesignModel.busy;
-        clicked => { BuildDesignModel.start_selected(); }
-    }
+        // Closes the menu, ends a Delete question and returns the focus to the button.
+        function close_menu() {
+            self.menu_open = false;
+            root.confirming_delete = false;
+            more_popup.close();
+        }
 
-    // Metadata editor: title, designer, shape, refractive index, index gear, facet count,
-    // symmetry order, mirror symmetry and the proportion ratios, everything the inline pencils
-    // do not cover. Local designs only (see `setup_save_metadata_callback` in
-    // `gui::library::detail::metadata`).
-    if root.with_metadata && root.detail.is_local: HeaderAction {
-        icon: @image-url("../icons/info.svg");
-        label: "Edit Metadata";
-        hint: "Edit the title, designer, shape, refractive index, gear, facet count and proportions.";
-        clicked => { root.edit_metadata(); }
-    }
+        HeaderAction {
+            icon: @image-url("../icons/more.svg");
+            label: "More Actions";
+            hint: "Open on the web, copy the link, build this design as a lesson, edit its details, other exports, and delete.";
+            expandable: true;
+            expanded: anchor.menu_open;
+            clicked => {
+                root.confirming_delete = false;
+                anchor.menu_open = true;
+                more_popup.show();
+            }
+        }
 
-    if !root.confirming_delete: HeaderAction {
-        icon: @image-url("../icons/trash.svg");
-        label: "Delete This Design";
-        hint: "Delete this design. You are asked to confirm first.";
-        clicked => { root.confirming_delete = true; }
-    }
-    if root.confirming_delete: Text {
-        text: "Delete?";
-        font-size: 10px;
-        color: Theme.accent-amber;
-        vertical-alignment: center;
-        accessible-role: AccessibleRole.text;
-    }
-    if root.confirming_delete: HeaderAction {
-        word: "Yes";
-        button_width: 44px;
-        ink: Theme.accent-ruby;
-        edge: Theme.accent-ruby;
-        label: "Yes, Delete This Design";
-        hint: "Delete this design now.";
-        clicked => { root.confirming_delete = false; root.delete_diagram(); }
-    }
-    if root.confirming_delete: HeaderAction {
-        word: "No";
-        button_width: 44px;
-        label: "No, Keep This Design";
-        hint: "Do not delete. The design stays in the library.";
-        clicked => { root.confirming_delete = false; }
+        // The menu is a popup window, so it draws over the tab row and the rows below the header
+        // (a component cannot raise itself above its siblings). It closes on a click outside it, on
+        // Escape and on a pick; any of those ends a Delete question.
+        more_popup := PopupWindow {
+            // Right-aligned under the button: the cluster sits at the header's right end.
+            x: anchor.width - 252px;
+            y: anchor.height + 4px;
+            width: 252px;
+            height: menu_col.preferred-height;
+            close-policy: PopupClosePolicy.close-on-click-outside;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: Theme.surface-dialog;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.border-dialog;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: Theme.shadow-heavy;
+                accessible-role: AccessibleRole.list;
+                accessible-label: "Design Actions Menu";
+            }
+
+            // Opening from the keyboard leaves the focus in the menu.
+            init => { first_item.take_focus(); }
+
+            menu_col := VerticalLayout {
+                padding: 6px;
+                spacing: 1px;
+                if root.detail.url != "" && !root.detail.is_local: HeaderMenuItem {
+                    icon: @image-url("../icons/globe.svg");
+                    text: "Open on the Web";
+                    hint: "Open this design's page on the web, in your browser.";
+                    activated => { anchor.close_menu(); root.open_url(root.detail.url); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                if root.detail.url != "" && !root.detail.is_local: HeaderMenuItem {
+                    icon: @image-url("../icons/clipboard.svg");
+                    text: "Copy Link";
+                    hint: "Copy the web address of this design to the clipboard.";
+                    activated => { anchor.close_menu(); root.copy_url(root.detail.url); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                // "Build this design": turns this design into a step-by-step lesson that rebuilds it
+                // from an empty design, one tier at a time, and finishes by comparing the rebuild
+                // with the original (`BuildDesignModel`, Rust: `gui::editor::guide::build_design`).
+                // Works for local and remote designs.
+                first_item := HeaderMenuItem {
+                    icon: @image-url("../icons/steps.svg");
+                    text: "Build This Design";
+                    hint: "A step-by-step lesson that rebuilds this design from an empty design, one tier at a time.";
+                    enabled: !BuildDesignModel.busy;
+                    activated => { anchor.close_menu(); BuildDesignModel.start_selected(); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                // Metadata editor: title, designer, shape, refractive index, index gear, facet count,
+                // symmetry order, mirror symmetry and the proportion ratios, everything the inline
+                // pencils do not cover. Local designs only (see `setup_save_metadata_callback` in
+                // `gui::library::detail::metadata`).
+                if root.with_metadata && root.detail.is_local: HeaderMenuItem {
+                    icon: @image-url("../icons/info.svg");
+                    text: "Edit Metadata";
+                    hint: "Edit the title, designer, shape, refractive index, gear, facet count and proportions.";
+                    activated => { anchor.close_menu(); root.edit_metadata(); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                // The catalogue's cutting instructions as a Gem Cut Studio file
+                // (`gui::library::local::export`); experimental, see the hint. Advanced only.
+                if GuideModel.shows_advanced(): HeaderMenuItem {
+                    icon: @image-url("../icons/save.svg");
+                    text: "Export Gem Cut Studio File";
+                    label: "Export as Gem Cut Studio File";
+                    hint: "Save the cutting instructions as a Gem Cut Studio (.gcs) file. Experimental: it follows the published Gem Cut Studio 1.1 file description, and chiral designs are untested.";
+                    activated => { anchor.close_menu(); root.export_gcs(); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                Rectangle { height: 9px; Rectangle { y: 4px; height: 1px; background: Theme.border-subtle; } }
+                if !root.confirming_delete: HeaderMenuItem {
+                    icon: @image-url("../icons/trash.svg");
+                    text: "Delete This Design...";
+                    label: "Delete This Design";
+                    hint: "Delete this design. You are asked to confirm first.";
+                    danger: true;
+                    activated => { root.confirming_delete = true; }
+                    dismissed => { anchor.close_menu(); }
+                }
+                if root.confirming_delete: Text {
+                    text: "Delete this design for good?";
+                    font-size: 11px;
+                    color: Theme.accent-amber;
+                    height: 24px;
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text;
+                }
+                if root.confirming_delete: HeaderMenuItem {
+                    icon: @image-url("../icons/trash.svg");
+                    text: "Yes, Delete This Design";
+                    hint: "Delete this design now.";
+                    danger: true;
+                    activated => { anchor.close_menu(); root.delete_diagram(); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                if root.confirming_delete: HeaderMenuItem {
+                    icon: @image-url("../icons/close.svg");
+                    text: "No, Keep This Design";
+                    hint: "Do not delete. The design stays in the library.";
+                    activated => { anchor.close_menu(); }
+                    dismissed => { anchor.close_menu(); }
+                }
+            }
+        }
     }
 }
 
@@ -430,7 +583,8 @@ export component DetailHeaderView inherits Rectangle {
     // while wide. The threshold is generous (a window, not this column alone) since
     // `window_width` still includes the library panel/gaps/padding this column
     // doesn't get; a bit of early wrapping is preferable to a binding loop.
-    property <bool> narrow: root.window_width < 1300px;
+    // With the places segment on the row's right end, the chips need a window wider than 2000 px.
+    property <bool> narrow: root.window_width < 2000px;
     // Below this the chips split over two rows (`DesignChipsRow.part`).
     property <bool> very_narrow: root.window_width < 1100px;
     // Below 800px the one-line header also leaves out L/W (the Shape chip says nearly as much),
@@ -441,6 +595,14 @@ export component DetailHeaderView inherits Rectangle {
     // Local designs only: the pencil below is gated on `detail.is_local`.
     in property <[string]> shape_options: LibraryModel.shape_picker_options;
     in property <int> shape_current_index: LibraryModel.shape_picker_current_index;
+
+    // The places segment (Live Render, Edit, Cutting Instructions, Files & Downloads) sits at the
+    // header's right end. `active_tab` and `render_view_tab` are two-way bound to `MainWindow`'s own
+    // properties of the same name (see `app.slint`); the `*_changed` callbacks are forwarded.
+    in-out property <int> active_tab: 0;
+    callback active_tab_changed(int);
+    in-out property <int> render_view_tab: 0;
+    callback render_view_tab_changed(int);
 
     callback open_url(string);
     open_url(url) => { LibraryModel.open_diagram_url(url); }
@@ -484,6 +646,8 @@ export component DetailHeaderView inherits Rectangle {
     border-width: 1px;
     border-color: Theme.border-subtle;
     vertical-stretch: 0;
+    // Above the rows below it, so the "..." menu opens over them.
+    z: 5;
     accessible-role: AccessibleRole.groupbox;
     accessible-label: "Design Details";
 
@@ -549,30 +713,32 @@ export component DetailHeaderView inherits Rectangle {
 
             // Condensed metric chips: the same data as `DesignChipsRow` below, in a smaller font
             // so the row fits 40px. Only a subset, since this branch cannot wrap.
-            if root.detail.shape != "": CompactChip {
+            // The chips leave as the window narrows, so the places segment stays whole and the title
+            // elides first (about 1000, 1100 and 1500 px).
+            if root.detail.shape != "" && root.window_width >= 1000px: CompactChip {
                 label: "Shape:";
                 value: root.detail.shape;
                 hint: "The outline of the stone, for example Round or Oval.";
                 value_color: Theme.accent-cyan;
             }
-            if root.detail.gear != "": CompactChip {
+            if root.detail.gear != "" && root.window_width >= 1100px: CompactChip {
                 label: "Gear:";
                 value: root.detail.gear;
                 hint: "The index gear the design is cut on. See the glossary.";
                 value_color: Theme.accent-cyan;
             }
-            if root.detail.facets != "": CompactChip {
+            if root.detail.facets != "" && root.window_width >= 1100px: CompactChip {
                 label: "Facets:";
                 value: root.detail.facets;
                 hint: "How many facets the finished stone has.";
                 value_color: Theme.accent-amber;
             }
-            if root.detail.lw_ratio != "" && !root.tiny: CompactChip {
+            if root.detail.lw_ratio != "" && root.window_width >= 1500px: CompactChip {
                 label: "L/W:";
                 value: root.detail.lw_ratio;
                 hint: "Length divided by width. 1.0 is round or square.";
             }
-            if root.detail.ri != "": CompactChip {
+            if root.detail.ri != "" && root.window_width >= 1100px: CompactChip {
                 label: "R.I.:";
                 value: root.detail.ri;
                 hint: "Refractive index: how strongly the material bends light. See the glossary.";
@@ -581,7 +747,7 @@ export component DetailHeaderView inherits Rectangle {
             // A guess, not a fact (see `DiagramDetailData.material_guess`). Left out below
             // ~1100 px (`very_narrow`): this one-line header cannot wrap, and the full header
             // shows the chip in its own row there.
-            if root.detail.material_guess != "" && !root.very_narrow: CompactChip {
+            if root.detail.material_guess != "" && root.window_width >= 1500px: CompactChip {
                 label: "Material:";
                 value: root.detail.material_guess;
                 hint: "A guess made from the design's data, not a recorded fact.";
@@ -591,16 +757,31 @@ export component DetailHeaderView inherits Rectangle {
 
             Rectangle { horizontal-stretch: 1; }
 
+            VerticalLayout {
+                alignment: center;
+                PlacesSegment {
+                    compact: root.window_width < 1200px;
+                    tight: root.window_width < 800px;
+                    active_tab <=> root.active_tab;
+                    active_tab_changed(v) => { root.active_tab_changed(v); }
+                    render_view_tab <=> root.render_view_tab;
+                    render_view_tab_changed(v) => { root.render_view_tab_changed(v); }
+                }
+            }
+
             // The right-hand action cluster, compacted into the same row instead of
             // dropped -- see this component's own `compact` doc comment.
-            if root.detail.title != "": DetailActions {
-                detail: root.detail;
-                confirming_delete <=> root.confirming_delete;
-                open_url(url) => { root.open_url(url); }
-                copy_url(url) => { root.copy_url(url); }
-                export_asc => { root.export_asc(); }
-                export_gcs => { root.export_gcs(); }
-                delete_diagram => { root.delete_diagram(); }
+            if root.detail.title != "": VerticalLayout {
+                alignment: center;
+                DetailActions {
+                    detail: root.detail;
+                    confirming_delete <=> root.confirming_delete;
+                    open_url(url) => { root.open_url(url); }
+                    copy_url(url) => { root.copy_url(url); }
+                    export_asc => { root.export_asc(); }
+                    export_gcs => { root.export_gcs(); }
+                    delete_diagram => { root.delete_diagram(); }
+                }
             }
         }
 
@@ -613,8 +794,8 @@ export component DetailHeaderView inherits Rectangle {
             min-height: 40px;
             padding-left: 12px;
             padding-right: 12px;
-            padding-top: 6px;
-            padding-bottom: 6px;
+            padding-top: 5px;
+            padding-bottom: 5px;
             spacing: 4px;
 
             HorizontalLayout {
@@ -626,11 +807,16 @@ export component DetailHeaderView inherits Rectangle {
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: start;
+                    // Gives way first: the title and the designer elide before the places segment
+                    // on the right loses any width.
+                    horizontal-stretch: 1;
+                    min-width: 0px;
 
                     // Collapse chevron -- the other half of the expand chevron in the
                     // `effective_compact` branch above; always shown here since this
                     // branch only renders at all when NOT already collapsed.
-                    VerticalLayout {
+                    // Left out below 800 px: the row has no room for it beside the places segment.
+                    if !root.tiny: VerticalLayout {
                         alignment: center;
                         HeaderAction {
                             flat: true;
@@ -651,6 +837,7 @@ export component DetailHeaderView inherits Rectangle {
                         // show the editor's own label rather than a "go pick
                         // something" prompt that doesn't apply here.
                         text: root.detail.title != "" ? root.detail.title : (EditorModel.enabled ? EditorModel.design_label : "Select a diagram from catalog");
+                        min-width: 0px;
                         font-size: 14px;
                         font-weight: 700;
                         color: Theme.text-primary;
@@ -720,6 +907,7 @@ export component DetailHeaderView inherits Rectangle {
                     // Designer, small and muted, after the title so the row stays one line.
                     Text {
                         text: root.detail.designer != "" ? "by " + root.detail.designer : "";
+                        min-width: 0px;
                         font-size: 11px;
                         color: Theme.text-muted;
                         vertical-alignment: center;
@@ -763,6 +951,18 @@ export component DetailHeaderView inherits Rectangle {
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: end;
+
+                    VerticalLayout {
+                        alignment: center;
+                        PlacesSegment {
+                            compact: root.window_width < 1200px;
+                            tight: root.window_width < 800px;
+                            active_tab <=> root.active_tab;
+                            active_tab_changed(v) => { root.active_tab_changed(v); }
+                            render_view_tab <=> root.render_view_tab;
+                            render_view_tab_changed(v) => { root.render_view_tab_changed(v); }
+                        }
+                    }
 
                     if root.detail.title != "": DetailActions {
                         detail: root.detail;

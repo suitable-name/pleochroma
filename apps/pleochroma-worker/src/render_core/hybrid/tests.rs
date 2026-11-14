@@ -33,6 +33,7 @@ fn tiny_scene() -> SceneState {
         head_shadow_deg: 16.0,
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        camera_pan: [0.0, 0.0],
     }
 }
 
@@ -191,7 +192,8 @@ fn warm_up_gpu(gpu: &GpuBackend, scene: &SceneState) {
     let _ = gpu.try_accumulate(
         &GpuSceneRef {
             camera: &Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-                .with_roll(scene.camera_roll),
+                .with_roll(scene.camera_roll)
+                .with_pan(scene.camera_pan),
             width: scene.width,
             height: scene.height,
             planes: &scene.planes,

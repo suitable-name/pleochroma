@@ -21,6 +21,8 @@ const CONSTANT_TOKENS: &[&str] = &[
     "chart-extinction",
     "compare-removed",
     "compare-added",
+    "swatch-white",
+    "swatch-black",
 ];
 
 /// Files (relative to `ui/`) that use tokens only and must stay free of colour literals.
@@ -55,6 +57,25 @@ const CONVERTED_FILES: &[&str] = &[
     "components/solid_viewport/hint_bar.slint",
     "components/solid_viewport/manipulate_overlay.slint",
     "components/solid_viewport/toolbar.slint",
+    "components/solid_viewport/cut_scrubber.slint",
+    "components/solid_viewport/edit_figures.slint",
+    "components/solid_viewport/problem_banner.slint",
+    "components/gem_viewport/rig_menu.slint",
+    "components/gem_viewport/gestures.slint",
+    "components/gem_viewport/status_pill.slint",
+    "components/gem_viewport/problem_banner.slint",
+    "components/gem_viewport/live_figures.slint",
+    "components/gem_viewport/view_parts.slint",
+    "components/kit/panel.slint",
+    "components/kit/figures.slint",
+    "components/kit/stone.slint",
+    "components/kit/r2r.slint",
+    "components/kit/r3c.slint",
+    "components/parameters_panel/light_dome.slint",
+    "components/parameters_panel/rig_gallery.slint",
+    "components/editor_inspector/choice_seg.slint",
+    "components/editor_tier_table/tier_menu_parts.slint",
+    "components/editor_command_bar/bar_parts.slint",
     // The Parameters dock: panel, dock and tabs.
     "components/parameters_panel/parameters_dock.slint",
     "components/parameters_panel/parameters_panel.slint",
@@ -70,7 +91,6 @@ const CONVERTED_FILES: &[&str] = &[
     "components/settings_dialog/live_compute_picker.slint",
     "components/settings_dialog/local_compute_picker.slint",
     "components/settings_dialog/motion_preview_picker.slint",
-    "components/settings_dialog/performance_curve_panel.slint",
     "components/settings_dialog/resolution_picker.slint",
     "components/settings_dialog/setting_label.slint",
     // Inspector (every tab), tier table and the compact buttons they use.
@@ -84,13 +104,11 @@ const CONVERTED_FILES: &[&str] = &[
     "components/editor_inspector/optimize_tab.slint",
     "components/editor_inspector/candidate_row.slint",
     "components/editor_inspector/preform_tab.slint",
-    "components/editor_inspector/schedule_tab.slint",
     "components/editor_inspector/tier_facets_section.slint",
     "components/editor_inspector/tier_form_tab.slint",
     "components/editor_inspector/variants_section.slint",
     "components/editor_tier_table.slint",
     "components/editor_tier_table/tier_angle_cell.slint",
-    "components/editor_tier_table/tier_table_header.slint",
     "components/editor_tier_table/tier_table_row.slint",
     "components/editor_tier_table/tier_table_toolbar.slint",
     // Command bar, Design settings panel, status strip with its verdict badge and popover, empty
@@ -305,19 +323,47 @@ fn parse_hex(literal: &str) -> Option<[f64; 4]> {
     Some(channels)
 }
 
-/// Every colour token of `theme.slint`, by name. A token that is not a
-/// `root.high-contrast ? <hc> : <normal>` pair must be one of [`CONSTANT_TOKENS`].
+/// The `name: value` pairs of the `out property <color>` lines of Slint `source`.
+fn colour_properties(source: &str) -> Vec<(String, String)> {
+    source
+        .lines()
+        .filter_map(|line| {
+            let rest = line.trim().strip_prefix("out property <color> ")?;
+            let (name, value) = rest
+                .split_once(':')
+                .unwrap_or_else(|| panic!("no value in `{line}`"));
+            Some((
+                name.trim().to_string(),
+                value.trim().trim_end_matches(';').trim().to_string(),
+            ))
+        })
+        .collect()
+}
+
+/// Every colour token of `theme.slint`, by name. `theme.slint` forwards each token from the
+/// shared `PleoPalette` (`ui-shared/palette.slint`), which holds the values: a forwarded token
+/// is read from there. A token that is not a `root.high-contrast ? <hc> : <normal>` pair must be
+/// one of [`CONSTANT_TOKENS`].
 fn theme_tokens() -> BTreeMap<String, Token> {
-    let source = read_ui("theme.slint");
+    let palette_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("ui-shared")
+        .join("palette.slint");
+    let palette_source = fs::read_to_string(&palette_path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", palette_path.display()));
+    let palette: BTreeMap<String, String> =
+        colour_properties(&palette_source).into_iter().collect();
     let mut tokens = BTreeMap::new();
-    for line in source.lines() {
-        let Some(rest) = line.trim().strip_prefix("out property <color> ") else {
-            continue;
+    for (name, declared) in colour_properties(&read_ui("theme.slint")) {
+        let name = name.as_str();
+        let value = match declared.strip_prefix("PleoPalette.") {
+            Some(forwarded) => palette
+                .get(forwarded)
+                .unwrap_or_else(|| panic!("token `{name}` forwards `{forwarded}`, not in palette"))
+                .as_str(),
+            None => declared.as_str(),
         };
-        let (name, value) = rest
-            .split_once(':')
-            .unwrap_or_else(|| panic!("no value in `{line}`"));
-        let (name, value) = (name.trim(), value.trim().trim_end_matches(';').trim());
         let parse = |text: &str| {
             parse_hex(text.trim())
                 .unwrap_or_else(|| panic!("`{text}` of token `{name}` is not a hex colour"))

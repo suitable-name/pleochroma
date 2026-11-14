@@ -1,15 +1,22 @@
-// The Tiers tab of the Design page: a scrolling toolbar of chips, the status line of the
-// solve, the list of tiers, and (in Select mode) the batch bar. The angle sheet, the
-// tier sheet and the "Remove Anyway?" question are full-height overlays of this tab.
+// The Tiers tab of the Design page: an action row ("Add" with a menu of everything that adds a
+// tier, and "..." with the actions on existing tiers), the list of tiers in cutting order,
+// and (in Select mode) the batch bar. The angle sheet, the tier sheet and the "Remove
+// Anyway?" question are full-height overlays of this tab; the two menus are cards over it.
 //
 // All data comes through `TiersModel`; the tab has no required properties and fills its
 // parent.
-import { ListView } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
+import { Icons } from "../../icons.slint";
 import { Shell } from "../../models.slint";
+import { Icon } from "../../shell/icon.slint";
+import { IconButton } from "../../shell/icon_button.slint";
+import { PageScroll } from "../../shell/page_scroll.slint";
+import { StateLayer } from "../../shell/state_layer.slint";
 import { Chip } from "../../shell/chips.slint";
 import { PrimaryButton, TextButton } from "../../shell/buttons.slint";
 import { TiersModel } from "tiers_model.slint";
+import { PropsModel } from "../props/props_model.slint";
+import { TierIcons } from "tier_icons.slint";
 import { ConcaveModel } from "../concave.slint";
 import { TierRowItem } from "tier_row.slint";
 import { AngleSheet } from "angle_sheet.slint";
@@ -83,10 +90,149 @@ component ConfirmCard inherits Rectangle {
     }
 }
 
+// One row of an action menu: 48 px tall, a plain label. `label` is the accessible name (the
+// button's old label survives here); `indent` sets a sub-item in.
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <string> label: "";
+    in property <bool> enabled: true;
+    in property <bool> selected: false;
+    in property <bool> indent: false;
+    // A trailing mark: a down chevron for a row that unfolds.
+    in property <image> trailing;
+    callback clicked();
+
+    height: Theme.touch;
+    opacity: root.enabled ? 1.0 : Theme.disabled-content;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if (root.enabled) {
+            root.clicked();
+        }
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+        enabled: root.enabled;
+    }
+
+    HorizontalLayout {
+        padding-left: root.indent ? Theme.space-xl + Theme.space-lg : Theme.space-lg;
+        padding-right: Theme.space-md;
+        spacing: Theme.space-sm;
+
+        Text {
+            text: root.text;
+            color: root.selected ? Theme.accent : Theme.on-surface;
+            font-size: Theme.text-body-large;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        if root.trailing.width > 0: Rectangle {
+            width: 20px;
+
+            Icon {
+                source: root.trailing;
+                tint: Theme.text-secondary;
+                glyph: 20px;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The "Add" button: the filled accent pill with a plus and a down chevron. It opens the Add
+// menu.
+component AddButton inherits Rectangle {
+    in property <bool> open: false;
+    callback clicked();
+
+    width: pill.width;
+    height: Theme.touch;
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Add";
+    accessible-expandable: true;
+    accessible-expanded: root.open;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    pill := Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 40px;
+        width: lay.preferred-width;
+        border-radius: 20px;
+        background: Theme.accent;
+
+        StateLayer {
+            pressed: touch.pressed;
+            hovered: touch.has-hover;
+            tint: Theme.on-primary;
+            border-radius: parent.border-radius;
+        }
+
+        lay := HorizontalLayout {
+            padding-left: Theme.space-md;
+            padding-right: Theme.space-md;
+            spacing: Theme.space-sm;
+            alignment: center;
+
+            Rectangle {
+                width: 18px;
+
+                Icon {
+                    source: Icons.add;
+                    tint: Theme.on-primary;
+                    glyph: 18px;
+                }
+            }
+
+            Text {
+                text: "Add";
+                color: Theme.on-primary;
+                font-size: Theme.text-label-large;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                width: 18px;
+
+                Icon {
+                    source: TierIcons.chevron-down;
+                    tint: Theme.on-primary;
+                    glyph: 18px;
+                }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 export component TiersTab inherits Rectangle {
     // The page's sheet is raised to full height while an overlay is open; when it comes
     // back down (the Back key, a drag) the overlays close with it.
     property <int> detent-watch: Shell.sheet-detent;
+    // A menu does not outlive the tab: it closes when another tab is shown.
+    property <int> tab-watch: PropsModel.design-tab;
+    property <int> menu-watch: TiersModel.menu;
 
     changed detent-watch => {
         if (Shell.sheet-detent < 2 && TiersModel.overlay-open) {
@@ -94,103 +240,50 @@ export component TiersTab inherits Rectangle {
         }
     }
 
-    VerticalLayout {
-        // The toolbar: scrolls sideways when the chips do not fit. (Undo and Redo are in the
-        // page's top bar.)
-        Rectangle {
-            height: Theme.touch;
+    changed tab-watch => {
+        TiersModel.menu = 0;
+    }
 
-            Flickable {
-                content-width: toolbar.preferred-width;
-
-                toolbar := HorizontalLayout {
-                    x: 0px;
-                    width: max(self.preferred-width, parent.width);
-                    padding-left: Theme.space-sm;
-                    padding-right: Theme.space-sm;
-                    spacing: Theme.space-xs;
-
-                    Chip {
-                        text: "+ Tier";
-                        clicked => {
-                            TiersModel.add-tier();
-                        }
-                    }
-                    Chip {
-                        text: "+ Concave";
-                        clicked => { ConcaveModel.create(); }
-                    }
-
-                    Chip {
-                        text: "Quick Add";
-                        selected: TiersModel.quick-open;
-                        clicked => {
-                            TiersModel.quick-open = !TiersModel.quick-open;
-                        }
-                    }
-
-                    // Orbit and Mirror act on the selected tier: a phone hides them while
-                    // nothing is selected, a larger window shows them dimmed.
-                    if Shell.window-class != 0 || TiersModel.selected-tier >= 0: Chip {
-                        text: "Orbit";
-                        enabled: TiersModel.selected-tier >= 0;
-                        clicked => {
-                            TiersModel.complete-orbit-selected();
-                        }
-                    }
-
-                    if Shell.window-class != 0 || TiersModel.selected-tier >= 0: Chip {
-                        text: "Mirror";
-                        enabled: TiersModel.selected-tier >= 0;
-                        clicked => {
-                            TiersModel.mirror-selected();
-                        }
-                    }
-
-                    Chip {
-                        text: "Adopt All";
-                        clicked => {
-                            TiersModel.adopt-all();
-                        }
-                    }
-
-                    Chip {
-                        text: "Select";
-                        selected: TiersModel.select-mode;
-                        clicked => {
-                            TiersModel.set-select-mode(!TiersModel.select-mode);
-                        }
-                    }
-                }
-            }
+    changed menu-watch => {
+        if (TiersModel.menu == 0) {
+            TiersModel.quick-open = false;
         }
+    }
 
-        if TiersModel.quick-open: Rectangle {
-            height: Theme.touch;
+    VerticalLayout {
+        // The action row: the count, "Add" (a menu of everything that adds a tier) and "..."
+        // (the actions on existing tiers). Undo and Redo are in the page's top bar.
+        if TiersModel.rows.length > 0: Rectangle {
+            height: Theme.touch + Theme.space-sm;
 
             HorizontalLayout {
                 padding-left: Theme.space-lg;
-                spacing: Theme.space-xs;
-                alignment: start;
+                padding-right: Theme.space-xs;
+                padding-top: Theme.space-xs;
+                spacing: Theme.space-sm;
 
-                Chip {
-                    text: "Table";
+                Text {
+                    text: TiersModel.select-mode ? "\{TiersModel.multi-count} Selected" : (TiersModel.rows.length == 1 ? "1 tier in cutting order" : "\{TiersModel.rows.length} tiers in cutting order");
+                    color: Theme.text-secondary;
+                    font-size: Theme.text-body;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+
+                AddButton {
+                    open: TiersModel.menu == 1;
                     clicked => {
-                        TiersModel.quick-add(0);
+                        TiersModel.menu = TiersModel.menu == 1 ? 0 : 1;
                     }
                 }
 
-                Chip {
-                    text: "Girdle";
+                IconButton {
+                    icon: Icons.overflow;
+                    label: "More Tier Actions";
+                    selected: TiersModel.menu == 2;
                     clicked => {
-                        TiersModel.quick-add(1);
-                    }
-                }
-
-                Chip {
-                    text: "Culet";
-                    clicked => {
-                        TiersModel.quick-add(2);
+                        TiersModel.menu = TiersModel.menu == 2 ? 0 : 2;
                     }
                 }
             }
@@ -200,21 +293,49 @@ export component TiersTab inherits Rectangle {
         if TiersModel.rows.length == 0: Rectangle {
             vertical-stretch: 1;
 
-            Text {
-                width: parent.width - 2 * Theme.space-xl;
-                text: "No tiers yet.\nTap + Tier or Quick Add to start cutting.";
-                color: Theme.on-surface-variant;
-                font-size: Theme.text-body-large;
-                horizontal-alignment: center;
-                wrap: word-wrap;
+            VerticalLayout {
+                alignment: center;
+                spacing: Theme.space-md;
+                padding-left: Theme.space-xl;
+                padding-right: Theme.space-xl;
+
+                Text {
+                    text: "No tiers yet";
+                    color: Theme.on-surface;
+                    font-size: Theme.text-headline-small;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+
+                Text {
+                    text: "Add a tier to start cutting.";
+                    color: Theme.text-secondary;
+                    font-size: Theme.text-body-large;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+
+                    AddButton {
+                        open: TiersModel.menu == 1;
+                        clicked => {
+                            TiersModel.menu = TiersModel.menu == 1 ? 0 : 1;
+                        }
+                    }
+                }
             }
         }
 
-        if TiersModel.rows.length > 0: ListView {
+        if TiersModel.rows.length > 0: PageScroll {
             vertical-stretch: 1;
 
             for row[i] in TiersModel.rows: TierRowItem {
                 data: row;
+                step: i + 1;
+                prev-block: i > 0 ? TiersModel.rows[i - 1].block : "";
                 select-mode: TiersModel.select-mode;
                 tapped => {
                     TiersModel.row-tapped(i);
@@ -229,6 +350,10 @@ export component TiersTab inherits Rectangle {
                     TiersModel.open-tier(i);
                 }
             }
+
+            Rectangle {
+                height: Theme.space-xl;
+            }
         }
 
         // Select mode's batch bar.
@@ -237,6 +362,9 @@ export component TiersTab inherits Rectangle {
             background: Theme.primary-container;
 
             Flickable {
+                // Explicit size, so the row does not cap the tab's width.
+                width: parent.width;
+                height: parent.height;
                 content-width: batch.preferred-width;
 
                 batch := HorizontalLayout {
@@ -307,6 +435,133 @@ export component TiersTab inherits Rectangle {
                             TiersModel.set-select-mode(false);
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // The action menus: a transparent scrim (a tap outside closes) and a card under the action
+    // row, right-aligned like its buttons.
+    if TiersModel.menu != 0: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        clicked => {
+            TiersModel.menu = 0;
+        }
+    }
+
+    if TiersModel.menu != 0: Rectangle {
+        x: parent.width - self.width - Theme.space-sm;
+        y: TiersModel.rows.length > 0 ? Theme.touch + Theme.space-sm : parent.height * 0.55;
+        width: min(parent.width - 2 * Theme.space-sm, 280px);
+        height: menu-rows.preferred-height + 2 * Theme.space-xs;
+        background: Theme.surface-highest;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
+        clip: true;
+        drop-shadow-color: Theme.shadow;
+        drop-shadow-blur: Theme.shadow-blur-3;
+        drop-shadow-offset-y: Theme.shadow-offset-3;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: TiersModel.menu == 1 ? "Add Menu" : "Tier Actions Menu";
+
+        // Swallows taps on the card so they do not count as taps on the scrim.
+        TouchArea { }
+
+        menu-rows := VerticalLayout {
+            padding-top: Theme.space-xs;
+            padding-bottom: Theme.space-xs;
+
+            if TiersModel.menu == 1: MenuItem {
+                text: "Tier";
+                label: "+ Tier";
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.add-tier();
+                }
+            }
+
+            if TiersModel.menu == 1: MenuItem {
+                text: "Concave";
+                label: "+ Concave";
+                clicked => {
+                    TiersModel.menu = 0;
+                    ConcaveModel.create();
+                }
+            }
+
+            if TiersModel.menu == 1: MenuItem {
+                text: "Quick Add";
+                selected: TiersModel.quick-open;
+                trailing: TierIcons.chevron-down;
+                clicked => {
+                    TiersModel.quick-open = !TiersModel.quick-open;
+                }
+            }
+
+            if TiersModel.menu == 1 && TiersModel.quick-open: MenuItem {
+                text: "Table";
+                indent: true;
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.quick-add(0);
+                }
+            }
+
+            if TiersModel.menu == 1 && TiersModel.quick-open: MenuItem {
+                text: "Girdle";
+                indent: true;
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.quick-add(1);
+                }
+            }
+
+            if TiersModel.menu == 1 && TiersModel.quick-open: MenuItem {
+                text: "Culet";
+                indent: true;
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.quick-add(2);
+                }
+            }
+
+            // Orbit and Mirror act on the selected tier, so they are dimmed until one is.
+            if TiersModel.menu == 2: MenuItem {
+                text: "Orbit";
+                enabled: TiersModel.selected-tier >= 0;
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.complete-orbit-selected();
+                }
+            }
+
+            if TiersModel.menu == 2: MenuItem {
+                text: "Mirror";
+                enabled: TiersModel.selected-tier >= 0;
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.mirror-selected();
+                }
+            }
+
+            if TiersModel.menu == 2: MenuItem {
+                text: "Adopt All";
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.adopt-all();
+                }
+            }
+
+            if TiersModel.menu == 2: MenuItem {
+                text: "Select";
+                selected: TiersModel.select-mode;
+                clicked => {
+                    TiersModel.menu = 0;
+                    TiersModel.set-select-mode(!TiersModel.select-mode);
                 }
             }
         }

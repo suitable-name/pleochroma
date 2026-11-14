@@ -140,6 +140,7 @@ pub(in crate::gui::editor) fn submit_preview_replan_chained(
                 yaw: ctx.yaw,
                 pitch: ctx.pitch,
                 distance: ctx.distance,
+                pan: ctx.camera_pan,
             },
             (ctx.width, ctx.height),
             // `_with` resolves a CUSTOM

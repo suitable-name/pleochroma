@@ -37,9 +37,12 @@ pub const fn kernel_slots(kernel: EwKernel) -> &'static [u32] {
         EwKernel::ArmTir
         | EwKernel::ArmUniEntry
         | EwKernel::ArmUniEntryTransmit
+        | EwKernel::ArmUniEntryFinish
         | EwKernel::Tail
         | EwKernel::ZonedAbsorb => &[1, 2, 40, 41, 42, 43],
-        EwKernel::ArmUniInternal | EwKernel::ArmGeneric => &[1, 2, 12, 14, 40, 41, 42, 43],
+        EwKernel::ArmUniInternal | EwKernel::ArmUniInternalTransmit | EwKernel::ArmGeneric => {
+            &[1, 2, 12, 14, 40, 41, 42, 43]
+        }
         EwKernel::SplitResolve => &[1, 2, 3, 10, 11, 40, 41, 42, 43],
         EwKernel::Finalize => &[1, 4, 5, 6, 7, 9, 40, 41, 42],
     }

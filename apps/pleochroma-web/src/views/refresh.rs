@@ -188,6 +188,7 @@ fn seen_now(
             yaw: app.view.yaw,
             pitch: app.view.pitch,
             distance: app.view.distance,
+            pan: [0.0, 0.0],
         },
         size: raster_size(
             view_mode,

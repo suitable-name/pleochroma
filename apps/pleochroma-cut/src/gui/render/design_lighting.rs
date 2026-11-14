@@ -206,11 +206,17 @@ thread_local! {
     static SESSION: RefCell<Session> = RefCell::new(Session::default());
 }
 
+thread_local! {
+    /// The open design's usable saved lighting, as last published to the Parameters panel.
+    static DESIGN_VALUES: RefCell<Option<LightingValues>> = const { RefCell::new(None) };
+}
+
 /// Forgets what a previous main window left behind: the handles (database, render context,
 /// settings writer) and the remembered lighting. See `gui::window_release`.
 pub(in crate::gui) fn release_window_state() {
     let old = SESSION.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
     drop(old);
+    DESIGN_VALUES.with(|cell| *cell.borrow_mut() = None);
 }
 
 /// Names this module's holder in `out` while it is still set. See
@@ -690,6 +696,28 @@ fn publish_model(ui: &MainWindow, design_open: bool, lookup: &Lookup) {
     model.set_available(design_open);
     model.set_has_saved(design_open && lookup.has_row());
     model.set_summary(lookup.summary_text().into());
+    // The saved lighting, if usable, also marks the matching saved lighting with a star
+    // (`ViewportModel.design_lighting_preset`).
+    let values = match lookup {
+        Lookup::Row(values) if design_open => Some(values.clone()),
+        _ => None,
+    };
+    DESIGN_VALUES.with(|cell| cell.borrow_mut().clone_from(&values));
+    let index = match (values, handles()) {
+        (Some(values), Some(handles)) => crate::gui::startup_settings::design_preset_index(
+            &handles.settings_store.snapshot().presets,
+            &values,
+        ),
+        _ => -1,
+    };
+    ui.global::<ViewportModel>()
+        .set_design_lighting_preset(index);
+}
+
+/// The open design's usable saved lighting, or `None`. `refresh_lighting_preset_options` reads
+/// it to re-mark the starred saved lighting when the saved lightings change.
+pub(in crate::gui) fn design_values() -> Option<LightingValues> {
+    DESIGN_VALUES.with(|cell| cell.borrow().clone())
 }
 
 /// Shows a note once the open's own message has had time to be read, unless a warning or

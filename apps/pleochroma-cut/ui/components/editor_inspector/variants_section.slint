@@ -7,68 +7,8 @@ import { TipButton } from "../compact_controls.slint";
 import { FormRow, FormRowMetrics } from "form_row.slint";
 import { WrapNote } from "wrap_note.slint";
 import { ScrollFade } from "scroll_fade.slint";
-
-// A small text button for a variant's row. `std-widgets` buttons are too tall for a row of
-// four, so this draws the same thing at a row's scale. It takes Tab, answers Space and Enter,
-// shows a ring while it has focus, and has a tooltip (`hint`) and a screen-reader label
-// (`reader_label`, for example "Open Variant 2": four rows of "Open" alone could not be told
-// apart).
-component VariantAction inherits Rectangle {
-    in property <string> label;
-    in property <string> reader_label;
-    // One plain sentence: what the button does (or why it is switched off). The tooltip.
-    in property <string> hint;
-    in property <bool> enabled: true;
-    in property <bool> danger: false;
-    callback clicked();
-
-    height: 28px;
-    width: action_text.preferred-width + 20px;
-    background: !root.enabled ? transparent
-        : (touch.has-hover
-            ? (root.danger ? Theme.danger-surface-hover : Theme.bg-card-hover)
-            : (root.danger ? Theme.danger-surface : Theme.bg-elevated));
-    border-radius: Theme.radius-sm;
-    border-width: action_focus.has-focus ? 2px : 1px;
-    border-color: action_focus.has-focus ? Theme.accent-cyan-hover : (root.danger ? Theme.danger-border : Theme.border-medium);
-    opacity: root.enabled ? 1.0 : 0.5;
-    accessible-role: AccessibleRole.button;
-    accessible-label: root.reader_label != "" ? root.reader_label : root.label;
-    accessible-description: root.hint;
-    accessible-enabled: root.enabled;
-    accessible-action-default => {
-        if root.enabled {
-            root.clicked();
-        }
-    }
-
-    Tooltip { text: @markdown("\{root.hint}"); }
-
-    action_focus := FocusScope {
-        enabled: root.enabled;
-        key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return {
-                root.clicked();
-                return accept;
-            }
-            reject
-        }
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
-    }
-
-    action_text := Text {
-        text: root.label;
-        font-size: 10px;
-        font-weight: 600;
-        color: root.danger ? Theme.danger : Theme.text-primary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-}
+import { KitSection, KitCard, KitBadge, KitButton, KitIconButton, KitIcons } from "../kit/kit.slint";
+import { R3Button } from "../kit/r3c.slint";
 
 // A drop-down of the designs that can be compared, with a tooltip. The standard drop-down has
 // none, so it sits in a rectangle of the drop-down's height.
@@ -96,8 +36,51 @@ component CompareChoice inherits Rectangle {
     }
 }
 
-// One saved variant: its picture, its name and note, where it came from and when, and what
-// can be done with it.
+// One entry of a variant's menu. It takes Tab-free mouse and the accessibility action; the
+// screen-reader label (`reader_label`, for example "Rename Steeper Pavilion") names the variant,
+// since three cards would otherwise hold three buttons called "Rename".
+component VariantMenuItem inherits Rectangle {
+    in property <string> text;
+    in property <string> reader_label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    callback clicked();
+
+    height: 30px;
+    border-radius: 6px;
+    opacity: root.enabled ? 1.0 : 0.5;
+    background: (item_touch.has-hover && root.enabled) ? (root.danger ? Theme.danger-surface-hover : Theme.bg-card-hover) : transparent;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.reader_label != "" ? root.reader_label : root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        font-weight: 600;
+        color: root.danger ? Theme.danger : Theme.text-primary;
+        vertical-alignment: center;
+    }
+    item_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+}
+
+// One saved variant, as a card: its picture, its name (with "Working From" while new variants are
+// made from it), where it came from and when, its note, and Open as the one button. Rename, Note
+// and Delete are in the "..." menu.
 component VariantRowView inherits Rectangle {
     in property <VariantRowData> entry;
     // Saving, renaming and deleting are allowed (a design is open and nothing is running).
@@ -112,139 +95,145 @@ component VariantRowView inherits Rectangle {
     // Why a button is switched off, or what it does while it is on.
     property <string> busy_hint: "Switched off while something is being worked out.";
 
-    // The card plus the 4px gap that separates it from the next row.
-    height: 104px;
+    height: root.entry.note != "" ? 88px : 76px;
+    background: root.entry.opened_from ? Theme.surface-selected : Theme.surface-raised;
+    border-radius: 10px;
+    border-width: root.entry.opened_from ? 2px : 1px;
+    border-color: root.entry.opened_from ? Theme.accent-cyan : Theme.border-subtle;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.entry.name + (root.entry.opened_from ? ", working from this one" : "") + ", " + root.entry.age;
+    accessible-description: root.entry.note;
 
-    card := Rectangle {
-        y: 0px;
-        height: 100px;
-        background: root.entry.opened_from ? Theme.surface-selected : Theme.bg-input;
-        border-radius: Theme.radius-sm;
-        border-width: root.entry.opened_from ? 2px : 1px;
-        border-color: root.entry.opened_from ? Theme.accent-cyan : Theme.border-subtle;
-        clip: true;
-        accessible-role: AccessibleRole.list-item;
-        accessible-label: root.entry.name + (root.entry.opened_from ? ", working from this one" : "") + ", " + root.entry.age;
-        accessible-description: root.entry.note;
+    Tooltip { text: @markdown("Saved \{root.entry.exact}"); }
 
-        Tooltip { text: @markdown("Saved \{root.entry.exact}"); }
+    HorizontalLayout {
+        padding: 6px;
+        padding-right: 8px;
+        spacing: 12px;
 
-        HorizontalLayout {
-            padding: 4px;
-            spacing: 8px;
+        Rectangle {
+            width: 64px;
+            background: Theme.surface-sunken;
+            border-radius: 8px;
+            clip: true;
 
-            Rectangle {
-                width: 72px;
-                height: 72px;
-                background: Theme.surface-sunken;
-                border-radius: Theme.radius-sm;
+            if root.entry.has_picture: Image {
+                source: root.entry.picture;
+                width: 100%;
+                height: 100%;
+                image-fit: contain;
+            }
+            if !root.entry.has_picture: Text {
+                text: "No picture";
+                font-size: 9px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
 
-                if root.entry.has_picture: Image {
-                    source: root.entry.picture;
-                    width: 100%;
-                    height: 100%;
-                    image-fit: contain;
-                }
-                if !root.entry.has_picture: Text {
-                    text: "No picture";
-                    font-size: 9px;
-                    color: Theme.text-muted;
-                    wrap: word-wrap;
-                    horizontal-alignment: center;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 3px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.entry.name;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    overflow: elide;
                     vertical-alignment: center;
                 }
+                if root.entry.opened_from: VerticalLayout {
+                    alignment: center;
+                    KitBadge {
+                        text: "Working From";
+                        fill: Theme.accent-cyan-surface;
+                        ink: Theme.accent-cyan;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
             }
+            Text {
+                text: root.entry.parent == "" ? root.entry.age : root.entry.parent + " · " + root.entry.age;
+                font-size: 11px;
+                color: Theme.text-muted;
+                overflow: elide;
+            }
+            if root.entry.note != "": Text {
+                text: root.entry.note;
+                font-size: 11px;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+        }
 
-            VerticalLayout {
-                horizontal-stretch: 1;
+        VerticalLayout {
+            alignment: center;
+            R3Button {
+                text: "Open";
+                reader_label: "Open " + root.entry.name;
+                h: 28px;
+                hint: root.can_open
+                    ? "Replace the open design with this variant.\nIt is one undo step, so Undo takes it back."
+                    : "Opening is switched off while something is being worked\nout or the lesson has switched off Undo and Redo.";
+                enabled: root.can_open;
+                clicked => { root.open_requested(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            more_button := KitIconButton {
+                d: KitIcons.more;
+                size: 28px;
+                icon_size: 15px;
+                label: "More for " + root.entry.name;
+                hint: "Rename, edit the note of, or delete this variant.";
+                clicked => { menu.show(); }
+            }
+        }
+    }
+
+    menu := PopupWindow {
+        x: root.width - 190px;
+        y: root.height - 8px;
+        width: 180px;
+        Rectangle {
+            background: Theme.surface-raised;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            height: menu_items.preferred-height + 8px;
+            menu_items := VerticalLayout {
+                padding: 4px;
                 spacing: 2px;
-
-                HorizontalLayout {
-                    spacing: 6px;
-                    Text {
-                        horizontal-stretch: 1;
-                        text: root.entry.name;
-                        font-size: 11px;
-                        font-weight: 700;
-                        color: Theme.text-primary;
-                        overflow: elide;
-                        vertical-alignment: center;
-                    }
-                    if root.entry.opened_from: Rectangle {
-                        background: Theme.primary;
-                        border-radius: Theme.radius-sm;
-                        width: pill_text.preferred-width + 12px;
-                        height: pill_text.preferred-height + 4px;
-                        Tooltip { text: @markdown("The next variant you save is marked as made from this one."); }
-                        pill_text := Text {
-                            text: "Working From";
-                            font-size: 9px;
-                            font-weight: 700;
-                            color: Theme.text-on-primary;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                    }
+                VariantMenuItem {
+                    text: "Rename";
+                    reader_label: "Rename " + root.entry.name;
+                    hint: root.can_edit ? "Change the name of this variant." : root.busy_hint;
+                    enabled: root.can_edit;
+                    clicked => { root.rename_requested(); }
                 }
-
-                Text {
-                    text: root.entry.parent == "" ? root.entry.age : root.entry.parent + " · " + root.entry.age;
-                    font-size: 10px;
-                    color: Theme.text-muted;
-                    overflow: elide;
+                VariantMenuItem {
+                    text: "Note";
+                    reader_label: "Edit the Note of " + root.entry.name;
+                    hint: root.can_edit ? "Write or change the note that goes with this variant." : root.busy_hint;
+                    enabled: root.can_edit;
+                    clicked => { root.note_requested(); }
                 }
-
-                if root.entry.note != "": Rectangle {
-                    height: 26px;
-                    clip: true;
-                    Text {
-                        width: 100%;
-                        text: root.entry.note;
-                        font-size: 10px;
-                        color: Theme.text-secondary;
-                        wrap: word-wrap;
-                        overflow: elide;
-                    }
-                }
-
-                Rectangle { vertical-stretch: 1; }
-
-                HorizontalLayout {
-                    spacing: 4px;
-                    VariantAction {
-                        label: "Open";
-                        reader_label: "Open " + root.entry.name;
-                        hint: root.can_open
-                            ? "Replace the open design with this variant.\nIt is one undo step, so Undo takes it back."
-                            : "Opening is switched off while something is being worked\nout or the lesson has switched off Undo and Redo.";
-                        enabled: root.can_open;
-                        clicked => { root.open_requested(); }
-                    }
-                    VariantAction {
-                        label: "Rename";
-                        reader_label: "Rename " + root.entry.name;
-                        hint: root.can_edit ? "Change the name of this variant." : root.busy_hint;
-                        enabled: root.can_edit;
-                        clicked => { root.rename_requested(); }
-                    }
-                    VariantAction {
-                        label: "Note";
-                        reader_label: "Edit the Note of "+ root.entry.name;
-                        hint: root.can_edit ? "Write or change the note that goes with this variant." : root.busy_hint;
-                        enabled: root.can_edit;
-                        clicked => { root.note_requested(); }
-                    }
-                    VariantAction {
-                        label: "Delete";
-                        reader_label: "Delete " + root.entry.name;
-                        hint: root.can_edit
-                            ? "Delete this variant from your library. You are asked\nfirst, and a deleted variant cannot be brought back."
-                            : root.busy_hint;
-                        danger: true;
-                        enabled: root.can_edit;
-                        clicked => { root.delete_requested(); }
-                    }
-                    Rectangle { horizontal-stretch: 1; }
+                VariantMenuItem {
+                    text: "Delete";
+                    reader_label: "Delete " + root.entry.name;
+                    hint: root.can_edit
+                        ? "Delete this variant from your library. You are asked\nfirst, and a deleted variant cannot be brought back."
+                        : root.busy_hint;
+                    danger: true;
+                    enabled: root.can_edit;
+                    clicked => { root.delete_requested(); }
                 }
             }
         }
@@ -474,9 +463,9 @@ component VariantDiffPage inherits Rectangle {
 // design as it is or from any history step, open one to go back to it (one undo step),
 // and compare any two as pictures or as text.
 //
-// Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface leaves out
-// "Compare text" (the text comparison of the cutting instructions); everything else is in
-// both. Nothing here holds a setting, so there is no "advanced settings are in use" note.
+// Simple and Advanced (`GuideModel.shows_advanced()`): the Variants view is Advanced (the History
+// tab shows no segment in the Simple interface); "Compare Text" is Advanced too. Nothing here
+// holds a setting, so there is no "advanced settings are in use" note.
 export component VariantsSection inherits Rectangle {
     // Saving, renaming and deleting need a real design and nothing running in the background.
     property <bool> can_edit: EditorModel.enabled && VariantsModel.design_open && !VariantsModel.busy;
@@ -507,11 +496,11 @@ export component VariantsSection inherits Rectangle {
         height: 100%;
 
         VerticalLayout {
-            spacing: 6px;
+            spacing: 8px;
             // The scroll bar is drawn over the right edge: keep the buttons clear of it. A small
             // inset above, so the first control is never cut right at the top edge.
             padding-right: FormRowMetrics.scroll_gutter;
-            padding-top: 4px;
+            padding-top: 2px;
             padding-bottom: 12px;
             // Packed at the top: a short list would otherwise be stretched to the view's
             // height, spreading the rows apart and blowing up the Save button.
@@ -519,13 +508,14 @@ export component VariantsSection inherits Rectangle {
 
             HorizontalLayout {
                 spacing: 8px;
+                height: 32px;
                 Text {
                     horizontal-stretch: 1;
-                    text: "Variants";
-                    font-size: 12px;
-                    font-weight: 700;
-                    color: Theme.text-primary;
+                    text: "Named copies of this design, kept in your library.";
+                    font-size: 11px;
+                    color: Theme.text-muted;
                     vertical-alignment: center;
+                    overflow: elide;
                 }
                 if VariantsModel.busy: Text {
                     text: "Working...";
@@ -533,8 +523,11 @@ export component VariantsSection inherits Rectangle {
                     color: Theme.text-muted;
                     vertical-alignment: center;
                 }
-                TipButton {
+                KitButton {
                     text: "Save as Variant...";
+                    icon: KitIcons.plus;
+                    kind: 1;
+                    h: 32px;
                     hint: root.can_edit
                         ? "Keep a named copy of the design as it is now. Variants are kept\nin your library, not in the design file. See the glossary."
                         : "Switched off until a design is open and nothing is being worked out.";
@@ -544,7 +537,7 @@ export component VariantsSection inherits Rectangle {
             }
 
             WrapNote {
-                text: "A variant is a named copy of this design. Variants are kept in your library, not in the design file. Open one to go back to it; Undo takes that back in one step.";
+                text: "A variant is a named copy of this design. Variants are kept in your library, not in the design file. Open one to work from it; Undo takes that back in one step.";
                 font_size: 10px;
             }
 
@@ -571,8 +564,8 @@ export component VariantsSection inherits Rectangle {
                 ink: Theme.text-secondary;
             }
 
-            // The saved variants come first: a card with its Open, Rename, Note and Delete is what
-            // most steps use. The comparison of two designs is under them.
+            // The saved variants come first: a card with its Open and its menu is what most
+            // steps use. The comparison of two designs is under them.
             for item in VariantsModel.rows: VariantRowView {
                 entry: item;
                 can_edit: root.can_edit;
@@ -583,22 +576,14 @@ export component VariantsSection inherits Rectangle {
                 delete_requested => { VariantsModel.begin_delete(item.key); }
             }
 
-            if VariantsModel.design_open && VariantsModel.choices.length >= 1: Rectangle {
-                background: Theme.bg-input;
-                border-radius: Theme.radius-sm;
-                min-height: compare_column.preferred-height;
-                max-height: compare_column.preferred-height;
+            if VariantsModel.design_open && VariantsModel.choices.length >= 1: KitCard {
+                height: compare_column.preferred-height;
 
                 compare_column := VerticalLayout {
-                    padding: 8px;
-                    spacing: 6px;
+                    padding: 12px;
+                    spacing: 8px;
 
-                    Text {
-                        text: "Compare Two Designs";
-                        font-size: 11px;
-                        font-weight: 700;
-                        color: Theme.text-primary;
-                    }
+                    KitSection { label: "COMPARE TWO DESIGNS"; }
                     HorizontalLayout {
                         spacing: 6px;
                         compare-choice-l579 := CompareChoice {
@@ -610,7 +595,7 @@ export component VariantsSection inherits Rectangle {
                         }
                         Text {
                             text: "and";
-                            font-size: 10px;
+                            font-size: 11px;
                             color: Theme.text-muted;
                             vertical-alignment: center;
                         }
@@ -624,16 +609,18 @@ export component VariantsSection inherits Rectangle {
                     }
                     HorizontalLayout {
                         spacing: 6px;
-                        TipButton {
+                        KitButton {
                             text: "Compare Pictures";
+                            h: 30px;
                             hint: root.can_compare
                                 ? "Open the compare window with the two designs side\nby side. It only looks: nothing is changed."
                                 : "Choose two different designs above to compare them.";
                             enabled: root.can_compare;
                             clicked => { VariantsModel.compare_pictures(); }
                         }
-                        if root.advanced: TipButton {
+                        if root.advanced: KitButton {
                             text: "Compare Text";
+                            h: 30px;
                             hint: root.can_compare
                                 ? "Show the cutting instructions of the two designs line\nby line, with the lines only one of them has marked."
                                 : "Choose two different designs above to compare them.";

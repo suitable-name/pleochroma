@@ -708,6 +708,7 @@ pub(super) fn scene_state(
         // The design's render physics and the material's own inclusions, as the scene applied
         // them, so the endpoint traces the stone the phone's preview shows.
         effects: wire_effects(scene),
+        camera_pan: [0.0, 0.0],
     }
 }
 

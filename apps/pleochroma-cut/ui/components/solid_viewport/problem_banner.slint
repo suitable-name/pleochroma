@@ -1,0 +1,73 @@
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { VerdictModel } from "../../models/verdict.slint";
+import { KitButton, KitGlass, KitIcon, KitIcons } from "../kit/kit.slint";
+
+// The one banner of the Edit viewport for a check that blocks the solid ("the solid is open"), top
+// centre under the toolbar. It says in words what is wrong and holds its fixes: "Select <tier>" when
+// the verdict names a tier, and "Undo Last Change". Checks that do not block the solid keep their
+// status chip (the verdict badge and the status line).
+//
+// The words come from the first Problem reason of `VerdictModel` (`reasons` are worst first), else
+// from the solve's own message (`EditorModel.status_text`). The toolbar never changes shape for it:
+// the banner floats and the host moves the rows below it down by `banner_height`.
+export global ProblemBannerState {
+    // Shown while the solve failed (the solid cannot be built) or the verdict has a Problem.
+    out property <bool> shown: EditorModel.enabled && !EditorModel.solve_running && (EditorModel.solve_state == "failed" || VerdictModel.level == 2);
+    // The tier row the first Problem reason is about, or -1.
+    out property <int> tier: VerdictModel.reasons.length > 0 && VerdictModel.reasons[0].level >= 2 ? VerdictModel.reasons[0].tier : -1;
+    out property <string> words: VerdictModel.reasons.length > 0 && VerdictModel.reasons[0].level >= 2 ? VerdictModel.reasons[0].text : EditorModel.status_text;
+    out property <length> banner_height: 52px;
+}
+
+export component EditProblemBanner inherits KitGlass {
+    // The room the banner has (the viewport's width less its margins).
+    in property <length> room: 760px;
+
+    property <int> tier: ProblemBannerState.tier;
+    property <string> tier_name: root.tier >= 0 && root.tier < EditorModel.tiers.length && EditorModel.tiers[root.tier].name != "" ? EditorModel.tiers[root.tier].name : "Tier";
+
+    height: 44px;
+    width: min(root.room, lay.preferred-width + 8px);
+    background: Theme.danger-surface;
+    border-color: Theme.danger-border;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Problem with the solid";
+    accessible-description: ProblemBannerState.words;
+
+    lay := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 10px;
+        VerticalLayout { alignment: center; KitIcon { d: KitIcons.warn; size: 16px; ink: Theme.danger; } }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: ProblemBannerState.words;
+            font-size: 12px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.tier >= 0: VerticalLayout {
+            alignment: center;
+            KitButton {
+                text: "Select " + root.tier_name;
+                h: 28px;
+                hint: "Select the tier this problem is about, in the tier list.";
+                clicked => { EditorModel.selected_tier_index = root.tier; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            KitButton {
+                text: "Undo Last Change";
+                kind: 1;
+                h: 28px;
+                enabled: EditorModel.can_undo;
+                hint: "Take back the last edit, which may be the one that opened the solid. Ctrl+Z does the same.";
+                clicked => { EditorModel.undo(); }
+            }
+        }
+    }
+}

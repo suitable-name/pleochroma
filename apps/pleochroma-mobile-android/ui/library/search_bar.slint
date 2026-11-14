@@ -1,0 +1,345 @@
+// The search row and the filter chips under the Library's top bar.
+//
+//   search row    the search pill and a "Filter" pill with the count of filters set
+//   chips         Mine and Show Ignored (one tap), then one removable chip per filter that
+//                 is set: Shape, Gear, Refractive Index, Tag. The label opens the filter
+//                 sheet; the x clears that filter and is a 48 px target.
+//
+// The chips wrap onto further lines (two on a phone unless every filter is set) instead
+// of scrolling sideways, so a set filter is always visible.
+import { PleoPalette } from "../../../../ui-shared/palette.slint";
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { Icon } from "../shell/icon.slint";
+import { StateLayer } from "../shell/state_layer.slint";
+import { TextField } from "../pages/fields.slint";
+import { LibraryModel } from "library_model.slint";
+import { LibraryIcons } from "library_icons.slint";
+
+// The pill that opens the filter sheet, with a badge for the number of filters set.
+component FilterButton inherits Rectangle {
+    in property <string> label;
+    in property <int> count: 0;
+    callback clicked();
+
+    width: lay.preferred-width;
+    height: Theme.touch;
+    border-radius: Theme.touch / 2;
+    background: root.count > 0 ? Theme.accent-surface : PleoPalette.bg-input;
+    border-width: 1px;
+    border-color: root.count > 0 ? Theme.accent : PleoPalette.border-medium;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+        border-radius: root.border-radius;
+    }
+
+    lay := HorizontalLayout {
+        padding-left: Theme.space-lg;
+        padding-right: Theme.space-lg;
+        spacing: Theme.space-sm;
+        alignment: center;
+
+        Rectangle {
+            width: 20px;
+
+            Icon {
+                source: LibraryIcons.filter;
+                tint: root.count > 0 ? Theme.accent : Theme.text-secondary;
+                glyph: 20px;
+            }
+        }
+
+        Text {
+            text: "Filter";
+            color: root.count > 0 ? Theme.accent : Theme.on-surface;
+            font-size: Theme.text-body;
+            font-weight: 500;
+            vertical-alignment: center;
+        }
+
+        if root.count > 0: Rectangle {
+            width: max(22px, badge-text.preferred-width + 12px);
+
+            Rectangle {
+                height: 22px;
+                border-radius: 11px;
+                background: Theme.accent;
+
+                badge-text := Text {
+                    text: root.count;
+                    color: Theme.on-primary;
+                    font-size: Theme.text-label;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The search box and the filter button.
+export component SearchRow inherits Rectangle {
+    callback filter-clicked();
+
+    height: Theme.touch + Theme.space-sm + Theme.space-xs;
+
+    HorizontalLayout {
+        padding-left: Theme.space-lg;
+        padding-right: Theme.space-lg;
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-sm;
+        spacing: Theme.space-sm;
+
+        TextField {
+            text <=> LibraryModel.query-text;
+            label: "Search Designs";
+            placeholder: "Search Designs";
+            pill: true;
+            searching: true;
+            horizontal-stretch: 1;
+
+            edited(value) => {
+                LibraryModel.search-edited(value);
+            }
+        }
+
+        FilterButton {
+            label: LibraryModel.filter-count > 0 ? "Filters, " + LibraryModel.filter-count + " set" : "Filters";
+            count: LibraryModel.filter-count;
+            clicked => {
+                root.filter-clicked();
+            }
+        }
+    }
+}
+
+// One chip of the row. `removable` adds the x zone (a 48 px target of its own).
+component FlowChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected: false;
+    in property <bool> removable: false;
+    // The most the chip may take, so a long tag elides instead of leaving the row.
+    in property <length> max-w: 280px;
+    callback clicked();
+    callback removed();
+    out property <length> w: pill.width;
+
+    height: Theme.touch;
+    width: pill.width;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-checkable: !root.removable;
+    accessible-checked: root.selected;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    pill := Rectangle {
+        y: (root.height - self.height) / 2;
+        height: 32px;
+        width: min(lay.preferred-width, root.max-w);
+        border-radius: Theme.radius-sm;
+        background: root.selected ? Theme.accent-surface : transparent;
+        border-width: 1px;
+        border-color: root.selected ? Theme.accent : Theme.outline;
+
+        StateLayer {
+            width: parent.width - (root.removable ? Theme.touch : 0px);
+            pressed: label-touch.pressed;
+            hovered: label-touch.has-hover;
+            border-radius: parent.border-radius;
+        }
+
+        lay := HorizontalLayout {
+            padding-left: 12px;
+            padding-right: root.removable ? 0px : 12px;
+
+            Text {
+                text: root.text;
+                color: root.selected ? Theme.accent : Theme.text-secondary;
+                font-size: Theme.text-label-large;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if root.removable: Rectangle {
+                width: Theme.touch;
+
+                Icon {
+                    source: Icons.close;
+                    tint: Theme.accent;
+                    glyph: 16px;
+                }
+            }
+        }
+    }
+
+    label-touch := TouchArea {
+        x: 0px;
+        width: root.removable ? pill.width - Theme.touch : pill.width;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    if root.removable: Rectangle {
+        x: pill.width - Theme.touch;
+        width: Theme.touch;
+        height: Theme.touch;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Remove " + root.text;
+        accessible-action-default => {
+            root.removed();
+        }
+
+        TouchArea {
+            clicked => {
+                root.removed();
+            }
+        }
+    }
+}
+
+// The chip row. Positions are computed by hand (Slint has no wrapping layout): a chip that
+// does not fit after the previous one starts the next line.
+export component FilterChips inherits Rectangle {
+    callback open-filters();
+
+    property <length> avail: root.width - 2 * Theme.space-lg;
+    property <length> gap: Theme.space-sm;
+
+    property <bool> show-shape: LibraryModel.shape-index > 0;
+    property <bool> show-gear: LibraryModel.gear-index > 0;
+    property <bool> show-ri: LibraryModel.ri-index > 0;
+    property <bool> show-tag: LibraryModel.tag-index >= 0;
+
+    // Chain: the x where the next chip may start (after the gap) and the line so far.
+    // Mine.
+    property <length> x0: 0px;
+    property <int> l0: 0;
+    property <length> e0: m.w + root.gap;
+    // Show Ignored.
+    property <bool> wrap1: root.e0 + ign.w > root.avail;
+    property <length> x1: root.wrap1 ? 0px : root.e0;
+    property <int> l1: root.l0 + (root.wrap1 ? 1 : 0);
+    property <length> e1: root.x1 + ign.w + root.gap;
+    // Shape.
+    property <bool> wrap2: root.show-shape && root.e1 + shp.w > root.avail;
+    property <length> x2: root.wrap2 ? 0px : root.e1;
+    property <int> l2: root.l1 + (root.wrap2 ? 1 : 0);
+    property <length> e2: root.show-shape ? root.x2 + shp.w + root.gap : root.e1;
+    // Gear.
+    property <bool> wrap3: root.show-gear && root.e2 + gr.w > root.avail;
+    property <length> x3: root.wrap3 ? 0px : root.e2;
+    property <int> l3: root.l2 + (root.wrap3 ? 1 : 0);
+    property <length> e3: root.show-gear ? root.x3 + gr.w + root.gap : root.e2;
+    // Refractive Index.
+    property <bool> wrap4: root.show-ri && root.e3 + rix.w > root.avail;
+    property <length> x4: root.wrap4 ? 0px : root.e3;
+    property <int> l4: root.l3 + (root.wrap4 ? 1 : 0);
+    property <length> e4: root.show-ri ? root.x4 + rix.w + root.gap : root.e3;
+    // Tag.
+    property <bool> wrap5: root.show-tag && root.e4 + tg.w > root.avail;
+    property <length> x5: root.wrap5 ? 0px : root.e4;
+    property <int> l5: root.l4 + (root.wrap5 ? 1 : 0);
+
+    height: (root.l5 + 1) * Theme.touch + Theme.space-xs;
+
+    m := FlowChip {
+        x: Theme.space-lg + root.x0;
+        y: root.l0 * Theme.touch;
+        text: "Mine";
+        selected: LibraryModel.mine-only;
+        max-w: root.avail;
+        clicked => {
+            LibraryModel.set-mine-only(!LibraryModel.mine-only);
+        }
+    }
+
+    ign := FlowChip {
+        x: Theme.space-lg + root.x1;
+        y: root.l1 * Theme.touch;
+        text: "Show Ignored";
+        selected: LibraryModel.show-ignored;
+        max-w: root.avail;
+        clicked => {
+            LibraryModel.set-show-ignored(!LibraryModel.show-ignored);
+        }
+    }
+
+    shp := FlowChip {
+        visible: root.show-shape;
+        x: Theme.space-lg + root.x2;
+        y: root.l2 * Theme.touch;
+        text: "Shape: " + LibraryModel.shape-text;
+        selected: true;
+        removable: true;
+        max-w: root.avail;
+        clicked => {
+            root.open-filters();
+        }
+        removed => {
+            LibraryModel.set-shape(0);
+        }
+    }
+
+    gr := FlowChip {
+        visible: root.show-gear;
+        x: Theme.space-lg + root.x3;
+        y: root.l3 * Theme.touch;
+        text: LibraryModel.gear-text;
+        selected: true;
+        removable: true;
+        max-w: root.avail;
+        clicked => {
+            root.open-filters();
+        }
+        removed => {
+            LibraryModel.set-gear(0);
+        }
+    }
+
+    rix := FlowChip {
+        visible: root.show-ri;
+        x: Theme.space-lg + root.x4;
+        y: root.l4 * Theme.touch;
+        text: LibraryModel.ri-text;
+        selected: true;
+        removable: true;
+        max-w: root.avail;
+        clicked => {
+            root.open-filters();
+        }
+        removed => {
+            LibraryModel.set-ri(0);
+        }
+    }
+
+    tg := FlowChip {
+        visible: root.show-tag;
+        x: Theme.space-lg + root.x5;
+        y: root.l5 * Theme.touch;
+        text: "Tag: " + LibraryModel.tag-text;
+        selected: true;
+        removable: true;
+        max-w: root.avail;
+        clicked => {
+            root.open-filters();
+        }
+        removed => {
+            LibraryModel.set-tag(-1);
+        }
+    }
+}

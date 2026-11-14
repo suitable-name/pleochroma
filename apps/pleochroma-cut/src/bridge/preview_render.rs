@@ -305,6 +305,8 @@ pub fn render_view(job: &PreviewJob<'_>, view: PreviewView, gpu: &GpuBackend) ->
     }
     let scene = SceneSnapshot {
         camera_roll: 0.0,
+        // A thumbnail is centred whatever the live view's framing.
+        camera_pan: [0.0, 0.0],
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
         yaw: PREVIEW_YAW,
@@ -340,7 +342,8 @@ pub fn render_view(job: &PreviewJob<'_>, view: PreviewView, gpu: &GpuBackend) ->
         effects: job.effects.clone(),
     };
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let environment = scene
         .lighting_preset
         .studio(scene.exposure, scene.light_yaw, scene.light_pitch)
@@ -428,6 +431,8 @@ pub fn render_rgba_at_pose(
     let spp = spp.max(1);
     let scene = SceneSnapshot {
         camera_roll: roll,
+        // The compare window frames its stones centred.
+        camera_pan: [0.0, 0.0],
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
         yaw,
@@ -534,6 +539,8 @@ fn remote_scene(job: &PreviewJob<'_>, view: PreviewView) -> SceneState {
         height: job.size,
         yaw: PREVIEW_YAW,
         camera_roll: 0.0,
+        // Centred, as `render_view` traces it locally.
+        camera_pan: [0.0, 0.0],
         stone_shadow: false,
         tray_reflection: 0.0,
         // Thumbnails are lit by the studio rig, so there is no map to turn.

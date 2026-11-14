@@ -12,7 +12,10 @@ use crate::settings::model::LocalComputeTarget;
 use glam::Vec3;
 use pleochroma::renderer::{
     buffers::{GpuGemMaterial, GpuSurfaceScene},
-    gpu_backend::GpuAccumulate,
+    gpu_backend::{
+        GpuAccumulate, GpuRouteDecline, scene_decline_with_tray_mirror,
+        scene_decline_with_tray_shadow,
+    },
 };
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
@@ -59,41 +62,10 @@ pub(in crate::bridge::render_thread) fn accumulate_frame_samples_cancellable(
         return false;
     }
     hybrid.prepare_frame(frame);
-    if target != LocalComputeTarget::Cpu
-        && frame.environment.tray_shadow().is_some()
-        && let Some(reason) = pleochroma::renderer::gpu_backend::scene_decline_with_tray_shadow(
-            frame.environment,
-            backend.gpu.supports_tray_shadow(),
-        )
-    {
-        backend.status_message = Some(reason.to_string());
-        return cpu_frame(backend, frame, outputs, hybrid, cancel);
-    }
-    if backend.status_message.as_deref()
-        == Some(pleochroma::renderer::gpu_backend::GpuRouteDecline::STONE_SHADOW_MESSAGE)
-    {
-        backend.status_message = None;
-    }
-    // The tray reflection beside the shadow: a device or pipeline that cannot run the mirror
-    // variant traces the frame on the CPU, and says so.
-    if target != LocalComputeTarget::Cpu
-        && frame.environment.tray_mirror().is_some()
-        && let Some(reason) = pleochroma::renderer::gpu_backend::scene_decline_with_tray_mirror(
-            frame.environment,
-            backend.gpu.supports_tray_mirror(),
-        )
-    {
-        backend.status_message = Some(reason.to_string());
-        return cpu_frame(backend, frame, outputs, hybrid, cancel);
-    }
-    if backend.status_message.as_deref()
-        == Some(pleochroma::renderer::gpu_backend::GpuRouteDecline::TRAY_REFLECTION_MESSAGE)
-    {
-        backend.status_message = None;
-    }
     if target == LocalComputeTarget::Cpu || !frame.routes_to_gpu() {
         // Nothing polls the preparation worker on this route, so its pill would stay.
         backend.clear_preparing_status();
+        clear_tray_notes(backend);
         #[cfg(feature = "render-bench")]
         if target != LocalComputeTarget::Cpu {
             backend
@@ -102,12 +74,27 @@ pub(in crate::bridge::render_thread) fn accumulate_frame_samples_cancellable(
         }
         return cpu_frame(backend, frame, outputs, hybrid, cancel);
     }
+    // The preparation worker acquires the device on first use. Until it is done, `backend.gpu`
+    // is a disabled stand-in that supports neither the stone shadow nor the tray reflection, so
+    // the tray checks below must come after it: checked first, a shadowed or mirrored scene
+    // never starts the preparation and stays on the CPU for good.
     if target == LocalComputeTarget::CpuGpu {
-        // Compilation never blocks the first useful CPU image. Calibration runs on
-        // one bounded worker and never contributes samples to accumulation.
+        // Compilation never blocks the first useful CPU image.
         if !backend.poll_preparation(frame) {
             return cpu_frame(backend, frame, outputs, hybrid, cancel);
         }
+    } else if !backend.wait_preparation(frame, cancel) {
+        return false;
+    }
+    // A device or pipeline that cannot run the tray variant of the megakernel traces a shadowed or
+    // mirrored frame on the CPU, and says so.
+    if let Some(reason) = tray_decline(backend, frame) {
+        backend.status_message = Some(reason.to_string());
+        return cpu_frame(backend, frame, outputs, hybrid, cancel);
+    }
+    clear_tray_notes(backend);
+    if target == LocalComputeTarget::CpuGpu {
+        // Calibration runs on one bounded worker and never contributes samples to accumulation.
         hybrid.poll_calibration(frame, backend.shared_hdr.as_ref());
         if cancel.load(Ordering::Relaxed) {
             return false;
@@ -118,8 +105,6 @@ pub(in crate::bridge::render_thread) fn accumulate_frame_samples_cancellable(
         if hybrid.prefer_cpu() {
             return cpu_frame(backend, frame, outputs, hybrid, cancel);
         }
-    } else if !backend.wait_preparation(frame, cancel) {
-        return false;
     }
     let start = std::time::Instant::now();
     #[cfg(feature = "render-bench")]
@@ -133,6 +118,34 @@ pub(in crate::bridge::render_thread) fn accumulate_frame_samples_cancellable(
         }
         GpuAccumulate::Cancelled => false,
         GpuAccumulate::Declined => cpu_frame(backend, frame, outputs, hybrid, cancel),
+    }
+}
+
+/// Why the prepared device cannot trace this frame's stone shadow or tray reflection, `None`
+/// when it can (or the frame has neither). The renderer is asked only when the frame carries the
+/// feature, since that takes its lock.
+fn tray_decline(backend: &ViewportGpu, frame: &BackendFrame<'_>) -> Option<GpuRouteDecline> {
+    let environment = frame.environment;
+    if environment.tray_shadow().is_some()
+        && let Some(reason) =
+            scene_decline_with_tray_shadow(environment, backend.gpu.supports_tray_shadow())
+    {
+        return Some(reason);
+    }
+    if environment.tray_mirror().is_some() {
+        return scene_decline_with_tray_mirror(environment, backend.gpu.supports_tray_mirror());
+    }
+    None
+}
+
+/// Drops the stone-shadow or tray-reflection note once the frame no longer declines for it. Any
+/// other status (a device loss, the preparation pill) stays.
+fn clear_tray_notes(backend: &mut ViewportGpu) {
+    if matches!(
+        backend.status_message.as_deref(),
+        Some(GpuRouteDecline::STONE_SHADOW_MESSAGE | GpuRouteDecline::TRAY_REFLECTION_MESSAGE)
+    ) {
+        backend.status_message = None;
     }
 }
 

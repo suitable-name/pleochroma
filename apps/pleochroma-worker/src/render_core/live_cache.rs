@@ -98,7 +98,8 @@ pub fn clear_resident() {
 #[cfg(test)]
 pub fn key_of(scene: &SceneState) -> CacheKey {
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let hdr_map = crate::assets::resolved_hdr_map(scene);
     let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
     let finishes = resolve_facet_finishes(scene);
@@ -158,7 +159,8 @@ pub fn trace_live_pass_cached(
         return live::trace_live_pass(gpu, scene, live, range, threads, cancel, tray);
     }
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let hdr_map = crate::assets::resolved_hdr_map(scene);
     let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
     let facet_finishes = resolve_facet_finishes(scene);
@@ -241,7 +243,8 @@ fn trace(
 ) -> Option<Vec<(Vec3, Vec3)>> {
     if super::scene_uses_gpu(scene, gpu) && live.tile() == cache.settings().tile {
         let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-            .with_roll(scene.camera_roll);
+            .with_roll(scene.camera_roll)
+            .with_pan(scene.camera_pan);
         let hdr_map = crate::assets::resolved_hdr_map(scene);
         let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
         let facet_finishes = resolve_facet_finishes(scene);

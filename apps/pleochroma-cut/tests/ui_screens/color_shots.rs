@@ -11,7 +11,7 @@
 
 use crate::{
     dialog_shots::{open_material_editor, popup_in, scroll_to_label},
-    kit::{Rect, Sc, card_rect, click_first, find_inherits, press_on, rect_of},
+    kit::{Rect, Sc, card_rect, click_first, find_inherits, rect_of},
     nav::{FVS, STUDIO},
     support::{SecondaryWindow, app::pump},
 };
@@ -124,25 +124,19 @@ fn body_color_options(sc: &Sc<'_, '_>) -> Vec<String> {
         .collect()
 }
 
-/// The Stone tab of a design in `material` with the Body Color combo open on its list.
+/// The Stone tab of a design in `material` with the Body Color tiles in view. The tiles are always
+/// drawn (one per entry, five to a row), so there is nothing to open.
 fn combo_open(sc: &mut Sc<'_, '_>, material: &str) -> Result<Shot, String> {
     stone_tab_of(sc, material)?;
     let dock = body_color_into_view(sc)?;
     let options = body_color_options(sc);
-    let combo = sc
-        .view()
-        .try_find("Body Color")
-        .ok_or_else(|| "the Body Color combo is not on screen".to_owned())?;
-    let ui = sc.ui();
-    press_on(ui.window(), &combo);
-    pump(500);
-    // A popup list shows each entry as a row of its own.
+    // Each entry is a tile labelled with its option name.
     let listed = options
         .get(1)
         .is_some_and(|second| !sc.view().by_label(second).is_empty());
     if !listed {
         sc.note(format!(
-            "the Body Color list ({options:?}) did not show its entries; photographed closed"
+            "the Body Color tiles ({options:?}) did not show their entries"
         ));
     }
     let shot = sc.snap_main()?;
@@ -175,12 +169,15 @@ fn custom_editor(sc: &Sc<'_, '_>, material: &str, rows: usize) -> Result<Shot, S
     stone_tab_of(sc, material)?;
     let ui = sc.ui();
     let editor = ui.global::<EditorModel>();
-    let last = i32::try_from(editor.get_body_color_options().row_count()).unwrap_or(1) - 1;
-    editor.set_body_color_index(last.max(0));
-    pump(500);
+    let options = editor.get_body_color_options();
+    let custom = options
+        .row_data(options.row_count().saturating_sub(1))
+        .map(|name| name.to_string())
+        .unwrap_or_default();
     body_color_into_view(sc)?;
-    if !click_first(&sc.view(), "Choose Color...") {
-        return Err("the Stone tab shows no \"Choose Color...\" button".to_owned());
+    // The last tile is Custom: pressing it opens the editor under the tiles.
+    if !click_first(&sc.view(), &custom) {
+        return Err(format!("the Stone tab shows no {custom:?} tile"));
     }
     let colour = ui.global::<BodyColorEditorModel>();
     if !Sc::wait(60, || colour.get_has_solution() && !colour.get_busy()) {

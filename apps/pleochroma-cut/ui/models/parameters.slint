@@ -17,6 +17,14 @@ export global ParametersModel {
     // The tab that shows: 0 Stone, 1 Lighting & Environment, 2 Render & Output.
     in-out property <int> active_tab: 0;
 
+    // --- R2S ---
+    // Which folding cards of the Stone tab are open, one bit each: 1 Crystal Axis, 2 Girdle &
+    // Edges, 4 Clarity, 8 Structure. Persisted (`gui::parameters_dock`); not part of a tab reset.
+    in-out property <int> stone_folds: 0;
+    // The Stone tab asks for one card to open or fold: its bit, then the new state.
+    callback stone_fold_set(int, bool);
+    // --- end R2S ---
+
     // Fired after `open` or `active_tab` changed, so a listener always reads the new values.
     callback layout_changed();
     // Folding unmounts the panel's fields, and a destroyed field never runs its `changed

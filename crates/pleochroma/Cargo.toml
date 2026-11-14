@@ -157,6 +157,11 @@ name = "gpu_golden_capture"
 required-features = ["gpu"]
 
 [[example]]
+name = "ew_kernel_probe"
+# Builds pipelines on a real adapter (see the example's doc comment).
+required-features = ["gpu"]
+
+[[example]]
 name = "whitted_gallery"
 required-features = ["hdr"]
 

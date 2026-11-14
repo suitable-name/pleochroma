@@ -308,8 +308,9 @@ fn ensure_window(deps: &CompareDeps) -> Option<CompareWindow> {
     Some(window)
 }
 
-/// The live viewport's camera pose -- the first view of a session that has no
-/// previous session to continue from.
+/// The live viewport's camera pose, centred -- the first view of a session that has no
+/// previous session to continue from. The compare view keeps the stone in the middle of
+/// its pictures: its renderers draw no pan.
 fn viewport_pose(deps: &CompareDeps) -> CameraPose {
     let ctx = deps
         .render_ctx
@@ -320,6 +321,7 @@ fn viewport_pose(deps: &CompareDeps) -> CameraPose {
         yaw: ctx.yaw,
         pitch: ctx.pitch,
         distance: ctx.distance,
+        pan: [0.0, 0.0],
     }
 }
 

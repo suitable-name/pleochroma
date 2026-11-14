@@ -12,6 +12,7 @@
 //! (`SettingsFile`, the full on-disk document).
 
 mod app_settings;
+mod camera_pan;
 mod faceting_machine;
 mod head_shadow;
 mod import_preview;
@@ -20,6 +21,7 @@ pub mod lighting_values;
 mod local_compute;
 mod output_settings;
 mod parameter_defaults;
+mod quality_preset;
 mod radv_workaround;
 mod ray_trace;
 mod view_settings;
@@ -45,6 +47,7 @@ pub use app_settings::{
     DEFAULT_PATH_CACHE_DISK_LIMIT_GB, clamp_path_cache_disk_limit_gb, clamp_remote_batch_lanes,
     clamp_remote_preview_batch_size, effective_remote_batch_lanes,
 };
+pub use camera_pan::clamp_camera_pan;
 pub use faceting_machine::{
     FacetingMachineSetting, current_faceting_machine, set_current_faceting_machine,
 };
@@ -65,6 +68,7 @@ pub use output_settings::{
     clamp_target_noise_index, nearest_bounce_cap,
 };
 pub use parameter_defaults::{LegacyStoneDefaults, ParameterTab, reset_tab};
+pub use quality_preset::{QualityPreset, QualityValues};
 pub use radv_workaround::{RadvWorkaroundChoice, should_ask as should_ask_radv_workaround};
 pub use remote_endpoint::{ExportTransfer, LiveTransfer, RemoteEndpoint, TiltVideoCompute};
 pub use settings_file::SettingsFile;
@@ -151,6 +155,7 @@ mod tests {
                 camera_yaw: None,
                 camera_pitch: None,
                 camera_roll: None,
+                camera_pan: None,
                 env_map_path: None,
                 export_usable: false,
                 surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -182,6 +187,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -223,6 +229,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -256,6 +263,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -283,6 +291,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -315,6 +324,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -343,6 +353,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -377,6 +388,7 @@ mod tests {
             camera_yaw: Some(0.6),
             camera_pitch: Some(0.45),
             camera_roll: None,
+            camera_pan: Some([0.5, -0.25]),
             env_map_path: Some("C:/env/studio.hdr".to_string()),
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,

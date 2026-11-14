@@ -430,12 +430,24 @@ pub(in crate::scripts) fn delete_variant(film: &mut Film<'_>, name: &str) -> Res
         return Err(format!("delete {name:?}: expected one persisted row"));
     }
     let key = matches[0].key.clone();
+    // Delete is an item of the card's "More for <name>" menu: open the menu, then press the item
+    // (a popup, so it is looked up in the whole window).
     click_control(
         film,
         "VariantsSection",
-        &format!("Delete {name}"),
+        &format!("More for {name}"),
         uiprobe::AccessibleRole::Button,
     )?;
+    crate::support::app::pump(80);
+    let delete_label = format!("Delete {name}");
+    let delete = crate::targets::role_label(
+        &film.view(),
+        &delete_label,
+        uiprobe::AccessibleRole::Button,
+        None,
+    )
+    .ok_or_else(|| format!("the menu of {name:?} has no {delete_label:?} item"))?;
+    film.click_and_invoke(&delete)?;
     if variants.get_form_mode() != 4 {
         return Err("variant Delete did not open confirmation".into());
     }

@@ -2,7 +2,7 @@
 //!
 //! A [`Perform`] is plain data (no UI types) that names what the learner would do, in the
 //! editor's own words: fill in the New Design form and press Create, type this into the Tier
-//! form and press Add Tier or Save Tier, pick this material in the Stone tab, press
+//! form and press Add This Tier (or Enter on an existing tier), pick this material in the Stone tab, press
 //! Solve, run this palette command. A UI carries it out through the very callbacks those
 //! actions call, so the edit is one undo step like the learner's own, a bad entry is refused by
 //! the same parser with the same message, and the step then completes the usual way (the goal
@@ -77,7 +77,8 @@ pub const COMMANDS: &[&str] = &[
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TierEntry {
     /// The row to pick first (any of the tier's names; case and surrounding spaces do not
-    /// matter), so the form says Save Tier. `None` is "+ Add Tier": a new tier at the end.
+    /// matter), so the form edits that row (the desktop applies on Enter). `None` is "+ Add
+    /// Tier": a new tier at the end.
     pub edit: Option<String>,
     /// The Angle field. A new tier needs one; an edit keeps the row's angle when `None`.
     pub angle: Option<String>,
@@ -189,7 +190,7 @@ pub enum Perform {
         /// The design the form describes.
         spec: Box<FreshDesignSpec>,
     },
-    /// The Tier form's Add Tier or Save Tier.
+    /// The Tier form's Add This Tier, or an edit of a picked row (Enter on the desktop).
     Tier(TierEntry),
     /// The concave form's Add or Save: the whole tier, typed in. `edit` names the concave row to
     /// pick first; `None` is "+ Add Concave Tier".
@@ -228,7 +229,8 @@ pub enum Perform {
     },
     /// The Stone tab: pick this material (it applies at once).
     Material(String),
-    /// The Preform tab: type this Girdle Diameter and click Apply Yield Inputs.
+    /// The Preform tab: type this Girdle Diameter and press Enter (the yield inputs apply on Enter
+    /// or when the field is left).
     Yield {
         /// The girdle diameter in millimetres.
         girdle_diameter_mm: f64,
@@ -236,7 +238,7 @@ pub enum Perform {
     /// The Solid viewport's view mode pill (0 Solid, 1 Path, 2 Solid+Path, 3 Diagram, 4 Ray,
     /// 5 Solid+Ray).
     ViewMode(i32),
-    /// The inspector's tab (0 Tier, 1 Preform, 2 Optimize, 3 Schedule, 4 History).
+    /// The inspector's tab (0 Tier, 1 Preform, 2 Optimize, 3 unused: the Schedule tab is gone, 4 History).
     InspectorTab(i32),
     /// A command of the command palette, by its id (one of [`COMMANDS`]).
     Command(String),

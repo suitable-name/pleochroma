@@ -1,0 +1,128 @@
+import { Theme } from "../theme.slint";
+import { ShaderCacheModel } from "../models/shader_cache.slint";
+import { KitButton, KitIcon, KitIcons } from "kit/kit.slint";
+import { WrappedNote } from "export_dialog/wrapped_note.slint";
+
+// One renderer's row: its name and state over a bar.
+component CacheRow inherits Rectangle {
+    in property <string> name;
+    in property <string> state;
+    in property <float> fraction;
+    // Pulses instead of filling: a step whose length is unknown.
+    in property <bool> busy;
+    property <bool> pulse_on: true;
+
+    accessible-role: AccessibleRole.progress-indicator;
+    accessible-label: root.name + " shaders";
+    accessible-value: root.state;
+
+    VerticalLayout {
+        spacing: 5px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                text: root.name;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+            }
+            Text {
+                horizontal-stretch: 0;
+                text: root.state;
+                font-size: 12px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: Theme.surface-sunken;
+            Timer {
+                interval: 500ms;
+                running: root.busy;
+                triggered => { root.pulse_on = !root.pulse_on; }
+            }
+            Rectangle {
+                x: 0px;
+                width: root.busy ? parent.width : parent.width * clamp(root.fraction, 0.0, 1.0);
+                height: 100%;
+                border-radius: 3px;
+                background: root.busy ? Theme.text-muted : Theme.accent-cyan;
+                opacity: root.busy ? (root.pulse_on ? 0.6 : 0.25) : 1.0;
+            }
+        }
+    }
+}
+
+// The startup build of the GPU shader cache, bottom right of the main window: why the renderers
+// need it, and how far Ray-Traced and Path-Traced are.
+export component ShaderCacheCard inherits Rectangle {
+    width: 340px;
+    height: card_lay.preferred-height;
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-medium;
+    drop-shadow-blur: 20px;
+    drop-shadow-color: Theme.toast-shadow;
+    drop-shadow-offset-y: 6px;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: ShaderCacheModel.title;
+
+    // Clicks on the card stay on it.
+    TouchArea { }
+
+    card_lay := VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                KitIcon { d: KitIcons.cpu; size: 16px; ink: Theme.accent-cyan; }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: ShaderCacheModel.title;
+                font-size: 14px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            KitButton {
+                text: "Hide";
+                kind: 2;
+                h: 26px;
+                hint: "Hide this card. The shader cache keeps building, and the status strip shows its progress.";
+                clicked => { ShaderCacheModel.hide(); }
+            }
+        }
+
+        WrappedNote {
+            text: ShaderCacheModel.note;
+            font-size: 12px;
+            color: Theme.text-secondary;
+        }
+
+        CacheRow {
+            name: "Ray-Traced";
+            state: ShaderCacheModel.ray_text;
+            fraction: ShaderCacheModel.ray_fraction;
+            busy: ShaderCacheModel.ray_busy;
+        }
+
+        CacheRow {
+            name: "Path-Traced";
+            state: ShaderCacheModel.path_text;
+            fraction: ShaderCacheModel.path_fraction;
+            busy: false;
+        }
+    }
+}

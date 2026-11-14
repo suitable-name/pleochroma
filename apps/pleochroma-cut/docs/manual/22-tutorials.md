@@ -207,7 +207,7 @@ Section **Adding and Editing Tiers**:
   the last change. The Meets step leaves the pavilion without an exact scale value, so
   the status strip says the pavilion has no anchor until the Undo step; the lesson says
   so beforehand.
-- **Quick Add** adds a girdle, a table and a culet with one click each.
+- **Quick Add** (the QUICK ADD part of the Add Tier menu) adds a girdle, a table and a culet with one click each.
 - **Inline Angle and Nudging** edits an angle in the table cell and nudges it with the
   arrow keys and Ctrl plus the mouse wheel.
 - **Index Shorthands** writes a ring with `0:12:96`, `12 x8` and `6 x8` instead of

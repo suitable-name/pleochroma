@@ -26,6 +26,7 @@ use pleochroma_mobile_core::{
     app_state::{AppState, Lifecycle},
     layout::Destination,
     platform::Platform,
+    settings::ThemeChoice,
 };
 use slint::ComponentHandle;
 
@@ -56,6 +57,10 @@ pub struct RunOptions {
     /// How long the screenshot run waits before capturing, instead of the default (longer in
     /// Render mode). A large library takes a while to open.
     pub screenshot_delay: Option<Duration>,
+    /// Preview-only: starts with this theme instead of the stored one (not saved).
+    pub theme: Option<ThemeChoice>,
+    /// Preview-only: opens Cutting Mode at its first step once the design is solved.
+    pub cutting: bool,
 }
 
 /// How long the screenshot run waits for the first frames before capturing.
@@ -65,6 +70,11 @@ const SCREENSHOT_DELAY: Duration = Duration::from_millis(2500);
 /// The screenshot delay in Render mode (the trace needs a few passes).
 #[cfg(feature = "desktop-preview")]
 const RENDER_SCREENSHOT_DELAY: Duration = Duration::from_secs(8);
+
+/// How often the preview's `--cutting` tries to open Cutting Mode while the start-up solve runs,
+/// and how many tries it makes before it gives up with the app's "not solved" toast (about 4 s).
+const CUTTING_RETRY: Duration = Duration::from_millis(250);
+const CUTTING_ATTEMPTS: u32 = 16;
 
 /// Runs the app until its window closes.
 ///
@@ -99,6 +109,10 @@ pub fn run_with(
     if let Some(destination) = options.destination {
         state.borrow_mut().destination = destination;
     }
+    if let Some(theme) = options.theme {
+        // In memory only: the stored setting is left alone.
+        state.borrow_mut().settings.theme = theme;
+    }
     ui_state::install(Rc::clone(&state));
 
     commands::wire(&window, &state);
@@ -113,6 +127,9 @@ pub fn run_with(
     }
     push::all(&window, &state.borrow());
     apply_view_options(&window, options);
+    if options.cutting {
+        open_cutting_mode_when_solved(&window, &state);
+    }
 
     #[cfg(feature = "desktop-preview")]
     if let Some(path) = options.screenshot.clone() {
@@ -138,6 +155,26 @@ pub fn run_with(
     ui_state::clear();
     tracing::info!("mobile app: event loop ended");
     result
+}
+
+/// Opens Cutting Mode at the first step as soon as the design's solve has landed (the preview's
+/// `--cutting`): it retries quietly every [`CUTTING_RETRY`], and only the last try shows the
+/// app's "not solved" toast.
+fn open_cutting_mode_when_solved(window: &AppWindow, state: &Rc<RefCell<AppState>>) {
+    try_open_cutting_mode(window.as_weak(), Rc::clone(state), 1);
+}
+
+fn try_open_cutting_mode(weak: slint::Weak<AppWindow>, state: Rc<RefCell<AppState>>, attempt: u32) {
+    slint::Timer::single_shot(CUTTING_RETRY, move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        if attempt >= CUTTING_ATTEMPTS {
+            crate::cut::mode::open(&window, &state, 0);
+        } else if !crate::cut::mode::open_quietly(&window, &state, 0) {
+            try_open_cutting_mode(weak, state, attempt + 1);
+        }
+    });
 }
 
 /// Applies the preview-only options that select what is shown: the engine, the Design tab,

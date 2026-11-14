@@ -221,18 +221,18 @@ mod tests {
 
     #[test]
     fn a_newer_format_is_refused_with_the_exact_sentence() {
-        let error = from_text(r#"{"format": 7}"#).unwrap_err();
+        let error = from_text(r#"{"format": 8}"#).unwrap_err();
         assert_eq!(
             error,
             JobFileError::NewerFormat {
-                found: 7,
-                supported: 6
+                found: 8,
+                supported: 7
             }
         );
         assert_eq!(
             error.to_string(),
-            "This job file was made by a newer version of Pleochroma (format 7); \
-             this version reads format 6."
+            "This job file was made by a newer version of Pleochroma (format 8); \
+             this version reads format 7."
         );
     }
 
@@ -286,6 +286,32 @@ mod tests {
             job.scene.hdr_orientation.yaw.to_bits()
         );
         assert!(back.scene.hdr_orientation.follows_camera);
+    }
+
+    /// A panned job survives the text bit for bit, and a format-6 reader refuses the file instead
+    /// of rendering the stone centred.
+    #[test]
+    fn a_panned_job_round_trips_and_a_format_six_reader_refuses_it() {
+        use crate::job::test_support::panned_still_job;
+        let job = panned_still_job();
+        assert_eq!(job.format, 7);
+        let text = to_text(&job).expect("encode panned job");
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["format"], 7);
+        assert!(value["scene"].get("camera_pan").is_some());
+        assert_eq!(
+            read_supported_format(&text, 6),
+            Err(JobFileError::NewerFormat {
+                found: 7,
+                supported: 6
+            })
+        );
+        let back = from_text(&text).expect("read format 7");
+        assert_eq!(back, job);
+        assert_eq!(
+            back.scene.camera_pan.map(f32::to_bits),
+            job.scene.camera_pan.map(f32::to_bits)
+        );
     }
 
     /// Zones with a turned frame, a soft boundary and no axis following come back bit for bit:

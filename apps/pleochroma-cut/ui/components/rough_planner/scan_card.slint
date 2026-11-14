@@ -128,7 +128,7 @@ export component ScanCard inherits Rectangle {
                 width: 96px;
                 KitCaption { text: "File units"; }
                 KitCombo {
-                    model: ["mm", "cm", "m", "inch", "\u{00B5}m"];
+                    model: RoughPlanModel.mesh_units;
                     current_index <=> RoughPlanModel.mesh_unit_index;
                     enabled: root.editable;
                     label: "Unit of the Numbers in a Mesh File";

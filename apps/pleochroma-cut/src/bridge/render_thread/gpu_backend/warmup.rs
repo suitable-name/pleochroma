@@ -11,7 +11,7 @@ use std::{
 #[derive(Default)]
 pub(super) struct PathWarmup {
     started: bool,
-    task: Option<JoinHandle<(u64, GpuBackend)>>,
+    task: Option<JoinHandle<(u64, Arc<GpuBackend>)>>,
     prepared_key: Option<u64>,
     cancel: Arc<AtomicBool>,
 }
@@ -70,16 +70,19 @@ impl ViewportGpu {
         self.warmup.started = true;
         let owned = OwnedFrame::new(frame, self.shared_hdr.as_ref());
         let cancel = Arc::clone(&self.warmup.cancel);
-        let retained = std::mem::replace(&mut self.gpu, GpuBackend::disabled());
+        let retained = std::mem::replace(&mut self.gpu, Arc::new(GpuBackend::disabled()));
         self.status_message = Some(super::PREPARING_STATUS.to_owned());
         self.ray_status_active = false;
         self.warmup.task = Some(std::thread::spawn(move || {
             #[cfg(feature = "ui-harness")]
             if crate::harness_support::viewport_rendering_disabled() {
-                return (key, GpuBackend::disabled());
+                return (key, Arc::new(GpuBackend::disabled()));
             }
+            // The startup shader cache build's backend, whose kernels it compiles or has compiled;
+            // a device of its own only without that build.
             let gpu = if acquire {
-                GpuBackend::acquire()
+                crate::bridge::shader_cache::path_backend()
+                    .unwrap_or_else(|| Arc::new(GpuBackend::acquire()))
             } else {
                 retained
             };

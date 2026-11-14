@@ -544,13 +544,14 @@ pub(super) fn redraw_from_epoch(
     }
     let (buffer, remote_count) = epoch.remote_snapshot();
     let samples_done = remote_count.max(1);
-    let (yaw, pitch, distance, camera_roll, planes, tools, denoise_enabled, n_d) = {
+    let (yaw, pitch, distance, camera_roll, camera_pan, planes, tools, denoise_enabled, n_d) = {
         let ctx = RenderContext::lock(render_ctx);
         (
             ctx.yaw,
             ctx.pitch,
             ctx.distance,
             ctx.camera_roll,
+            ctx.camera_pan,
             ctx.active_planes.clone(),
             ctx.active_tools.clone(),
             ctx.denoise_enabled && ctx.engine.denoises(),
@@ -567,7 +568,8 @@ pub(super) fn redraw_from_epoch(
         distance,
         pleochroma::optics::raytracer::DEFAULT_FOV_DEG,
     )
-    .with_roll(camera_roll);
+    .with_roll(camera_roll)
+    .with_pan(camera_pan);
     let desired_key = GuideCache::key_for_camera(width, height, &camera, stone, n_d);
 
     // Brief lock: adopt a finished background denoise for this pose and read a valid cached one.
@@ -619,6 +621,7 @@ pub(super) fn redraw_from_epoch(
                             pitch,
                             distance,
                             camera_roll,
+                            camera_pan,
                             // An owned copy for the background job; the `Arc` clones above
                             // kept the read cheap.
                             planes: planes.as_ref().clone(),
@@ -675,6 +678,7 @@ fn cached_denoised_frame(
 /// recorded stamp instead (`optical_overlay::displayed`).
 fn push_image(ui: &MainWindow, generation: u64, width: u32, height: u32, rgba: &[u8]) {
     crate::bridge::optical_overlay::displayed(ui, generation, width, height);
+    crate::gui::render::backdrop_color::push_backdrop(ui, rgba, width, height);
     let mut fb = crate::bridge::pixel_buffer::FramebufferTransfer::new(width, height);
     let image = fb.copy_from_gpu_slice(rgba);
     ui.global::<ViewportModel>()

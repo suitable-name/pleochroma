@@ -35,7 +35,9 @@ component NavItem inherits Rectangle {
         width: 64px;
         height: 32px;
         border-radius: 16px;
-        background: root.selected ? Theme.secondary-container : transparent;
+        background: root.selected ? Theme.accent-surface : transparent;
+        border-width: root.selected && Theme.high-contrast ? 1px : 0px;
+        border-color: Theme.accent;
 
         StateLayer {
             pressed: touch.pressed;
@@ -45,7 +47,7 @@ component NavItem inherits Rectangle {
 
         Icon {
             source: root.entry.icon;
-            tint: root.selected ? Theme.on-secondary-container : Theme.on-surface-variant;
+            tint: root.selected ? Theme.accent : Theme.text-secondary;
         }
     }
 
@@ -53,7 +55,7 @@ component NavItem inherits Rectangle {
         y: 48px;
         width: parent.width;
         text: root.entry.label;
-        color: root.selected ? Theme.on-surface : Theme.on-surface-variant;
+        color: root.selected ? Theme.on-surface : Theme.text-secondary;
         font-size: Theme.text-label;
         font-weight: root.selected ? 700 : 500;
         horizontal-alignment: center;
@@ -77,6 +79,13 @@ export component NavBar inherits Rectangle {
 
     height: Theme.nav-size + root.bottom-inset;
     background: Theme.surface-container;
+
+    // The hairline along the bar's top edge.
+    Rectangle {
+        y: 0px;
+        height: 1px;
+        background: Theme.glass-edge;
+    }
 
     HorizontalLayout {
         padding-bottom: root.bottom-inset;
@@ -102,6 +111,13 @@ export component NavRail inherits Rectangle {
 
     width: Theme.nav-size + root.left-inset;
     background: Theme.surface-container;
+
+    // The hairline along the rail's trailing edge.
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Theme.glass-edge;
+    }
 
     VerticalLayout {
         padding-top: root.top-inset + Theme.space-sm;

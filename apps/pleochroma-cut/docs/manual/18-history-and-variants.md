@@ -25,7 +25,7 @@ history seen as a list, with a way to go to any step in one click.
 ## Opening the Tab
 
 Open the inspector below the tier table (Chapter 4) and click **History**, the
-fifth tab pill. You can also press **Ctrl+K** and type `history` to run
+fourth tab pill. You can also press **Ctrl+K** and type `history` to run
 **Inspector: History Tab** (Chapter 19). Until you change something, the list holds
 only the **Start** row.
 

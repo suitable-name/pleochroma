@@ -255,11 +255,11 @@ impl Film<'_> {
         Ok(index)
     }
 
-    /// The chip `label` (Adopt or Add Anchor) of the row `row_prefix` names, and the sideways
-    /// turns taken to bring it into view; the caller undoes those with `unturn_table`.
+    /// The menu item `label` (Adopt or Add Anchor) of the row `row_prefix` names, with its menu
+    /// opened, and the sideways turns taken (always 0 now; the caller still passes them to
+    /// `unturn_table`).
     ///
-    /// The chips sit in the pinned ACTIONS group at the right edge of the table, so sideways
-    /// turns are normally not needed. The row must show at least 60% of its height in the
+    /// The row must show at least 60% of its height in the
     /// dock-clipped viewport, and the control most of its bounds, clear of both overlay
     /// scrollbars. Vertical wheel turns reveal the row, re-queried after each turn.
     fn row_chip_for_row(&mut self, row_prefix: &str, label: &str) -> Result<(Spot, usize), String> {
@@ -306,13 +306,12 @@ impl Film<'_> {
                 "tier row {row_prefix:?} never fit inside the safe table viewport"
             ));
         }
-        let (button, horizontal_turns) = self
-            .reveal_table_button(row_index, |film, _area| {
-                film.tier_row_control(row_index, uiprobe::AccessibleRole::Button, label)
-                    .ok()
-            })
+        // Adopt and Add Anchor are items of the row's "Actions for Tier N" menu now: the menu
+        // opens first, so no sideways turns are taken.
+        let item = self
+            .tier_row_menu_item(row_index, label)
             .map_err(|why| format!("{label} for {row_prefix:?}: {why}"))?;
-        Ok((button, horizontal_turns))
+        Ok((item, 0))
     }
 
     /// Films the step "Open it" of the Open lesson: File > Open on the file the lesson's Save step

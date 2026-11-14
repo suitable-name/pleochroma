@@ -22,7 +22,7 @@
 use std::sync::OnceLock;
 
 use pleochroma::optics::materials::{
-    GemMaterial,
+    CrystalSystem, GemMaterial, OpticalCharacter,
     body_color::preset_label_for_rgb,
     variants::{
         ColorVariant, MATERIAL_DEFAULT_LABEL, TensorRank, VariantProvenance, built_in_variants,
@@ -577,6 +577,94 @@ pub fn material_summary(state: &AppState) -> MaterialSummary {
         title: name,
         detail,
     }
+}
+
+/// The facts the Stone tab's material card shows as a family line and four chips. Every field is
+/// empty when the design names no known material (or the fact is not on file).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MaterialIdentity {
+    /// `Cubic · isotropic · built-in`.
+    pub family: String,
+    /// `RI 2.417`: the effective index, so an RI override shows here.
+    pub ri: String,
+    /// `Critical 24.4°`, from the effective index.
+    pub critical: String,
+    /// `Disp. 0.044`.
+    pub dispersion: String,
+    /// `SG 3.52`.
+    pub specific_gravity: String,
+}
+
+/// The Stone tab's material card for the design as it stands. Cheap (no spectra).
+#[must_use]
+pub fn material_identity(state: &AppState) -> MaterialIdentity {
+    let design = &state.session.design;
+    let Some(name) = design.material.name.as_deref() else {
+        return MaterialIdentity::default();
+    };
+    let custom_sg = state.props.custom_specific_gravity();
+    let lookup =
+        EditorMaterialLookup::new(&state.props.custom_materials).with_specific_gravity(&custom_sg);
+    let Some(gem) = lookup.lookup(name) else {
+        return MaterialIdentity::default();
+    };
+    let system = match gem.crystal_system {
+        CrystalSystem::Cubic => "Cubic",
+        CrystalSystem::Tetragonal => "Tetragonal",
+        CrystalSystem::Hexagonal => "Hexagonal",
+        CrystalSystem::Trigonal => "Trigonal",
+        CrystalSystem::Orthorhombic => "Orthorhombic",
+        CrystalSystem::Monoclinic => "Monoclinic",
+        CrystalSystem::Triclinic => "Triclinic",
+    };
+    let character = match gem.optical_character {
+        OpticalCharacter::Isotropic => "isotropic",
+        OpticalCharacter::UniaxialPositive => "uniaxial (+)",
+        OpticalCharacter::UniaxialNegative => "uniaxial (-)",
+        OpticalCharacter::BiaxialPositive => "biaxial (+)",
+        OpticalCharacter::BiaxialNegative => "biaxial (-)",
+    };
+    let origin = if state
+        .props
+        .custom_materials
+        .iter()
+        .any(|custom| custom.name.eq_ignore_ascii_case(name))
+    {
+        "custom"
+    } else {
+        "built-in"
+    };
+    let index = design.effective_refractive_index_with(&state.props.custom_materials);
+    let usable = index.is_finite() && index > 1.0;
+    MaterialIdentity {
+        family: format!("{system} \u{b7} {character} \u{b7} {origin}"),
+        ri: if usable {
+            format!("RI {index:.3}")
+        } else {
+            String::new()
+        },
+        critical: if usable {
+            format!("Critical {:.1}\u{b0}", critical_angle_deg(index))
+        } else {
+            String::new()
+        },
+        dispersion: format!("Disp. {:.3}", gem.dispersion.delta_f_c()),
+        specific_gravity: design
+            .material
+            .effective_specific_gravity_with(&lookup)
+            .map_or_else(String::new, |value| format!("SG {value:.2}")),
+    }
+}
+
+/// The face-up color of the design's body color as sRGB bytes, `None` for Custom Color (which has
+/// no swatch of its own) or when the material resolves to nothing.
+///
+/// Works out the picker's list, so it is as costly as [`color_rows`]: ask only when the design's
+/// material selection changed.
+#[must_use]
+pub fn body_color_swatch(state: &AppState) -> Option<[u8; 3]> {
+    let list = color_list(state)?;
+    list.items.get(list.current)?.swatch_rgb()
 }
 
 /// The effective refractive index and critical angle line of the Stone tab, empty when the

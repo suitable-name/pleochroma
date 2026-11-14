@@ -65,6 +65,12 @@ impl EwPipelines {
             .unwrap_or_else(|| panic!("pipeline {kernel:?} (class {class}) was not compiled"))
     }
 
+    /// Whether the pipeline for `(kernel, class)` is built.
+    #[must_use]
+    pub fn contains(&self, kernel: EwKernel, class: u32) -> bool {
+        self.pipelines.contains_key(&(kernel, class))
+    }
+
     /// Accessor for the shared `reduce_xyz_main` compute pipeline.
     #[must_use]
     pub const fn reduce_pipeline(&self) -> &wgpu::ComputePipeline {

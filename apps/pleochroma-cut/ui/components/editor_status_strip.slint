@@ -12,6 +12,7 @@ import { VerdictBadge } from "verdict_badge.slint";
 import { TouchButton } from "touch_button.slint";
 import { HelpButton } from "help_button.slint";
 import { HelpTopics } from "../models/help.slint";
+import { KitIcon, KitIcons } from "kit/kit.slint";
 
 // One compact chip per `ActivityModel` entry -- an indeterminate pulsing dot
 // or a thin progress bar, the activity's own label, elapsed seconds (derived
@@ -144,10 +145,17 @@ export component EditorStatusStrip inherits Rectangle {
         : root.has_validation_problem ? EditorModel.status_text
         : root.has_manuf ? (EditorModel.manufacturability_warnings.length + " manufacturability warning(s)")
         : root.has_preform_warn ? EditorModel.preform_fit_warning
-        : root.has_solved_message ? EditorModel.status_text
+        : root.has_solved_message ? (root.closed_solid ? "Closed solid" : EditorModel.status_text)
         : root.has_deep_solve ? EditorModel.deep_solve_status
         : root.has_material_suggestion ? EditorModel.material_suggestion_text
         : "Nothing to report.";
+    // The solved message in short pieces: the solver-state segment already says how many tiers and
+    // facets, so a closed solid reads "Closed solid" here and the volume and proportions are in the
+    // tooltip and the Details popup.
+    property <bool> closed_solid: EditorModel.tiers.length > 0 && EditorModel.facet_count > 0 && EditorModel.solve_state == "solved";
+    // The text the tooltip and a screen reader get: the strip's text, or the whole message when the
+    // strip shortened it.
+    property <string> strip_full_text: root.has_solved_message && !EditorModel.solve_running && !root.has_validation_problem && !root.has_manuf && !root.has_preform_warn && root.closed_solid ? EditorModel.status_text : root.strip_text;
 
     // Labels/colors the persistent solver-state segment above, keyed off
     // `EditorModel.solve_state` (set from `gui::editor::view`/
@@ -174,6 +182,23 @@ export component EditorStatusStrip inherits Rectangle {
         : root.has_deep_solve ? (EditorModel.deep_solve_running ? Theme.accent-amber : (EditorModel.deep_solve_status_is_problem ? Theme.accent-ruby : Theme.accent-emerald))
         : root.has_material_suggestion ? Theme.accent-cyan
         : Theme.text-muted;
+    // The shape of the message's marker, so its meaning is not carried by color alone: a check for a
+    // good result, a warning sign for a problem or advice, an info mark for a suggestion; "" is a
+    // plain dot (something still running).
+    property <string> strip_icon: EditorModel.solve_running ? ""
+        : root.has_validation_problem ? KitIcons.warn
+        : root.has_manuf ? KitIcons.warn
+        : root.has_preform_warn ? KitIcons.warn
+        : root.has_solved_message ? KitIcons.check
+        : root.has_deep_solve ? (EditorModel.deep_solve_running ? "" : (EditorModel.deep_solve_status_is_problem ? KitIcons.warn : KitIcons.check))
+        : root.has_material_suggestion ? KitIcons.info
+        : "";
+    // The shape of the solver-state marker: a check when solved, a warning sign when failed, the
+    // circular arrow when stale; the pulse dot while it runs.
+    property <string> solver_state_icon: EditorModel.solve_state == "solving" ? ""
+        : EditorModel.solve_state == "stale" ? KitIcons.reset
+        : EditorModel.solve_state == "failed" ? KitIcons.warn
+        : KitIcons.check;
 
     HorizontalLayout {
         padding-left: 10px;
@@ -216,9 +241,12 @@ export component EditorStatusStrip inherits Rectangle {
                     spacing: 5px;
                     VerticalLayout {
                         alignment: center;
-                        Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.solver_state_color; }
+                        if root.solver_state_icon == "": Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.solver_state_color; }
+                        if root.solver_state_icon != "": KitIcon { d: root.solver_state_icon; size: 12px; stroke: 2.2px; ink: root.solver_state_color; }
                     }
-                    Text { text: root.solver_state_label; font-size: 10px; font-weight: 700; color: root.solver_state_color; vertical-alignment: center; }
+                    // The word only when something needs saying: "Solved" is the command bar's
+                    // solve button, and the check says it here too.
+                    if root.solver_state_label != "Solved": Text { text: root.solver_state_label; font-size: 10px; font-weight: 700; color: root.solver_state_color; vertical-alignment: center; }
                     Text {
                         text: EditorModel.tiers.length + (EditorModel.tiers.length == 1 ? " tier" : " tiers");
                         font-size: 10px;
@@ -231,7 +259,7 @@ export component EditorStatusStrip inherits Rectangle {
                     // Left out on a narrow strip, as the lowest-priority detail. The fixed
                     // segments must leave room for "Details" and "?" inside the window.
                     if EditorModel.facet_count > 0 && root.width >= 760px: Text {
-                        text: "- " + EditorModel.facet_count + " facets";
+                        text: "· " + EditorModel.facet_count + " facets";
                         font-size: 10px;
                         color: Theme.text-muted;
                         vertical-alignment: center;
@@ -366,12 +394,13 @@ export component EditorStatusStrip inherits Rectangle {
         // itself) a dot alone would mean nothing.
         if root.strip_text != "": VerticalLayout {
             alignment: center;
-            Rectangle {
+            if root.strip_icon == "": Rectangle {
                 width: 8px;
                 height: 8px;
                 border-radius: 4px;
                 background: root.strip_color;
             }
+            if root.strip_icon != "": KitIcon { d: root.strip_icon; size: 12px; stroke: 2.2px; ink: root.strip_color; }
         }
 
         // The strip's message in full, in a tooltip. A click opens the Details popup. The
@@ -396,8 +425,8 @@ export component EditorStatusStrip inherits Rectangle {
             }
             // On top of the text; its tooltip is the message in full plus what a click does.
             if strip_msg.width >= 24px && root.strip_text != "": strip_msg_touch := TouchButton {
-                label: root.strip_text;
-                hint: root.strip_text + "\n\nClick to open the details.";
+                label: root.strip_full_text;
+                hint: root.strip_full_text + "\n\nClick to open the details.";
                 clicked => { log_popup.show(); root.log_open_pulse += 1; }
             }
         }

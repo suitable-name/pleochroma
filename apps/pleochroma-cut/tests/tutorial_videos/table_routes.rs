@@ -197,6 +197,35 @@ impl Film<'_> {
         Ok(control)
     }
 
+    /// Opens the row's "..." menu ("Actions for Tier N") and returns its item `label` (a prefix
+    /// of the item's accessible name). The row actions (Adopt, Pin, Add Anchor, Complete orbit,
+    /// Detach, move, Duplicate, Surface Finish, Delete) live in this menu, not on the row; the
+    /// menu is a popup, so the item is looked up in the whole window and not clipped to the table.
+    pub(crate) fn tier_row_menu_item(&mut self, index: i32, label: &str) -> Result<Spot, String> {
+        let menu_label = format!("Actions for Tier {}", index + 1);
+        let button = self
+            .tier_row_spot(index)?
+            .handle
+            .as_ref()
+            .ok_or("tier row has no element handle")?
+            .query_descendants()
+            .match_accessible_role(uiprobe::AccessibleRole::Button)
+            .find_all()
+            .into_iter()
+            .find(|control| control.accessible_label().is_some_and(|s| s == menu_label))
+            .map(|control| Spot::of(&control))
+            .ok_or_else(|| format!("{menu_label:?}: the row's menu button is missing"))?;
+        self.click_and_invoke(&button)?;
+        pump(80);
+        // Exact name first ("Pin" also starts "Pin Tier #1" elsewhere), then a prefix.
+        let view = self.view();
+        targets::role_label(&view, label, uiprobe::AccessibleRole::Button, None)
+            .or_else(|| {
+                targets::role_label_start(&view, label, uiprobe::AccessibleRole::Button, None)
+            })
+            .ok_or_else(|| format!("{menu_label:?}: the menu has no {label:?} item"))
+    }
+
     /// Turns the wheel over the tier table until `find` names a button that is on view, and
     /// returns that button with the number of turns it took. `find` gets the table's safe area
     /// and usually calls [`Self::tier_row_control`], which checks the button is on view. The

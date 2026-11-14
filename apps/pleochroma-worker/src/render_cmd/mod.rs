@@ -245,6 +245,7 @@ mod tests {
             head_shadow_deg: 16.0,
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         };
         let path = dir.join("scene.json");
         std::fs::write(&path, serde_json::to_string(&scene).unwrap()).unwrap();
@@ -386,6 +387,7 @@ mod tests {
             head_shadow_deg: 16.0,
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         };
         scene.environment =
             pleochroma_net::scene::SceneEnvironment::Hdr(pleochroma_net::scene::HdrEnvironment {
@@ -452,6 +454,7 @@ mod tests {
             head_shadow_deg: 16.0,
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         };
         scene.planes[0].normal = [0.0, 0.0, 0.0];
         let scene_path = dir.join("scene.json");

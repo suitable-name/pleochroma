@@ -58,16 +58,19 @@ fn stone_tab(a: &HarnessApp, material: &str) {
     parameters(a, 0);
 }
 
-/// The Stone tab with the combo on its Custom row (the last entry) and the editor open, the way a
-/// user opens it: the button under the combo ("Matching..." while a solve runs).
+/// The Stone tab with the editor open on the Custom tile (the last entry of the Body Color tiles),
+/// the way a user opens it: the tile is pressed and opens the editor under the tiles.
 fn custom_editor(a: &HarnessApp, material: &str) {
     stone_tab(a, material);
     let editor = a.ui().global::<EditorModel>();
-    let last = i32::try_from(editor.get_body_color_options().row_count()).unwrap_or(1) - 1;
-    editor.set_body_color_index(last.max(0));
-    pump(250);
-    if !press(a, "Choose Color...", None) {
-        let _ = press(a, "Matching...", None);
+    let options = editor.get_body_color_options();
+    let last = options.row_count().saturating_sub(1);
+    let tile = options
+        .row_data(last)
+        .map(|name| name.to_string())
+        .unwrap_or_default();
+    if !press(a, &tile, None) {
+        println!("states_color: the Custom tile {tile:?} was not pressed");
     }
     let _ = editor_solved(a);
     pump(250);

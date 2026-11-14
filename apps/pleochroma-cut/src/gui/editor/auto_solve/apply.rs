@@ -367,6 +367,7 @@ fn push_viewport_after_background_solve(
         yaw: ctx.yaw,
         pitch: ctx.pitch,
         distance: ctx.distance,
+        pan: ctx.camera_pan,
     };
     let render_size = (ctx.width, ctx.height);
     drop(ctx);

@@ -599,12 +599,9 @@ impl Film<'_> {
             .get_tiers()
             .row_data(at)
             .ok_or("Pin row disappeared")?;
-        // Reveal the Pin button horizontally; its off-screen bounds can overlap another control.
-        let (pin, turns) = self
-            .reveal_table_button(index, |film, _area| {
-                film.tier_row_control(index, uiprobe::AccessibleRole::Button, "Pin")
-                    .ok()
-            })
+        // Pin is an item of the row's "Actions for Tier N" menu: open the menu first.
+        let pin = self
+            .tier_row_menu_item(index, "Pin")
             .map_err(|why| format!("Pin {tier:?}, row {index}: {why}"))?;
         self.hold(pacing::RESULT_HOLD)?;
         self.click_and_invoke(&pin)?;
@@ -631,7 +628,7 @@ impl Film<'_> {
                 after.constraint_kind
             ));
         }
-        self.unturn_table(turns)
+        Ok(())
     }
 
     /// Opens the verdict and clicks `fix`, optionally solving first when the lesson requests it.

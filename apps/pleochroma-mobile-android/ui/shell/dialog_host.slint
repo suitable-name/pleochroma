@@ -20,8 +20,10 @@ export component DialogHost inherits Rectangle {
     card := Rectangle {
         width: min(root.width - 48px, 360px);
         height: content.preferred-height;
-        background: Theme.surface-high;
+        background: Theme.surface-container;
         border-radius: Theme.radius-xl;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
         drop-shadow-color: Theme.shadow;
         drop-shadow-blur: Theme.shadow-blur-3;
         drop-shadow-offset-y: Theme.shadow-offset-3;
@@ -44,7 +46,7 @@ export component DialogHost inherits Rectangle {
 
             Text {
                 text: Shell.dialog-body;
-                color: Theme.on-surface-variant;
+                color: Theme.text-secondary;
                 font-size: Theme.text-body;
                 wrap: word-wrap;
             }

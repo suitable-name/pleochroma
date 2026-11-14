@@ -47,7 +47,7 @@ export component ListRow inherits Rectangle {
 
             Icon {
                 source: root.icon;
-                tint: Theme.on-surface-variant;
+                tint: Theme.text-secondary;
             }
         }
 
@@ -64,7 +64,7 @@ export component ListRow inherits Rectangle {
 
             if root.supporting != "": Text {
                 text: root.supporting;
-                color: Theme.on-surface-variant;
+                color: Theme.text-secondary;
                 font-size: Theme.text-body;
                 wrap: word-wrap;
             }

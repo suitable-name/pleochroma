@@ -32,6 +32,9 @@ pub enum Query {
     Inherits(&'static str),
     /// An element with this label below the element labelled `.0` (a menu and its items).
     Within(&'static str, &'static str),
+    /// An element with this label (`.1`) inside the first element that is, or inherits, the
+    /// component `.0` (a label the Parameters panel or a menu spells too).
+    InComponent(&'static str, &'static str),
     /// The rectangle that holds the first visible match of every member (a group of controls).
     Group(&'static [Self]),
     /// A Parameters dock tab control (`"stone"`, `"lighting"`, `"render_output"`): the rail button
@@ -98,56 +101,41 @@ pub const TABLE: &[Entry] = &[
     },
     Entry {
         name: "solve_button",
-        queries: &[Query::Id("SolveGroup::solve_btn"), Query::Label("Solve")],
-        source: "components/editor_command_bar/edit_groups.slint:127",
+        queries: &[Query::Label("Solve")],
+        source: "components/editor_command_bar/edit_groups.slint:143",
     },
+    // The Auto-Solve choice is the chevron of the Solve split button; its menu holds the items.
     Entry {
         name: "auto_solve",
-        queries: &[
-            Query::Id("SolveGroup::auto_solve_combo"),
-            Query::Label("Auto-Solve"),
-        ],
-        source: "components/editor_command_bar/edit_groups.slint:190",
+        queries: &[Query::Label("Auto-Solve")],
+        source: "components/editor_command_bar/edit_groups.slint:250",
     },
     Entry {
         name: "deep_solve_button",
-        queries: &[
-            Query::Id("SolveGroup::deep_solve_btn"),
-            Query::Label("Deep Solve"),
-        ],
-        source: "components/editor_command_bar/edit_groups.slint:215",
+        queries: &[Query::Label("Deep Solve")],
+        source: "components/editor_command_bar/edit_groups.slint:387",
     },
     Entry {
         name: "retarget_button",
-        queries: &[
-            Query::Id("AnalysisGroup::retarget_btn"),
-            Query::Label("Retarget..."),
-        ],
-        source: "components/editor_command_bar/analysis_groups.slint:37",
+        queries: &[Query::Label("Retarget...")],
+        source: "components/editor_command_bar/analysis_groups.slint:28",
     },
     Entry {
         name: "cutting_mode_button",
-        queries: &[
-            Query::Id("AnalysisGroup::cut_mode_btn"),
-            Query::Label("Cut Mode"),
-        ],
-        source: "components/editor_command_bar/analysis_groups.slint:80",
+        queries: &[Query::Label("Cut Mode")],
+        source: "components/editor_command_bar/analysis_groups.slint:75",
     },
+    // Set Baseline and Compare are items of the Baseline menu: while it is closed the cursor goes
+    // to the menu button.
     Entry {
         name: "snapshot_button",
-        queries: &[
-            Query::Id("SnapshotGroup::snapshot_btn"),
-            Query::Label("Set Baseline"),
-        ],
-        source: "components/editor_command_bar/analysis_groups.slint:115",
+        queries: &[Query::Label("Set Baseline"), Query::Label("Baseline")],
+        source: "components/editor_command_bar/analysis_groups.slint:168",
     },
     Entry {
         name: "compare_button",
-        queries: &[
-            Query::Id("SnapshotGroup::compare_snapshot_btn"),
-            Query::Label("Compare"),
-        ],
-        source: "components/editor_command_bar/analysis_groups.slint:145",
+        queries: &[Query::Label("Compare"), Query::Label("Baseline")],
+        source: "components/editor_command_bar/analysis_groups.slint:179",
     },
     Entry {
         name: "verdict_badge",
@@ -171,8 +159,8 @@ pub const TABLE: &[Entry] = &[
     },
     Entry {
         name: "cut_slider",
-        queries: &[Query::Id("CutSlider::cut_slider"), Query::Label("Cut Step")],
-        source: "components/solid_viewport/toolbar.slint:57,79",
+        queries: &[Query::Label("Cut Step")],
+        source: "components/solid_viewport/cut_scrubber.slint:87",
     },
     Entry {
         name: "snap_pill",
@@ -186,20 +174,14 @@ pub const TABLE: &[Entry] = &[
     },
     Entry {
         name: "live_render_tab",
-        queries: &[
-            Query::Tab("Live Render"),
-            Query::Label("Live Render"),
-            Query::Id("TabViewPillRow::live_render_tab_touch"),
-        ],
-        source: "components/app/tab_pill_row.slint:114,116",
+        queries: &[Query::Tab("Live Render"), Query::Label("Live Render")],
+        source: "components/app/tab_pill_row.slint:131",
     },
+    // The Lighting chip of the Live Render toolbar; it opens the rig menu ("Lighting Menu").
     Entry {
         name: "lighting_combo",
-        queries: &[
-            Query::Id("GemViewportToolbarActions::combo-box-l371"),
-            Query::Label("Lighting"),
-        ],
-        source: "components/gem_viewport/toolbar_actions.slint:414,422",
+        queries: &[Query::Label("Lighting")],
+        source: "components/gem_viewport/toolbar_actions.slint:33",
     },
     Entry {
         name: "stone_tab",
@@ -237,7 +219,7 @@ pub const TABLE: &[Entry] = &[
     Entry {
         name: "keep_trial_button",
         queries: &[Query::Label("Keep as Trial")],
-        source: "components/editor_inspector/baseline_strip.slint:130; editor_inspector/trials_view.slint:187",
+        source: "components/solid_viewport/edit_figures.slint:87; editor_inspector/trials_view.slint:246",
     },
     Entry {
         name: "tune_accept_button",
@@ -555,6 +537,21 @@ fn run_query(view: &WindowView, query: &Query) -> Option<Spot> {
                 window,
             )
         }
+        Query::InComponent(component, label) => {
+            let parent = view
+                .root
+                .query_descendants()
+                .match_inherits(component)
+                .find_first()?;
+            let wanted = label.to_owned();
+            first_usable(
+                &parent
+                    .query_descendants()
+                    .match_predicate(move |e| e.accessible_label().is_some_and(|l| l == wanted))
+                    .find_all(),
+                window,
+            )
+        }
         Query::Group(members) => members
             .iter()
             .filter_map(|member| run(view, member))
@@ -728,17 +725,13 @@ pub fn file_button(view: &WindowView) -> Option<Spot> {
 /// The Edit view pill in the tab bar.
 #[must_use]
 pub fn edit_pill(view: &WindowView) -> Option<Spot> {
-    run(view, &Query::Tab("Edit"))
-        .or_else(|| run(view, &Query::Label("Edit")))
-        .or_else(|| run(view, &Query::Id("TabViewPillRow::edit_tab_touch")))
+    run(view, &Query::Tab("Edit")).or_else(|| run(view, &Query::Label("Edit")))
 }
 
 /// The Live Render view pill in the tab bar.
 #[must_use]
 pub fn live_render_pill(view: &WindowView) -> Option<Spot> {
-    run(view, &Query::Tab("Live Render"))
-        .or_else(|| run(view, &Query::Label("Live Render")))
-        .or_else(|| run(view, &Query::Id("TabViewPillRow::live_render_tab_touch")))
+    run(view, &Query::Tab("Live Render")).or_else(|| run(view, &Query::Label("Live Render")))
 }
 
 /// The button that collapses the library panel.
@@ -755,15 +748,15 @@ pub fn show_library_button(view: &WindowView) -> Option<Spot> {
         .or_else(|| run(view, &Query::Id("LibraryRail::panel_expand_btn")))
 }
 
-/// The inspector tab pill for tab index `tab`: 0 Tier, 1 Preform, 2 Optimize, 3 Schedule,
-/// 4 History.
+/// The inspector tab pill for tab index `tab`: 0 Tier (shown "Tiers"), 1 Preform, 2 Optimize,
+/// 4 History. There is no Schedule tab (index 3) any more: the cutting order is on the Cutting
+/// Instructions page.
 #[must_use]
 pub fn inspector_tab_pill(view: &WindowView, tab: i32) -> Option<Spot> {
     let name = match tab {
         0 => "Tier",
         1 => "Preform",
         2 => "Optimize",
-        3 => "Schedule",
         4 => "History",
         _ => return None,
     };

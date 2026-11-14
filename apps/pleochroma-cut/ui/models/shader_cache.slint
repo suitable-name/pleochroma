@@ -1,0 +1,20 @@
+// The startup build of the GPU shader cache (`bridge::shader_cache`). Rust writes every property;
+// `hide` is the card's Hide button (the build goes on, and the status strip keeps its activity).
+export global ShaderCacheModel {
+    // The card is up: the build ran past its first moments, or has just finished.
+    in property <bool> visible: false;
+    // The build runs.
+    in property <bool> running: false;
+    in property <string> title: "Building the Shader Cache";
+    // Why the renderers need the cache, and whether it outlasts a restart.
+    in property <string> note: "";
+    // The Ray-Traced row: its state ("Compiling", "Ready"), the bar's fill, and whether the bar
+    // pulses (its one kernel has no steps to count).
+    in property <string> ray_text: "Waiting";
+    in property <float> ray_fraction: 0.0;
+    in property <bool> ray_busy: false;
+    // The Path-Traced row: its steps ("3 of 9", "Ready") and the bar's fill.
+    in property <string> path_text: "Waiting";
+    in property <float> path_fraction: 0.0;
+    callback hide();
+}

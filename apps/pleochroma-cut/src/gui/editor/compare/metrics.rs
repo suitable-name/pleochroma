@@ -392,6 +392,7 @@ mod tests {
         yaw: 0.0,
         pitch: 0.0,
         distance: 3.0,
+        pan: [0.0, 0.0],
     };
 
     fn round_brilliant() -> Design {

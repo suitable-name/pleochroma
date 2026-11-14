@@ -9,8 +9,8 @@
 // * `ew_arm_uni_entry_transmit` repeats the (pure) hero solve and runs the transmit branch.
 //
 // Nothing is written before the decision, so a parked ray is the ray the original function
-// started from. The reflect loop reuses the hero's solution for channel 0, so each kernel has
-// two solver call sites.
+// started from. The reflect loop reuses the hero's solution for channel 0, so this kernel has
+// two solver call sites; the transmit half solves the hero as channel 0 and has one.
 
 // The reflect branch of `bounce_arm_uni_entry_core`. Returns true, leaving `s` and `h` untouched,
 // when the transmit branch was drawn instead.

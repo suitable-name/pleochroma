@@ -3,8 +3,8 @@
 use super::{
     Category, Command, MainWindow, command,
     requires::{
-        EDITOR, HISTORY_EDITOR, INSPECTOR_OPTIMIZE, INSPECTOR_PREFORM, INSPECTOR_SCHEDULE,
-        INSPECTOR_TIER, NONE, SLICE, VIEW_TABS,
+        EDITOR, HISTORY_EDITOR, INSPECTOR_OPTIMIZE, INSPECTOR_PREFORM, INSPECTOR_TIER, NONE, SLICE,
+        VIEW_TABS,
     },
     run,
 };
@@ -26,7 +26,7 @@ pub(super) const fn view_tab_cutting() -> Command {
         "view.tab_cutting",
         "Go to Cutting Instructions",
         Category::View,
-        "cutting table angles tab",
+        "cutting table angles tab schedule steps",
         Some("Ctrl+2"),
         VIEW_TABS,
         |ui: &MainWindow| run::show_tab(ui, run::TAB_CUTTING),
@@ -201,18 +201,6 @@ pub(super) const fn view_inspector_optimize() -> Command {
         None,
         INSPECTOR_OPTIMIZE,
         |ui: &MainWindow| run::show_inspector_tab(ui, 2),
-    )
-}
-
-pub(super) const fn view_inspector_schedule() -> Command {
-    command(
-        "view.inspector_schedule",
-        "Inspector: Schedule Tab",
-        Category::View,
-        "cutting instructions table",
-        None,
-        INSPECTOR_SCHEDULE,
-        |ui: &MainWindow| run::show_inspector_tab(ui, 3),
     )
 }
 

@@ -13,8 +13,10 @@ export component Toast inherits Rectangle {
     visible: root.shown;
     // A Rectangle outside a layout fills its parent unless it is given a height.
     height: max(48px, lay.preferred-height);
-    background: Theme.inverse-surface;
-    border-radius: Theme.radius-sm;
+    background: Theme.surface-high;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
     drop-shadow-color: Theme.shadow;
     drop-shadow-blur: Theme.shadow-blur-2;
     drop-shadow-offset-y: Theme.shadow-offset-2;
@@ -36,7 +38,7 @@ export component Toast inherits Rectangle {
 
         Text {
             text: root.text;
-            color: Theme.on-inverse-surface;
+            color: Theme.on-surface;
             font-size: Theme.text-body;
             vertical-alignment: center;
             wrap: word-wrap;
@@ -46,7 +48,7 @@ export component Toast inherits Rectangle {
         IconButton {
             icon: Icons.close;
             label: "Dismiss";
-            tint: Theme.on-inverse-surface;
+            tint: Theme.text-secondary;
             clicked => {
                 root.dismissed();
             }

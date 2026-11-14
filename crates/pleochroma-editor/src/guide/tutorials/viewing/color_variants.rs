@@ -137,14 +137,14 @@ fn color_variants() -> Guide {
     .step(
         GuideStep::new(
             "Pick a built-in variant",
-            "The Body Color list of the Stone tab holds the material's own color, its color variants and Custom.",
+            "The COLOR tiles of the Stone tab hold the material's own color, its color variants and Custom.",
         )
         .actions([
-            "In the Stone tab find Body Color and open the list.",
-            "A sapphire lists Material Default first, then its color variants, and Custom... last. The generic colors are not offered, because a sapphire shows a different color in each direction.",
-            "Pick Yellow, or any other variant of the list. It applies at once.",
+            "In the Stone tab find the COLOR section, a grid of tiles.",
+            "A sapphire shows Default first, then its color variants, and Custom last. The generic colors are not offered, because a sapphire shows a different color in each direction.",
+            "Pick the Yellow tile, or any other variant. It applies at once.",
         ])
-        .check("A swatch beside the list shows the face-up color, and the line under the list names the color Along the Axis and Across the Axis.")
+        .check("Each tile shows the face-up color, and the line under the tiles names the color Along the Axis and Across the Axis.")
         .why("It is one step in the history and Undo takes it back. Hover the swatch to read the same words as a tip.")
         .goal(check("a color variant chosen", variant_picked), "a color variant chosen")
         .highlight("stone_tab")
@@ -159,12 +159,12 @@ fn color_variants() -> Guide {
             "Custom opens an editor with one row for each direction of the stone.",
         )
         .actions([
-            "In the Stone tab set Body Color to Custom.... The color editor opens under the list.",
+            "In the Stone tab pick the Custom tile of the COLOR section. The color editor opens under the tiles.",
             "A sapphire has two rows, Along the Axis and Across the Axis. Each shows a swatch and the coarse color of that direction. Under the sliders, Face-Up and one swatch for each direction show the solved colors.",
             "Click the Along the Axis row, move Tone, Saturation and Hue to a color you like, and wait for Matching... to end.",
             "Click Apply Color.",
         ])
-        .check("The list shows Custom, and the swatches show the color of each direction.")
+        .check("The Custom tile is on, and the swatches show the color of each direction.")
         .why("A direction you do not touch keeps its color, so the stone keeps its color shading by direction. The color is the closest one the material model can reach at the size of the stone.")
         .goal(check("a Custom Color applied", custom_color_applied), "a Custom Color applied")
         .highlight("stone_tab")
@@ -176,11 +176,11 @@ fn color_variants() -> Guide {
             "A Custom Color can be kept under a name and picked again for any design of the same material.",
         )
         .actions([
-            "Click Choose Color..., under the Body Color list, to open the editor again.",
+            "Click Choose Color..., under the COLOR tiles, to open the editor again.",
             "Move a slider a little, so the colors are matched again, and wait for Matching... to end. Save as Variant... stays dimmed until they are.",
             "Click Save as Variant.... A name row opens with a suggested name. Type a name of your own, for example Sunset Sapphire, and click Save.",
         ])
-        .check("The Body Color list shows your name, and the design uses that variant.")
+        .check("A COLOR tile shows your name, and the design uses that variant.")
         .why("The variant is saved on this computer for the material, and it is one step in the history. The design keeps its own copy of the color.")
         .goal(
             check("a saved variant on the design", saved_variant_picked),

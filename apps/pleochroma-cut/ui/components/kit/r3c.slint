@@ -1,0 +1,331 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon, KitIcons } from "icons.slint";
+
+// Parts of the Edit panel tabs (round 3c): a selectable tile, a change chip that carries an arrow
+// as well as a color, a wide primary button and a text link. They sit beside the kit and are not
+// exported from `kit.slint`.
+
+// A tile that picks one of a few options (the rough's shape, the objective, the tool): an optional
+// icon, a name and an optional one-line detail. It is a radio button to a screen reader; the
+// accessible name is `reader_label` when given, else the text.
+export component R3Tile inherits Rectangle {
+    in property <string> text;
+    in property <string> reader_label;
+    in property <string> detail;
+    in property <string> hint;
+    in property <string> icon;
+    in property <bool> on: false;
+    in property <bool> enabled: true;
+    in property <length> h: 44px;
+    callback picked();
+
+    height: root.h;
+    border-radius: 10px;
+    opacity: root.enabled ? 1.0 : 0.5;
+    background: root.on ? Theme.accent-cyan-surface : (touch.has-hover && root.enabled ? Theme.bg-card-hover : Theme.bg-input);
+    border-width: (root.on || fs.has-focus) ? 2px : 1px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : (root.on ? Theme.accent-cyan : Theme.border-subtle);
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.reader_label != "" ? root.reader_label : root.text;
+    accessible-description: root.hint != "" ? root.hint : root.detail;
+    accessible-enabled: root.enabled;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 8px;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 18px; ink: root.on ? Theme.accent-cyan : Theme.text-secondary; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.text;
+                font-size: 12px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                overflow: elide;
+            }
+            if root.detail != "": Text {
+                text: root.detail;
+                font-size: 10px;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.picked(); }
+    }
+}
+
+// A figure with its change as a chip. The change carries an arrow ("up" better or larger, "down"
+// worse or smaller) next to the color, so the meaning never rests on green and red alone.
+// `trend`: 1 better, -1 worse, 0 about the same. `arrow`: 1 up, -1 down, 0 none.
+export component R3Delta inherits Rectangle {
+    in property <string> text;
+    in property <int> trend: 0;
+    in property <int> arrow: 0;
+    in property <string> hint;
+    // The best value of its column: an outline.
+    in property <bool> best: false;
+
+    height: 18px;
+    width: delta_text.preferred-width + 12px;
+    border-radius: 9px;
+    background: root.trend > 0 ? Theme.badge-emerald-bg : (root.trend < 0 ? Theme.danger-surface : Theme.tint-neutral);
+    border-width: root.best ? 1px : 0px;
+    border-color: Theme.accent-cyan;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text + (root.trend > 0 ? ", better" : (root.trend < 0 ? ", worse" : ", about the same")) + (root.best ? ", best of the list" : "");
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    delta_text := Text {
+        x: 6px;
+        height: parent.height;
+        text: (root.arrow > 0 ? "▲ " : (root.arrow < 0 ? "▼ " : "")) + root.text;
+        font-size: 10px;
+        font-weight: 700;
+        color: root.trend > 0 ? Theme.accent-emerald : (root.trend < 0 ? Theme.danger : Theme.text-muted);
+        vertical-alignment: center;
+    }
+}
+
+// A full-width action button (the main action of a tab: Optimize, Accept and Next).
+export component R3Wide inherits Rectangle {
+    in property <string> text;
+    in property <string> reader_label;
+    in property <string> detail;
+    in property <string> hint;
+    in property <string> icon;
+    in property <bool> enabled: true;
+    in property <int> kind: 1;
+    in property <length> h: 40px;
+    callback clicked();
+
+    property <bool> is_primary: root.kind == 1;
+    property <color> ink: !root.enabled ? Theme.text-disabled : (root.is_primary ? Theme.text-on-accent : Theme.text-primary);
+
+    height: root.h;
+    border-radius: 10px;
+    background: !root.enabled
+        ? (root.is_primary ? Theme.surface-disabled : transparent)
+        : (root.is_primary
+            ? (touch.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan)
+            : (touch.has-hover ? Theme.bg-card-hover : Theme.bg-card));
+    border-width: fs.has-focus ? 2px : (root.is_primary ? 0px : 1px);
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.reader_label != "" ? root.reader_label : root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 14px; ink: root.ink; stroke: 2.2px; }
+        }
+        Text {
+            text: root.text;
+            font-size: 14px;
+            font-weight: 700;
+            color: root.ink;
+            vertical-alignment: center;
+            horizontal-stretch: 0;
+        }
+        if root.detail != "": Text {
+            text: root.detail;
+            font-size: 12px;
+            color: root.ink;
+            opacity: 0.75;
+            vertical-alignment: center;
+            horizontal-stretch: 0;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A text button like `KitButton`, with a `reader_label` for a screen reader and the harness when
+// the text alone is ambiguous (four cards each holding an "Open"). `kind` 0 normal, 1 primary.
+export component R3Button inherits Rectangle {
+    in property <string> text;
+    in property <string> reader_label;
+    in property <string> hint;
+    in property <int> kind: 0;
+    in property <bool> enabled: true;
+    in property <length> h: 28px;
+    callback clicked();
+
+    property <bool> is_primary: root.kind == 1;
+    property <color> ink: !root.enabled ? Theme.text-disabled : (root.is_primary ? Theme.text-on-accent : Theme.text-primary);
+
+    height: root.h;
+    width: button_text.preferred-width + 24px;
+    border-radius: 8px;
+    background: !root.enabled
+        ? (root.is_primary ? Theme.surface-disabled : transparent)
+        : (root.is_primary
+            ? (touch.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan)
+            : (touch.has-hover ? Theme.bg-card-hover : Theme.bg-card));
+    border-width: fs.has-focus ? 2px : (root.is_primary ? 0px : 1px);
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.reader_label != "" ? root.reader_label : root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    button_text := Text {
+        x: 12px;
+        height: parent.height;
+        text: root.text;
+        font-size: 13px;
+        font-weight: root.is_primary ? 700 : 500;
+        color: root.ink;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A text link: a quiet action in the cyan of the panel ("Details", "Edit...").
+export component R3Link inherits Rectangle {
+    in property <string> text;
+    in property <string> reader_label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <color> ink: Theme.accent-cyan;
+    callback clicked();
+
+    height: 22px;
+    width: link_text.preferred-width + 8px;
+    border-radius: 6px;
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.reader_label != "" ? root.reader_label : root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    link_text := Text {
+        x: 4px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: !root.enabled ? Theme.text-disabled : (touch.has-hover ? Theme.accent-cyan-hover : root.ink);
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A short field (a number with a unit): a bordered box around a `LineEdit`-free reader. Used for
+// read-only values; typed fields use the standard `LineEdit`.
+export component R3Value inherits Rectangle {
+    in property <string> text;
+    in property <string> suffix;
+    in property <color> ink: Theme.text-primary;
+    height: 30px;
+    border-radius: 8px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 13px;
+        color: root.ink;
+        vertical-alignment: center;
+    }
+    Text {
+        x: parent.width - self.preferred-width - 9px;
+        height: parent.height;
+        text: root.suffix;
+        font-size: 11px;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+    }
+}

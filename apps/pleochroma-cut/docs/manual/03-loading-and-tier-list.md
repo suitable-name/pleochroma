@@ -20,24 +20,33 @@ description. The **?** at the right end of the hint line opens this section of
 the manual. The groups, left to right:
 
 - **Undo, Redo.**
-- **Solve, Auto-Solve, Deep Solve** — Solve, the auto-solve delay control next
-  to it, labelled "Auto-Solve:" (Off / 150 ms / 300 ms / 1 s / 3 s — Chapter
-  5), and Deep Solve (Advanced interface). Deep Solve greys out when there is
-  nothing for it to do, and hovering a greyed-out button shows the specific
-  reason right on the button.
-- **Retarget..., Tilt Curves, Cut Mode** — Retarget is an automated proposal
-  for adapting a design to a different material (Chapter 6).
-- **Set Baseline, Compare** (Advanced interface, Chapter 17).
+- **Solve (a split button), Deep Solve** — the Solve button shows its state and the
+  checks; the chevron on its right holds the Auto-Solve menu (Auto-Solve Off / 150 ms /
+  300 ms / 1 s / 3 s — Chapter 5) and Abandon Solve. When the design has checks to
+  report, the button reads "Solved" and a "N checks" chip beside it opens the check
+  details. Deep Solve is Advanced; it greys out when there is nothing for it to do,
+  and hovering a greyed-out button shows the specific reason right on the button.
+- **Retarget..., Tilt Batch..., Tilt Chart, Cut Mode** — Retarget is an automated
+  proposal for adapting a design to a different material (Chapter 6). **Tilt Batch...**
+  computes the tilt curves and **Tilt Chart** opens the chart (Chapter 14).
+- **Baseline** (Advanced interface, Chapter 17) — a menu with Set Baseline and Compare.
 - **File** — a menu with New Design..., Open..., Load Selected, Save, Export .asc...,
-  Export Cutting Sheet (HTML)..., Export Cutting Sheet (PDF)..., Export Diagram
-  (PNG)... and, in the Advanced interface, Export as Gem Cut Studio (.gcs).... When
+  Copy Cutting Schedule, Export Cutting Sheet (HTML)..., Export Cutting Sheet (PDF)...,
+  Export Diagram (PNG)... and, in the Advanced interface, Export as Gem Cut Studio (.gcs).... When
   the design will ask before it saves, **Will Ask Before Saving** sits beside the
   button. See Chapter 11 for what each item actually writes, and for how the HTML
   and PDF cutting sheets differ.
 
-The tier actions are not on the command bar. **+ Add Tier** and **+ Add
-Concave Tier** are in the tier list's header, each row has its own Move,
-Duplicate and Delete buttons (Ctrl+D and Delete work on the selected row), and
+Undo and Redo are icon buttons at the left end, and a design's **Design Actions
+Menu** (the "..." in the header; **Export .asc** stays visible beside it) holds the
+rest of the per-design actions. A problem with the solid (a failed solve, an
+unclosed stone) appears as a banner over the Edit viewport that names the tier and
+holds its fix. Below about 990 px the command bar shows icons only.
+
+The tier actions are not on the command bar. **+ Add Tier** and the **Add Tier Menu**
+(Tier, Concave Tier, QUICK ADD Table, Girdle and Culet, Girdle Facet Preset) are in
+the tier list's header, each row has its own "..." menu (**Actions for Tier N**, also
+on right-click) with Move Up, Move Down, Duplicate and Delete (Ctrl+D and Delete work on the selected row), and
 **Optimize** has its own Optimize and Cancel buttons on the inspector's Optimize
 tab (Chapter 4).
 
@@ -171,13 +180,13 @@ Chapter 4. The group is pinned to the right edge, so the buttons are always
 in reach without scrolling; in a dock narrower than the whole row, the data
 columns scroll sideways beneath it (hold Shift and turn the mouse wheel over
 a row). A row needing an anchor (Chapter 5)
-also shows an **Add Anchor** button that jumps the inspector straight to
+also offers **Add Anchor** (in its "..." menu) that jumps the inspector straight to
 that tier with "Exact Scale Value" already selected, ready for you to type
 the number and save. **Add Anchor does not create a new tier or fill in a
 number for you** — it only selects the existing tier the app already
 flagged as the one missing an anchor, and opens the Tier form to it with
 the constraint kind preset; you still type the actual scale value and
-click Save Tier yourself.
+press Enter yourself.
 
 The first time (each session) a design you're editing lacks an anchor, a
 one-time card explains why the solver needs one before Add Anchor even
@@ -271,19 +280,20 @@ Orbiting the 3D view (dragging to rotate the stone) does not select the facet
 under the cursor on release; only a click that barely moved between press and
 release counts as a pick.
 
-### The Inspector's Schedule Tab
+### The Cutting Order: Cutting Instructions
 
-Separately from the catalogue's own Cutting Instructions tab (Chapter 1), the
-Edit tab's inspector has its own **Schedule** tab: a read-only FACET /
-ANGLE / INDEX table built from this design's own current, solved tier
-list, not the catalogue's stored original. It reads "Not solved -- click
-Solve to see this design's own cut order here" until you do. It exists so
-you can eyeball the cutting order without leaving the Edit tab (the pavilion
-and girdle tiers first, then the crown, the table last: Chapter 11); for a
-copyable file, use Export Edited (above). The Simple interface (Chapter 17)
-leaves the Schedule tab out; the palette command **Inspector: Schedule Tab**
-(Chapter 19) then lands on the Tier tab instead. A screen reader announces the table as a list
-and reads each row as facet, angle and index.
+The Edit tab's inspector no longer has a Schedule tab (its tabs are Tiers,
+Preform, Optimize and History). The cut order of the design you are editing is
+on the **Cutting Instructions** page, the third place in the places segment at
+the right end of the design header (Live Render, Edit, Cutting Instructions,
+Files & Downloads). It lists one card per step in cutting order (the pavilion
+and girdle tiers first, then the crown, the table last: Chapter 11), built from
+this design's own current, solved tier list, not the catalogue's stored
+original. The palette command **Go to Cutting Instructions** (Chapter 19) opens
+it. For a copyable text, use **Copy Cutting Schedule** in the File menu of the
+command bar, or Copy as Text on the page; for a file, use Export .asc. A screen
+reader announces the cards as a list and reads each step as facet, angle and
+index.
 
 ### Pinned vs. Free Tiers
 

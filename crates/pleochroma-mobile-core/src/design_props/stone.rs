@@ -13,7 +13,8 @@ use pleochroma_cut_core::{Edit, StoneRenderEffects, crystal_axis::orientation_se
 use super::{
     axis::{effective_orientation, has_axis, material_default_orientation},
     materials::{
-        body_color_available, body_color_label, effective_ri_text, material_summary, resolved_gem,
+        MaterialIdentity, body_color_available, body_color_label, effective_ri_text,
+        material_identity, material_summary, resolved_gem,
     },
     narrow, parse_optional_positive, trimmed,
 };
@@ -36,6 +37,8 @@ const MAX_WIDTH_MM: f64 = 1000.0;
     reason = "mirrors the Stone tab's Slint model; color_enabled, frosted, axis_on and axis_available are independent switches"
 )]
 pub struct StoneView {
+    /// The material card's family line and chips (RI, critical angle, dispersion, SG).
+    pub identity: MaterialIdentity,
     /// The design's material name, or `Not Set`.
     pub material_title: String,
     /// The material's optics in one line (or what to do when none is set).
@@ -95,6 +98,7 @@ pub fn stone_view(state: &AppState) -> StoneView {
         .as_ref()
         .is_some_and(|gem| gem.biaxial_delta_beta_alpha.is_some());
     StoneView {
+        identity: material_identity(state),
         material_title: summary.title,
         material_detail: summary.detail,
         ri_text: design

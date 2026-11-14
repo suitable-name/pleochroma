@@ -381,6 +381,7 @@ pub fn resolve_request_state(
                 memory.geometry().unwrap_or_default(),
                 memory.camera.unwrap_or(CameraPose {
                     roll: 0.0,
+                    pan: [0.0, 0.0],
                     yaw: 0.0,
                     pitch: 0.0,
                     distance: 5.0,

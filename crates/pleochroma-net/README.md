@@ -61,7 +61,7 @@ it.
 
 ## Protocol version and message set
 
-`messages::PROTOCOL_VERSION: u16 = 42` (see its doc comment for the history). Three protocols share one authenticated
+`messages::PROTOCOL_VERSION: u16 = 43` (see its doc comment for the history). Three protocols share one authenticated
 connection: **render** (offload sample tracing), **tilt curves** (offload one design's
 full tilt-performance sweep), and **library** (read a design catalogue). A peer may
 serve any subset, and — for a viewer — consume all three.
@@ -404,13 +404,14 @@ pub struct SceneState {
     pub stone_shadow: bool,               // false by default
     pub tray_reflection: f32,             // 0.0..=1.0 head-on reflectance of the tray, 0.0 = off
     pub hdr_orientation: HdrOrientation,  // yaw in radians + turns-with-camera flag, default = map as decoded
-    pub estimator: Estimator,             // last wire field; Branching (0) | ExitCollection (1), the viewer's choice
+    pub estimator: Estimator,             // Branching (0) | ExitCollection (1), the viewer's choice
+    pub camera_pan: [f32; 2],             // last wire field; where the stone sits in the picture, image half-heights (x right, y up), [0, 0] = centred
 }
 ```
 
 Every field from `girdle_frosted` on is `#[serde(default)]` so an older on-disk
 `scene.json` still loads; on the wire (postcard) every field is always present. Human-readable output omits
-`stone_shadow` when false, `tray_reflection` when 0, `hdr_orientation` when it is the default (yaw 0, not following the camera) and `estimator` when it is `Branching`, preserving shadow-free, reflection-free, unturned-map and branching JSON. Each worker computes its own
+`stone_shadow` when false, `tray_reflection` when 0, `hdr_orientation` when it is the default (yaw 0, not following the camera) and `estimator` when it is `Branching` and `camera_pan` when it is centred, preserving shadow-free, reflection-free, unturned-map and branching JSON. Each worker computes its own
 map; no map bytes are transmitted. `tray_reflection` is the "Tray Reflection" setting: the head-on
 reflectance `R0` of the surface under the stone, rising towards 1 at glancing angles. A worker
 validates it as finite and within `0.0..=1.0`, and builds the mirror from the stone's own geometry.
@@ -422,11 +423,19 @@ it also turns with the camera (the worker lights the scene with the rotation
 worker refuses a non-finite yaw. `HdrEnvironment` still names the map asset alone.
 
 `estimator` is the stone estimator of the frame: `Branching` (wire byte 0) or `ExitCollection`
-(wire byte 1), one postcard varint at the very end of the scene. The viewer fills it from its own
+(wire byte 1), one postcard varint just before the pan. The viewer fills it from its own
 default and a worker traces with it, never with its own process default, so a frame split between
-the viewer and workers runs one estimator. The protocol version stays 42. A JSON scene or job
+the viewer and workers runs one estimator. A JSON scene or job
 written before the field has no key and reads as `Branching`, which is what it was rendered
 with; the variant order is part of the wire format, so new variants are appended only.
+
+`camera_pan` is the "Pan" framing of the camera: where the orbit centre (the stone) sits in the
+picture, in image half-heights, `x` to the right and `y` up in the picture's own axes (after the
+roll); `[0.0, 0.0]` is the centred camera. The eye moves parallel to the image plane
+(`Camera::with_pan`), so the stone is off-centre and seen from a slightly shifted point of view. It
+is the last eight wire bytes (two `f32`), added in protocol 43; a JSON scene or job written before
+the field has no key and reads as centred. A worker refuses a non-finite component or one whose
+magnitude exceeds `MAX_CAMERA_PAN` (4.0).
 
 A viewer stores a material as a name plus a list of custom materials loaded from
 its own local SQLite database, and stores a diagram as an id looked up against

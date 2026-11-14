@@ -9,6 +9,7 @@
 //! ([`render_export`], split into the `queue` and `wiring` submodules).
 
 pub mod advanced_in_use;
+pub mod backdrop_color;
 pub mod camera_handles;
 pub mod camera_lighting;
 pub mod crystal_axis_ui;

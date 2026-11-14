@@ -699,6 +699,8 @@ fn open_comparison(a: &HarnessApp) {
     if retarget.get_compare_open() {
         return;
     }
+    // Compare is an item of the Baseline menu: open the menu, then press the item.
+    let _ = press(a, "Baseline", None);
     if !press(a, "Compare", None) {
         a.ui().global::<EditorModel>().invoke_compare_to_snapshot();
     }
@@ -761,14 +763,16 @@ fn panel_states() -> Vec<State> {
             deny: NONE,
             open: |a| {
                 // Surface glare under 100 % and the head shadow off 16 degrees show the two
-                // sliders' "Reset to ..." links; "Reset This Tab" opens Confirm and Cancel, and
-                // "Save View as Saved Lighting..." the name row (SaveNameRow's field).
+                // sliders' "Reset to ..." links (inside the Viewer fold card, which opens by
+                // itself when a value is off its default); "Reset This Tab" opens Confirm and
+                // Cancel. "Save Current…" (the SAVED LIGHTINGS title) opens the name row
+                // (SaveNameRow's field) with the "Include the camera pose" switch.
                 let settings = a.ui().global::<SettingsModel>();
                 settings.set_surface_glare_pct(50.0);
                 settings.set_head_shadow_deg(8.0);
                 parameters(a, 1);
                 press_in_scope(a, "ParametersPanel", "Reset This Tab");
-                press_in_scope(a, "ParametersPanel", "Save View as Saved Lighting...");
+                press_in_scope(a, "ParametersPanel", "Save Current\u{2026}");
             },
         },
         State {

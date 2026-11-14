@@ -23,11 +23,13 @@ use slint::{
 use std::time::Duration;
 use uiprobe::AccessibleRole;
 
-/// The three catalogue tabs: the pill text at full window width, and a name for findings.
+/// The three catalogue tabs: the place segment's accessible label, and a name for findings. The
+/// first place of the segment is "Live Render" (it selects the 3D tab; "Edit" is the same tab's
+/// second view).
 pub(super) const TOP_TABS: [(&str, &str); 3] = [
-    // The pills' accessible labels (`tab_pill_row.slint`); the "(1)".."(3)" shortcut hints are
-    // only drawn text, not part of the label.
-    ("3D Spectral Preview", "3D Spectral Preview"),
+    // The segments' accessible labels (`tab_pill_row.slint`, `PlaceSeg`); the "(1)".."(3)"
+    // shortcut hints are only drawn text, not part of the label.
+    ("Live Render", "Live Render"),
     ("Cutting Instructions", "Cutting Instructions"),
     ("Files & Downloads", "Files and Downloads"),
 ];
@@ -365,9 +367,10 @@ fn solid_view_mode_toggles(ctx: &mut Ctx<'_>) {
 }
 
 /// Switches Simple <-> Advanced by the header pill. Proves the advanced-only command bar
-/// buttons (Deep Solve, Set Baseline, Tilt Curves) disappear in Simple and return in Advanced.
+/// buttons (Deep Solve, the Baseline menu, Tilt Curves) disappear in Simple and return in
+/// Advanced. Set Baseline is an item inside the Baseline menu, so the menu button stands for it.
 fn ui_mode_simple_and_advanced(ctx: &mut Ctx<'_>) {
-    const ADVANCED_ONLY: [&str; 3] = ["Deep Solve", "Set Baseline", "Tilt Curves"];
+    const ADVANCED_ONLY: [&str; 3] = ["Deep Solve", "Baseline", "Tilt Curves"];
     show_edit_tab(ctx.app);
     let created = create_template(ctx.app, Card::First);
     if !ctx.expect(

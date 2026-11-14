@@ -15,8 +15,14 @@ component BaseButton inherits Rectangle {
     height: Theme.touch;
     min-width: 64px;
     border-radius: Theme.touch / 2;
-    background: root.variant == 0 ? Theme.primary : (root.variant == 1 ? Theme.secondary-container : transparent);
-    opacity: root.enabled ? 1.0 : Theme.disabled-content;
+    // A disabled button shows muted text (and a filled one a plain surface) at full opacity:
+    // dimming the cyan with opacity left dark text on dark cyan, or faint cyan on the page,
+    // which nobody could read.
+    property <bool> filled-off: root.variant == 0 && !root.enabled;
+    background: root.variant == 0 ? (root.enabled ? Theme.accent : Theme.surface-high) : transparent;
+    // The quiet outline of the tonal button (and of a disabled filled one).
+    border-width: root.variant == 1 || root.filled-off ? 1px : 0px;
+    border-color: root.enabled ? Theme.outline : Theme.outline-variant;
     accessible-role: AccessibleRole.button;
     accessible-label: root.text;
     accessible-enabled: root.enabled;
@@ -26,7 +32,7 @@ component BaseButton inherits Rectangle {
         }
     }
 
-    property <color> content-color: root.variant == 0 ? Theme.on-primary : (root.variant == 1 ? Theme.on-secondary-container : Theme.primary);
+    property <color> content-color: !root.enabled ? Theme.text-muted : (root.variant == 0 ? Theme.on-primary : (root.variant == 1 ? Theme.on-surface : Theme.accent));
 
     StateLayer {
         pressed: touch.pressed;

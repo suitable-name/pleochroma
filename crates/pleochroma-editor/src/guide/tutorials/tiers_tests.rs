@@ -197,7 +197,7 @@ impl Sim {
             .expect("there was something to undo");
     }
 
-    /// The tier form's Save Tier on row `index` (or Add Tier for `-1`).
+    /// The tier form's apply on row `index` (Enter on the desktop), or Add This Tier for `-1`.
     fn save(&mut self, index: i32, form: &Form) {
         let design = &self.session.design;
         let current = usize::try_from(index)
@@ -220,12 +220,12 @@ impl Sim {
         self.apply(edit);
     }
 
-    /// The tier form's Add Tier.
+    /// The tier form's Add This Tier.
     fn add(&mut self, form: &Form) {
         self.save(-1, form);
     }
 
-    /// Picks the row called `name`, changes the form, and clicks Save Tier.
+    /// Picks the row called `name`, changes the form, and applies it as Enter does.
     fn edit_tier(&mut self, name: &str, change: impl FnOnce(&mut Form)) {
         let row = self.row(name);
         let mut form = Form::of(&self.session.design.tiers[row]);

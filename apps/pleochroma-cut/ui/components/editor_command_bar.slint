@@ -3,6 +3,7 @@ import { EditorModel } from "../models/editor.slint";
 import { GuideModel } from "../models/guide.slint";
 import { UndoRedoGroup, SolveGroup } from "editor_command_bar/edit_groups.slint";
 import { AnalysisGroup, SnapshotGroup } from "editor_command_bar/analysis_groups.slint";
+import { BarDivider } from "editor_command_bar/bar_parts.slint";
 import { FileMenu } from "editor_command_bar/file_menu.slint";
 // The "?" at the right end of the hint line opens the manual page on this bar.
 import { HelpButton } from "help_button.slint";
@@ -19,39 +20,43 @@ export { UndoRedoLabels } from "editor_command_bar/edit_groups.slint";
 // `last_solve_duration_ms` are pushed from `gui/editor/view.rs` and
 // `gui/editor/auto_solve.rs`.
 
-// The Edit sub-tab's command bar: ONE grouped row,
+// The Edit sub-tab's command bar: ONE row,
 //
-//   [Undo][Redo] | [Solve][Auto-Solve][Deep Solve] | [Retarget...][Tilt Curves][Cut Mode]
-//                | [Snapshot][Compare] |                                       [File v]
+//   [Undo][Redo] | [Solved · 47 ms v][Deep Solve] | [Retarget...][Tilt Curves][Tilt Chart][Cut Mode]
+//                | [Baseline v] |                                                       [File v] ?
+//
+// The solve state IS the Solve button (`SolveGroup`): its body solves again and its chevron opens
+// Auto-Solve and Abandon Solve. Cut Mode is a button (it opens a full-screen view), not a
+// Design | Cut switch. The Baseline is a menu (`SnapshotGroup`).
 //
 // Everything the tier table (+ Add Tier / + Add Concave Tier, Duplicate, Delete, Move
 // Up/Down per row) or the inspector (the Optimize tab's own Run and Cancel) already offers
-// is deliberately NOT repeated here. Each group is its own component, so the two
-// arrangements below share every button's hover/TouchArea/callback wiring.
+// is deliberately NOT repeated here. Each group is its own component.
 //
-// Wide dock (`EditorModel.dock_width` of `wide_dock` or more): one row. Narrower: two rows,
-// [Undo/Redo | Solve, Auto-Solve ... File ?] over [Deep Solve | Retarget group | Snapshot
-// group]. Both rows are fixed layouts sized to fit the dock, so neither overflows it.
+// The row keeps one line at every dock width by dropping words, never buttons: from
+// `EditorModel.dock_width` of `all_text_dock` (990 px) every button shows its name; from
+// `some_text_dock` (840 px) Deep Solve, Retarget and Cut Mode do; narrower, icons only (each keeps its
+// name as the accessible label and in its tooltip), and the Solve button its shortest wording.
 //
 // The bar's minimum width must never depend on a transient state (a solve running, the Save
-// warning), because the dock grows to it: Solve and Abandon Solve share one fixed slot
-// (`SolveGroup`), the Save warning is an icon inside the File button (`FileMenu`), and the
-// only swap left, Deep Solve to Cancel Deep Solve, sits on the second row, which has room.
+// warning), because the dock grows to it: the Solve slot has one width, the Save warning is an icon
+// inside the File button (`FileMenu`), and Deep Solve and Cancel Deep Solve share one slot.
 //
 // No caption text lives under any one button: hovering any control sets
-// `EditorModel.hover_hint`, shown in an overlay under the row(s) that takes no room while it
+// `EditorModel.hover_hint`, shown in an overlay under the row that takes no room while it
 // is empty -- see `hover_hint`'s own doc comment on `EditorModel`.
 //
-// The wide/narrow choice and the auto-solve combo's width are keyed off
-// `EditorModel.dock_width`, a value set externally (the drag handle in `app.slint`), never
-// off this bar's own width: reading `self.width` and feeding it back into a child's `width`
-// is a `layoutinfo-h -> layout-cache -> width -> ... -> narrow` binding loop the `.slint`
-// compiler rejects.
+// The width choices are keyed off `EditorModel.dock_width`, a value set externally (the drag handle
+// in `app.slint`), never off this bar's own width: reading `self.width` and feeding it back into a
+// child's `width` is a `layoutinfo-h -> layout-cache -> width -> ... -> narrow` binding loop the
+// `.slint` compiler rejects.
 export component EditorCommandBar inherits Rectangle {
     // Keyed off `EditorModel.dock_width` (external), never this bar's own width.
-    property <bool> wide_dock: EditorModel.dock_width >= 990px;
+    property <bool> all_text: EditorModel.dock_width >= 990px;
+    property <bool> some_text: EditorModel.dock_width >= 840px;
+    property <bool> compact: EditorModel.dock_width < 760px;
 
-    // The bar's size is that of its rows (the hint overlay below is not part of it), stated
+    // The bar's size is that of its row (the hint overlay below is not part of it), stated
     // outright because a `Rectangle` with two children no longer takes it from the one layout.
     min-width: bar_col.min-width;
     min-height: bar_col.min-height;
@@ -59,24 +64,24 @@ export component EditorCommandBar inherits Rectangle {
     preferred-height: bar_col.preferred-height;
     max-height: bar_col.max-height;
 
-    // Above the hover hint below, so an open File menu covers it, not the other way round.
+    // Above the hover hint below, so an open menu covers it, not the other way round.
     bar_col := VerticalLayout {
         z: 1;
         spacing: 2px;
 
-        // Wide dock: everything on one row. Every row is 32 px, the height of its buttons, so
-        // nothing sits a pixel or two off its neighbours' centre line.
-        if root.wide_dock: HorizontalLayout {
+        // Every row is 32 px, the height of its buttons, so nothing sits a pixel or two off its
+        // neighbours' centre line.
+        HorizontalLayout {
             z: 1;
             height: 32px;
-            spacing: 8px;
+            spacing: 6px;
             UndoRedoGroup {}
-            Rectangle { width: 1px; background: Theme.border-subtle; }
-            SolveGroup {}
-            Rectangle { width: 1px; background: Theme.border-subtle; }
-            AnalysisGroup {}
-            if GuideModel.shows_advanced(): Rectangle { width: 1px; background: Theme.border-subtle; }
-            SnapshotGroup {}
+            BarDivider {}
+            SolveGroup { deep_text: root.some_text; compact: root.compact; }
+            BarDivider {}
+            AnalysisGroup { some_text: root.some_text; all_text: root.all_text; }
+            if GuideModel.shows_advanced(): BarDivider {}
+            SnapshotGroup { show_text: root.all_text; }
             Rectangle { horizontal-stretch: 1; }
             FileMenu {}
             // The manual page on this bar, level with the buttons.
@@ -88,37 +93,6 @@ export component EditorCommandBar inherits Rectangle {
                 }
             }
         }
-        // Narrower dock: editing and solving with the File menu at the right end ...
-        if !root.wide_dock: HorizontalLayout {
-            z: 1;
-            height: 32px;
-            spacing: 8px;
-            UndoRedoGroup {}
-            Rectangle { width: 1px; background: Theme.border-subtle; }
-            SolveGroup { show_deep: false; }
-            Rectangle { horizontal-stretch: 1; }
-            FileMenu {}
-            VerticalLayout {
-                alignment: center;
-                HelpButton {
-                    topic: HelpTopics.command-bar;
-                    hint: "Open the manual page on the command bar";
-                }
-            }
-        }
-        // ... and the design actions on a second row, led by Deep Solve (it stays off the
-        // first row, which has to fit the smallest dock whatever is running).
-        if !root.wide_dock: HorizontalLayout {
-            height: 32px;
-            spacing: 8px;
-            if GuideModel.shows_advanced() || EditorModel.deep_solve_running: SolveGroup { show_solve: false; }
-            if GuideModel.shows_advanced() || EditorModel.deep_solve_running: Rectangle { width: 1px; background: Theme.border-subtle; }
-            AnalysisGroup {}
-            if GuideModel.shows_advanced(): Rectangle { width: 1px; background: Theme.border-subtle; }
-            SnapshotGroup {}
-            Rectangle { horizontal-stretch: 1; }
-        }
-
     }
 
     // The hover hint: an overlay under the bar that takes no room of its own. Shown only while

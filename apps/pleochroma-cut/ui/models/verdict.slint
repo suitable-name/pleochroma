@@ -37,6 +37,9 @@ export global VerdictModel {
     in property <bool> stale: false;
     // A fix is being planned or applied; a second one has to wait.
     in property <bool> busy: false;
+    // Bumped by the Solve button's check count: the status strip's badge opens its popover (the
+    // reasons and their Fix buttons). Written by Slint only.
+    in-out property <int> open_pulse: 0;
 
     // The Fix button of reason `index` was pressed. The Rust side asks for a confirmation
     // where the fix removes something, plans the fix on a worker, applies it as one undo

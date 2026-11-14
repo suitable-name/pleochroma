@@ -35,8 +35,8 @@ use crate::{
 /// Environment variable that turns a missing adapter into a failure.
 const REQUIRE_GPU_ENV: &str = "PLEOCHROMA_REQUIRE_GPU";
 
-/// The shipped generated text of every unit the variant covers: the megakernel and the sixteen
-/// event-wavefront kernels.
+/// The shipped generated text of every unit the variant covers: the megakernel and every
+/// event-wavefront kernel.
 fn all_units() -> Vec<(ReferenceUnit, &'static str)> {
     let mut units = vec![(ReferenceUnit::Megakernel, SHADER_SRC)];
     units.extend(

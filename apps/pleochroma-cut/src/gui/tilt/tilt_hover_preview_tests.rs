@@ -78,6 +78,27 @@ fn extreme_tilt_is_edge_on() {
     assert!((negative_pitch - 180.0f32.to_radians()).abs() < 1e-6);
 }
 
+/// Every hover frame keeps the live view's framing: the swept camera carries the scene's roll
+/// and pan.
+#[test]
+fn the_hover_camera_keeps_the_scenes_roll_and_pan() {
+    use crate::bridge::{export_thread::SceneSnapshot, render_thread::RenderContext};
+    let scene = SceneSnapshot::capture(&std::sync::Mutex::new(RenderContext {
+        camera_roll: 0.4,
+        camera_pan: [0.3, -0.2],
+        ..RenderContext::default()
+    }))
+    .expect("the default material resolves");
+    let (yaw, pitch) = camera_pose_for_hover(1, 30.0);
+    let camera = super::hover_camera(&scene, [yaw, pitch]);
+    let expected = Camera::new(yaw, pitch, scene.distance, DEFAULT_FOV_DEG)
+        .with_roll(0.4)
+        .with_pan([0.3, -0.2]);
+    assert_eq!(camera.origin, expected.origin);
+    assert_eq!(camera.right, expected.right);
+    assert_eq!(camera.up, expected.up);
+}
+
 /// An out-of-range axis index falls back to azimuth 0 rather than panicking --
 /// `PROFILE_AZIMUTHS_DEG.get(axis_index)` is `None` past index 3.
 #[test]

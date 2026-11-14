@@ -67,19 +67,18 @@ Below the menu bar, the window is divided into three areas:
   click the rail to bring the panel back.
 - A **detail area** on the right, which shows the design you have selected.
   This area has its own header (title, designer, shape, and a menu of
-  per-design actions), and below it three tabs:
-  - **3D Spectral Preview** — the render viewport, described in Chapter 2.
-    This tab has its own inner pair of sub-tabs,
-    **Live Render** and **Edit**.
-    The Edit sub-tab is the cutting-design editor covered in Chapters 3–8.
-    The app always starts on the Edit sub-tab in its Solid view; click
-    **Live Render** to see the traced picture.
-  - **Cutting Instructions** — a plain table of every facet's angle, index, and
-    notes, filterable to All Steps / Pavilion / Crown, with a "Copy
-    Instructions" button and a click-to-copy on any row (Chapter 2).
+  per-design actions) and, at its right end, the **places segment** with four
+  places:
+  - **Live Render** — the render viewport, described in Chapter 2.
+  - **Edit** — the cutting-design editor covered in Chapters 3–8.
+    The app always starts on Edit in its Solid view; click **Live Render** to
+    see the traced picture.
+  - **Cutting Instructions** — the step cards of every facet's angle, index and
+    notes, filterable to All Steps / Pavilion / Crown, with **Copy as Text**,
+    **Print / PDF...** and **Start Cut Mode** (Chapters 2 and 20).
   - **Files & Downloads** — any original file(s) attached to the design in
-    the catalogue (typically the source `.asc`), each with a "Save / Export"
-    button and a "Copy URL" button.
+    the catalogue (typically the source `.asc`), as cards with a "Save a Copy..."
+    button and a "Copy URL" button, and an **Open Exports Folder** button.
 
 **Simple or Advanced.** The **Simple | Advanced** pill in the top toolbar chooses
 how many controls the app shows: Simple shows the controls most designs need,

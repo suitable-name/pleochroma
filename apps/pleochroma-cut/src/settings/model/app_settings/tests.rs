@@ -548,3 +548,22 @@ fn legacy_settings_open_without_roll_and_new_settings_keep_the_image_orientation
         serde_json::from_str(&serde_json::to_string(&rolled).unwrap()).unwrap();
     assert_eq!(restored.camera_roll, rolled.camera_roll);
 }
+#[test]
+fn legacy_settings_open_centred_and_new_settings_keep_the_pan() {
+    let legacy: super::AppSettings = serde_json::from_str("{}").unwrap();
+    assert_eq!(legacy.camera_pan, [0.0, 0.0]);
+    let panned = super::AppSettings {
+        camera_pan: [0.4, -0.25],
+        ..legacy
+    };
+    let restored: super::AppSettings =
+        serde_json::from_str(&serde_json::to_string(&panned).unwrap()).unwrap();
+    assert_eq!(restored.camera_pan, panned.camera_pan);
+    let file = crate::settings::model::SettingsFile {
+        settings: panned,
+        ..Default::default()
+    };
+    let text = toml::to_string_pretty(&file).expect("serialize");
+    let parsed: crate::settings::model::SettingsFile = toml::from_str(&text).expect("deserialize");
+    assert_eq!(parsed.settings.camera_pan, [0.4, -0.25]);
+}

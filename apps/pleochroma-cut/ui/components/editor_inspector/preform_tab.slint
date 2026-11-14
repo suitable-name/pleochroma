@@ -1,4 +1,4 @@
-import { ComboBox, LineEdit } from "std-widgets.slint";
+import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
@@ -9,35 +9,89 @@ import { SliderModel, SliderSpec } from "../../models/sliders.slint";
 import { TipButton } from "../compact_controls.slint";
 import { AdvancedNote } from "../advanced_note.slint";
 import { FormRowMetrics } from "form_row.slint";
+import { KitSection, KitBadge, KitButton } from "../kit/kit.slint";
+import { R3Tile } from "../kit/r3c.slint";
 
-// A slider under one of the Preform tab's number fields. The ranges come from Rust
-// (`SliderModel.preform_spec`); the parent writes the value into the field. It only fills the
-// field in: "Apply Preform" makes the change real.
-component FieldSlider inherits VerticalLayout {
+// One size of the rough: its name, a slider, the typed value and its size in millimetres, on one
+// line. The ranges come from Rust (`SliderModel.preform_spec`); the parent writes the value into
+// the field. The slider only fills the field in: "Apply Preform" makes the change real. The field
+// keeps the long accessible name (`field_label`), the visible name is the short `label`.
+component SizeRow inherits VerticalLayout {
+    in property <string> label;
+    in property <string> field_label;
+    in property <string> slider_label;
+    in property <string> tooltip;
+    in property <string> slider_hint;
+    in property <string> placeholder;
     in property <SliderSpec> spec;
     in property <bool> enabled: true;
-    // For screen readers.
-    in property <string> label;
-    in property <string> hint;
-
-    // The new, already snapped value.
+    in property <string> mm;
+    in-out property <string> value;
+    // A keystroke only, like the standard field's.
+    callback edited();
+    // The slider moved: the new, already snapped value.
     callback moved(float);
 
     spacing: 2px;
-    value-slider-label := ValueSlider {
-        enabled: root.enabled;
-        value_valid: root.spec.usable;
-        value: root.spec.value;
-        minimum: root.spec.minimum;
-        maximum: root.spec.maximum;
-        step: root.spec.step;
-        fine_step: root.spec.fine_step;
-        mark: root.spec.mark;
-        label: root.label;
-        value_text: root.spec.value_text;
-        hint: root.hint;
-        moved(v) => { root.moved(v); }
-        released(v) => { root.moved(v); }
+    HorizontalLayout {
+        height: 32px;
+        spacing: 10px;
+        Rectangle {
+            width: 104px;
+            Tooltip { text: @markdown("\{root.tooltip}"); }
+            Text {
+                width: 100%;
+                height: 100%;
+                text: root.label;
+                font-size: 12px;
+                color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            ValueSlider {
+                enabled: root.enabled;
+                value_valid: root.spec.usable;
+                value: root.spec.value;
+                minimum: root.spec.minimum;
+                maximum: root.spec.maximum;
+                step: root.spec.step;
+                fine_step: root.spec.fine_step;
+                mark: root.spec.mark;
+                label: root.slider_label;
+                value_text: root.spec.value_text;
+                hint: root.slider_hint;
+                moved(v) => { root.moved(v); }
+                released(v) => { root.moved(v); }
+            }
+        }
+        Rectangle {
+            width: 76px;
+            Tooltip { text: @markdown("\{root.tooltip}"); }
+            LineEdit {
+                width: parent.width;
+                height: parent.height;
+                enabled: root.enabled;
+                text <=> root.value;
+                placeholder-text: root.placeholder;
+                accessible-label: root.field_label;
+                edited => { root.edited(); }
+                changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            }
+        }
+        Text {
+            width: 58px;
+            text: root.mm;
+            font-size: 11px;
+            color: Theme.text-muted;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
     }
     if root.spec.note != "": Text {
         text: root.spec.note;
@@ -48,96 +102,187 @@ component FieldSlider inherits VerticalLayout {
     }
 }
 
-// A labelled text field of the Preform tab: the label above, the field below, and whatever
-// the caller puts inside (a slider, a millimetre readout) under the field. The tooltip shows
-// over the label and over the field, and the field carries the label for screen readers.
-// `edited` fires on a keystroke only, like the standard field's.
-component PreformField inherits VerticalLayout {
+// A typed number with a unit inside its box (the stone width, the specific gravity). Enter and
+// leaving the field apply it.
+component UnitField inherits Rectangle {
     in property <string> label;
     in property <string> tooltip;
     in property <string> placeholder;
+    in property <string> suffix;
     in property <bool> enabled: true;
+    in property <length> w: 110px;
     in-out property <string> value;
     callback edited();
-    // Enter pressed in the field, and the field losing focus: a field that commits as you
-    // leave it wires both; the others ignore them.
     callback accepted();
     callback blurred();
+    callback focused();
 
-    spacing: 4px;
-    Rectangle {
-        height: field_label.preferred-height;
-        Tooltip { text: @markdown("\{root.tooltip}"); }
-        field_label := Text { x: 0px;
-            text: root.label;
-            font-size: 10px;
-            color: Theme.text-muted;
-            accessible-role: AccessibleRole.text;
-        }
-    }
-    // A fixed height: sizing this from the field's own preferred height while the field takes
-    // its height from here is a loop, and it left the field about half its height (16 px)
-    // with the rows below drawn over it.
-    Rectangle {
-        height: 32px;
-        Tooltip { text: @markdown("\{root.tooltip}"); }
-        field_edit := LineEdit {
-            width: parent.width;
-            height: parent.height;
-            enabled: root.enabled;
-            text <=> root.value;
-            placeholder-text: root.placeholder;
-            accessible-label: root.label;
-            edited => { root.edited(); }
-            accepted => { root.accepted(); }
-            changed has-focus => {
-                EditorModel.text_focus = self.has-focus;
-                if !self.has-focus {
-                    root.blurred();
-                }
+    width: root.w;
+    height: 32px;
+    if root.tooltip != "": Tooltip { text: @markdown("\{root.tooltip}"); }
+    LineEdit {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        text <=> root.value;
+        placeholder-text: root.placeholder;
+        accessible-label: root.label;
+        edited => { root.edited(); }
+        accepted => { root.accepted(); }
+        changed has-focus => {
+            EditorModel.text_focus = self.has-focus;
+            if self.has-focus {
+                root.focused();
+            } else {
+                root.blurred();
             }
         }
     }
-    @children
-}
-
-// One read-only line of the proportions and yield readouts, with a tooltip saying what the
-// number means.
-component ReadoutLine inherits Rectangle {
-    in property <string> text;
-    in property <string> tooltip;
-
-    height: line.preferred-height;
-    Tooltip { text: @markdown("\{root.tooltip}"); }
-    line := Text {
-        width: parent.width;
-        text: root.text;
-        font-size: 10px;
-        color: Theme.text-secondary;
-        wrap: word-wrap;
-        accessible-role: AccessibleRole.text;
+    Text {
+        x: parent.width - self.preferred-width - 12px;
+        height: parent.height;
+        text: root.suffix;
+        font-size: 11px;
+        color: Theme.text-muted;
+        vertical-alignment: center;
     }
 }
 
-// The Inspector's "Preform" tab: the starting rough's shape and size, the read-only
-// proportions readout, and the real-unit yield inputs and results. The field values are
-// `EditorModel` properties. The two "not applied yet" flags (`preform_pending`,
-// `yield_pending`) live on `EditorInspector`, which clears them on every form reset
-// (`EditorModel.form_reset_pulse`); this tab mirrors them two-way.
+// The rough drawn in section with the stone's outline in it, the girdle line and the three measures
+// written on. The sizes follow the fields; text that is not a plain number (a typed calculation)
+// draws the last sensible size.
+component PreformPicture inherits Rectangle {
+    in property <float> hw: 1.2;
+    in property <float> depth: 1.2;
+    in property <int> shape: 0;
+    in property <string> hw_text;
+    in property <string> depth_text;
+    in property <string> girdle_text;
+
+    property <float> units_w: Math.max(2.0, 2.0 * root.hw);
+    property <float> units_h: Math.max(1.6, root.depth);
+    property <length> unit: Math.min((root.width * 0.6) / root.units_w, (root.height - 56px) / root.units_h);
+    property <length> cx: root.width * 0.5 - 16px;
+    property <length> rx: root.cx - root.hw * root.unit;
+    property <length> rw: 2.0 * root.hw * root.unit;
+    property <length> rh: root.units_h * root.unit;
+    property <length> ry: (root.height - root.rh) / 2 - 6px;
+    property <length> stone_w: 2.0 * root.unit;
+    property <length> stone_h: 1.5 * root.unit;
+    property <length> stone_y: root.ry + (root.rh - root.stone_h) / 2;
+    property <length> girdle_y: root.stone_y + root.stone_h * 34 / 150;
+
+    height: 170px;
+    border-radius: 10px;
+    background: Theme.chart-bg;
+    border-width: 1px;
+    border-color: Theme.chart-border;
+    clip: true;
+    accessible-role: AccessibleRole.image;
+    accessible-label: "Preform section";
+    accessible-description: "Half-width " + root.hw_text + ", depth " + root.depth_text + ", girdle " + root.girdle_text;
+
+    Text { x: 12px; y: 8px; text: "SECTION"; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; color: Theme.text-muted; }
+    // The rough.
+    Rectangle {
+        x: root.rx;
+        y: root.ry;
+        width: root.rw;
+        height: root.rh;
+        border-radius: root.shape == 1 ? 10px : 3px;
+        border-width: 1.5px;
+        border-color: Theme.accent-cyan;
+        background: Theme.tint-cyan;
+    }
+    // The stone inside it.
+    Path {
+        x: root.cx - root.stone_w / 2;
+        y: root.stone_y;
+        width: root.stone_w;
+        height: root.stone_h;
+        viewbox-width: 200;
+        viewbox-height: 150;
+        commands: "M50 0 H150 L200 30 V38 L100 150 L0 38 V30 Z";
+        fill: Theme.tint-neutral;
+        stroke: Theme.text-secondary;
+        stroke-width: 1.2px;
+    }
+    // The girdle plane.
+    Rectangle { x: root.rx - 8px; y: root.girdle_y; width: root.rw + 16px; height: 1px; background: Theme.accent-amber; opacity: 0.55; }
+    Text { x: root.rx + root.rw + 12px; y: root.girdle_y - 7px; text: "girdle " + root.girdle_text; font-size: 10px; color: Theme.accent-amber; }
+    // Depth, on the left; half-width, under the rough.
+    Rectangle { x: root.rx - 14px; y: root.ry; width: 1px; height: root.rh; background: Theme.text-muted; }
+    Text { x: 10px; y: root.ry + root.rh / 2 - 14px; width: root.rx - 28px; text: "depth\n" + root.depth_text; font-size: 10px; color: Theme.text-secondary; overflow: elide; }
+    Rectangle { x: root.cx; y: root.ry + root.rh + 8px; width: root.hw * root.unit; height: 1px; background: Theme.text-muted; }
+    Text { x: root.cx - 40px; y: root.ry + root.rh + 12px; text: "half-width " + root.hw_text; font-size: 10px; color: Theme.text-secondary; }
+}
+
+// The stone's profile with its measured proportions written beside it, each with its verdict.
+// "-" until the design solves.
+component ProportionLine inherits HorizontalLayout {
+    in property <string> name;
+    in property <string> value;
+    in property <string> tooltip;
+    in property <int> level: -1;
+    in property <string> reason;
+    spacing: 6px;
+    height: 20px;
+    Rectangle {
+        horizontal-stretch: 1;
+        Tooltip { text: @markdown("\{root.tooltip}"); }
+        Text {
+            width: 100%;
+            height: 100%;
+            text: root.name + "  " + root.value;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
+    }
+    VerticalLayout { alignment: center; VerdictChip { level: root.level; reason: root.reason; } }
+}
+
+// A big number over its name (L/W, C/W, ...).
+component BigFigure inherits Rectangle {
+    in property <string> value;
+    in property <string> name;
+    in property <string> tooltip;
+    in property <color> ink: Theme.text-primary;
+    horizontal-stretch: 1;
+    height: figure_col.preferred-height;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.name + " " + (root.value == "" ? "not known yet" : root.value);
+    Tooltip { text: @markdown("\{root.tooltip}"); }
+    figure_col := VerticalLayout {
+        spacing: 0px;
+        Text { text: root.value == "" ? "-" : root.value; font-size: 18px; font-weight: 700; color: root.ink; overflow: elide; }
+        Text { text: root.name; font-size: 10px; color: Theme.text-muted; overflow: elide; }
+    }
+}
+
+// The Inspector's "Preform" tab: the starting rough's shape and size (with a section picture),
+// the stone's proportions drawn on its profile, and the real-unit yield. The field values are
+// `EditorModel` properties. The two "not applied yet" flags (`preform_pending`, `yield_pending`)
+// live on `EditorInspector`, which clears them on every form reset (`EditorModel.form_reset_pulse`);
+// this tab mirrors them two-way.
 //
-// Every input and both Apply buttons follow `unlocked` (bound by `EditorInspector`
-// to `GuideModel.allows_preform_tab()`) while the worked-example guide runs.
+// The rough's fields still wait for "Apply Preform" (the badge and the star say so; "Revert" puts
+// the fields back to what the design has). The yield inputs apply live: Enter or leaving the field
+// applies the stone width and the specific gravity, one undoable edit each.
+//
+// Every input and both buttons follow `unlocked` (bound by `EditorInspector` to
+// `GuideModel.allows_preform_tab()`) while the worked-example guide runs.
 //
 // Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the shape,
-// Half-Width, Length / Width and Depth, the proportions and the Girdle Diameter yield. It
-// hides the Girdle Y-Offset, the Specific Gravity override, the line naming where the
-// refractive index came from and the Specific Gravity the estimate used. A line says so when
-// the Y-Offset or the override holds a value.
+// Half-Width, Length / Width and Depth, the proportions and the stone width. It hides the Girdle
+// Y-Offset, the Specific Gravity override, the line naming where the refractive index came from
+// and the Specific Gravity the estimate used. A line says so when the Y-Offset or the override
+// holds a value.
 export component PreformTab inherits VerticalLayout {
-    // `false` while the worked-example guide locks this tab's group (see
-    // `GuideAllow`, `models/guide.slint`); every input and button below ANDs it
-    // into its own `enabled:`. Bound by `EditorInspector` from the same
-    // `GuideModel.allows_*()` helper as this tab's pill.
+    // `false` while the worked-example guide locks this tab's group (see `GuideAllow`,
+    // `models/guide.slint`); every input and button below ANDs it into its own `enabled:`.
     in property <bool> unlocked: true;
 
     in-out property <bool> preform_pending: false;
@@ -145,17 +290,90 @@ export component PreformTab inherits VerticalLayout {
 
     property <bool> advanced: GuideModel.shows_advanced();
 
-    // Commits the Girdle Diameter field to the design, as the Stone tab does. Rust does nothing
-    // when the text already is the design's value. The yield star is also the specific
-    // gravity's, so it clears only while that field is empty.
+    // What the design held when the fields were last in step with it: the target of "Revert".
+    // Written only while nothing waits to be applied, from the mirrors below, so a typed value
+    // never becomes the "applied" one. `snap_valid` is false when the tab opened with a pending
+    // edit (the original is then unknown).
+    property <int> applied_shape: EditorModel.preform_shape_index;
+    property <string> applied_hw: EditorModel.preform_half_width;
+    property <string> applied_lw: EditorModel.preform_length_over_width;
+    property <string> applied_depth: EditorModel.preform_depth;
+    property <string> applied_y: EditorModel.preform_y_offset_mm;
+    property <bool> snap_valid: false;
+    property <int> mirror_shape: EditorModel.preform_shape_index;
+    property <string> mirror_hw: EditorModel.preform_half_width;
+    property <string> mirror_lw: EditorModel.preform_length_over_width;
+    property <string> mirror_depth: EditorModel.preform_depth;
+    property <string> mirror_y: EditorModel.preform_y_offset_mm;
+    init => {
+        // Assigning here ends the binding above: from now on the snapshot moves only through
+        // `follow_design` and `mark_applied`.
+        root.applied_shape = EditorModel.preform_shape_index;
+        root.applied_hw = EditorModel.preform_half_width;
+        root.applied_lw = EditorModel.preform_length_over_width;
+        root.applied_depth = EditorModel.preform_depth;
+        root.applied_y = EditorModel.preform_y_offset_mm;
+        root.snap_valid = !root.preform_pending;
+    }
+    function mark_applied() {
+        root.applied_shape = EditorModel.preform_shape_index;
+        root.applied_hw = EditorModel.preform_half_width;
+        root.applied_lw = EditorModel.preform_length_over_width;
+        root.applied_depth = EditorModel.preform_depth;
+        root.applied_y = EditorModel.preform_y_offset_mm;
+        root.snap_valid = true;
+    }
+    function follow_design() {
+        if !root.preform_pending {
+            root.applied_shape = root.mirror_shape;
+            root.applied_hw = root.mirror_hw;
+            root.applied_lw = root.mirror_lw;
+            root.applied_depth = root.mirror_depth;
+            root.applied_y = root.mirror_y;
+            root.snap_valid = true;
+        }
+    }
+    changed mirror_shape => { root.follow_design(); }
+    changed mirror_hw => { root.follow_design(); }
+    changed mirror_lw => { root.follow_design(); }
+    changed mirror_depth => { root.follow_design(); }
+    changed mirror_y => { root.follow_design(); }
+    function revert_fields() {
+        EditorModel.preform_shape_index = root.applied_shape;
+        EditorModel.preform_half_width = root.applied_hw;
+        EditorModel.preform_length_over_width = root.applied_lw;
+        EditorModel.preform_depth = root.applied_depth;
+        EditorModel.preform_y_offset_mm = root.applied_y;
+        root.preform_pending = false;
+    }
+
+    // The specific gravity as it was when its field took focus, so leaving it unchanged applies
+    // nothing.
+    property <string> sg_at_focus: "";
+    property <bool> yield_editing: false;
+
+    // Commits the stone width to the design, as the Stone tab does. Rust does nothing when the
+    // text already is the design's value. The yield flag clears only while the specific gravity
+    // is not waiting too.
     function commit_width() {
         if root.unlocked && EditorModel.girdle_diameter_mm != EditorModel.design_girdle_diameter_text {
             EditorModel.apply_stone_width(EditorModel.girdle_diameter_mm);
-            if EditorModel.specific_gravity_override == "" {
-                root.yield_pending = false;
-            }
+        }
+        if EditorModel.specific_gravity_override == root.sg_at_focus || !root.yield_editing {
+            root.yield_pending = false;
         }
     }
+    // Commits the specific gravity (with the stone width, which `apply_yield_inputs` takes too).
+    function commit_gravity() {
+        if root.unlocked && EditorModel.specific_gravity_override != root.sg_at_focus {
+            // The second argument is a material index that `parse_yield_form` ignores, so it is 0.
+            EditorModel.apply_yield_inputs(EditorModel.girdle_diameter_mm, 0, EditorModel.specific_gravity_override);
+            root.sg_at_focus = EditorModel.specific_gravity_override;
+        }
+        root.yield_pending = false;
+        root.yield_editing = false;
+    }
+
     // The sliders under the number fields. Each follows its field (typing, Undo, a new design)
     // and fills it in when dragged, marking the tab "not applied yet" like typing does. The
     // Y-offset's range is half the Depth in millimetres, so it also reads the Depth and the
@@ -164,31 +382,54 @@ export component PreformTab inherits VerticalLayout {
     property <SliderSpec> ratio_spec: SliderModel.preform_spec("length_over_width", EditorModel.preform_length_over_width, EditorModel.preform_depth, EditorModel.girdle_diameter_mm);
     property <SliderSpec> depth_spec: SliderModel.preform_spec("depth", EditorModel.preform_depth, EditorModel.preform_depth, EditorModel.girdle_diameter_mm);
     property <SliderSpec> y_offset_spec: SliderModel.preform_spec("y_offset", EditorModel.preform_y_offset_mm, EditorModel.preform_depth, EditorModel.girdle_diameter_mm);
+    // The picture's sizes: the field text as a number, the last sensible size when it is not one.
+    property <float> picture_hw: EditorModel.preform_half_width.to-float() > 0.5 ? EditorModel.preform_half_width.to-float() : 1.2;
+    property <float> picture_depth: EditorModel.preform_depth.to-float() > 0.2 ? EditorModel.preform_depth.to-float() : 1.2;
 
-    spacing: 8px;
+    spacing: 10px;
     // The scroll bar is drawn over the right edge: keep the fields and Apply Preform clear of it.
     padding-right: FormRowMetrics.scroll_gutter;
     // A small inset above the first row, so a control is never cut right at the top edge.
     padding-top: 2px;
     // Packed at the top, as the other inspector tabs: no row takes the spare height.
     alignment: start;
-    Rectangle {
-        height: preform_lbl.preferred-height;
-        Tooltip { text: @markdown("Starting rough shape and size the design's\nblank is built from. See the glossary."); }
-        preform_lbl := Text { x: 0px; text: "Preform"; font-size: 12px; font-weight: 700; color: Theme.text-primary; accessible-role: AccessibleRole.text; }
+
+    // --- The rough ---
+    KitSection {
+        label: "PREFORM";
+        Rectangle { horizontal-stretch: 1; }
+        if root.preform_pending: VerticalLayout {
+            alignment: center;
+            KitBadge { text: "Changed - not applied"; fill: Theme.badge-amber-bg; ink: Theme.badge-amber-text; }
+        }
     }
     Rectangle {
-        // Fixed for the same reason as `PreformField`'s field height.
-        height: 32px;
-        Tooltip { text: @markdown("The rough's shape: a rectangular block or a round rod\n(cylinder). Apply Preform makes the change final."); }
-        shape_combo := ComboBox {
-            width: parent.width;
-            height: parent.height;
-            enabled: root.unlocked;
-            accessible-label: "Rough Shape";
-            model: ["Block", "Cylinder"];
-            current-index <=> EditorModel.preform_shape_index;
-            selected => { root.preform_pending = true; }
+        height: 44px;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: "Rough Shape";
+        HorizontalLayout {
+            spacing: 8px;
+            R3Tile {
+                horizontal-stretch: 0;
+                width: 128px;
+                text: "Block";
+                icon: "M4 8 L12 4 L20 8 V16 L12 20 L4 16 Z M4 8 L12 12 L20 8 M12 12 V20";
+                hint: "The rough is a rectangular block. Apply Preform makes the change final.";
+                on: EditorModel.preform_shape_index == 0;
+                enabled: root.unlocked;
+                picked => { EditorModel.preform_shape_index = 0; root.preform_pending = true; }
+            }
+            R3Tile {
+                horizontal-stretch: 0;
+                width: 128px;
+                text: "Cylinder";
+                icon: "M5 6 A7 2.5 0 0 0 19 6 A7 2.5 0 0 0 5 6 Z M5 6 V18 A7 2.5 0 0 0 19 18 V6";
+                hint: "The rough is a round rod (a cylinder). Apply Preform makes the change final.";
+                on: EditorModel.preform_shape_index == 1;
+                enabled: root.unlocked;
+                picked => { EditorModel.preform_shape_index = 1; root.preform_pending = true; }
+            }
+            Rectangle { horizontal-stretch: 1; }
         }
     }
     // Set only while the design's rough is a planned piece from the Rough Planner: says where
@@ -200,94 +441,104 @@ export component PreformTab inherits VerticalLayout {
         wrap: word-wrap;
         accessible-role: AccessibleRole.text;
     }
+    PreformPicture {
+        hw: root.picture_hw;
+        depth: root.picture_depth;
+        shape: EditorModel.preform_shape_index;
+        hw_text: EditorModel.preform_half_width + (EditorModel.preform_half_width_mm_text != "" ? " · " + EditorModel.preform_half_width_mm_text : "");
+        depth_text: EditorModel.preform_depth + (EditorModel.preform_depth_mm_text != "" ? " · " + EditorModel.preform_depth_mm_text : "");
+        girdle_text: (EditorModel.preform_y_offset_mm == "" ? "0" : EditorModel.preform_y_offset_mm) + " mm";
+    }
     // Half-Width and Depth are in the design's model units (girdle half-width = 1), never
-    // millimetres, so a typed 0.5 cannot be read as an absolute length. The mm line under each
-    // is read-only and additive; see the `preform_mm_texts` doc comment.
-    PreformField {
-        label: "Half-Width (Model Units, Girdle Half-Width = 1)";
+    // millimetres, so a typed 0.5 cannot be read as an absolute length. The mm text beside each is
+    // read-only and additive; see the `preform_mm_texts` doc comment.
+    SizeRow {
+        label: "Half-width";
+        field_label: "Half-Width (Model Units, Girdle Half-Width = 1)";
+        slider_label: "Half-Width";
         tooltip: "Half the rough's width, in the design's own units: the\nstone's girdle half-width is 1, so the rough has to be\nwider than 1. You can type arithmetic, for example 1.2+0.1.";
+        slider_hint: "Drag to set the Half-Width, 0.05 at a time (Shift:\n0.01). The field stays editable and the slider\nfollows it. Apply Preform makes it final.";
+        spec: root.half_width_spec;
         enabled: root.unlocked;
+        mm: EditorModel.preform_half_width_mm_text;
         value <=> EditorModel.preform_half_width;
         edited => { root.preform_pending = true; }
-        FieldSlider {
-            spec: root.half_width_spec;
-            enabled: root.unlocked;
-            label: "Half-Width";
-            hint: "Drag to set the Half-Width, 0.05 at a time (Shift:\n0.01). The field above stays editable and the\nslider follows it. Apply Preform makes it final.";
-            moved(v) => { EditorModel.preform_half_width = SliderModel.preform_text(v); root.preform_pending = true; }
-        }
-        if EditorModel.preform_half_width_mm_text != "": Text {
-            text: EditorModel.preform_half_width_mm_text;
-            font-size: 9px;
-            color: Theme.text-muted;
-            accessible-role: AccessibleRole.text;
-        }
+        moved(v) => { EditorModel.preform_half_width = SliderModel.preform_text(v); root.preform_pending = true; }
     }
-    PreformField {
-        label: "Length / Width (Ratio)";
+    SizeRow {
+        label: "Length / width";
+        field_label: "Length / Width (Ratio)";
+        slider_label: "Length over Width";
         tooltip: "The rough's length divided by its width. 1 is square or round;\nlarger is longer. You can type arithmetic, for example 3/2.";
+        slider_hint: "Drag to set the length-to-width ratio, 0.05 at a time\n(Shift: 0.01). The field stays editable and the\nslider follows it. Apply Preform makes it final.";
+        spec: root.ratio_spec;
         enabled: root.unlocked;
         value <=> EditorModel.preform_length_over_width;
         edited => { root.preform_pending = true; }
-        FieldSlider {
-            spec: root.ratio_spec;
-            enabled: root.unlocked;
-            label: "Length over Width";
-            hint: "Drag to set the length-to-width ratio, 0.05 at a time\n(Shift: 0.01). The field above stays editable and the\nslider follows it. Apply Preform makes it final.";
-            moved(v) => { EditorModel.preform_length_over_width = SliderModel.preform_text(v); root.preform_pending = true; }
-        }
+        moved(v) => { EditorModel.preform_length_over_width = SliderModel.preform_text(v); root.preform_pending = true; }
     }
-    PreformField {
-        label: "Depth (Model Units, Girdle Half-Width = 1)";
+    SizeRow {
+        label: "Depth";
+        field_label: "Depth (Model Units, Girdle Half-Width = 1)";
+        slider_label: "Depth";
         tooltip: "The rough's total height from table to culet, in\nthe same units as the Half-Width. You can type\narithmetic, for example 1.2+0.3. See the glossary.";
+        slider_hint: "Drag to set the Depth, 0.05 at a time (Shift: 0.01). The field\nstays editable and the slider follows it. Apply Preform makes it final.";
+        spec: root.depth_spec;
         enabled: root.unlocked;
+        mm: EditorModel.preform_depth_mm_text;
         value <=> EditorModel.preform_depth;
         edited => { root.preform_pending = true; }
-        FieldSlider {
-            spec: root.depth_spec;
-            enabled: root.unlocked;
-            label: "Depth";
-            hint: "Drag to set the Depth, 0.05 at a time (Shift: 0.01). The field above\nstays editable and the slider follows it. Apply Preform makes it final.";
-            moved(v) => { EditorModel.preform_depth = SliderModel.preform_text(v); root.preform_pending = true; }
-        }
-        if EditorModel.preform_depth_mm_text != "": Text {
-            text: EditorModel.preform_depth_mm_text;
-            font-size: 9px;
-            color: Theme.text-muted;
-            accessible-role: AccessibleRole.text;
-        }
+        moved(v) => { EditorModel.preform_depth = SliderModel.preform_text(v); root.preform_pending = true; }
     }
     // Unlike Half-Width and Depth, the Girdle Y-Offset is typed in millimetres: the girdle
     // plane's offset from centre is what a cutter measures on the stone. `apply_preform_y_offset`
     // converts it through the design's mm-per-unit factor. Advanced only.
-    if root.advanced: PreformField {
-        label: "Girdle Y-Offset (mm)";
+    if root.advanced: SizeRow {
+        label: "Girdle offset";
+        field_label: "Girdle Y-Offset (mm)";
+        slider_label: "Girdle Y-Offset";
         tooltip: "How far the rough's girdle plane sits from centre, in millimetres --\npositive moves it toward the crown. Needs a Girdle Diameter and\na solve to convert; otherwise Apply reports an error instead of\nguessing. You can type arithmetic, for example 0.5+0.25.";
+        slider_hint: "Drag to set the Y-Offset in millimetres, 0.05 at a time\n(Shift: 0.01). The range is half the Depth, and needs a\nGirdle Diameter. The field stays editable and the\nslider follows it. Apply Preform makes it final.";
+        spec: root.y_offset_spec;
         enabled: root.unlocked;
+        mm: "mm";
         value <=> EditorModel.preform_y_offset_mm;
         edited => { root.preform_pending = true; }
-        FieldSlider {
-            spec: root.y_offset_spec;
-            enabled: root.unlocked;
-            label: "Girdle Y-Offset";
-            hint: "Drag to set the Y-Offset in millimetres, 0.05 at a time\n(Shift: 0.01). The range is half the Depth, and needs a\nGirdle Diameter. The field above stays editable and the\nslider follows it. Apply Preform makes it final.";
-            moved(v) => { EditorModel.preform_y_offset_mm = SliderModel.preform_text(v); root.preform_pending = true; }
-        }
+        moved(v) => { EditorModel.preform_y_offset_mm = SliderModel.preform_text(v); root.preform_pending = true; }
     }
-    tip-button-preform-pending := TipButton {
-        enabled: root.unlocked;
-        // Primary while a typed field is not applied yet, so a forgotten Apply is noticed.
-        text: root.preform_pending ? "Apply Preform *" : "Apply Preform";
-        reader_label: root.preform_pending ? "Apply Preform, changes not applied yet" : "Apply Preform";
-        hint: "Make the shape and sizes above the design's rough. The\nstone's tiers stay as they are. A star on the button\nmeans you have typed something that is not applied yet.";
-        primary: root.preform_pending;
-        clicked => {
-            let y_offset = EditorModel.preform_y_offset_mm;
-            EditorModel.apply_preform(EditorModel.preform_shape_index, EditorModel.preform_half_width, EditorModel.preform_length_over_width, EditorModel.preform_depth);
-            if y_offset != "" {
-                EditorModel.apply_preform_y_offset(y_offset);
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: "Units of the girdle half-width (1 = half the stone's width).";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            vertical-alignment: center;
+        }
+        KitButton {
+            text: "Revert";
+            h: 30px;
+            hint: "Put the shape and the sizes back to what the design has. Nothing in the design changes.";
+            enabled: root.unlocked && root.preform_pending && root.snap_valid;
+            clicked => { root.revert_fields(); }
+        }
+        tip-button-preform-pending := TipButton {
+            enabled: root.unlocked;
+            // Primary while a typed field is not applied yet, so a forgotten Apply is noticed.
+            text: root.preform_pending ? "Apply Preform *" : "Apply Preform";
+            reader_label: root.preform_pending ? "Apply Preform, changes not applied yet" : "Apply Preform";
+            hint: "Make the shape and sizes above the design's rough. The\nstone's tiers stay as they are. A star on the button\nmeans you have typed something that is not applied yet.";
+            primary: root.preform_pending;
+            clicked => {
+                let y_offset = EditorModel.preform_y_offset_mm;
+                EditorModel.apply_preform(EditorModel.preform_shape_index, EditorModel.preform_half_width, EditorModel.preform_length_over_width, EditorModel.preform_depth);
+                if y_offset != "" {
+                    EditorModel.apply_preform_y_offset(y_offset);
+                }
+                root.preform_pending = false;
+                root.mark_applied();
             }
-            root.preform_pending = false;
         }
     }
 
@@ -296,139 +547,182 @@ export component PreformTab inherits VerticalLayout {
     // --- Proportions: table %, crown height, pavilion depth, total depth and length-to-width,
     // from `Design::stone_proportions`. "-" (never a misleading 0) when the design does not
     // solve or has no live girdle plane to measure from.
-    Rectangle {
-        height: proportions_lbl.preferred-height;
-        Tooltip { text: @markdown("Table size, crown height, pavilion depth, total depth and\nlength-to-width, from the last Solve. In millimetres once a\nGirdle Diameter is set, otherwise the design's own model units."); }
-        proportions_lbl := Text { x: 0px; text: "Proportions"; font-size: 12px; font-weight: 700; color: Theme.text-primary; accessible-role: AccessibleRole.text; }
-    }
-    // Each number below with a within/near/outside verdict chip (hidden while there is nothing
-    // to judge; see `VerdictChip`) is judged against `pleochroma_cut_core::proportions_windows`.
+    KitSection { label: "PROPORTIONS"; }
+    // Each number with a within/near/outside verdict chip (hidden while there is nothing to
+    // judge; see `VerdictChip`) is judged against `pleochroma_cut_core::proportions_windows`.
     // That table covers table %, crown angle, pavilion angle, total depth % and girdle %. Crown
     // height, pavilion depth and L/W have no window: it holds only percentages and angles.
-    HorizontalLayout {
-        spacing: 6px;
-        ReadoutLine {
-            horizontal-stretch: 1;
-            text: "Table: " + EditorModel.proportions_table_pct + "    L/W: " + EditorModel.proportions_length_to_width;
-            tooltip: "Table: the width of the table facet as a share of the stone's\nwidth. L/W: the stone's length divided by its width.";
+    Rectangle {
+        height: 170px;
+        border-radius: 10px;
+        background: Theme.chart-bg;
+        border-width: 1px;
+        border-color: Theme.chart-border;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: "Proportions on the profile";
+        Text { x: 12px; y: 8px; text: "PROFILE"; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; color: Theme.text-muted; }
+        Path {
+            x: 14px;
+            y: 26px;
+            width: parent.width * 0.3;
+            height: 130px;
+            viewbox-width: 200;
+            viewbox-height: 150;
+            commands: "M50 0 H150 L200 30 V38 L100 150 L0 38 V30 Z M0 30 H200 M0 38 H200";
+            fill: Theme.tint-neutral;
+            stroke: Theme.text-secondary;
+            stroke-width: 1.2px;
         }
-        VerdictChip { level: EditorModel.proportion_verdict_table_level; reason: EditorModel.proportion_verdict_table_reason; }
-    }
-    ReadoutLine {
-        text: "Crown Height: " + EditorModel.proportions_crown_height;
-        tooltip: "The height of the crown, from the girdle up to the table.";
-    }
-    ReadoutLine {
-        text: "Pavilion Depth: " + EditorModel.proportions_pavilion_depth;
-        tooltip: "The depth of the pavilion, from the girdle down to the culet.";
-    }
-    HorizontalLayout {
-        spacing: 6px;
-        ReadoutLine {
-            horizontal-stretch: 1;
-            text: "Crown Angle (Main Facet): " + (EditorModel.proportion_verdict_crown_angle_level >= 0 ? "estimated from schedule" : "-");
-            tooltip: "The angle of the main crown facets, read from the schedule\nand compared with the usual range for the material.";
+        VerticalLayout {
+            x: parent.width * 0.3 + 28px;
+            y: 22px;
+            width: parent.width * 0.7 - 40px;
+            height: parent.height - 30px;
+            spacing: 0px;
+            alignment: center;
+            ProportionLine {
+                name: "Table";
+                value: EditorModel.proportions_table_pct;
+                tooltip: "Table: the width of the table facet as a share of the stone's width.";
+                level: EditorModel.proportion_verdict_table_level;
+                reason: EditorModel.proportion_verdict_table_reason;
+            }
+            ProportionLine {
+                name: "Crown height";
+                value: EditorModel.proportions_crown_height;
+                tooltip: "The height of the crown, from the girdle up to the table.";
+            }
+            ProportionLine {
+                name: "Crown angle (main facet)";
+                value: EditorModel.proportion_verdict_crown_angle_level >= 0 ? "from schedule" : "-";
+                tooltip: "The angle of the main crown facets, read from the schedule\nand compared with the usual range for the material.";
+                level: EditorModel.proportion_verdict_crown_angle_level;
+                reason: EditorModel.proportion_verdict_crown_angle_reason;
+            }
+            ProportionLine {
+                name: "Girdle thickness";
+                value: EditorModel.girdle_thickness_text;
+                tooltip: "How thick the girdle is at the girdle line, where the girdle facets\nmeet (a range when it is not level). See the glossary.";
+                level: EditorModel.proportion_verdict_girdle_level;
+                reason: EditorModel.proportion_verdict_girdle_reason;
+            }
+            ProportionLine {
+                name: "Pavilion depth";
+                value: EditorModel.proportions_pavilion_depth;
+                tooltip: "The depth of the pavilion, from the girdle down to the culet.";
+            }
+            ProportionLine {
+                name: "Pavilion angle (main facet)";
+                value: EditorModel.proportion_verdict_pavilion_angle_level >= 0 ? "from schedule" : "-";
+                tooltip: "The angle of the main pavilion facets, read from the schedule\nand compared with the usual range for the material.";
+                level: EditorModel.proportion_verdict_pavilion_angle_level;
+                reason: EditorModel.proportion_verdict_pavilion_angle_reason;
+            }
+            ProportionLine {
+                name: "Total depth";
+                value: EditorModel.proportions_total_depth;
+                tooltip: "The whole height of the stone, from the table down to the culet.";
+                level: EditorModel.proportion_verdict_total_depth_level;
+                reason: EditorModel.proportion_verdict_total_depth_reason;
+            }
         }
-        VerdictChip { level: EditorModel.proportion_verdict_crown_angle_level; reason: EditorModel.proportion_verdict_crown_angle_reason; }
     }
+    // The ratios a faceting diagram prints.
     HorizontalLayout {
-        spacing: 6px;
-        ReadoutLine {
-            horizontal-stretch: 1;
-            text: "Pavilion Angle (Main Facet): " + (EditorModel.proportion_verdict_pavilion_angle_level >= 0 ? "estimated from schedule" : "-");
-            tooltip: "The angle of the main pavilion facets, read from the schedule\nand compared with the usual range for the material.";
-        }
-        VerdictChip { level: EditorModel.proportion_verdict_pavilion_angle_level; reason: EditorModel.proportion_verdict_pavilion_angle_reason; }
-    }
-    HorizontalLayout {
-        spacing: 6px;
-        ReadoutLine {
-            horizontal-stretch: 1;
-            text: "Total Depth: " + EditorModel.proportions_total_depth;
-            tooltip: "The whole height of the stone, from the table down to the culet.";
-        }
-        VerdictChip { level: EditorModel.proportion_verdict_total_depth_level; reason: EditorModel.proportion_verdict_total_depth_reason; }
-    }
-    // Girdle thickness, and the C/W, P/W and G/W ratios a faceting diagram prints.
-    ReadoutLine {
-        text: "Girdle Thickness: " + EditorModel.girdle_thickness_text;
-        tooltip: "How thick the girdle is at the girdle line, where the girdle facets\nmeet (a range when it is not level). See the glossary.";
-    }
-    HorizontalLayout {
-        spacing: 6px;
-        ReadoutLine {
-            horizontal-stretch: 1;
-            text: "C/W: " + EditorModel.crown_to_width_text + "    P/W: " + EditorModel.pavilion_to_width_text + "    G/W: " + EditorModel.girdle_to_width_text;
-            tooltip: "Crown height, pavilion depth and girdle thickness, each as a share\nof the stone's width (the ratios a faceting diagram prints).";
-        }
-        VerdictChip { level: EditorModel.proportion_verdict_girdle_level; reason: EditorModel.proportion_verdict_girdle_reason; }
+        spacing: 12px;
+        BigFigure { value: EditorModel.proportions_length_to_width; name: "L/W"; tooltip: "The stone's length divided by its width."; }
+        BigFigure { value: EditorModel.crown_to_width_text; name: "C/W"; tooltip: "Crown height as a share of the stone's width."; }
+        BigFigure { value: EditorModel.pavilion_to_width_text; name: "P/W"; tooltip: "Pavilion depth as a share of the stone's width."; }
+        BigFigure { value: EditorModel.girdle_to_width_text; name: "G/W"; tooltip: "Girdle thickness as a share of the stone's width."; }
     }
 
     Rectangle { height: 1px; background: Theme.border-subtle; }
 
-    // --- Real units, the rough, and yield.
-    Rectangle {
-        height: yield_lbl.preferred-height;
-        Tooltip { text: @markdown("How much of the rough the finished stone keeps,\nand what it should weigh. See the glossary."); }
-        yield_lbl := Text { x: 0px; text: "Yield"; font-size: 12px; font-weight: 700; color: Theme.text-primary; accessible-role: AccessibleRole.text; }
+    // --- Real units, the rough, and yield. These apply live.
+    KitSection {
+        label: "YIELD";
+        Rectangle { horizontal-stretch: 1; }
+        if root.yield_pending: VerticalLayout {
+            alignment: center;
+            Text { text: "Enter applies"; font-size: 10px; color: Theme.text-muted; }
+        }
     }
-
     // The refractive index that the critical angle, margin, render and export use, and its
     // source. `ri_source_text` follows `Design::effective_refractive_index_with`, so it cannot
     // disagree with `effective_ri_text`. Advanced only.
-    if root.advanced: ReadoutLine {
-        text: "Eff. RI " + (EditorModel.effective_ri_text == "" ? "-" : EditorModel.effective_ri_text) + ": " + EditorModel.ri_source_text;
-        tooltip: "What the Eff. RI chip in Design Settings is actually reading -- a\ntyped override, a custom catalogue material, a built-in preset,\nor this design's legacy imported value. See the glossary.";
-    }
-    MaterialGuessBadge { }
-    PreformField {
-        label: "Girdle Diameter (mm)";
-        tooltip: "Real girdle diameter in millimetres, used for the carat estimate and\nfor the color depth of the picture. It is the same value as Stone Width\nin the Stone tab. You can type arithmetic, for example 6.5+0.25.";
-        placeholder: "unset";
-        enabled: root.unlocked;
-        value <=> EditorModel.girdle_diameter_mm;
-        // Commits exactly like the Stone tab's field: Enter or leaving the field sets the
-        // design's girdle diameter (one undoable edit), so the two tabs never disagree.
-        // "Apply Yield Inputs" still applies the field together with the specific gravity.
-        edited => { root.yield_pending = true; }
-        accepted => { root.commit_width(); }
-        blurred => { root.commit_width(); }
-    }
-    // The design's material is chosen in Design Settings (`EditorModel.material_combo_index`).
-    if root.advanced: PreformField {
-        label: "Specific Gravity Override";
-        tooltip: "Specific gravity for the carat estimate. Does not affect\nthe render. You can type arithmetic, for example 3.5+0.1.";
-        placeholder: "use material default";
-        enabled: root.unlocked;
-        value <=> EditorModel.specific_gravity_override;
-        edited => { root.yield_pending = true; }
-    }
-    tip-button-yield-pending := TipButton {
-        enabled: root.unlocked;
-        // Same treatment as Apply Preform: primary while not applied yet.
-        text: root.yield_pending ? "Apply Yield Inputs *" : "Apply Yield Inputs";
-        reader_label: root.yield_pending ? "Apply Yield Inputs, changes not applied yet" : "Apply Yield Inputs";
-        hint: "Use the girdle diameter and specific gravity above\nfor the carat estimate. A star on the button means\nyou have typed something that is not applied yet.";
-        primary: root.yield_pending;
-        clicked => {
-            // The second argument is a material index that `parse_yield_form` ignores, so it is 0.
-            EditorModel.apply_yield_inputs(EditorModel.girdle_diameter_mm, 0, EditorModel.specific_gravity_override);
-            root.yield_pending = false;
+    if root.advanced: Rectangle {
+        height: ri_line.preferred-height;
+        Tooltip { text: @markdown("What the Eff. RI chip in Design Settings is actually reading -- a\ntyped override, a custom catalogue material, a built-in preset,\nor this design's legacy imported value. See the glossary."); }
+        ri_line := Text {
+            width: 100%;
+            text: "Eff. RI " + (EditorModel.effective_ri_text == "" ? "-" : EditorModel.effective_ri_text) + ": " + EditorModel.ri_source_text;
+            font-size: 10px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
         }
     }
-
+    MaterialGuessBadge { }
+    HorizontalLayout {
+        spacing: 10px;
+        height: 32px;
+        Text { text: "Stone width"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; }
+        UnitField {
+            w: 110px;
+            label: "Girdle Diameter (mm)";
+            tooltip: "Real girdle diameter in millimetres, used for the carat estimate and\nfor the color depth of the picture. It is the same value as Stone Width\nin the Stone tab. You can type arithmetic, for example 6.5+0.25.\nEnter or leaving the field applies it.";
+            placeholder: "unset";
+            suffix: "mm";
+            enabled: root.unlocked;
+            value <=> EditorModel.girdle_diameter_mm;
+            // Commits exactly like the Stone tab's field: Enter or leaving the field sets the
+            // design's girdle diameter (one undoable edit), so the two tabs never disagree.
+            edited => { root.yield_pending = true; }
+            focused => { root.yield_editing = true; root.sg_at_focus = EditorModel.specific_gravity_override; }
+            accepted => { root.commit_width(); }
+            blurred => { root.commit_width(); }
+        }
+        // The design's material is chosen in Design Settings (`EditorModel.material_combo_index`).
+        if root.advanced: Text { text: "SG"; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; }
+        if root.advanced: UnitField {
+            w: 150px;
+            label: "Specific Gravity Override";
+            tooltip: "Specific gravity for the carat estimate. Does not affect\nthe render. You can type arithmetic, for example 3.5+0.1.\nEnter or leaving the field applies it.";
+            placeholder: "material default";
+            enabled: root.unlocked;
+            value <=> EditorModel.specific_gravity_override;
+            edited => { root.yield_pending = true; }
+            focused => { root.yield_editing = true; root.sg_at_focus = EditorModel.specific_gravity_override; }
+            accepted => { root.commit_gravity(); }
+            blurred => { root.commit_gravity(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    Text {
+        text: "Same value as Stone width on the Stone tab.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
     // Read-only results; go blank until the next Solve.
-    ReadoutLine {
-        text: "Volumetric Yield: " + (EditorModel.volumetric_yield_text == "" ? "-" : EditorModel.volumetric_yield_text);
-        tooltip: "The share of the rough's volume that the finished stone keeps. See the glossary.";
-    }
-    ReadoutLine {
-        text: "Est. Carat Weight: " + (EditorModel.carat_weight_text == "" ? "-" : EditorModel.carat_weight_text);
-        tooltip: "The finished stone's estimated weight in carats, from its\nvolume, the Girdle Diameter and the Specific Gravity.";
-    }
-    if root.advanced: ReadoutLine {
-        text: "Specific Gravity Used: " + (EditorModel.specific_gravity_used_text == "" ? "-" : EditorModel.specific_gravity_used_text);
-        tooltip: "The specific gravity the carat estimate\nused: your override, or the material's own.";
+    HorizontalLayout {
+        spacing: 12px;
+        BigFigure {
+            value: EditorModel.carat_weight_text;
+            name: "Est. Carat Weight";
+            tooltip: "The finished stone's estimated weight in carats, from its\nvolume, the Girdle Diameter and the Specific Gravity.";
+            ink: Theme.accent-cyan;
+        }
+        BigFigure {
+            value: EditorModel.volumetric_yield_text;
+            name: "Volumetric Yield";
+            tooltip: "The share of the rough's volume that the finished stone keeps. See the glossary.";
+        }
+        if root.advanced: BigFigure {
+            value: EditorModel.specific_gravity_used_text;
+            name: "Specific Gravity Used";
+            tooltip: "The specific gravity the carat estimate\nused: your override, or the material's own.";
+        }
     }
     // The Simple interface hides the Y-Offset and the override: say so when either holds a value.
     if !root.advanced && (EditorModel.preform_y_offset_mm.to-float() != 0 || EditorModel.specific_gravity_override != ""): AdvancedNote { }

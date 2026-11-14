@@ -193,6 +193,9 @@ Progress and the actual backend remain visible in the normal-size preview.
   no denoising. Its device GPU route supports every material class with a
   1,048,576-pixel limit and at least four storage bindings; Path-Traced retains
   its 262,144-pixel GPU limit. Unsupported device workloads use the processor.
+  When the GPU driver cannot build a Path-Traced kernel for one kind of stone, stones
+  of that kind are traced on the processor for the rest of the session (the status
+  line says so), and other stones keep the GPU.
   Remote Ray-Traced needs peers on the same protocol version. Device image quality,
   driver behavior, thermal behavior and timing still require owner validation;
   no measured speedup is claimed here.

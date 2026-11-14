@@ -24,7 +24,8 @@ fn frame(estimator: Estimator) -> SceneState {
 /// for exit collection explicitly.
 fn collect_reference(scene: &SceneState, first_sample: u32, samples: u32) -> Vec<Vec3> {
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let hdr_map = crate::assets::resolved_hdr_map(scene);
     let environment = crate::assets::environment_for(scene, hdr_map.as_deref(), TrayRef::default());
     let geom = stone_geometry(scene);

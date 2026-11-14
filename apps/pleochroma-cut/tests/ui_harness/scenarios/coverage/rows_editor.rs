@@ -199,6 +199,7 @@ const EDITOR_MAIN_SHARED: &[Row] = rows!(MainWindow, Main, Editor, false;
     ViewportModel.invoke_camera_drag_begin();
     ViewportModel.invoke_camera_drag_end();
     ViewportModel.invoke_camera_orbit(Default::default(), Default::default());
+    ViewportModel.invoke_camera_pan(Default::default(), Default::default());
     ViewportModel.invoke_camera_zoom(Default::default());
     ViewportModel.invoke_copy_metrics();
     ViewportModel.invoke_env_map_follow_changed(Default::default());

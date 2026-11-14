@@ -1,57 +1,32 @@
-import { Theme } from "../../theme.slint";
 import { SettingsModel } from "../../models/settings.slint";
-import { SegmentPill } from "../pill_button.slint";
-import { SettingLabel } from "setting_label.slint";
+import { KitFillSegments } from "../kit/kit.slint";
+import { KitRowName } from "../kit/r2r.slint";
 
-// Local Compute: which engine(s) the LOCAL (non-remote) render loop uses. Only
-// shown by the caller on a GPU-capable build (`SettingsModel.gpu_build`),
+// Local Compute: the "Engines" row of the Compute card, which engine(s) the LOCAL (non-remote)
+// render loop uses. Only shown by the caller on a GPU-capable build (`SettingsModel.gpu_build`),
 // since the choice is meaningless without a `gpu` feature to route through.
 // Advanced: Simple mode hides it (the Parameters panel).
-export component LocalComputePicker inherits VerticalLayout {
-    spacing: 6px;
-    SettingLabel {
-        text: "Local Compute";
-        hint: "Local Compute: which part of this computer traces the live picture. CPU uses the processor, GPU only uses the graphics card, and CPU + GPU uses both.";
+export component LocalComputePicker inherits HorizontalLayout {
+    height: 32px;
+    spacing: 10px;
+    KitRowName {
+        text: "Engines";
+        full: "Local Compute";
+        hint: "Local Compute: which part of this computer traces the live picture. CPU uses the processor,\nGPU only uses the graphics card, and CPU + GPU uses both.";
     }
-
-    HorizontalLayout {
-        spacing: 4px;
-
-        SegmentPill {
-            text: "CPU";
-            hint: "Trace the live picture on the processor only.";
-            selected: SettingsModel.local_compute_target_index == 0;
-            picked => {
-                SettingsModel.local_compute_target_index = 0;
-                SettingsModel.local_compute_target_changed(0);
+    Rectangle {
+        horizontal-stretch: 1;
+        height: 32px;
+        KitFillSegments {
+            width: 100%;
+            height: 100%;
+            labels: ["CPU", "CPU + GPU", "GPU Only"];
+            picked: SettingsModel.local_compute_target_index;
+            selected(idx) => {
+                SettingsModel.local_compute_target_index = idx;
+                SettingsModel.local_compute_target_changed(idx);
             }
         }
-
-        SegmentPill {
-            text: "CPU + GPU";
-            hint: "Trace the live picture on the processor and the graphics card together.";
-            selected: SettingsModel.local_compute_target_index == 1;
-            picked => {
-                SettingsModel.local_compute_target_index = 1;
-                SettingsModel.local_compute_target_changed(1);
-            }
-        }
-
-        SegmentPill {
-            text: "GPU Only";
-            hint: "Trace the live picture on the graphics card only. A scene the card cannot take falls back to the processor.";
-            selected: SettingsModel.local_compute_target_index == 2;
-            picked => {
-                SettingsModel.local_compute_target_index = 2;
-                SettingsModel.local_compute_target_changed(2);
-            }
-        }
-    }
-
-    Text {
-        text: "Which engine(s) trace the live viewport. \"GPU Only\" still falls back to the CPU tracer for a scene the GPU declines (no adapter, or a scene too large for it), so nothing ever fails to render.";
-        font-size: 11px;
-        color: Theme.text-muted;
-        wrap: word-wrap;
+        Tooltip { text: @markdown("CPU traces the live picture on the processor, CPU + GPU on the processor and the\ngraphics card together, GPU Only on the graphics card. A scene the card cannot take\n(no adapter, or too large) falls back to the processor, so nothing fails to render."); }
     }
 }

@@ -15,6 +15,13 @@ export global RenderModel {
     // The line under the picture: "Rendering 24 / 64", "Done", "Paused: Device Is Hot",
     // "Solve the design to render it".
     in property <string> status-text: "";
+    // The pill's two lines in plain words, from Rust: a title ("Refining", "Done", "Paused")
+    // and a detail ("41 / 64 · on this device's GPU"). `status-text` stays the one-line form.
+    in property <string> pill-title: "";
+    in property <string> pill-detail: "";
+    // The picture's own backdrop color (its corner pixel); fills the viewport around the
+    // contain-fitted frame.
+    in property <color> backdrop: #0b0e15;
     // How far the trace is, 0 to 1.
     in property <float> progress: 0.0;
     // True while paused; the chip then reads Resume.

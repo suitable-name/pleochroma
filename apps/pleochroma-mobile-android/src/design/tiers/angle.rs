@@ -249,10 +249,7 @@ pub(super) fn push(window: &AppWindow, state: &AppState) {
     let ri_text = format!("{n_d:.4}");
 
     let (title, block, kind) = ui::with(|ui| {
-        let row = ui
-            .rows
-            .get(tier)
-            .filter(|row| !row.is_concave && row.index == tier);
+        let row = ui::flat_row(ui, tier);
         let kind = slider_kind(row, magnitude, negative);
         let title = row.map_or_else(
             || format!("Tier {}", tier + 1),

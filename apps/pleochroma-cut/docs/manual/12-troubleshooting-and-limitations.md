@@ -11,7 +11,7 @@ one place.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Status strip reads `Not solved -- click Solve to compute masts and validate this design.` | The design is **stale**: some edit (Save Tier, Remove, Apply Preform, Undo/Redo, or loading in the first place) happened since the last Solve. This is normal, not an error. | Click **Solve** (Chapter 5). |
+| Status strip reads `Not solved -- click Solve to compute masts and validate this design.` | The design is **stale**: some edit (a tier edit, Remove, Apply Preform, Undo/Redo, or loading in the first place) happened since the last Solve. This is normal, not an error. | Click **Solve** (Chapter 5). |
 | `<Block> has no anchor: add a tier with an exact scale value.` | The named block (crown, pavilion, or girdle) has no tier of kind **Exact Scale Value**. Meet-point geometry alone can never fix a block's overall size. | Add an **Exact Scale Value** tier to that block (Chapter 4), or click the tier table's own **Add Anchor** button on one of that block's rows (Chapter 3), then Solve again. |
 | `Degenerate: only N distinct vertex(es), volume <value or "non-finite"> -- check tier 5 (Girdle), tier 8.` | The facets bound a region, but it is not a valid solid -- usually two facets meeting somewhere they should not, or a wrong angle/constraint on a recently edited tier. The trailing "check ..." clause, when present, already names the likeliest tier(s). | Check the named tier(s) first, or otherwise whichever you edited most recently, especially ones sharing an anchor or a named-facet reference (Chapter 5). |
 | `Unbounded: tier 3 (P1) never close the solid.` | One or more facet planes never meet enough neighbours to close the stone in some direction; the message names the tier(s) by number and name. | Check the named tier(s) for a missing meet partner, or an angle too shallow/steep to intersect its neighbours (Chapter 5). |
@@ -39,13 +39,25 @@ not shown.
 Increasing AA taps smooths boundaries; it does not restore those optical models.
 Ray-Traced needs no denoising. Metrics and tilt curves keep their existing model.
 
-Remote Ray-Traced work requires matching protocol-42 peers. Update the viewer,
+Remote Ray-Traced work requires matching protocol-43 peers. Update the viewer,
 coordinator and joined workers together if the handshake refuses an old version.
 The GPU path uses Vulkan, DX12 or Metal; OpenGL is not used on the desktop (a machine with
 only OpenGL renders on the CPU; setting the environment variable `WGPU_BACKEND=gl` tries it
 anyway, at your own risk, since the OpenGL driver layer can crash on exit).
 An unavailable or declined local GPU falls back to the CPU; Remote Only retains its
 usual refusal behavior when no remote lane can finish the work.
+
+**The shader cache.** Path-Traced and Ray-Traced render on the graphics card, which must
+compile its shaders before the first picture. The program does this in the background as soon
+as it starts: Ray-Traced first, then Path-Traced, beginning with the open stone's material and
+then every other kind of material. A card at the bottom right, **Building the Shader Cache**,
+shows a bar for each renderer, and the status strip shows the same activity. **Hide** puts the
+card away; the build goes on. A render that waits for its shaders says so in its progress line,
+for example "Building shader cache: Path-Traced 3 of 9". The build runs after an install or an
+update; later starts load the finished cache and show no card. Some graphics drivers keep no
+cache between starts, and the card says so: there only the open stone's shaders are built, at
+every start, and another material's shaders when that material is first rendered. With
+**Local Compute** set to CPU nothing is built: the graphics card is not used at all.
 
 **Linux with an AMD graphics card (Mesa's RADV driver).** On Mesa's open AMD Vulkan driver
 some stones render wrong on the graphics card: stones with color zones, a play-of-color
@@ -54,8 +66,8 @@ the CPU is right. The cause is the driver's shader compiler, not the stone. The 
 program finds this driver it asks **RADV Shader Workaround**: **Restart With Workaround**
 turns off one optimization of the AMD shader compiler and restarts the program (you are asked
 about unsaved changes first), **Not Now** asks again at the next start, and **Don't Use It**
-never asks again. With the workaround on, GPU rendering is about 10 % slower, and the first
-GPU render after switching it on compiles the shaders again, which takes a few seconds once.
+never asks again. With the workaround on, GPU rendering is about 10 % slower, and the start
+after switching it on builds the shader cache again, once.
 Change the answer later in **Edit > Preferences > Graphics Driver > RADV Shader Workaround**
 (the section exists on Linux only); the switch takes effect after a restart, and **Restart
 Now** restarts at once. It only concerns Mesa's AMD driver: NVIDIA, Intel and Windows or macOS

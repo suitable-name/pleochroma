@@ -108,11 +108,16 @@ fn show_empty(model: &CutModel<'_>, state: &AppState) {
 
 /// One list row for the page.
 fn row_data(row: &CutRow) -> CutRowData {
+    // The sheet joins the positions with `-` (`96-08-16`); the page draws one chip each.
+    let chips: Vec<slint::SharedString> = row.index_text.split('-').map(Into::into).collect();
+    let chip_chars = row.index_text.split('-').map(|c| c.chars().count()).max();
     CutRowData {
         step: i32::try_from(row.step).unwrap_or(i32::MAX),
         code: row.code.as_str().into(),
         angle: row.angle_text.as_str().into(),
         index_text: row.index_text.as_str().into(),
+        index_chips: ModelRc::new(VecModel::from(chips)),
+        chip_chars: i32::try_from(chip_chars.unwrap_or(1).max(1)).unwrap_or(1),
         name: row.name.as_str().into(),
         notes: row.notes.as_str().into(),
         done: row.done,
@@ -122,5 +127,77 @@ fn row_data(row: &CutRow) -> CutRowData {
         tier: row
             .tier_index
             .map_or(-1, |tier| i32::try_from(tier).unwrap_or(-1)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use slint::Model;
+
+    use super::*;
+
+    fn row(index_text: &str) -> CutRow {
+        CutRow {
+            step: 3,
+            code: "C1".to_owned(),
+            angle_text: "41.00\u{b0}".to_owned(),
+            index_text: index_text.to_owned(),
+            name: "Crown Main".to_owned(),
+            notes: String::new(),
+            done: false,
+            changed: false,
+            section: "Crown",
+            section_start: false,
+            tier_index: Some(2),
+        }
+    }
+
+    fn chips(data: &CutRowData) -> Vec<String> {
+        data.index_chips
+            .iter()
+            .map(|chip| chip.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn the_index_text_splits_into_one_chip_per_position() {
+        let data = row_data(&row("96-08-16"));
+        assert_eq!(chips(&data), ["96", "08", "16"]);
+        assert_eq!(
+            data.index_text.as_str(),
+            "96-08-16",
+            "the joined text stays"
+        );
+        assert_eq!(data.chip_chars, 2);
+    }
+
+    #[test]
+    fn chip_chars_is_the_longest_chip() {
+        let data = row_data(&row("96-8-112"));
+        assert_eq!(chips(&data), ["96", "8", "112"]);
+        assert_eq!(data.chip_chars, 3);
+    }
+
+    #[test]
+    fn one_position_is_one_chip() {
+        let data = row_data(&row("48"));
+        assert_eq!(chips(&data), ["48"]);
+        assert_eq!(data.chip_chars, 2);
+    }
+
+    #[test]
+    fn an_empty_index_text_gives_one_empty_chip_of_width_one() {
+        let data = row_data(&row(""));
+        assert_eq!(chips(&data), [""]);
+        assert_eq!(data.chip_chars, 1, "the chip never collapses to zero width");
+        assert_eq!(data.index_text.as_str(), "");
+    }
+
+    #[test]
+    fn a_concave_tier_has_no_tier_index() {
+        let mut concave = row("12");
+        concave.tier_index = None;
+        assert_eq!(row_data(&concave).tier, -1);
+        assert_eq!(row_data(&row("12")).tier, 2);
     }
 }

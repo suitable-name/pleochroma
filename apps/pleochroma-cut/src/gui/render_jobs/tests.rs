@@ -108,6 +108,8 @@ fn assert_snapshots_equal(a: &SceneSnapshot, b: &SceneSnapshot) {
     };
     bits("yaw", a.yaw, b.yaw);
     bits("pitch", a.pitch, b.pitch);
+    bits("pan x", a.camera_pan[0], b.camera_pan[0]);
+    bits("pan y", a.camera_pan[1], b.camera_pan[1]);
     bits("distance", a.distance, b.distance);
     bits("light_yaw", a.light_yaw, b.light_yaw);
     bits("light_pitch", a.light_pitch, b.light_pitch);
@@ -223,6 +225,31 @@ fn the_crystal_axis_and_the_second_axis_survive_the_job_round_trip() {
             "{name}"
         );
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The viewport's pan is frozen into the job file and rebuilt with it, so a queued render frames
+/// the stone where the view did.
+#[test]
+fn the_pan_survives_the_job_round_trip() {
+    let dir = test_dir("pan");
+    let original = capture(RenderContext {
+        camera_pan: [0.3, -0.45],
+        ..RenderContext::default()
+    });
+    let remote = RemoteSelection::local_only();
+    let output = dir.join("pan-job.png");
+    let job = convert::build_still_job(
+        &still_inputs(&original, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(job.scene.camera_pan, [0.3, -0.45]);
+    assert_eq!(job.format, 7, "a pan makes the job format 7");
+    let back =
+        codec::from_text(&codec::to_text(&job).expect("the job encodes")).expect("the job decodes");
+    let rebuilt = convert::snapshot_from_scene(&back.scene, None);
+    assert_snapshots_equal(&original, &rebuilt);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

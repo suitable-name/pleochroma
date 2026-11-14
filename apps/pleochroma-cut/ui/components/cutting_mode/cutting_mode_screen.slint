@@ -144,28 +144,36 @@ component CmStepPanel inherits VerticalLayout {
         toggled(index) => { CuttingModeModel.chip_clicked(index); }
     }
 
-    // The facts, in two columns. The tier's own name, then what it meets: `Crown Main: Meet P1, P2`.
-    HorizontalLayout {
-        spacing: 24px;
-        VerticalLayout {
+    // "Cut to" card, in words: the tier's own name, then what it meets (`Crown Main: Meet P1, P2`),
+    // with the depth / mast, the tool, the cheater offset and the cutter's note beside or under it.
+    Rectangle {
+        border-radius: Theme.radius-md;
+        background: Theme.surface-raised;
+        // The layout sizes the card: no explicit height to go stale when a value wraps.
+        cut_to_col := VerticalLayout {
+            padding: 16px;
             spacing: 12px;
-            alignment: start;
-            CmFact {
-                label: "Instruction";
-                value: CuttingModeModel.meet_text;
-            }
-            if CuttingModeModel.depth_text != "": CmFact {
-                label: "Depth";
-                value: CuttingModeModel.depth_text;
+            HorizontalLayout {
+                spacing: 24px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    CmFact {
+                        label: "Cut To";
+                        value: CuttingModeModel.meet_text;
+                    }
+                }
+                if CuttingModeModel.depth_text != "": VerticalLayout {
+                    horizontal-stretch: 1;
+                    CmFact {
+                        label: "Depth";
+                        value: CuttingModeModel.depth_text;
+                    }
+                }
             }
             if CuttingModeModel.tool_text != "": CmFact {
                 label: "Tool";
                 value: CuttingModeModel.tool_text;
             }
-        }
-        if CuttingModeModel.cheater_text != "" || CuttingModeModel.notes_text != "": VerticalLayout {
-            spacing: 12px;
-            alignment: start;
             if CuttingModeModel.cheater_text != "": CmFact {
                 label: "Cheater";
                 value: CuttingModeModel.cheater_text;
@@ -179,118 +187,52 @@ component CmStepPanel inherits VerticalLayout {
         }
     }
 
+    // The step after this one, so the next index set is ready in the mind before the click.
+    if CuttingModeModel.step_index + 1 < CuttingModeModel.schedule.length: Rectangle {
+        height: 64px;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-subtle;
+        accessible-role: AccessibleRole.text;
+        accessible-label: "Next Step: " + CuttingModeModel.schedule[CuttingModeModel.step_index + 1].code + ", "
+            + CuttingModeModel.schedule[CuttingModeModel.step_index + 1].angle;
+        accessible-description: CuttingModeModel.schedule[CuttingModeModel.step_index + 1].indices;
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 14px;
+            Text {
+                text: "Next";
+                font-size: 13px;
+                font-weight: 700;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            Text {
+                text: CuttingModeModel.schedule[CuttingModeModel.step_index + 1].code + "  " + CuttingModeModel.schedule[CuttingModeModel.step_index + 1].angle;
+                font-size: 20px;
+                font-weight: 700;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+            Text {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: CuttingModeModel.schedule[CuttingModeModel.step_index + 1].indices;
+                font-size: 14px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
     // The first step also draws how the rough must sit for the crystal axis.
     if CuttingModeModel.axis_shown: CmAxisPicture {
         height: Math.clamp(root.avail_w / 2 + 34px, 120px, 250px);
         description: CuttingModeModel.axis_description;
         frame: CuttingModeModel.axis_frame;
         axis: CuttingModeModel.axis_path;
-    }
-}
-
-// The whole schedule, one row per step: code, angle, indices and a done tick. The current row is
-// highlighted, done rows are dimmed, a click on a row shows that step, and the list scrolls to
-// keep the current row in view.
-component CmSchedule inherits Rectangle {
-    property <length> row_h: 40px;
-    property <int> current: CuttingModeModel.step_index;
-    property <int> count: CuttingModeModel.schedule.length;
-
-    function reveal() {
-        sv.content-y = -Math.min(
-            Math.max(0px, (root.current + 0.5) * root.row_h - sv.height / 2),
-            Math.max(0px, root.count * root.row_h - sv.height));
-    }
-    changed current => { root.reveal(); }
-    changed count => { root.reveal(); }
-    changed height => { root.reveal(); }
-    init => { root.reveal(); }
-
-    sv := ScrollView {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
-        content-width: self.width;
-        content-height: root.count * root.row_h;
-
-        for row[i] in CuttingModeModel.schedule: rectangle-code := Rectangle {
-            x: 0px;
-            y: i * root.row_h;
-            width: sv.content-width;
-            height: root.row_h;
-            border-radius: Theme.radius-sm;
-            background: i == root.current ? Theme.bg-card-hover : (row_touch.has-hover ? Theme.surface-chip : transparent);
-            opacity: row.state == 1 && i != root.current ? 0.6 : 1.0;
-
-            accessible-role: AccessibleRole.button;
-            accessible-label: "Step " + (i + 1) + ", " + row.code + ", " + row.angle;
-            accessible-description: row.indices;
-            accessible-action-default => { CuttingModeModel.jump_to(i); }
-
-            row_touch := TouchArea {
-                mouse-cursor: MouseCursor.pointer;
-                clicked => { CuttingModeModel.jump_to(i); }
-            }
-            if i == root.current: Rectangle {
-                x: 0px;
-                y: 6px;
-                width: 4px;
-                height: parent.height - 12px;
-                border-radius: 2px;
-                background: Theme.accent-cyan;
-            }
-            Text {
-                text: row.code;
-                x: 14px;
-                width: 64px;
-                height: parent.height;
-                font-size: 17px;
-                font-weight: 700;
-                color: Theme.text-primary;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            Text {
-                text: row.angle;
-                x: 82px;
-                width: 96px;
-                height: parent.height;
-                font-size: 17px;
-                font-weight: 600;
-                color: Theme.accent-cyan;
-                vertical-alignment: center;
-            }
-            Text {
-                text: row.indices;
-                x: 184px;
-                width: max(0px, parent.width - 184px - 40px);
-                height: parent.height;
-                font-size: 14px;
-                color: Theme.text-secondary;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            if row.state == 1: Image {
-                source: @image-url("../../icons/check.svg");
-                colorize: Theme.success;
-                x: parent.width - 30px;
-                y: (parent.height - self.height) / 2;
-                width: 18px;
-                height: 18px;
-            }
-            if row.state == 2: Text {
-                text: "!";
-                x: parent.width - 34px;
-                width: 24px;
-                height: parent.height;
-                font-size: 18px;
-                font-weight: 800;
-                color: Theme.accent-amber;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
     }
 }
 
@@ -397,7 +339,7 @@ component CmStoneCard inherits CmCard {
 // done / current / to do, a click jumps there), the body, and the footer (Previous, Mark step
 // done, Next; Reset progress at the right).
 //
-// Body, width >= 1100 px: left the step card over the whole schedule, right the stone with the
+// Body, width >= 1100 px: left the step card (with the next step under it), right the stone with the
 // index wheel beside it (below it when the column is narrow). Narrower than that the blocks are
 // stacked in one scrolling column. The keys are handled by `CuttingModeModel.handle_key`, called
 // from the main window's key handler, not from here.
@@ -407,7 +349,7 @@ export component CuttingModeScreen inherits Rectangle {
     property <length> pad: 20px;
     property <length> gap: 16px;
     property <length> head_h: 52px;
-    property <length> strip_h: 28px;
+    property <length> strip_h: 40px;
     property <length> foot_h: 68px;
     property <bool> wide: root.width >= 1100px;
     property <bool> ready: !CuttingModeModel.busy && CuttingModeModel.error == "";
@@ -480,21 +422,29 @@ export component CuttingModeScreen inherits Rectangle {
         }
     }
 
-    // --- Step strip: the progress line and one segment per step. ---
-    if root.ready: Rectangle {
+    // --- Step strip: the progress line and one named cell per step (a check when done). Above 20
+    // steps it shows a window of 18 around the current step, with a "..." cell at each cut end. ---
+    if root.ready: strip_row := Rectangle {
         x: root.pad;
         y: root.pad + root.head_h + 4px;
         width: root.body_w;
         height: root.strip_h;
 
         property <length> text_w: 230px;
-        property <length> strip_w: max(0px, self.width - self.text_w - 12px);
         property <int> n: max(1, CuttingModeModel.schedule.length);
-        property <length> seg_w: Math.clamp((self.strip_w - (self.n - 1) * 3px) / self.n, 4px, 44px);
+        property <bool> windowed: self.n > 20;
+        property <int> vis: self.windowed ? 18 : self.n;
+        property <int> start: self.windowed ? Math.clamp(CuttingModeModel.step_index - 9, 0, self.n - self.vis) : 0;
+        property <bool> more_before: self.start > 0;
+        property <bool> more_after: self.start + self.vis < self.n;
+        property <length> mark_w: 34px;
+        property <length> cells_x: self.text_w + 12px + (self.more_before ? self.mark_w + 4px : 0px);
+        property <length> cells_w: max(0px, self.width - self.cells_x - (self.more_after ? self.mark_w + 4px : 0px));
+        property <length> cell_w: Math.clamp((self.cells_w - (self.vis - 1) * 4px) / self.vis, 20px, 96px);
 
         Text {
             x: 0px;
-            width: parent.text_w;
+            width: strip_row.text_w;
             height: parent.height;
             text: CuttingModeModel.progress_text;
             font-size: 15px;
@@ -503,23 +453,92 @@ export component CuttingModeScreen inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
-        for row[i] in CuttingModeModel.schedule: rectangle-code-2 := Rectangle {
-            x: parent.text_w + 12px + i * (parent.seg_w + 3px);
-            y: i == CuttingModeModel.step_index ? 3px : 7px;
-            width: parent.seg_w;
-            height: i == CuttingModeModel.step_index ? 22px : 14px;
-            border-radius: 3px;
-            background: row.state == 1 ? Theme.success : row.state == 2 ? Theme.accent-amber : Theme.border-medium;
-            border-width: i == CuttingModeModel.step_index ? 2px : 0px;
-            border-color: Theme.accent-cyan;
-
+        if strip_row.more_before: Rectangle {
+            x: strip_row.text_w + 12px;
+            width: strip_row.mark_w;
+            height: parent.height;
+            border-radius: 6px;
+            background: Theme.bg-input;
             accessible-role: AccessibleRole.button;
-            accessible-label: "Go to Step "+ (i + 1) + ", " + row.code;
-            accessible-action-default => { CuttingModeModel.jump_to(i); }
-
+            accessible-label: "Earlier Steps";
+            accessible-description: "Show the steps before the ones in view.";
+            accessible-action-default => { CuttingModeModel.jump_to(strip_row.start - 1); }
+            Text { width: 100%; height: 100%; text: "…"; font-size: 15px; font-weight: 700; color: Theme.text-secondary; horizontal-alignment: center; vertical-alignment: center; }
             TouchArea {
                 mouse-cursor: MouseCursor.pointer;
-                clicked => { CuttingModeModel.jump_to(i); }
+                clicked => { CuttingModeModel.jump_to(strip_row.start - 1); }
+            }
+        }
+        for row[i] in CuttingModeModel.schedule: rectangle-code-2 := Rectangle {
+            x: strip_row.cells_x + (i - strip_row.start) * (strip_row.cell_w + 4px);
+            width: strip_row.cell_w;
+            height: parent.height;
+
+            if i >= strip_row.start && i < strip_row.start + strip_row.vis: Rectangle {
+                width: parent.width;
+                height: parent.height;
+                border-radius: 6px;
+                background: row.state == 1 ? Theme.badge-emerald-bg : row.state == 2 ? Theme.badge-amber-bg : i == CuttingModeModel.step_index ? Theme.accent-cyan-surface : Theme.bg-input;
+                border-width: i == CuttingModeModel.step_index ? 2px : 1px;
+                border-color: i == CuttingModeModel.step_index ? Theme.accent-cyan : Theme.border-subtle;
+
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Go to Step "+ (i + 1) + ", " + row.code;
+                accessible-description: row.side == 0 ? "Pavilion" : (row.side == 1 ? "Girdle" : "Crown");
+                accessible-action-default => { CuttingModeModel.jump_to(i); }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    if row.state == 1: VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../../icons/check.svg"); colorize: Theme.success; width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: row.code;
+                        font-size: 13px;
+                        font-weight: 700;
+                        color: row.state == 2 ? Theme.accent-amber : (i == CuttingModeModel.step_index ? Theme.text-primary : Theme.text-secondary);
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if row.state == 2: Text {
+                        text: "!";
+                        font-size: 14px;
+                        font-weight: 800;
+                        color: Theme.accent-amber;
+                        vertical-alignment: center;
+                    }
+                }
+                // The side of the stone: pavilion violet, girdle grey, crown cyan.
+                Rectangle {
+                    x: 5px;
+                    y: parent.height - 4px;
+                    width: parent.width - 10px;
+                    height: 2px;
+                    border-radius: 1px;
+                    background: row.side == 0 ? Theme.accent-purple : (row.side == 1 ? Theme.text-muted : Theme.accent-cyan);
+                }
+                TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { CuttingModeModel.jump_to(i); }
+                }
+            }
+        }
+        if strip_row.more_after: Rectangle {
+            x: parent.width - strip_row.mark_w;
+            width: strip_row.mark_w;
+            height: parent.height;
+            border-radius: 6px;
+            background: Theme.bg-input;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Later Steps";
+            accessible-description: "Show the steps after the ones in view.";
+            accessible-action-default => { CuttingModeModel.jump_to(strip_row.start + strip_row.vis); }
+            Text { width: 100%; height: 100%; text: "…"; font-size: 15px; font-weight: 700; color: Theme.text-secondary; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { CuttingModeModel.jump_to(strip_row.start + strip_row.vis); }
             }
         }
     }
@@ -549,8 +568,7 @@ export component CuttingModeScreen inherits Rectangle {
         vertical-alignment: center;
     }
 
-    // Wide: the step card over the schedule on the left (about 42%), the stone and the wheel on
-    // the right.
+    // Wide: the step card on the left (about 42%), the stone and the large wheel on the right.
     if root.ready && root.wide: wide_body := Rectangle {
         x: root.pad;
         y: root.body_y;
@@ -561,9 +579,8 @@ export component CuttingModeScreen inherits Rectangle {
         property <length> rw: self.width - root.gap - self.lw;
         // The wheel sits beside the stone when the right column is wide enough, else below it.
         property <bool> beside: self.rw >= 780px;
-        property <length> wheel_w: 340px;
-        property <length> wheel_h: 300px;
-        property <length> sched_h: Math.max(150px, self.height * 0.36);
+        property <length> wheel_w: Math.clamp(self.rw * 0.4, 360px, 480px);
+        property <length> wheel_h: Math.min(self.wheel_w + 40px, self.height * 0.5);
 
         CmCard {
             x: 0px;
@@ -576,7 +593,7 @@ export component CuttingModeScreen inherits Rectangle {
                 x: 0px;
                 y: 0px;
                 width: parent.width;
-                height: parent.height - wide_body.sched_h - 24px;
+                height: parent.height;
                 content-width: self.width;
                 content-height: step_panel.preferred-height + 32px;
 
@@ -587,22 +604,6 @@ export component CuttingModeScreen inherits Rectangle {
                     height: self.preferred-height;
                     avail_w: self.width;
                 }
-            }
-            Text {
-                x: 20px;
-                y: parent.height - wide_body.sched_h - 20px;
-                height: 20px;
-                text: "Schedule";
-                font-size: 13px;
-                font-weight: 600;
-                color: Theme.text-muted;
-                vertical-alignment: center;
-            }
-            CmSchedule {
-                x: 8px;
-                y: parent.height - wide_body.sched_h;
-                width: parent.width - 16px;
-                height: wide_body.sched_h - 8px;
             }
         }
 
@@ -627,7 +628,7 @@ export component CuttingModeScreen inherits Rectangle {
         width: root.body_w;
         height: root.body_h;
         content-width: self.width;
-        content-height: narrow_step.height + root.gap + narrow_body.stone_h + root.gap + 300px + root.gap + 360px;
+        content-height: narrow_step.height + root.gap + narrow_body.stone_h + root.gap + 400px;
 
         property <length> col_w: self.width - 12px;
         property <length> stone_h: Math.clamp(self.col_w * 0.75, 260px, 460px);
@@ -656,20 +657,7 @@ export component CuttingModeScreen inherits Rectangle {
             x: 0px;
             y: narrow_step.height + root.gap + narrow_body.stone_h + root.gap;
             width: narrow_body.col_w;
-            height: 300px;
-        }
-        CmCard {
-            x: 0px;
-            y: narrow_step.height + root.gap + narrow_body.stone_h + root.gap + 300px + root.gap;
-            width: narrow_body.col_w;
-            height: 360px;
-
-            CmSchedule {
-                x: 8px;
-                y: 8px;
-                width: parent.width - 16px;
-                height: parent.height - 16px;
-            }
+            height: 400px;
         }
     }
 
@@ -705,13 +693,21 @@ export component CuttingModeScreen inherits Rectangle {
                     clicked => { CuttingModeModel.previous(); }
                 }
                 cm-button-step-state := CmButton {
-                    text: CuttingModeModel.step_state == 1 ? "Mark Not Done" : "Mark Step Done";
+                    text: CuttingModeModel.step_state == 1 ? "Mark Not Done"
+                        : CuttingModeModel.tier_name + (CuttingModeModel.has_next ? " Done · Next" : " Done");
+                    access_label: CuttingModeModel.step_state == 1 ? "Mark Not Done" : "Mark Step Done";
                     hint: CuttingModeModel.step_state == 1
                         ? "Take the done mark back from this step, for example when you have to cut it again."
-                        : "Mark this step as cut and remember it. Space or D marks it and goes on to the next step.";
+                        : "Mark this step as cut and remember it, then go on to the next step. Space or D does the same.";
                     icon: @image-url("../../icons/check.svg");
                     primary: CuttingModeModel.step_state != 1;
-                    clicked => { CuttingModeModel.toggle_done(); }
+                    clicked => {
+                        if CuttingModeModel.step_state == 1 {
+                            CuttingModeModel.toggle_done();
+                        } else {
+                            CuttingModeModel.mark_done_and_next();
+                        }
+                    }
                 }
                 CmButton {
                     text: "Next";

@@ -12,22 +12,31 @@ rather than typing a whole tier from scratch.
 
 ## The Inspector
 
-Below the tier table, a resizable, collapsible inspector panel has five
-tabs: **Tier**, **Preform**, **Optimize**, **Schedule**, and **History**.
-Clicking a tab pill also re-expands the panel if it was collapsed. The tier
-table collapses the same way, through the arrow on its **TIERS** header; the
-inspector then takes all the space the table gave up. This
+Below the tier list, a resizable, collapsible inspector panel has four
+tabs: **Tiers** (its accessible name is Tier), **Preform**, **Optimize** and
+**History**. There is no Schedule tab any more: the cut order is on the Cutting
+Instructions page (Chapter 3). Clicking a tab pill also re-expands the panel if
+it was collapsed. The tier list collapses the same way, through the arrow on its
+**TIERS** header; the inspector then takes all the space the list gave up. This
 chapter covers the Tier tab in full and the Preform tab's proportions/yield
-fields; Optimize is Chapter 8, Schedule is covered in Chapter 3, and
-History is Chapter 18.
+fields; Optimize is Chapter 8 and History is Chapter 18.
+
+**The tier list.** The list shows the tiers flat, in true cutting order, with
+block stripes and headings, the step number and the full indices of each tier. A
+mark on each row says its state (a tick or a triangle), with marks for frost and
+links. The "..." button at the end of a row (**Actions for Tier N**; a right-click
+opens the same menu) holds Adopt, Pin, Add Anchor, Complete Orbit, Move Up, Move Down,
+Duplicate, Surface Finish and Delete. Above the list, **+ Add Tier** adds a new
+tier and the **Add Tier Menu** beside it (**More Ways to Add a Tier**) holds Tier,
+Concave Tier, the QUICK ADD items Table, Girdle and Culet, and the Girdle Facet
+Preset; the **Tier List Menu** holds Adopt All and Select.
 
 Each tab pill is a tab stop with a hover tip, and a screen reader announces
 it as a tab, picked or not. A small **?** button at the right of the tab row
 opens the manual page for the open tab (the Tier tab opens the tier form, the
 concave form opens "Adding a Concave Tier," and so on). The **Simple**
-interface (Chapter 17) shows four tabs: the **Schedule** tab, which is a
-read-only listing for the cutting sheet, is left out until you switch to
-Advanced. The controls inside the other tabs that only matter to
+interface (Chapter 17) hides the Tune, Run, Trials and Variants parts of the
+Optimize and History tabs. The controls inside the tabs that only matter to
 experienced cutters are hidden in the same way, and each tab says so with
 "Some advanced settings are in use. Switch to Advanced to see them." when a
 hidden control holds something other than its default.
@@ -48,10 +57,12 @@ The Tier tab has these fields:
   written with two decimals and a decimal point, the same on every computer.
   A blank field steps from 0. On text that is not a plain number (a
   calculation, or a relation starting with `=`) the keys do nothing, so they
-  never overwrite what you typed. Stepping only changes the form; nothing is
-  saved until Save Tier.
-- **Meets** — a drop-down with six choices that decide how the facet's
-  depth is worked out:
+  never overwrite what you typed. On an existing tier the change applies when you
+  press Enter or leave the field; there is no Save Tier button. A slider and a
+  Typical menu sit under the field (below).
+- **Meets** — a segment (Vertex, Facets, Scale, Depth, Girdle, Table; Scale only
+  in Advanced) with six choices that decide how the facet's
+  depth is worked out (the full names below are what a screen reader announces):
   - **Unspecified Vertex** — the facet is cut until its plane meets some
     vertex of the surrounding geometry, with no vertex named. Use this for
     a straightforward meet where nothing needs to be spelled out (a first
@@ -71,11 +82,11 @@ The Tier tab has these fields:
   an anchor is an authoring tool most designs never need. A tier that
   already uses it still shows it (and so does the **Girdle Facet Preset**
   button's result), so nothing is ever hidden from a tier that depends on it.
-  The **Quick Add** buttons (Table, Girdle, Culet) and a row's **Add Anchor**
-  button still make anchors in the Simple interface. Switch to Advanced to
+  The **QUICK ADD** items (Table, Girdle, Culet) and a row's **Add Anchor**
+  menu item still make anchors in the Simple interface. Switch to Advanced to
   pick Exact Scale Value for any tier.
-- **Name** — the facet's name, referenced by other tiers' "Named Facet(s)"
-  field and shown in the tier list and cutting instructions.
+- **Name** — the last field of the form: the facet's name, referenced by other
+  tiers' "Named Facet(s)" field and shown in the tier list and cutting instructions.
 - **Indices** — which index position(s) on the gear this tier occupies.
   A single value for one facet, several for a symmetric family (e.g.
   `0, 12, 24, 36, 48, 60, 72, 84` for an 8-fold family on a 96-tooth gear).
@@ -107,25 +118,26 @@ A **Girdle Facet Preset (90°, Scale = 1)** button sits with the form
 fields. Click it to fill Angle, Meets, and the scale value in one step —
 `90`, **Exact Scale Value**, and `1` — the exact combination Chapter 7's
 worked example sets by hand for its own girdle tier. It only fills the
-form; you still type the Name and Indices and click **Add Tier** yourself.
+form; you still type the Name and Indices and click **Add This Tier** yourself.
 Use it any time you are about to author a girdle anchor and want the
 three number fields right on the first try, rather than typing `90` and
 remembering that the girdle's own scale convention is a half-width, so `1`
 is a natural starting value.
 
-The tab's title reads "Add Tier" when you are creating a new row, or "Edit
-Tier #N" when editing an existing one (click a row, or select it any other
-way — Chapter 3 — to load it here). The save button at the bottom of the
-tab reads **Add Tier** in the first case and **Save Tier** in the second; a
-**New** button next to it clears the form back to add-mode without
-touching the tier list.
+The tab's title reads "Add Tier" when you are creating a new row, or "Tier
+#N" when editing an existing one (click a row, or select it any other
+way — Chapter 3 — to load it here). A new tier is only written when you click
+**Add This Tier** at the bottom of the form. An existing tier has no save button:
+each field applies when you press Enter or leave it, and an edit that changes
+nothing spends no undo step. A **New** button clears the form back to add-mode
+without touching the tier list.
 
 A new tier can also be started without the form: the Solid viewport's
 **Slice** mode lets you draw a line across the stone and adds the tier it
 defines, snapped to the index wheel, in one undo step (Chapter 13, "Slicing a
 New Facet with the Mouse").
 
-**Saving does not re-solve.** Clicking Save Tier (or Add Tier, or Remove,
+**Editing does not re-solve.** Applying a tier edit (or Add This Tier, or Remove,
 or Apply Preform) updates the tier list's editable columns
 immediately, but deliberately does *not* run a fresh solve — that is
 Chapter 5's job, and it can take real time on a large design. Instead the
@@ -174,9 +186,10 @@ the field says. You get both in the Simple and in the Advanced interface.
   entry only fills in the Angle field. An entry that gives the same angle as an
   earlier one is left out.
 
-The slider does not save anything. Dragging it or choosing a preset changes the
+Dragging the slider or choosing a preset changes the
 form exactly as typing does: the margin bar under the field follows along, and
-**Save Tier** (or **Add Tier**) still commits the tier as one undoable edit. The
+the angle applies as one undoable edit when you let go (or **Add This Tier**
+commits a new tier). The
 slider writes plain numbers with two decimals. If the field holds a pavilion
 angle as a plain number, the margin bar reads it as a pavilion angle, so the
 bar is right whether you drag, type or choose a preset.
@@ -188,7 +201,7 @@ slider dims and stops reacting while the field holds text it cannot show, such
 as `41.5+` typed half way. A calculation that works out, such as `41.5+0.3`, is
 shown at its result, and dragging then replaces it with a plain number.
 
-A new tier counts as a pavilion when its Name starts with P (the rule Save Tier
+A new tier counts as a pavilion when its Name starts with P (the rule Add This Tier
 uses), so you type just the plain angle; a minus sign typed in front of the
 angle does the same. Otherwise the slider treats it as a crown. The tier table
 then shows the angle as a plain positive number with its side in the letter of
@@ -197,7 +210,7 @@ the CODE column.
 ## Losing an Unsaved Draft
 
 If you are still typing into the tier form — an in-progress "Add Tier"
-draft, or an edit to an existing tier you have not saved yet — and the
+draft, or an edit to an existing tier you have not applied yet — and the
 selection then moves to a different tier from somewhere else (a row click
 elsewhere, a facet click in the 3D view or the diagram, Undo/Redo, or Load
 Selected), the app does not silently throw your draft away. A small amber
@@ -277,10 +290,10 @@ A frosted facet is a **Ground** facet (roughness 0.45), and the tier table's rig
 
 When a tier's Indices list names more than one position, the app treats
 those positions as one symmetric family (an orbit — Chapter 3). By default,
-editing that tier and clicking Save Tier is meant to move the *whole*
+editing that tier (applying a field) is meant to move the *whole*
 family together, keeping the design symmetric.
 
-The **Detach** button on a tier's row exempts every one of that tier's
+The **Detach** button (in the row's Tier Actions) exempts every one of that tier's
 positions from this automatic orbit-consistency handling — the button then
 reads **Reattach**, letting you put it all back. Use it when you genuinely
 want a deliberately asymmetric design; leaving a tier attached is the
@@ -288,11 +301,11 @@ correct default for anything meant to stay symmetric. For detaching a
 *single* facet out of an otherwise-attached tier, use the per-facet chip
 controls above instead.
 
-Editing a detached tier's other fields and clicking Save Tier rebuilds the
+Editing a detached tier's other fields rebuilds the
 tier from the form and clears the Detach flag back to attached. Only the
 dedicated Detach/Reattach button itself preserves the flag across other
-edits — if you need a tier to stay detached, re-detach it after any Save
-Tier edit.
+edits — if you need a tier to stay detached, re-detach it after any such
+tier edit.
 
 **In the Simple interface** the Detach/Reattach button on a row, the per-facet
 detach buttons on the chips, the Cheater Offset row and the imported-meet
@@ -373,11 +386,12 @@ override holds one.
   shown at all when there is nothing to judge yet (the design does not
   currently solve/close).
 - **Yield** — the effective-RI readout and its source, Girdle Diameter
-  (mm; the same value as the Stone tab's Stone Width (mm), so editing either changes both), a Specific Gravity Override for the carat estimate (blank uses the
+  (mm; the same value as the Stone tab's Stone width, so editing either changes both), a Specific Gravity Override for the carat estimate (blank uses the
   specific gravity of the material set in the Stone tab — Chapter 6; both
   fields take a number or a small calculation, such as `6.5+0.25`, and have no
-  slider because they are measured or looked up, not tuned), an
-  **Apply Yield Inputs** button, and the resulting
+  slider because they are measured or looked up, not tuned). The fields say
+  "Enter applies": a value applies when you press Enter or leave the field (there is
+  no Apply Yield Inputs button now). The group also shows the resulting
   Volumetric Yield, Est. Carat Weight, and Specific Gravity Used, each
   blank until the next Solve.
 
@@ -440,11 +454,10 @@ just scrolls the tier list, like scrolling over any other cell.
 **Inline cell vs. the form field.** A nudge on the tier list's inline
 angle cell applies immediately as a real, undoable edit against that tier
 — exactly like committing a typed value. A nudge on the Tier tab's own
-Angle field, by contrast, only adjusts the form's scratch text; nothing is
-applied to the design until you click **Save Tier**. The form is a staging
-area for a tier you may still be composing (including a brand-new "Add
-Tier" draft that doesn't exist in the design yet to nudge), so its nudge
-step stays local until you explicitly save.
+Angle field, by contrast, only adjusts the form's scratch text; on an existing
+tier it applies when you press Enter or leave the field, and a brand-new "Add
+Tier" draft that doesn't exist in the design yet stays local until you click
+**Add This Tier**.
 
 Nudging the same tier repeatedly in quick succession (within about half a
 second between keystrokes/scroll ticks) collapses into a single undo step,
@@ -457,17 +470,17 @@ Facet: The Angle, Depth and Index Handles".
 
 ## Duplicating a Tier
 
-Click the small duplicate button on a tier's row (the two-sheets icon), or select a
-row and press **Ctrl+D**, to append a copy of it to the end of the tier
+Choose **Duplicate** in the "..." menu of a tier's row (**Actions for Tier N**), or select a
+row and press **Ctrl+D**, to insert a copy of it right after it in the tier
 list. The copy keeps the same angle, indices, and constraint, gets the same
 name with a trailing apostrophe (e.g. `P1` → `P1'`), and the tier list's
 selection moves to the new copy so you can immediately start editing it.
 Duplicating is one undoable `Add Tier` edit, like typing a new tier by hand
-and clicking Add Tier.
+and clicking Add This Tier.
 
 ## Reordering Tiers
 
-The small up and down arrow buttons on a tier's row, or **Alt+Up** / **Alt+Down** on the
+**Move Up** and **Move Down** in the "..." menu of a tier's row, or **Alt+Up** / **Alt+Down** on the
 keyboard-selected row, swap that tier with its neighbour in the table. Each
 swap is its own undoable edit. The table order decides the cutting order
 inside each side of the stone: the pavilion and girdle tiers are cut first, in
@@ -562,7 +575,7 @@ What Undo and Redo do, step by step, and what they leave for you:
 - **They do not run Solve.** The design is put back exactly as it was, but
   the numbers that come from a solve are not recomputed. The table's MAST
   and SOLVE columns, the solved readout in the Tier tab and the status strip
-  are marked stale, the same way they are after Save Tier. A Deep Solve or
+  are marked stale, the same way they are after a tier edit. A Deep Solve or
   Optimize result that is still on screen is marked "Stale: Design
   Changed". Click **Solve** to bring them up to date; if you turned
   auto-solve on (Chapter 5), it starts by itself after a short pause, and
@@ -670,7 +683,7 @@ number of degrees from its break, a facet halfway between two others.
 ### Typing a Relation
 
 In the Tier tab, start the **Angle (deg)** field with `=` and write what the
-angle should follow, then press Enter or **Save Tier**:
+angle should follow, then press Enter (or **Add This Tier** for a new tier):
 
 | You type | The angle becomes |
 | --- | --- |

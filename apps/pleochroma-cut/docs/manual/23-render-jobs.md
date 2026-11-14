@@ -17,7 +17,7 @@ You can add a job from two places:
 
 A job also freezes **Renderer**, and either the Path-Traced sample count or the
 Ray-Traced AA tap count and Fire option. Ray-Traced stills and tilt-video frames
-finish after their fixed taps and use no denoiser. Local, GPU and protocol-42
+finish after their fixed taps and use no denoiser. Local, GPU and protocol-43
 remote routes honor the frozen engine. Later viewport or output-setting changes
 do not replace it.
 
@@ -34,6 +34,9 @@ render them, and an older reader refuses the job instead of rendering the base c
 Ray-Traced job never carries zones, because that engine renders the base color. A job queued by an
 older version keeps its zones in the app; **Export Script...** adds them to the job file.
 The job supplies the same engine, shadow and reflection settings to a remote worker.
+A job of a stone moved within the picture (Chapter 2) uses `format: 7` whatever else it holds:
+it keeps the move as `camera_pan`, and an older reader refuses the job instead of drawing the
+stone in the middle. A job of a centred stone keeps its format.
 
 The shadow requires a studio light and a backdrop. HDR maps, As Lit,
 "Contrast view (ASET-style)" and tilt videos cannot use it. The renderer builds a Final

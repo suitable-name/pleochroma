@@ -1,13 +1,18 @@
 import { LightingPresetItem } from "../types.slint";
 import { PhysicscolorModel } from "physics_color.slint";
+import { Theme } from "../theme.slint";
 
 // Shared state of the 3D viewport interactions: `GemViewportView`'s camera, lighting and material
 // controls and the read-only optical-metrics readout, plus `SolidViewportView`'s camera drag,
-// which moves the same `bridge::render_thread::context::RenderContext` yaw and pitch as the Live
-// Render viewport.
+// which moves the same `bridge::render_thread::context::RenderContext` yaw, pitch and pan as the
+// Live Render viewport.
 export global ViewportModel {
     in property <image> render_image;
     in property <bool> has_render: false;
+    // The color of the current render's border (the median of pixels along its four edges),
+    // set with every delivered frame (`gui::render::backdrop_color`). The Live Render view
+    // paints its background with it so a letterboxed picture shows no bars.
+    in property <color> render_backdrop_color: Theme.viewport-bg;
     in property <bool> render_progress_visible: false;
     in property <bool> render_progress_indeterminate: true;
     in property <int> render_samples_done: 0;
@@ -111,7 +116,24 @@ export global ViewportModel {
     // startup from `LightingPreset::ALL`. The Lighting tab's Tray Reflection row reads it too:
     // the reflection reaches the same lights.
     in property <[bool]> lighting_supports_stone_shadow: [];
+    // Parallel to `lighting_options`, all four set once at startup from `LightingPreset::ALL`
+    // (`gui::optics::offered_lighting::rig_kind`, `rig_group`, `rig_short_name`, `rig_blurb`):
+    // the `KitRigThumb` kind of each rig (0-12 the visible-light rigs, 13 and 14 the UV lamps),
+    // its menu group (0 lit model, 1 studio, 2 analysis, 3 UV), its short name for chips and
+    // tiles ("Light Tent", "Grading Tray") and a one-line blurb ("Soft light, black cards").
+    in property <[int]> lighting_kinds: [];
+    in property <[int]> lighting_groups: [];
+    in property <[string]> lighting_short_names: [];
+    in property <[string]> lighting_blurbs: [];
     in property <[LightingPresetItem]> lighting_presets: [];
+    // Parallel to `lighting_presets`: the `KitRigThumb` kind of each saved lighting's rig.
+    // Rebuilt with `lighting_presets` (`gui::refresh_lighting_preset_options`).
+    in property <[int]> lighting_preset_kinds: [];
+    // Index into `lighting_presets` of the saved lighting that equals the open design's
+    // remembered lighting (every lighting field; the camera is not compared), -1 for none: the
+    // design has no remembered lighting, or no saved lighting matches it. Kept current by
+    // `gui::render::design_lighting` and `gui::refresh_lighting_preset_options`.
+    in property <int> design_lighting_preset: -1;
 
     in property <float> brilliance_pct: 0.0;
     in property <float> fire_index: 0.0;
@@ -120,12 +142,16 @@ export global ViewportModel {
     in property <float> extinction_pct: 0.0;
 
     callback camera_orbit(float, float);
+    // A pan drag of `(dx, dy)` logical pixels in either viewport (the middle button, or Ctrl or
+    // Cmd with the left button): the stone follows the pointer within the picture, seen from the
+    // shifted eye (`gui::render::camera_lighting::setup_pan_callback`).
+    callback camera_pan(float, float);
     callback camera_zoom(float);
-    // Mouse-button edges of an orbit or light drag in either viewport. `camera_drag_begin` fires
-    // on the press that starts a drag (never for a handle or slice drag); `camera_drag_end` on the
-    // matching release or cancel, or when the drag area is disabled mid-drag. Rust mirrors them
-    // into `RenderContext::camera_drag_held`, which keeps the low-resolution preview until release.
-    // A stray extra `end` is harmless.
+    // Mouse-button edges of an orbit, pan or light drag in either viewport. `camera_drag_begin`
+    // fires on the press that starts a drag (never for a handle or slice drag); `camera_drag_end`
+    // on the matching release or cancel, or when the drag area is disabled mid-drag. Rust mirrors
+    // them into `RenderContext::camera_drag_held`, which keeps the low-resolution preview until
+    // release. A stray extra `end` is harmless.
     callback camera_drag_begin();
     callback camera_drag_end();
     callback light_move(float, float);
@@ -135,10 +161,32 @@ export global ViewportModel {
     // `gui::render::camera_lighting`, which writes the values back into `SettingsModel`.
     callback env_map_turn_changed(float);
     callback env_map_follow_changed(bool);
+    // The file name of the loaded HDR map, "" when none (the studio rig is in use). Follows
+    // `SettingsModel.env_map_status` (`gui::env_map_name_from_status`).
+    in property <string> env_map_name: "";
+    // "Choose...": a native .hdr picker whose pick is loaded at once, the same as Browse followed
+    // by Load (`SettingsModel.pick_hdr_file` + `load_env_map`). Nothing happens on cancel.
+    // Handled in `gui::render::camera_lighting::setup_environment_map_callbacks`.
+    callback env_map_choose();
+    // Unloads the HDR map; the lighting rig comes back (today's `SettingsModel.clear_env_map`).
+    callback env_map_clear();
+    // Two hints the cutter has dealt with, persisted in the app settings and restored at startup
+    // (`gui::startup_settings`). Neither is touched by any "Reset This Tab".
+    // The mouse-gestures card (Live Render and Edit viewports) opens by itself until this is
+    // true; the view calls `gestures_seen_set(true)` on the first drag. Both properties are
+    // `in`: the Rust handler of each setter stores the value and writes the property back.
+    in property <bool> gestures_seen: false;
+    callback gestures_seen_set(bool);
+    // Whether the Live Render viewport's Face-Up figures card is folded to one line.
+    // The view reads it and asks for a change through `figures_folded_set`.
+    in property <bool> figures_folded: false;
+    callback figures_folded_set(bool);
     callback reset_camera();
     // Poses for the shared orbit camera: 0 = Front, 1 = Top, 2 = Bottom, 3 = Left,
     // 4 = Right (yaw resets to index 0), 5 = Fit (distance only), 6 = Turn 90° (a quarter
-    // turn added to the yaw). Distance and lighting are kept except by Fit.
+    // turn added to the yaw). Distance and lighting are kept except by Fit. Front to Right
+    // centre the stone in the picture again (the pan); Fit and Turn 90° keep it, as does
+    // every orbit and zoom. `reset_camera` centres it too.
     callback set_view(int);
     // Carries the selected preset's INDEX into `lighting_options`/`LightingPreset::ALL`,
     // not its label text.

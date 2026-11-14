@@ -56,6 +56,9 @@ pub struct SceneSnapshot {
     pub pitch: f32,
     /// Clockwise image-plane roll, frozen with the viewport pose.
     pub camera_roll: f32,
+    /// Where the stone sits in the picture (`RenderContext::camera_pan`, image half-heights in the
+    /// picture's axes), frozen with the viewport pose; `[0.0, 0.0]` is centred.
+    pub camera_pan: [f32; 2],
     /// Camera distance from the stone.
     pub distance: f32,
     /// Light yaw.
@@ -376,6 +379,7 @@ impl SceneSnapshot {
             yaw: guard.yaw,
             pitch: guard.pitch,
             camera_roll: guard.camera_roll,
+            camera_pan: guard.camera_pan,
             distance: guard.distance,
             light_yaw: guard.light_yaw,
             light_pitch: guard.light_pitch,
@@ -854,6 +858,22 @@ mod tests {
         });
         let plain = SceneSnapshot::capture(&plain).expect("the default material resolves");
         assert!(plain.stone_closed);
+    }
+
+    /// The viewport's pan reaches the export snapshot, and an untouched context captures the
+    /// centred stone.
+    #[test]
+    fn capture_carries_the_camera_pan_into_the_exported_scene() {
+        let centred = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
+            .expect("default resolves");
+        assert_eq!(centred.camera_pan, [0.0, 0.0]);
+
+        let panned = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            camera_pan: [0.4, -0.25],
+            ..Default::default()
+        }))
+        .expect("default resolves");
+        assert_eq!(panned.camera_pan, [0.4, -0.25]);
     }
 
     /// The viewport's surface glare reaches the export snapshot, and the default

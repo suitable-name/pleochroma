@@ -12,6 +12,7 @@ use pleochroma::{
 fn run_export_produces_a_valid_png_for_a_tiny_scene() {
     let scene = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
@@ -90,6 +91,7 @@ fn run_export_produces_a_valid_png_for_a_tiny_scene() {
 fn run_export_with_an_hdr_environment_map_still_produces_a_valid_png() {
     let scene = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
@@ -157,6 +159,7 @@ fn run_export_with_an_hdr_environment_map_still_produces_a_valid_png() {
 fn run_export_honors_pre_set_cancellation_and_writes_no_file() {
     let scene = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
@@ -218,6 +221,7 @@ fn run_export_honors_pre_set_cancellation_and_writes_no_file() {
 fn tiny_scene() -> SceneSnapshot {
     SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,

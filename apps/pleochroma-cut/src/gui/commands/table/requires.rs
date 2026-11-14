@@ -75,8 +75,5 @@ pub(super) const INSPECTOR_PREFORM: &[Check] =
     &[Check::Guide(GuideGroup::PreformTab), Check::Editor];
 pub(super) const INSPECTOR_OPTIMIZE: &[Check] =
     &[Check::Guide(GuideGroup::Advanced), Check::Editor];
-/// The Schedule tab exists only in the Advanced interface: the inspector sends a Simple-mode
-/// request for it straight back to the Tier tab, so the palette says why instead.
-pub(super) const INSPECTOR_SCHEDULE: &[Check] = &[Check::Editor, Check::NeedsAdvancedInterface];
 pub(super) const SLICE: &[Check] = &[Check::Editor, Check::Design, Check::NotDiagramView];
 pub(super) const MATERIAL_EDITOR: &[Check] = &[Check::Guide(GuideGroup::DesignSettings)];

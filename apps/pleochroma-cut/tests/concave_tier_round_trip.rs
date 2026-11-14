@@ -65,6 +65,7 @@ const fn camera() -> CameraPose {
         yaw: 0.6,
         pitch: 1.0,
         distance: 3.0,
+        pan: [0.0, 0.0],
     }
 }
 

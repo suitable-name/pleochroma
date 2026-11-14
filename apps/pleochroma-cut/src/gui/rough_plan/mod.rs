@@ -50,6 +50,13 @@ pub fn harness_view_unsettled() -> Option<String> {
     host::with_host(view::frame_unsettled)
         .unwrap_or_else(|| Some("the planner is not open".to_owned()))
 }
+
+/// The planner's 3D view state in one line (see `view::frame_report`). UI harness only.
+#[cfg(feature = "ui-harness")]
+#[must_use]
+pub fn harness_view_report() -> String {
+    host::with_host(view::frame_report).unwrap_or_else(|| "the planner is not open".to_owned())
+}
 use self::host::open_planner;
 pub(in crate::gui) use self::host::{
     close_planner_window, planner_work_at_risk, refresh_links_enabled,

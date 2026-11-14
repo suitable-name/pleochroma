@@ -20,7 +20,9 @@
 
 use super::{
     super::{Piece, existing_install},
-    overlay_states::{Base, NONE, State, deny, edit_tab, inspector, parameters, press},
+    overlay_states::{
+        Base, NONE, State, deny, edit_tab, inspector, parameters, parameters_stone_open, press,
+    },
     state_pieces,
     states_axis::design_material,
     states_dialogs::{material_open, saved_material, scroll_until_visible},
@@ -88,7 +90,7 @@ fn structure_on(a: &HarnessApp) {
 fn stone_tab(a: &HarnessApp, material: &str, prepare: fn(&HarnessApp), dy: f32) {
     edit_tab(a);
     let _ = design_material(a, material);
-    parameters(a, 0);
+    parameters_stone_open(a);
     prepare(a);
     scroll_scope(a, "ParametersPanel", 0.0, dy);
 }

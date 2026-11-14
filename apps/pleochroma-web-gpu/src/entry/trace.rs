@@ -182,7 +182,10 @@ fn report_pass(pass: Pass, result: Result<(), EwError>, sums: Vec<Vec3>, pass_st
             }
         }
         Err(
-            error @ (EwError::DeviceLost(_) | EwError::ChunkTimeout | EwError::BufferMapping(_)),
+            error @ (EwError::DeviceLost(_)
+            | EwError::ChunkTimeout
+            | EwError::BufferMapping(_)
+            | EwError::KernelCompile { .. }),
         ) => {
             DEVICE_LOST.with(|l| l.set(true));
             post(&FromWorker::GpuLost {

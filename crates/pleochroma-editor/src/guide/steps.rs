@@ -16,7 +16,7 @@
 pub enum Group {
     /// New Design... (button, menu, Ctrl+N, empty-state card).
     NewDesign,
-    /// "+ Add Tier", the Tier tab, New Tier, Add/Save Tier.
+    /// "+ Add Tier", the Tier tab, New Tier, Add This Tier (an edit applies on Enter).
     TierForm,
     /// The tier table's toolbar and each tier row's Duplicate/Delete/Move.
     TierTable,
@@ -122,10 +122,10 @@ pub const STEPS: &[Step] = &[
         actions: &[
             "Click + Add Tier.",
             "Angle (deg): 90.0 \u{2014} or click Girdle Facet Preset, which sets Angle 90.0 and Meets Exact Scale Value 1.0 in one click.",
-            "Meets: Exact Scale Value \u{2014} 1.0",
+            "Meets: Exact Scale Value (Scale segment) \u{2014} 1.0",
             "Name: G1",
             "Indices: 0, 12, 24, 36, 48, 60, 72, 84",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ],
         check: "the new G1 row reads G1 in the CODE column.",
         why: "Type exactly 90.0: a 0.0 tier counts as crown and would become a second table. At 90 degrees the scale value 1.0 is the girdle's half-width, so the girdle is 2.0 wide, flat to flat. The pavilion and the crown get a scale value of their own in the next steps. This step shows the Advanced controls because the Simple interface leaves Exact Scale Value out of the Meets list, so you can pick it there even if you type the angle by hand.",
@@ -140,10 +140,10 @@ pub const STEPS: &[Step] = &[
         actions: &[
             "Click + Add Tier.",
             "Angle (deg): -40.0",
-            "Meets: Exact Scale Value \u{2014} 0.56",
+            "Meets: Exact Scale Value (Scale segment) \u{2014} 0.56",
             "Name: P1",
             "Indices: 0, 12, 24, 36, 48, 60, 72, 84",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ],
         check: "the P1 row's MARGIN column reads -0.5\u{b0} in red.",
         why: "-40.0 is a typical starting pavilion angle; refine it later with Solve and Optimize. With no material yet, the design uses its default refractive index, 1.54, whose critical angle is 40.5 degrees, so -40.0 sits just below it and reads red for now. Step 6 picks a real material and fixes that. The solver needs one exact scale value in each of the girdle, the pavilion and the crown. For a facet, the scale value is how far its plane sits from the centre of the blank, so 0.56 puts the culet, the point at the bottom, about 0.73 below the centre. This step shows the Advanced controls because the Simple interface leaves Exact Scale Value out of the Meets list.",
@@ -158,10 +158,10 @@ pub const STEPS: &[Step] = &[
         actions: &[
             "Click + Add Tier.",
             "Angle (deg): 34.5",
-            "Meets: Exact Scale Value \u{2014} 0.70",
+            "Meets: Exact Scale Value (Scale segment) \u{2014} 0.70",
             "Name: C1",
             "Indices: 0, 12, 24, 36, 48, 60, 72, 84",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ],
         check: "the C1 row reads C1 in the CODE column.",
         why: "The crown needs an exact scale value of its own. Together with the pavilion's 0.56, 0.70 leaves a thin girdle band, about 0.05 thick, between the crown and the pavilion. This step shows the Advanced controls because the Simple interface leaves Exact Scale Value out of the Meets list.",
@@ -176,10 +176,10 @@ pub const STEPS: &[Step] = &[
         actions: &[
             "Click + Add Tier.",
             "Angle (deg): 0.0",
-            "Meets: Exact Scale Value \u{2014} 0.46",
+            "Meets: Exact Scale Value (Scale segment) \u{2014} 0.46",
             "Name: T",
             "Indices: leave blank",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ],
         check: "the tier table lists G1, P1, C1 and T.",
         why: "A flat table faces straight up, so its scale value is its height above the centre of the blank. 0.46 makes the table about 57 percent as wide as the stone. Unspecified Vertex does not suit this crown: it has only the eight main facets, so the table would sink to the girdle and cut the whole crown away. This step shows the Advanced controls because the Simple interface leaves Exact Scale Value out of the Meets list.",
@@ -195,7 +195,7 @@ pub const STEPS: &[Step] = &[
             "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1).",
             "Set Material: Diamond. It applies at once.",
         ],
-        check: "Eff. RI and Crit. update, and P1's MARGIN column turns green and reads +15.6\u{b0}.",
+        check: "The RI and Critical chips update, and P1's MARGIN column turns green and reads +15.6\u{b0}.",
         why: "Diamond's critical angle (about 24.4 degrees) is much smaller than the default's 40.5 degrees, so -40.0 now sits well above it and reads Safe. A lower-RI material could move P1 to Marginal (amber) or Windows (red).",
         waiting: "Diamond to be applied",
         highlight_target: "design_settings",
@@ -210,7 +210,7 @@ pub const STEPS: &[Step] = &[
             "Read the status strip at the bottom of the Edit tab.",
         ],
         check: "the status strip reports \"Closed solid\" and the stone's volume.",
-        why: "If auto-solve already finished, this step completes by itself. A \"no anchor\" message names a block that has no exact scale value: fix it here with the tier form, or with the tier table's Add Anchor button. A Degenerate or Unbounded message names the tier to check: look at its angle and its Meets setting.",
+        why: "If auto-solve already finished, this step completes by itself. A \"no anchor\" message names a block that has no exact scale value: fix it here with the tier form, or with Add Anchor in the row's \u{2026} menu (Actions for Tier N). A Degenerate or Unbounded message names the tier to check: look at its angle and its Meets setting.",
         waiting: "a solve that closes",
         highlight_target: "solve_button",
         completion: "solved_closed",
@@ -225,7 +225,7 @@ pub const STEPS: &[Step] = &[
         title: "Check the orbits",
         intro: "Each symmetric tier should repeat all the way around the stone.",
         actions: &[
-            "Find the ORBIT column in the tier table.",
+            "Find the ORBIT column in the tier list.",
             "Check that G1, P1 and C1 each read orbit x8.",
         ],
         check: "no row shows an amber count such as 6/8 orbit.",
@@ -249,7 +249,7 @@ pub const STEPS: &[Step] = &[
             "Open the inspector's Preform tab.",
             "Girdle Diameter (mm): the stone's real width.",
             "Specific Gravity Override: leave it blank to use Diamond's.",
-            "Click Apply Yield Inputs.",
+            "Press Enter in the field: the value applies when you press Enter or leave it.",
         ],
         check: "Volumetric Yield and Est. Carat Weight show values after the next solve.",
         why: "The carat estimate uses the specific gravity of the material set in the Stone tab unless you type an override. The Girdle Diameter is the same value as the Stone tab's Stone Width; it only changes how deep a colored stone's color looks, so a colorless Diamond looks the same. Click Skip Step if you do not need real units.",

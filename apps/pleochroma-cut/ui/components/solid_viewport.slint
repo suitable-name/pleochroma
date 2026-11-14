@@ -16,6 +16,9 @@ import { SolidViewportLayers } from "solid_viewport/layers.slint";
 import { ManipulateModel } from "../models/manipulate.slint";
 import { ManipulateOverlay, SliceLineOverlay } from "solid_viewport/manipulate_overlay.slint";
 import { ManipulateHintBar } from "solid_viewport/hint_bar.slint";
+// The figures card (against the Baseline) and the banner for a problem with the solid.
+import { EditFigures } from "solid_viewport/edit_figures.slint";
+import { EditProblemBanner, ProblemBannerState } from "solid_viewport/problem_banner.slint";
 // The crystal axis drawn over the stone, with its drag handle(s) -- see `CrystalAxisModel`
 // (`models/crystal_axis.slint`) and `gui::editor::manipulate::crystal_axis_overlay`.
 import { CrystalAxisModel } from "../models/crystal_axis.slint";
@@ -49,6 +52,13 @@ export component SolidViewportView inherits Rectangle {
     property <string> hover_text: SolidPreviewModel.view_mode == 3 ? SolidPreviewModel.diagram_hover_text : SolidPreviewModel.hover_text;
 
     property <bool> is_dragging: false;
+    // `is_dragging` pans the shared camera (`ViewportModel.camera_pan`) instead of orbiting it: a
+    // middle-button drag, or a Ctrl (Cmd on macOS) left-drag that grabbed nothing. The Diagram
+    // view pans its picture on every drag, so this changes nothing there.
+    property <bool> is_pan_drag: false;
+    // The pan was started by the middle button, so the middle release ends it (a left drag ends
+    // with the left release).
+    property <bool> middle_pan: false;
     property <length> last_mouse_x;
     property <length> last_mouse_y;
     // Accumulated |dx| + |dy| since the last pointer-down, in logical pixels --
@@ -198,8 +208,8 @@ export component SolidViewportView inherits Rectangle {
         EditorModel.selected_tier_index = Math.max(0, Math.min(EditorModel.tiers.length - 1, EditorModel.selected_tier_index + delta));
     }
     // Ends a pointer gesture still flagged as running once the pointer state says none can
-    // be (an orbit, a handle drag, a slice line). Cancels as Escape does. A no-op after a
-    // normal `up`, which has already cleared the flags.
+    // be (an orbit or pan, a handle drag, a slice line). Cancels as Escape does. A no-op after
+    // a normal `up`, which has already cleared the flags.
     function end_lost_gestures() {
         if (root.handle_dragging) {
             root.handle_dragging = false;
@@ -215,6 +225,8 @@ export component SolidViewportView inherits Rectangle {
         }
         if (root.is_dragging) {
             root.is_dragging = false;
+            root.is_pan_drag = false;
+            root.middle_pan = false;
             ViewportModel.camera_drag_end();
         }
     }
@@ -294,8 +306,8 @@ export component SolidViewportView inherits Rectangle {
         // viewport underneath the (fully covering) Tilt Curve dialog.
         enabled: !TiltModel.dialog_open;
         pointer-event(event) => {
-            // Only the LEFT button starts an orbit or pan: a right or middle drag does nothing
-            // here, as there is no light to move in this viewport.
+            // The LEFT button orbits (with Ctrl or Cmd it pans) and the MIDDLE button pans; a
+            // right drag does nothing here, as there is no light to move in this viewport.
             //
             // A left press on a drag handle's tip grabs that handle instead of orbiting; while
             // it is held, pointer moves drive the handle (Shift for fine snapping).
@@ -303,8 +315,8 @@ export component SolidViewportView inherits Rectangle {
             //
             // `moved` fires only while a button is held, so the hover paths (handle highlight,
             // facet and diagram tooltip) run here on `move`, which fires for every motion.
-            // `moved` drives the orbit and the diagram pan. Nothing hovers during a handle
-            // drag, a slice line or an orbit.
+            // `moved` drives the orbit, the pan and the diagram pan. Nothing hovers during a
+            // handle drag, a slice line, an orbit or a pan.
             if (event.kind == PointerEventKind.move) {
                 if (root.handle_dragging) {
                     ManipulateModel.drag_move(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y), event.modifiers.shift);
@@ -329,6 +341,14 @@ export component SolidViewportView inherits Rectangle {
                     }
                 }
             } else if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                // A left press while the middle button pans ends that pan first: the newest
+                // press decides what the pointer does.
+                if (root.middle_pan) {
+                    root.is_dragging = false;
+                    root.is_pan_drag = false;
+                    root.middle_pan = false;
+                    ViewportModel.camera_drag_end();
+                }
                 root.swallow_click = false;
                 // The crystal axis's own handles come first: they sit on the stone, over
                 // the facet handles' fan.
@@ -361,6 +381,9 @@ export component SolidViewportView inherits Rectangle {
                     root.last_mouse_x = drag_area.mouse-x;
                     root.last_mouse_y = drag_area.mouse-y;
                     root.drag_distance = 0;
+                    // Ctrl (Cmd on macOS) on empty space pans, the substitute for a mouse
+                    // without a middle button. Captured at the press, like the orbit itself.
+                    root.is_pan_drag = event.modifiers.control || event.modifiers.meta;
                     root.is_dragging = true;
                     ViewportModel.camera_drag_begin();
                 }
@@ -371,9 +394,31 @@ export component SolidViewportView inherits Rectangle {
                 // stale value could otherwise show after the press.
                 SolidPreviewModel.hover_text = "";
                 SolidPreviewModel.diagram_hover_text = "";
+            } else if (event.kind == PointerEventKind.down && event.button == PointerEventButton.middle) {
+                // The middle button pans from rest: the shared camera in the 3D views, the
+                // picture in the Diagram view. A press during another gesture changes nothing.
+                if (!root.is_dragging && !root.handle_dragging && !root.axis_dragging && !root.slice_dragging) {
+                    root.last_mouse_x = drag_area.mouse-x;
+                    root.last_mouse_y = drag_area.mouse-y;
+                    root.is_pan_drag = true;
+                    root.middle_pan = true;
+                    root.is_dragging = true;
+                    ViewportModel.camera_drag_begin();
+                    // As after a left press: the drag hides the tooltip and nothing refreshes it.
+                    SolidPreviewModel.hover_text = "";
+                    SolidPreviewModel.diagram_hover_text = "";
+                }
+            } else if (event.kind == PointerEventKind.up && event.button == PointerEventButton.middle) {
+                if (root.middle_pan) {
+                    root.is_dragging = false;
+                    root.is_pan_drag = false;
+                    root.middle_pan = false;
+                    ViewportModel.camera_drag_end();
+                }
             } else if ((event.kind == PointerEventKind.up && event.button == PointerEventButton.left) || event.kind == PointerEventKind.cancel) {
-                // Only the LEFT release ends a gesture: a right or middle click made
-                // while a handle is held must not drop it (a cancel carries no button).
+                // Only the LEFT release ends a left gesture: a right or middle click made
+                // while a handle is held must not drop it (a cancel carries no button and
+                // ends every gesture).
                 if (root.handle_dragging) {
                     root.handle_dragging = false;
                     if (event.kind == PointerEventKind.up) {
@@ -400,6 +445,8 @@ export component SolidViewportView inherits Rectangle {
                 }
                 if (root.is_dragging) {
                     root.is_dragging = false;
+                    root.is_pan_drag = false;
+                    root.middle_pan = false;
                     ViewportModel.camera_drag_end();
                 }
             }
@@ -457,7 +504,11 @@ export component SolidViewportView inherits Rectangle {
                 root.last_mouse_x = drag_area.mouse-x;
                 root.last_mouse_y = drag_area.mouse-y;
                 root.drag_distance += Math.abs(dx) + Math.abs(dy);
-                ViewportModel.camera_orbit(dx, dy);
+                if (root.is_pan_drag) {
+                    ViewportModel.camera_pan(dx, dy);
+                } else {
+                    ViewportModel.camera_orbit(dx, dy);
+                }
             }
         }
         clicked => {
@@ -545,15 +596,37 @@ export component SolidViewportView inherits Rectangle {
     // The Slice tool's rubber band while a line is being drawn.
     if ManipulateModel.slice_line_visible && SolidPreviewModel.view_mode != 3: SliceLineOverlay { }
 
+    // The stack under the toolbar rows, top to bottom: the problem banner (when the solid is blocked),
+    // the hint line, then the figures card. Each takes room only while it shows, so nothing overlaps.
+    property <bool> hint_on: ManipulateModel.hint_text != "" || ManipulateModel.provisional_active;
+    property <length> banner_room: ProblemBannerState.shown ? ProblemBannerState.banner_height : 0px;
+    // The hint line is one or two lines (24 or 38 px) and 8 px of gap; the room is the larger.
+    property <length> hint_room: root.hint_on ? 46px : 0px;
+
+    // One banner, in words, for a check that blocks the solid; centred under the toolbar rows.
+    if ProblemBannerState.shown: EditProblemBanner {
+        room: root.width - 24px;
+        x: (root.width - self.width) / 2;
+        y: toolbar.top_height + 8px;
+    }
+
     // The one-line hint under the toolbar row (with the Slice tool's buttons at its
     // right end); hidden while it has nothing to say.
-    if ManipulateModel.hint_text != "" || ManipulateModel.provisional_active: ManipulateHintBar { toolbar_height: toolbar.top_height; }
+    if root.hint_on: ManipulateHintBar { toolbar_height: toolbar.top_height + root.banner_room; }
+
+    // The figures against the Baseline: the same card and figure order as Live Render's. Not in the
+    // Diagram, which draws no stone to read them against.
+    if SolidPreviewModel.view_mode != 3: EditFigures {
+        x: 12px;
+        y: toolbar.top_height + 8px + root.banner_room + root.hint_room;
+        narrow: root.width < 900px;
+    }
 
     // Hover tooltip, bottom-left of the picture. Shown only while the pointer is over the
     // viewport and no orbit runs, so a stale hover never stays on screen.
     if root.hover_text != "" && drag_area.has-hover && !root.is_dragging: Rectangle {
-        x: 10px;
-        y: parent.height - self.height - 46px;
+        x: 56px;
+        y: parent.height - self.height - 52px - toolbar.bottom_inset;
         width: hover_label.preferred-width + 16px;
         height: hover_label.preferred-height + 10px;
         background: Theme.bg-elevated;
@@ -575,6 +648,7 @@ export component SolidViewportView inherits Rectangle {
     // "Reset View" pill can reset them. `toolbar.top_height` places the hint strip below the
     // toolbar's rows.
     toolbar := SolidViewportToolbar {
+        dragging: root.is_dragging || root.handle_dragging || root.axis_dragging || root.slice_dragging;
         diagram_zoom <=> root.diagram_zoom;
         diagram_pan_x <=> root.diagram_pan_x;
         diagram_pan_y <=> root.diagram_pan_y;

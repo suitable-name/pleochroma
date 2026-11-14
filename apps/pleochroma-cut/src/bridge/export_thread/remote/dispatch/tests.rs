@@ -26,6 +26,7 @@ use std::{
 fn scene_state_from_snapshot_carries_the_snapshots_own_bounce_cap_not_a_viewport_default() {
     let snapshot = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
@@ -65,6 +66,7 @@ fn scene_state_from_snapshot_carries_the_snapshots_own_bounce_cap_not_a_viewport
 fn scene_state_from_snapshot_carries_the_snapshots_surface_glare() {
     let snapshot = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
@@ -103,6 +105,7 @@ fn scene_state_from_snapshot_carries_the_snapshots_surface_glare() {
 fn scene_state_from_snapshot_uses_the_explicit_pose_override_not_the_snapshots_own_yaw_pitch() {
     let snapshot = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
@@ -151,6 +154,7 @@ fn scene_state_from_snapshot_uses_the_explicit_pose_override_not_the_snapshots_o
 fn scene_state_from_snapshot_carries_the_effective_stone_shadow() {
     let mut snapshot = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,

@@ -3,7 +3,7 @@
 
 use crate::{BaselineCell, BaselineModel, MainWindow};
 use pleochroma_cut_core::MaterialSelection;
-use pleochroma_editor::live_deltas::FigureDelta;
+use pleochroma_editor::live_deltas::{DeltaFigure, FigureDelta};
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 /// One figure of the strip, as `BaselineModel.cells` takes it.
@@ -14,6 +14,14 @@ pub(super) struct CellView {
     /// 0 about the same, 1 better, 2 worse.
     pub tone: i32,
     pub tooltip: String,
+    /// The figure's full name ("Brilliance").
+    pub name: String,
+    /// The current value alone ("21.0 %").
+    pub value: String,
+    /// The signed change alone ("+1.8").
+    pub delta: String,
+    /// The value is outside the usual range (windowing above 10 %, extinction above 12 %).
+    pub flag: bool,
 }
 
 /// Everything the strip shows at one moment; pushed only when it differs from the last push.
@@ -48,16 +56,50 @@ pub(super) fn label_text(origin: &str, seconds: u64) -> String {
     format!("Baseline: {origin} {}", age_text(seconds))
 }
 
-/// The cells of `deltas`, one per figure.
+/// The place of a figure in the cells: Live Render's order (brilliance, fire, scintillation,
+/// windowing, extinction), then the rest as `DeltaFigure::ALL` has them.
+const fn display_rank(figure: DeltaFigure) -> usize {
+    match figure {
+        DeltaFigure::Brilliance => 0,
+        DeltaFigure::Fire => 1,
+        DeltaFigure::Scintillation => 2,
+        DeltaFigure::Windowing => 3,
+        DeltaFigure::Extinction => 4,
+        other => 5 + other.index(),
+    }
+}
+
+/// The value and the signed change of a strip text such as `21.0 % +1.8`.
+fn split_text(text: &str) -> (String, String) {
+    text.rsplit_once(' ').map_or_else(
+        || (text.to_owned(), String::new()),
+        |(value, change)| (value.to_owned(), change.to_owned()),
+    )
+}
+
+/// The cells of `deltas`, one per figure, in Live Render's figure order.
 #[must_use]
 pub(super) fn cells_of(deltas: &[FigureDelta]) -> Vec<CellView> {
-    deltas
-        .iter()
-        .map(|delta| CellView {
-            short_label: delta.figure.short_label().to_owned(),
-            text: delta.text.clone(),
-            tone: delta.tone.code(),
-            tooltip: delta.tooltip.clone(),
+    let mut ordered: Vec<&FigureDelta> = deltas.iter().collect();
+    ordered.sort_by_key(|delta| display_rank(delta.figure));
+    ordered
+        .into_iter()
+        .map(|delta| {
+            let (value, change) = split_text(&delta.text);
+            CellView {
+                short_label: delta.figure.short_label().to_owned(),
+                text: delta.text.clone(),
+                tone: delta.tone.code(),
+                tooltip: delta.tooltip.clone(),
+                name: delta.figure.label().to_owned(),
+                value,
+                delta: change,
+                flag: match delta.figure {
+                    DeltaFigure::Windowing => delta.after > 10.0,
+                    DeltaFigure::Extinction => delta.after > 12.0,
+                    _ => false,
+                },
+            }
         })
         .collect()
 }
@@ -85,6 +127,10 @@ pub(super) fn push(ui: &MainWindow, view: &View) {
             text: cell.text.as_str().into(),
             tone: cell.tone,
             tooltip: cell.tooltip.as_str().into(),
+            name: cell.name.as_str().into(),
+            value: cell.value.as_str().into(),
+            delta: cell.delta.as_str().into(),
+            flag: cell.flag,
         })
         .collect();
     model.set_cells(ModelRc::new(VecModel::from(cells)));

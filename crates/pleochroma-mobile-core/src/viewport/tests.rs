@@ -793,3 +793,96 @@ fn a_lower_raster_cap_shrinks_the_raster() {
     assert!(capped.0.max(capped.1) <= 640);
     assert!(full.0.max(full.1) > capped.0.max(capped.1));
 }
+
+fn zoomed_view() -> super::ViewTransform {
+    super::ViewTransform {
+        zoom: 3.0,
+        pan_x: 12.0,
+        pan_y: -8.0,
+    }
+}
+
+#[test]
+fn a_compact_window_always_draws_one_diagram_panel() {
+    let vp = ViewportState::default();
+    vp.set_options(false, false, true, 1280);
+    assert_eq!(vp.panel(), -1, "a wide window draws all three panels");
+    assert!(!vp.options.get().single_panel);
+    vp.set_options(false, true, true, 1280);
+    assert_eq!(vp.panel(), 0, "a compact window starts on the Crown");
+    assert!(vp.options.get().single_panel);
+}
+
+#[test]
+fn set_diagram_panel_accepts_only_the_three_panels() {
+    let mut vp = ViewportState::default();
+    vp.set_options(false, true, true, 1280);
+    assert!(!vp.set_diagram_panel(-1));
+    assert!(!vp.set_diagram_panel(3));
+    assert_eq!(vp.panel(), 0);
+    assert!(!vp.set_diagram_panel(0), "the Crown is already drawn");
+    assert!(vp.set_diagram_panel(2));
+    assert_eq!(vp.panel(), 2);
+    assert!(!vp.set_diagram_panel(2), "the same panel changes nothing");
+    assert!(vp.set_diagram_panel(1));
+    assert_eq!(vp.panel(), 1);
+}
+
+#[test]
+fn set_diagram_panel_resets_the_pan_and_closes_the_info_card() {
+    let mut vp = ViewportState::default();
+    vp.set_options(false, true, true, 1280);
+    vp.diagram_view = zoomed_view();
+    vp.info = Some("facet".to_owned());
+    vp.info_facet = Some(4);
+    let revision = vp.revision;
+    assert!(vp.set_diagram_panel(1));
+    assert_eq!(vp.diagram_view, super::ViewTransform::IDENTITY);
+    assert!(vp.info.is_none());
+    assert!(vp.info_facet.is_none());
+    assert!(vp.revision > revision, "the picture owes a new job");
+    // A refused panel leaves the card and the pan alone.
+    vp.diagram_view = zoomed_view();
+    vp.info = Some("facet".to_owned());
+    assert!(!vp.set_diagram_panel(7));
+    assert_eq!(vp.diagram_view, zoomed_view());
+    assert!(vp.info.is_some());
+}
+
+#[test]
+fn a_double_tap_on_a_compact_diagram_fits_without_enlarging() {
+    let mut vp = ViewportState::default();
+    vp.set_options(false, true, true, 1280);
+    vp.set_mode(ViewMode::Diagram);
+    assert!(vp.set_diagram_panel(2));
+    vp.diagram_view = zoomed_view();
+    vp.double_tap(100.0, 100.0);
+    assert_eq!(vp.diagram_view, super::ViewTransform::IDENTITY);
+    assert_eq!(vp.panel(), 2, "the chosen panel stays");
+    vp.double_tap(100.0, 100.0);
+    assert_eq!(vp.panel(), 2, "a second double tap does not toggle it away");
+}
+
+#[test]
+fn a_double_tap_on_a_compact_diagram_with_no_choice_stays_on_the_crown() {
+    let mut vp = ViewportState::default();
+    vp.set_options(false, true, true, 1280);
+    vp.set_mode(ViewMode::Diagram);
+    vp.double_tap(10.0, 10.0);
+    assert_eq!(vp.panel(), 0);
+}
+
+#[test]
+fn a_double_tap_on_a_wide_diagram_restores_an_enlarged_panel() {
+    let mut vp = ViewportState::default();
+    vp.set_options(false, false, true, 1280);
+    vp.set_mode(ViewMode::Diagram);
+    vp.enlarged_panel = 1;
+    vp.diagram_view = zoomed_view();
+    vp.double_tap(100.0, 100.0);
+    assert_eq!(vp.panel(), -1, "the three panels are back");
+    assert_eq!(vp.diagram_view, super::ViewTransform::IDENTITY);
+    // With no picture there is no panel under the tap to enlarge.
+    vp.double_tap(100.0, 100.0);
+    assert_eq!(vp.panel(), -1);
+}

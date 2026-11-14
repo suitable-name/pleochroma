@@ -4,11 +4,11 @@
 // A bottom sheet on a compact window, a card in the middle of the window otherwise. Fill
 // the window with it (place it last in the page); tapping the scrim or Back closes it.
 // Everything comes from `RenderModel`.
-import { ProgressIndicator } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { Icons } from "../../icons.slint";
 import { Shell } from "../../models.slint";
 import { Segmented } from "../../shell/chips.slint";
+import { ProgressBar } from "../../shell/inputs.slint";
 import { IconButton } from "../../shell/icon_button.slint";
 import { PageScroll } from "../../shell/page_scroll.slint";
 import { PrimaryButton, TonalButton, TextButton } from "../../shell/buttons.slint";
@@ -137,7 +137,7 @@ export component ExportSheet inherits Rectangle {
                 if RenderModel.export-running: VerticalLayout {
                     spacing: Theme.space-xs;
 
-                    ProgressIndicator {
+                    ProgressBar {
                         progress: RenderModel.export-progress;
                     }
 
@@ -206,7 +206,7 @@ export component ExportSheet inherits Rectangle {
                 }
 
                 Text {
-                    text: RenderModel.backend == 3 ? "Render uses the configured endpoint while this app stays connected. Send To Server stores the job on the endpoint, which keeps rendering after the phone disconnects; fetch the picture later under Remote." : RenderModel.backend-report;
+                    text: RenderModel.backend == 3 ? "Render uses the configured endpoint while this app stays connected. Send To Server stores the job on the endpoint, which keeps rendering after this device disconnects; fetch the picture later under Remote." : RenderModel.backend-report;
                     color: Theme.on-surface-variant;
                     font-size: Theme.text-label;
                     wrap: word-wrap;

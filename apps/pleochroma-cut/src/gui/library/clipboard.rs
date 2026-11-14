@@ -1,5 +1,8 @@
-use crate::{LibraryModel, MainWindow, TiltModel, ViewportModel, gui::show_toast};
-use slint::{ComponentHandle, Model, SharedString};
+use crate::{
+    AngleItem, CuttingTableModel, LibraryModel, MainWindow, TiltModel, ViewportModel,
+    gui::show_toast,
+};
+use slint::{ComponentHandle, Model, ModelRc, SharedString};
 use std::{
     fmt::Write as _,
     io::{self, Write as _},
@@ -241,31 +244,7 @@ pub(in crate::gui) fn setup_copy_callbacks(ui: &MainWindow) {
     ui.global::<LibraryModel>().on_copy_cutting_table(move || {
         if let Some(ui) = ui_weak_sched.upgrade() {
             let angles_model = ui.global::<LibraryModel>().get_current_angles();
-            let mut text = String::from("#\tFacet\tAngle\tIndex\tNotes\n");
-            for i in 0..angles_model.row_count() {
-                if let Some(row) = angles_model.row_data(i) {
-                    let _ = writeln!(
-                        text,
-                        "{}\t{}\t{}\t{}\t{}",
-                        row.order_idx + 1,
-                        // The label the table shows: the standard code.
-                        row.code,
-                        row.angle,
-                        row.index_val,
-                        row.notes
-                    );
-                    // A concave tier's tool line follows its facet line, as on the
-                    // cutting sheet, so a pasted table does not silently lose it.
-                    if !row.second_line.is_empty() {
-                        let _ = writeln!(text, "\t{}", row.second_line);
-                    }
-                }
-            }
-            copy_to_clipboard_with_toast(
-                &ui,
-                text,
-                "Cutting instructions copied as TSV!".to_owned(),
-            );
+            copy_cutting_table(&ui, &angles_model);
         }
     });
 
@@ -274,21 +253,68 @@ pub(in crate::gui) fn setup_copy_callbacks(ui: &MainWindow) {
         .on_copy_cutting_row(move |idx: i32| {
             if let Some(ui) = ui_weak_row.upgrade() {
                 let angles_model = ui.global::<LibraryModel>().get_current_angles();
-                let row = usize::try_from(idx)
-                    .ok()
-                    .and_then(|row_idx| angles_model.row_data(row_idx));
-                if let Some(row) = row {
-                    let mut text = format!(
-                        "Facet: {}, Angle: {}, Index: {}, Notes: {}",
-                        row.code, row.angle, row.index_val, row.notes
-                    );
-                    if !row.second_line.is_empty() {
-                        let _ = write!(text, "\nTool: {}", row.second_line);
-                    }
-                    copy_to_clipboard_with_toast(&ui, text, format!("Copied step #{}", idx + 1));
-                }
+                copy_cutting_row(&ui, &angles_model, idx);
             }
         });
+
+    // The Cutting Instructions page copies the rows it shows (the open design as edited, or the
+    // library's), so it hands them over.
+    let ui_weak_rows = ui.as_weak();
+    ui.global::<CuttingTableModel>()
+        .on_copy_rows(move |rows: ModelRc<AngleItem>| {
+            if let Some(ui) = ui_weak_rows.upgrade() {
+                copy_cutting_table(&ui, &rows);
+            }
+        });
+    let ui_weak_row_of = ui.as_weak();
+    ui.global::<CuttingTableModel>()
+        .on_copy_row_of(move |rows: ModelRc<AngleItem>, idx: i32| {
+            if let Some(ui) = ui_weak_row_of.upgrade() {
+                copy_cutting_row(&ui, &rows, idx);
+            }
+        });
+}
+
+/// Copies `rows` as the cutting table's TSV text (a header line, then one line per row).
+fn copy_cutting_table(ui: &MainWindow, rows: &ModelRc<AngleItem>) {
+    let mut text = String::from("#\tFacet\tAngle\tIndex\tNotes\n");
+    for i in 0..rows.row_count() {
+        if let Some(row) = rows.row_data(i) {
+            let _ = writeln!(
+                text,
+                "{}\t{}\t{}\t{}\t{}",
+                row.order_idx + 1,
+                // The label the table shows: the standard code.
+                row.code,
+                row.angle,
+                row.index_val,
+                row.notes
+            );
+            // A concave tier's tool line follows its facet line, as on the
+            // cutting sheet, so a pasted table does not silently lose it.
+            if !row.second_line.is_empty() {
+                let _ = writeln!(text, "\t{}", row.second_line);
+            }
+        }
+    }
+    copy_to_clipboard_with_toast(ui, text, "Cutting instructions copied as TSV!".to_owned());
+}
+
+/// Copies row `idx` of `rows` as one line (and its tool line under it).
+fn copy_cutting_row(ui: &MainWindow, rows: &ModelRc<AngleItem>, idx: i32) {
+    let row = usize::try_from(idx)
+        .ok()
+        .and_then(|row_idx| rows.row_data(row_idx));
+    if let Some(row) = row {
+        let mut text = format!(
+            "Facet: {}, Angle: {}, Index: {}, Notes: {}",
+            row.code, row.angle, row.index_val, row.notes
+        );
+        if !row.second_line.is_empty() {
+            let _ = write!(text, "\nTool: {}", row.second_line);
+        }
+        copy_to_clipboard_with_toast(ui, text, format!("Copied step #{}", idx + 1));
+    }
 }
 
 #[cfg(test)]

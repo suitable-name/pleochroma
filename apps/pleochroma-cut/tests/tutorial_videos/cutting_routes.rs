@@ -15,13 +15,9 @@ impl Film<'_> {
     pub(crate) fn film_cutting_mode_ticks_and_reset(&mut self) -> Result<(), String> {
         let model = self.ui.global::<CuttingModeModel>();
         if !model.get_open() {
-            let button = targets::role_label(
-                &self.view(),
-                "Cut Mode",
-                AccessibleRole::Button,
-                Some("AnalysisGroup"),
-            )
-            .ok_or("enabled Cut Mode command button is not visible")?;
+            let button =
+                targets::role_label(&self.view(), "Cut Mode", AccessibleRole::Button, None)
+                    .ok_or("enabled Cut Mode command button is not visible")?;
             self.click_and_invoke(&button)?;
         }
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || {

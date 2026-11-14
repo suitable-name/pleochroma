@@ -260,8 +260,8 @@ fn the_color_variant_lessons_name_the_controls_the_window_has() {
         let step = &color_variants.steps[index];
         format!("{} {}", step.intro, step.actions.join(" "))
     };
-    // The Body Color list of a pleochroic stone: no generic colors, Custom... last.
-    assert!(text(2).contains("Material Default") && text(2).contains("Custom..."));
+    // The COLOR tiles of a pleochroic stone: Default first, no generic colors, Custom last.
+    assert!(text(2).contains("Default first") && text(2).contains("Custom last"));
     // The per-direction rows, the swatches under the sliders and the two buttons of the editor.
     for needle in ["Along the Axis", "Across the Axis", "Apply Color"] {
         assert!(text(4).contains(needle), "step 5 does not say {needle:?}");

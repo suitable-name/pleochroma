@@ -1,0 +1,289 @@
+import { LineEdit } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { KitIcon, KitIcons } from "../kit/kit.slint";
+
+// A typed number box with a unit and a caption under it. The text applies on Enter or when the box
+// is left, not per key. `wraps` turns the value around a circle (0 to 360), otherwise it is clamped
+// to `minimum`..`maximum`. A text that is not a number puts the shown value back.
+export component DegreeField inherits VerticalLayout {
+    in property <string> name;
+    // The accessible name of the box.
+    in property <string> field_label;
+    in property <string> hint;
+    in property <float> value;
+    in property <float> minimum: 0.0;
+    in property <float> maximum: 360.0;
+    in property <bool> wraps: false;
+    in property <bool> enabled: true;
+    callback applied(float);
+
+    spacing: 2px;
+
+    function text_of(v: float) -> string {
+        return Math.round(v * 10.0) / 10.0 + "";
+    }
+    function commit() {
+        if edit.text.is-float() {
+            root.applied(root.wraps
+                ? Math.mod(Math.mod(edit.text.to-float(), 360.0) + 360.0, 360.0)
+                : Math.clamp(edit.text.to-float(), root.minimum, root.maximum));
+        }
+        edit.text = root.text_of(root.value);
+    }
+    init => { edit.text = root.text_of(root.value); }
+    changed value => {
+        if !edit.has-focus {
+            edit.text = root.text_of(root.value);
+        }
+    }
+
+    Rectangle {
+        height: 32px;
+        min-width: 0px;
+        max-width: 90px;
+        background: Theme.bg-input;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: edit.has-focus ? Theme.accent-cyan : Theme.border-medium;
+
+        HorizontalLayout {
+            padding-right: 8px;
+            edit := LineEdit {
+                min-width: 0px;
+                font-size: 14px;
+                enabled: root.enabled;
+                accessible-label: root.field_label;
+                accessible-description: root.hint;
+                changed has-focus => {
+                    EditorModel.text_focus = self.has-focus;
+                    if !self.has-focus {
+                        root.commit();
+                    }
+                }
+                accepted => { root.commit(); }
+            }
+            Text {
+                text: "°";
+                font-size: 12px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+        }
+        Tooltip { text: @markdown("\{root.hint}"); }
+    }
+    Text {
+        text: root.name;
+        font-size: 11px;
+        color: Theme.text-muted;
+        overflow: elide;
+    }
+}
+
+// The main light as a dot on the dome seen from above: the centre is overhead, the rim the horizon,
+// 0 degrees of azimuth at the top; rings at 30 and 60 degrees of elevation are labelled. Drag the dot,
+// or use the arrow keys when the dome has focus: left and right turn the azimuth by 5 degrees, up and
+// down change the elevation by 2, with Shift in finer steps (1 and 0.5).
+//
+// With `map_mode` (an HDR map is loaded) the dome is the map's rotation dial: the dot rides the rim,
+// only the azimuth works, and the rings are gone. `edited(azimuth, elevation)` carries both values;
+// in the dial the elevation is the one passed in.
+export component LightDome inherits Rectangle {
+    in property <float> azimuth: 48.0;
+    in property <float> elevation: 72.0;
+    in property <float> el_min: 8.6;
+    in property <float> el_max: 88.8;
+    in property <bool> map_mode: false;
+    in property <length> size: 132px;
+    in property <bool> enabled: true;
+    callback edited(float, float);
+
+    // Overhead sits a little off the middle so the light never lands on the stone icon.
+    property <length> c: root.size / 2;
+    property <length> r_min: 10px;
+    property <length> r_rim: root.size / 2 - 8px;
+    property <length> r_dot: root.map_mode ? root.r_rim : root.r_of(root.elevation);
+
+    pure function r_of(el: float) -> length {
+        return root.r_min + (root.r_rim - root.r_min) * ((90.0 - el) / 90.0);
+    }
+    pure function wrap_az(a: float) -> float {
+        return Math.mod(Math.mod(a, 360.0) + 360.0, 360.0);
+    }
+    function send(az: float, el: float) {
+        root.edited(root.wrap_az(az), Math.clamp(el, root.el_min, root.el_max));
+    }
+    function place(px: length, py: length) {
+        // Angle from the top, clockwise; the radius gives the elevation. Within 5 px of the middle
+        // the angle is undefined, so nothing moves.
+        if root.enabled && Math.abs((px - root.c) / 1px) + Math.abs((py - root.c) / 1px) >= 5.0 {
+            root.send(
+                Math.atan2((px - root.c) / 1px, (root.c - py) / 1px) / 1deg,
+                root.map_mode ? root.elevation : 90.0 - 90.0 * (Math.sqrt(Math.pow((px - root.c) / 1px, 2.0) + Math.pow((py - root.c) / 1px, 2.0)) * 1px - root.r_min) / (root.r_rim - root.r_min));
+        }
+    }
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    background: Theme.bg-input;
+    border-width: dome_focus.has-focus ? 2px : 1px;
+    border-color: dome_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+
+    accessible-role: AccessibleRole.slider;
+    accessible-label: root.map_mode ? "Map Rotation Dial" : "Main Light Direction";
+    accessible-description: root.map_mode
+        ? "Arrow keys turn the map; Shift for finer steps."
+        : "Left and right arrows turn the azimuth, up and down change the elevation; Shift for finer steps.";
+    accessible-value: root.map_mode
+        ? "Map rotation " + Math.round(root.azimuth) + " degrees"
+        : "Azimuth " + Math.round(root.azimuth) + " degrees, elevation " + Math.round(root.elevation) + " degrees";
+    accessible-value-minimum: 0.0;
+    accessible-value-maximum: 360.0;
+    accessible-value-step: 5.0;
+    accessible-enabled: root.enabled;
+
+    // Cross hairs.
+    Rectangle {
+        x: root.c - 0.5px;
+        y: 8px;
+        width: 1px;
+        height: root.size - 16px;
+        background: Theme.border-subtle;
+    }
+    Rectangle {
+        x: 8px;
+        y: root.c - 0.5px;
+        width: root.size - 16px;
+        height: 1px;
+        background: Theme.border-subtle;
+    }
+    // The horizon.
+    Rectangle {
+        x: root.c - root.r_rim;
+        y: root.c - root.r_rim;
+        width: root.r_rim * 2;
+        height: root.r_rim * 2;
+        border-radius: root.r_rim;
+        border-width: root.map_mode ? 2px : 1px;
+        border-color: root.map_mode ? Theme.accent-cyan : Theme.border-medium;
+    }
+    // The 60 and 30 degree rings, labelled just under the line on the downward axis.
+    if !root.map_mode: Rectangle {
+        x: root.c - root.r_of(60.0);
+        y: root.c - root.r_of(60.0);
+        width: root.r_of(60.0) * 2;
+        height: root.r_of(60.0) * 2;
+        border-radius: root.r_of(60.0);
+        border-width: 1px;
+        border-color: Theme.border-medium;
+    }
+    if !root.map_mode: Rectangle {
+        x: root.c - root.r_of(30.0);
+        y: root.c - root.r_of(30.0);
+        width: root.r_of(30.0) * 2;
+        height: root.r_of(30.0) * 2;
+        border-radius: root.r_of(30.0);
+        border-width: 1px;
+        border-color: Theme.border-medium;
+    }
+    if !root.map_mode: Text {
+        x: root.c + 3px;
+        y: root.c + root.r_of(60.0);
+        text: "60°";
+        font-size: 9px;
+        color: Theme.text-muted;
+    }
+    if !root.map_mode: Text {
+        x: root.c + 3px;
+        y: root.c + root.r_of(30.0);
+        text: "30°";
+        font-size: 9px;
+        color: Theme.text-muted;
+    }
+    // 0 degrees of azimuth.
+    Text {
+        x: root.c - 6px;
+        y: 0px;
+        text: "0°";
+        font-size: 9px;
+        color: Theme.text-secondary;
+    }
+    if root.map_mode: Text {
+        x: root.c - 18px;
+        y: root.c - 8px;
+        width: 36px;
+        text: "HDR";
+        font-size: 12px;
+        font-weight: 700;
+        color: Theme.accent-cyan;
+        horizontal-alignment: center;
+    }
+    // The stone in the middle.
+    if !root.map_mode: KitIcon {
+        x: root.c - 6px;
+        y: root.c - 6px;
+        d: KitIcons.gem;
+        size: 12px;
+        ink: Theme.text-disabled;
+    }
+
+    // The light, or the map's mark on the rim.
+    Rectangle {
+        x: root.c + root.r_dot * Math.sin(root.azimuth * 1deg) - 15px;
+        y: root.c - root.r_dot * Math.cos(root.azimuth * 1deg) - 15px;
+        width: 30px;
+        height: 30px;
+        border-radius: 15px;
+        background: Theme.accent-amber-glow;
+    }
+    Rectangle {
+        x: root.c + root.r_dot * Math.sin(root.azimuth * 1deg) - 8px;
+        y: root.c - root.r_dot * Math.cos(root.azimuth * 1deg) - 8px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: Theme.badge-amber-text;
+        border-width: 2px;
+        border-color: Theme.text-primary;
+    }
+
+    dome_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                root.send(root.azimuth - (event.modifiers.shift ? 1.0 : 5.0), root.elevation);
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                root.send(root.azimuth + (event.modifiers.shift ? 1.0 : 5.0), root.elevation);
+                return accept;
+            }
+            if !root.map_mode && event.text == Key.UpArrow {
+                root.send(root.azimuth, root.elevation + (event.modifiers.shift ? 0.5 : 2.0));
+                return accept;
+            }
+            if !root.map_mode && event.text == Key.DownArrow {
+                root.send(root.azimuth, root.elevation - (event.modifiers.shift ? 0.5 : 2.0));
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    dome_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                dome_focus.focus();
+                root.place(self.mouse-x, self.mouse-y);
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.place(self.mouse-x, self.mouse-y);
+            }
+        }
+    }
+}

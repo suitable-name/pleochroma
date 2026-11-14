@@ -245,28 +245,6 @@ impl Film<'_> {
         Ok(())
     }
 
-    fn extra_combo_next(&mut self, label: &str, current: i32, count: usize) -> Result<(), String> {
-        if count < 2 {
-            return Err(format!("{label} has no alternate choice"));
-        }
-        let combo =
-            targets::role_label(&self.view(), label, uiprobe::AccessibleRole::Combobox, None)
-                .ok_or_else(|| format!("{label:?} combo is not visible"))?;
-        self.click_and_invoke(&combo)?;
-        let key = if i32::try_from(count).is_ok_and(|total| current + 1 < total) {
-            "Down"
-        } else {
-            "Up"
-        };
-        self.rec
-            .press_keys(self.ui.window(), key)
-            .map_err(|e| format!("{label} {key}: {e:?}"))?;
-        self.rec
-            .press_keys(self.ui.window(), "Return")
-            .map_err(|e| format!("{label} Return: {e:?}"))?;
-        Ok(())
-    }
-
     #[expect(
         clippy::too_many_lines,
         reason = "one arm per extra event, each a short filmed route"
@@ -276,13 +254,40 @@ impl Film<'_> {
             "lighting_preset_chosen" => {
                 let model = self.ui.global::<ViewportModel>();
                 let before = model.get_selected_lighting_index();
-                self.extra_combo_next(
+                let options = model.get_lighting_options();
+                if options.row_count() < 2 {
+                    return Err("the Lighting menu has no alternate rig".into());
+                }
+                // The Lighting chip opens the rig menu; each rig row is a button named as the
+                // old drop-down entry was (the full option name).
+                let next = if usize::try_from(before + 1).is_ok_and(|at| at < options.row_count()) {
+                    before + 1
+                } else {
+                    before - 1
+                };
+                let name = usize::try_from(next)
+                    .ok()
+                    .and_then(|at| options.row_data(at))
+                    .ok_or("the Lighting menu's next rig has no name")?;
+                let chip = targets::role_label(
+                    &self.view(),
                     "Lighting",
-                    before,
-                    model.get_lighting_options().row_count(),
-                )?;
+                    uiprobe::AccessibleRole::Button,
+                    None,
+                )
+                .ok_or("the Lighting chip is not visible")?;
+                self.click_and_invoke(&chip)?;
+                self.hold(pacing::MENU_HOLD)?;
+                let row = targets::role_label(
+                    &self.view(),
+                    name.as_str(),
+                    uiprobe::AccessibleRole::Button,
+                    None,
+                )
+                .ok_or_else(|| format!("the Lighting menu has no rig row {name:?}"))?;
+                self.click_and_invoke(&row)?;
                 if model.get_selected_lighting_index() == before {
-                    return Err("Lighting combo did not select a new rig".into());
+                    return Err("the Lighting menu did not select a new rig".into());
                 }
             }
             "design_lighting_saved" | "design_lighting_forgotten" => {
@@ -419,6 +424,8 @@ impl Film<'_> {
         if !panel.get_open() || panel.get_active_tab() != 0 {
             return Err("Stone panel did not open".into());
         }
+        // New/Edit Material... is an item of the identity card's "..." menu.
+        self.extra_click_panel("Material Menu")?;
         self.extra_click_panel("New/Edit Material...")?;
         let model = self.ui.global::<ViewportModel>();
         if !model.get_material_editor_open() {
@@ -558,18 +565,16 @@ impl Film<'_> {
     }
 
     pub(crate) fn film_context_help(&mut self) -> Result<(), String> {
-        let overview = targets::run(
-            &self.view(),
-            &crate::targets::Query::Tab("3D Spectral Preview"),
-        )
-        .ok_or("3D Spectral Preview tab is missing before F1")?;
+        // The places segment's first place is Live Render: it brings the 3D tab forward.
+        let overview = targets::run(&self.view(), &crate::targets::Query::Tab("Live Render"))
+            .ok_or("Live Render place is missing before F1")?;
         self.click_and_invoke(&overview)?;
         if self.ui.get_active_tab() != 0 {
-            return Err("3D Spectral Preview tab did not activate before F1".into());
+            return Err("Live Render place did not activate before F1".into());
         }
         self.rec
             .press_keys(self.ui.window(), "F1")
-            .map_err(|e| format!("3D Spectral Preview F1: {e:?}"))?;
+            .map_err(|e| format!("Live Render F1: {e:?}"))?;
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
             harness_support::help_window().is_some_and(|window| {
                 let model = window.global::<HelpModel>();
@@ -580,7 +585,7 @@ impl Film<'_> {
                     && model.get_scroll_section() == 6
             })
         }) {
-            return Err("F1 did not open context help for 3D Spectral Preview".into());
+            return Err("F1 did not open context help for Live Render".into());
         }
         self.attach_help_window()?;
         let help = harness_support::help_window().ok_or("Help window disappeared")?;

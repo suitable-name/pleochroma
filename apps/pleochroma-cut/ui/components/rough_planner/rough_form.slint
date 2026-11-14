@@ -74,6 +74,24 @@ component InclusionSection inherits VerticalLayout {
                 }
             }
 
+            // The unit of the numbers in the inclusion's file: the session's mesh unit, which
+            // the scan card's File units box sets for a scan (whose inclusions share its unit).
+            if RoughPlanModel.inclusion_placement_possible && RoughPlanModel.inclusion_kind_index == 0: VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "File units";
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                }
+                KitCombo {
+                    model: RoughPlanModel.mesh_units;
+                    current_index <=> RoughPlanModel.mesh_unit_index;
+                    enabled: root.editable;
+                    label: "Unit of the Numbers in the Inclusion's File";
+                    hint: "The unit the numbers in the inclusion's mesh file are in. The planner scales them to millimetres. A 3D scan of the rough uses the same setting.";
+                }
+            }
+
             // Where the inclusion goes: its centre in mm from the corner of the uncut rough.
             if RoughPlanModel.inclusion_placement_possible: HorizontalLayout {
                 spacing: 6px;
@@ -189,7 +207,7 @@ component InclusionSection inherits VerticalLayout {
                             : (!RoughPlanModel.inclusion_placement_possible
                                 ? "Pick a mesh file (OBJ, STL or PLY) of a closed shape inside the rough, such as a crack or a crystal of another mineral. Stones keep clear of it, and the weight and the yield count it as material. The file uses the same coordinates and unit as the scan's file."
                             : (RoughPlanModel.inclusion_kind_index == 0
-                                ? "Pick a mesh file (OBJ, STL or PLY) of a closed shape, such as a crack or a crystal of another mineral. Its bounding box has its centre at the position above. Stones keep clear of it, and the weight and the yield count it as material."
+                                ? "Pick a mesh file (OBJ, STL or PLY) of a closed shape, such as a crack or a crystal of another mineral. Its numbers are in the File units above, and its bounding box has its centre at the position above. Stones keep clear of it, and the weight and the yield count it as material."
                                 : "Add the shape at the position and size above. Stones keep clear of it, and the weight and the yield count it as material.")));
                         clicked => { RoughPlanModel.add_inclusion(); }
                     }

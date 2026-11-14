@@ -1,0 +1,248 @@
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { GuideLockTip } from "../guide_lock.slint";
+import { KitIcon, KitIcons } from "../kit/kit.slint";
+
+// The parts of the Edit command bar (`editor_command_bar.slint`): a quiet icon-and-label button, the
+// rows and panel of its menus, and a divider. Every control is 32 px tall, so a row shares one centre
+// line. Each has a tooltip, an accessible name that survives when the visible text is dropped on a
+// narrow dock, and a keyboard path (Tab, then Space or Enter).
+//
+// Hovering a button also sets `EditorModel.hover_hint`, the line under the bar
+// (`EditorCommandBar`'s overlay), as the old text buttons did.
+
+// Icon paths the kit does not have (the Edit mockup's own set).
+export global BarIcons {
+    out property <string> bolt: "M13 3 L5 14 H12 L11 21 L19 10 H12 Z";
+    out property <string> retarget: "M12 4 A8 8 0 1 0 20 12 M20 4 L14 10 M15 4 H20 V9";
+    out property <string> flag: "M5 21 V4 H17 L14 8 L17 12 H5";
+    out property <string> cut: "M6 7 A2.5 2.5 0 1 0 6 2 A2.5 2.5 0 1 0 6 7 Z M6 22 A2.5 2.5 0 1 0 6 17 A2.5 2.5 0 1 0 6 22 Z M8 6 L20 18 M8 18 L20 6";
+}
+
+// A thin divider between groups.
+export component BarDivider inherits Rectangle {
+    width: 1px;
+    height: 22px;
+    background: Theme.border-subtle;
+}
+
+// A command-bar button: an icon and a short name, with a chevron when it opens a menu. `show_text`
+// off leaves the icon alone (a narrow dock); the name is still the accessible label.
+export component BarButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    // The accessible name; the visible text when empty.
+    in property <string> label;
+    // One plain sentence: what it does. The tooltip, the accessible description and the hover hint.
+    in property <string> hint;
+    in property <bool> show_text: true;
+    in property <bool> enabled: true;
+    in property <bool> on: false;
+    in property <bool> chevron: false;
+    // The worked-example guide has locked it (`GuideLockTip` says why) or outlines it.
+    in property <bool> locked: false;
+    in property <bool> highlighted: false;
+    // At least this wide (the Deep Solve slot keeps one width while its text changes).
+    in property <length> min_w: 0px;
+    in property <bool> expanded: false;
+    callback clicked();
+
+    public function take_focus() {
+        fs.focus();
+    }
+
+    height: 32px;
+    width: max(root.min_w, lay.preferred-width);
+    border-radius: 8px;
+    opacity: root.enabled ? 1.0 : 0.5;
+    background: root.on ? Theme.accent-cyan-surface : (touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: fs.has-focus || root.highlighted ? 2px : 0px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-expandable: root.chevron;
+    accessible-expanded: root.expanded;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return || (root.chevron && event.text == Key.DownArrow)) && root.enabled {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    lay := HorizontalLayout {
+        padding-left: root.show_text ? 10px : 8px;
+        padding-right: 8px;
+        spacing: 7px;
+        alignment: center;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 15px; ink: !root.enabled ? Theme.text-disabled : (root.on ? Theme.accent-cyan : Theme.text-secondary); }
+        }
+        if root.show_text && root.text != "": Text {
+            text: root.text;
+            font-size: 12px;
+            font-weight: 500;
+            color: root.enabled ? Theme.text-primary : Theme.text-disabled;
+            vertical-alignment: center;
+        }
+        if root.chevron: VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.chevron-down; size: 11px; ink: Theme.text-muted; }
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+        changed has-hover => {
+            if root.hint == "" {
+                return;
+            }
+            if self.has-hover {
+                EditorModel.hover_hint = root.hint;
+            } else if EditorModel.hover_hint == root.hint {
+                EditorModel.hover_hint = "";
+            }
+        }
+    }
+    GuideLockTip { locked: root.locked; }
+}
+
+// The panel of a menu: the popup surface with its rows inside (`@children`).
+export component BarMenuPanel inherits Rectangle {
+    in property <length> menu_width: 230px;
+    width: root.menu_width;
+    height: col.preferred-height;
+    background: Theme.surface-dialog;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: Theme.shadow-heavy;
+    accessible-role: AccessibleRole.list;
+    col := VerticalLayout {
+        padding: 6px;
+        spacing: 1px;
+        @children
+    }
+}
+
+// A small caption row of a menu ("Auto-Solve"): not a control.
+export component BarMenuCaption inherits Text {
+    height: 22px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    color: Theme.text-muted;
+    vertical-alignment: center;
+    accessible-role: AccessibleRole.text;
+}
+
+// A hairline between two sections of a menu.
+export component BarMenuRule inherits Rectangle {
+    height: 9px;
+    Rectangle { y: 4px; height: 1px; background: Theme.border-subtle; }
+}
+
+// One row of a menu. `checked` marks the chosen one of a choice (a check at the left); `detail` is a
+// second, muted line. Space or Enter runs it, Escape closes the menu (`dismissed`).
+export component BarMenuItem inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    // The accessible name; the visible text when empty.
+    in property <string> label;
+    in property <string> detail;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> checked: false;
+    in property <bool> checkable: false;
+    in property <bool> locked: false;
+    in property <bool> highlighted: false;
+    callback activated();
+    callback dismissed();
+
+    public function take_focus() {
+        item_focus.focus();
+    }
+
+    height: root.detail != "" ? 44px : 30px;
+    border-radius: 8px;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: root.enabled && (item_touch.has-hover || item_focus.has-focus) ? Theme.bg-card-hover : transparent;
+    border-width: item_focus.has-focus || root.highlighted ? 2px : 0px;
+    border-color: root.highlighted ? Theme.accent-cyan : Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint != "" ? root.hint : root.detail;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        if root.enabled {
+            root.activated();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    item_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) && root.enabled {
+                root.activated();
+                return accept;
+            } else if event.text == Key.Escape {
+                root.dismissed();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 10px;
+        spacing: 8px;
+        VerticalLayout {
+            width: 16px;
+            alignment: center;
+            if root.checked: KitIcon { d: KitIcons.check; size: 14px; stroke: 2.2px; ink: Theme.accent-cyan; }
+            if !root.checked && root.icon != "": KitIcon { d: root.icon; size: 14px; ink: Theme.text-secondary; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 1px;
+            Text { text: root.text; font-size: 12px; color: Theme.text-primary; overflow: elide; accessible-role: AccessibleRole.none; }
+            if root.detail != "": Text { text: root.detail; font-size: 10px; color: Theme.text-muted; overflow: elide; accessible-role: AccessibleRole.none; }
+        }
+    }
+    item_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.activated(); }
+        changed has-hover => {
+            if root.hint == "" {
+                return;
+            }
+            if self.has-hover {
+                EditorModel.hover_hint = root.hint;
+            } else if EditorModel.hover_hint == root.hint {
+                EditorModel.hover_hint = "";
+            }
+        }
+    }
+    GuideLockTip { locked: root.locked; }
+}

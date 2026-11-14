@@ -6,16 +6,16 @@ import { StateLayer } from "state_layer.slint";
 export component IconButton inherits Rectangle {
     in property <image> icon;
     in property <string> label: "";
-    in property <color> tint: Theme.on-surface-variant;
+    in property <color> tint: Theme.text-secondary;
     in property <bool> enabled: true;
-    // The "on" look of a toggle: a secondary-container disc behind the icon.
+    // The "on" look of a toggle: a cyan-surface disc behind the icon.
     in property <bool> selected: false;
     callback clicked();
 
     width: Theme.touch;
     height: Theme.touch;
     border-radius: Theme.touch / 2;
-    background: root.selected ? Theme.secondary-container : transparent;
+    background: root.selected ? Theme.accent-surface : transparent;
     opacity: root.enabled ? 1.0 : Theme.disabled-content;
     accessible-role: AccessibleRole.button;
     accessible-label: root.label;
@@ -35,7 +35,7 @@ export component IconButton inherits Rectangle {
 
     Icon {
         source: root.icon;
-        tint: root.selected ? Theme.on-secondary-container : root.tint;
+        tint: root.selected ? Theme.accent : root.tint;
     }
 
     touch := TouchArea {

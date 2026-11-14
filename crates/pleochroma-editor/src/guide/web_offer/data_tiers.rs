@@ -40,8 +40,12 @@ fn welcome_tour() -> GuideOverlay {
             "The File menu at the top of the window holds New Design..., Open, Save and the exports.",
         ))
         .step(StepOverlay::of("The inspector").line(
-            "The Advanced interface adds a Schedule tab with the cutting sheet.",
+            "The cutting order is on the Cutting Instructions page, in the places segment of the design header.",
             "The Schedule tab holds the cutting sheet.",
+        ))
+        .step(StepOverlay::of("The tier table").line(
+            "Use + Add Tier above the table to add a tier, and the \u{2026} menu on a row to move, copy or delete it.",
+            "Use + Add Tier above the table to add a tier, and the buttons on a row to move, copy or delete it.",
         ))
         .step(
             StepOverlay::of("The viewport")
@@ -135,20 +139,20 @@ fn quick_add() -> GuideOverlay {
         .step(
             StepOverlay::of("Quick add a girdle")
                 .line(
-                    "The Quick Add buttons under the tier table's toolbar add a common first tier with one click.",
+                    "The QUICK ADD part of the Add Tier menu (the arrow beside + Add Tier, above the tier list) adds a common first tier with one click.",
                     "The Quick Add panel, opened from the command bar, adds a common first tier with one click.",
                 )
                 .line(
-                    "Click Girdle next to Quick Add.",
+                    "Open the Add Tier menu, then click Girdle under QUICK ADD.",
                     "Open Quick Add if it is not already open, then click Girdle.",
                 ),
         )
         .step(StepOverlay::of("Quick add a table").line(
-            "Click Table next to Quick Add.",
+            "Open the Add Tier menu, then click Table under QUICK ADD.",
             "Open Quick Add if it is not already open, then click Table.",
         ))
         .step(StepOverlay::of("Quick add a culet").line(
-            "Click Culet next to Quick Add.",
+            "Open the Add Tier menu, then click Culet under QUICK ADD.",
             "Open Quick Add if it is not already open, then click Culet.",
         ))
 }
@@ -179,7 +183,7 @@ fn tier_notes() -> GuideOverlay {
 
 fn duplicate() -> GuideOverlay {
     GuideOverlay::new("tiers-duplicate").step(StepOverlay::of("Duplicate a tier").line(
-        "Click the copy icon at the end of the Crown Main row, or pick the row and press Ctrl+D.",
+        "Open the \u{2026} menu (Actions for Tier N) at the end of the Crown Main row and click Duplicate, or pick the row and press Ctrl+D.",
         "Click the duplicate (+) icon at the end of the Crown Main row, or pick the row and press Ctrl+D.",
     ))
 }
@@ -188,7 +192,7 @@ fn delete() -> GuideOverlay {
     GuideOverlay::new("tiers-delete").step(
         StepOverlay::of("Remove a tier")
             .line(
-                "Click the trash icon at the end of the Table row, or pick the row and press Delete.",
+                "Open the \u{2026} menu (Actions for Tier N) at the end of the Table row and click Delete, or pick the row and press Delete.",
                 "Click the x icon at the end of the Table row, or pick the row and press Delete.",
             )
             .line(
@@ -241,12 +245,16 @@ fn cheater_offset() -> GuideOverlay {
 }
 
 // The web's "+ Add Concave Tier" sits in the command bar above the tier table, not in the
-// table's own toolbar (`tier_table_commands.slint`).
+// desktop's Add Tier menu (`tier_table_commands.slint`).
 fn concave_cylinder_cone() -> GuideOverlay {
     GuideOverlay::new("tiers-concave-cylinder-cone")
         .edit(TextEdit::sub(
-            "in the tier table's toolbar",
-            "in the command bar above the tier table",
+            "Concave Tier in the Add Tier menu above the tier list opens it blank",
+            "+ Add Concave Tier in the command bar above the tier table opens it blank",
+        ))
+        .edit(TextEdit::sub(
+            "Open the Add Tier menu above the tier list and click Concave Tier.",
+            "Click + Add Concave Tier in the command bar above the tier table.",
         ))
         .step(
             StepOverlay::of("A tier cut with a tool")
@@ -257,8 +265,8 @@ fn concave_cylinder_cone() -> GuideOverlay {
 fn concave_sphere_disc() -> GuideOverlay {
     GuideOverlay::new("tiers-concave-sphere-disc")
         .edit(TextEdit::sub(
-            "in the tier table's toolbar",
-            "in the command bar above the tier table",
+            "Open the Add Tier menu above the tier list and click Concave Tier.",
+            "Click + Add Concave Tier in the command bar above the tier table.",
         ))
         .step(StepOverlay::of("What the tool line says").line(
             "Open Cutting Mode to see the same two lines while you cut.",

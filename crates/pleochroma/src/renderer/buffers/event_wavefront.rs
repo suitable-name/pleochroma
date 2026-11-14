@@ -36,6 +36,12 @@ pub const TAG_ZONE_ABSORB: u32 = 14;
 /// Event tag: uniaxial entry that took the transmit branch, ready for
 /// `ew_arm_uni_entry_transmit`.
 pub const TAG_UNI_ENTRY_TRANSMIT: u32 = 15;
+/// Event tag: uniaxial entry after its transmit branch, ready for the surface-finish correction
+/// of `ew_arm_uni_entry_finish`.
+pub const TAG_UNI_ENTRY_FINISH: u32 = 16;
+/// Event tag: uniaxial internal event that drew the transmit branch, ready for
+/// `ew_arm_uni_internal_transmit`.
+pub const TAG_UNI_INTERNAL_TRANSMIT: u32 = 17;
 
 /// Surface interaction arm: frosted facet finish.
 pub const ARM_FROSTED: u32 = 1;
@@ -54,6 +60,8 @@ pub const PHASE_NEXT: u32 = 0;
 pub const PHASE_END_STEP: u32 = 1;
 /// Phase execution result: ray path terminated, finalize.
 pub const PHASE_TERMINATE: u32 = 2;
+/// Phase execution result: the ray is unchanged and the other half of a split arm takes it.
+pub const PHASE_PARK: u32 = 3;
 
 /// Ray flag bit: ray is currently inside gem.
 pub const FLAG_INSIDE_GEM: u32 = 1;

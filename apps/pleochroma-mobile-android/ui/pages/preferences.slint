@@ -9,6 +9,7 @@ import { ListRow } from "../shell/list_row.slint";
 import { Segmented } from "../shell/chips.slint";
 import { Toggle } from "../shell/toggle.slint";
 import { InfoButton } from "../shell/info.slint";
+import { PageColumn, GroupHeader } from "fields.slint";
 
 export component PreferencesPage inherits Rectangle {
     VerticalLayout {
@@ -21,95 +22,113 @@ export component PreferencesPage inherits Rectangle {
         }
 
         PageScroll {
-            // Theme.
-            VerticalLayout {
-                padding-left: Theme.space-lg;
-                padding-right: Theme.space-lg;
-                padding-top: Theme.space-sm;
-                padding-bottom: Theme.space-md;
-                spacing: Theme.space-md;
-
-                Text {
-                    text: "Theme";
-                    color: Theme.on-surface;
-                    font-size: Theme.text-body-large;
+            PageColumn {
+                GroupHeader {
+                    text: "APPEARANCE";
                 }
 
-                Segmented {
-                    options: ["System", "Dark", "Light"];
-                    current: Prefs.theme;
-                    selected(index) => {
-                        Prefs.set-theme(index);
+                // Theme.
+                VerticalLayout {
+                    padding-left: Theme.space-lg;
+                    padding-right: Theme.space-lg;
+                    padding-top: Theme.space-sm;
+                    padding-bottom: Theme.space-md;
+                    spacing: Theme.space-md;
+
+                    Text {
+                        text: "Theme";
+                        color: Theme.on-surface;
+                        font-size: Theme.text-body-large;
+                    }
+
+                    Segmented {
+                        options: ["Dark", "High Contrast"];
+                        current: Prefs.theme;
+                        selected(index) => {
+                            Prefs.set-theme(index);
+                        }
                     }
                 }
-            }
 
-            ListRow {
-                icon: Icons.settings;
-                title: "Larger Handles";
-                supporting: "Bigger touch handles when dragging tiers and faces";
-                clicked => {
-                    Prefs.set-large-handles(!Prefs.large-handles);
+                GroupHeader {
+                    text: "EDITING";
                 }
 
-                Toggle {
-                    checked: Prefs.large-handles;
-                    toggled(value) => {
-                        Prefs.set-large-handles(value);
+                ListRow {
+                    icon: Icons.settings;
+                    title: "Larger Handles";
+                    supporting: "Bigger touch handles when dragging tiers and faces";
+                    clicked => {
+                        Prefs.set-large-handles(!Prefs.large-handles);
+                    }
+
+                    Toggle {
+                        checked: Prefs.large-handles;
+                        toggled(value) => {
+                            Prefs.set-large-handles(value);
+                        }
                     }
                 }
-            }
 
-            ListRow {
-                icon: Icons.settings;
-                title: "Snap to Gear";
-                supporting: "Snap dragged angles to the index gear's teeth";
-                clicked => {
-                    Prefs.set-snap-to-gear(!Prefs.snap-to-gear);
-                }
+                ListRow {
+                    icon: Icons.settings;
+                    title: "Snap to Gear";
+                    supporting: "Snap dragged angles to the index gear's teeth";
+                    clicked => {
+                        Prefs.set-snap-to-gear(!Prefs.snap-to-gear);
+                    }
 
-                InfoButton {
-                    info-title: "Snap to Gear";
-                    info-body: "When on, an angle you drag jumps to the nearest position your index gear can reach. Turn it off to drag freely and let the solver pick the index afterwards.";
-                }
+                    InfoButton {
+                        info-title: "Snap to Gear";
+                        info-body: "When on, an angle you drag jumps to the nearest position your index gear can reach. Turn it off to drag freely and let the solver pick the index afterwards.";
+                    }
 
-                Toggle {
-                    checked: Prefs.snap-to-gear;
-                    toggled(value) => {
-                        Prefs.set-snap-to-gear(value);
+                    Toggle {
+                        checked: Prefs.snap-to-gear;
+                        toggled(value) => {
+                            Prefs.set-snap-to-gear(value);
+                        }
                     }
                 }
-            }
 
-            ListRow {
-                icon: Icons.settings;
-                title: "Battery Saver";
-                supporting: "Lower render quality and fewer threads";
-                clicked => {
-                    Prefs.set-battery-saver(!Prefs.battery-saver);
+                GroupHeader {
+                    text: "RENDER";
                 }
 
-                InfoButton {
-                    info-title: "Battery Saver";
-                    info-body: "Path-Traced renders at Draft quality with two worker threads to keep the phone cooler. Ray-Traced is the light choice on battery: fixed taps finish without noise.";
-                }
+                ListRow {
+                    icon: Icons.settings;
+                    title: "Battery Saver";
+                    supporting: "Lower render quality and fewer threads";
+                    clicked => {
+                        Prefs.set-battery-saver(!Prefs.battery-saver);
+                    }
 
-                Toggle {
-                    checked: Prefs.battery-saver;
-                    toggled(value) => {
-                        Prefs.set-battery-saver(value);
+                    InfoButton {
+                        info-title: "Battery Saver";
+                        info-body: "Path-Traced renders at Draft quality with two worker threads to keep the phone cooler. Ray-Traced is the light choice on battery: fixed taps finish without noise.";
+                    }
+
+                    Toggle {
+                        checked: Prefs.battery-saver;
+                        toggled(value) => {
+                            Prefs.set-battery-saver(value);
+                        }
                     }
                 }
-            }
 
-            ListRow {
-                icon: Icons.close;
-                title: "Delete All Cutting Progress";
-                supporting: "The done marks of every design on this device";
-                clicked => {
-                    // The answer arrives as dialog 2002 (`src/cut.rs`, `DIALOG_DELETE_ALL`); the
-                    // Cut page's menu asks the same question.
-                    Shell.show-dialog(2002, "Delete All Cutting Progress?", "The done marks of every design on this device will be deleted, not only those of the open design. This cannot be undone.", "Delete", "Cancel");
+                GroupHeader {
+                    text: "DATA";
+                }
+
+                ListRow {
+                    icon: Icons.close;
+                    title: "Delete All Cutting Progress";
+                    supporting: "The done marks of every design on this device";
+                    clicked => {
+                        // The answer arrives as dialog 2002 (`src/cut.rs`, `DIALOG_DELETE_ALL`); the
+                        // Cut page's menu asks the same question.
+                        Shell.show-dialog(2002, "Delete All Cutting Progress?", "The done marks of every design on this device will be deleted, not only those of the open design. This cannot be undone.", "Delete", "Cancel");
+                    }
                 }
             }
         }

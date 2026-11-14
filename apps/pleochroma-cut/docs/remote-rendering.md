@@ -5,10 +5,11 @@ configured remote, and how denoising and the TLS connection are handled across t
 handoff. For everything else see [the README](../README.md); for the
 `RemoteEndpoint` configuration itself see [settings.md](settings.md).
 
-## Protocol 42: Update the Whole Fleet Together
+## Protocol 43: Update the Whole Fleet Together
 
-The current protocol is **42**. It appends the HDR map turn and the stone estimator to
-the scene (see below); earlier versions appended Tray Reflection (41) and Stone Shadow (40).
+The current protocol is **43**. It appends the camera pan to the scene (see below); earlier
+versions appended the HDR map turn and the stone estimator (42), Tray Reflection (41) and
+Stone Shadow (40).
 Each worker computes its own map; map bytes never cross the wire. A live viewport request gets a Preview
 map, and everything else (exports, jobs, final images, batches and the passes of an adaptive
 export) gets a Final map. The beam-tile request (protocol 38) lets a worker
@@ -29,10 +30,19 @@ rendered with. Where exit collection does not apply (an HDR map, Daylight + Sun,
 tools, a rough or ground surface, Tray Reflection) a frame falls back to the classic estimator
 on every engine alike.
 
+The camera pan travels in the scene too (`SceneState::camera_pan`, `[x, y]` in image
+half-heights, x right and y up in the picture's axes after the roll): where the stone sits in
+the picture. Every scene the viewer sends carries the live view's pan (the live view, exports,
+tilt videos and jobs); catalogue thumbnails and tilt curves send `[0.0, 0.0]`. A worker refuses
+a pan with a component that is not a number or lies beyond +/-4 (`MAX_CAMERA_PAN`). A scene
+written before the field (an older job file) reads as centred. A pan is camera motion: it
+cancels the live remote epoch like an orbit or a roll, so samples of two framings are never
+summed.
+
 Beam tracing is retired and is an optional build feature (`beam`, for example `cargo build -p
 pleochroma-worker --features beam`). Only builds with the feature send or render beam tiles.
 The wire definition (`BeamTileRequest`, `StreamEvent::BeamTiles`) is in every build, so beam
-and standard builds of protocol 42 pair at the handshake. A worker or coordinator built
+and standard builds of protocol 43 pair at the handshake. A worker or coordinator built
 without the feature answers every `BeamTileRequest` with `StreamEvent::Error` (code
 `UNSUPPORTED_REQUEST`, 5) and keeps the connection; a standard coordinator does not forward
 beam tiles. A beam build of the app treats that error like a lost worker: the tiles move to
@@ -141,7 +151,12 @@ configured, the app hands off (`poll::POSE_SETTLE_DEBOUNCE`):
    counts)`, denoised once. The epoch is complete once the combined count
    reaches **Target Samples** -- the single global target; there is no separate
    remote sample budget. **Remote Only** pauses local tracing and lets the
-   remote lane trace the whole epoch.
+   remote lane trace the whole epoch. With no local tracer sharing the epoch,
+   each completed chunk doubles the next one's duration, up to 30 s when the
+   remote streams its progress (Progressive) or 8 s under Full Data When
+   Finished, whose picture changes only when a chunk ends. The worker idles
+   from the end of one chunk until the next request reaches it, so fewer, longer
+   chunks keep it busier; a drag still cancels the chunk in flight at once.
 3. **Failure keeps what arrived.** A chunk that fails (worker error, dropped
    connection, liveness timeout) keeps its valid prefix; the untraced remainder
    goes back to the local tracer (or, in Remote Only, is retried remotely).

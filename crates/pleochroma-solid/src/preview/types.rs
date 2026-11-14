@@ -6,11 +6,11 @@ use glam::Vec3;
 use pleochroma::geometry::{GpuFacetPlane, StoneGeometry, ToolPrimitive};
 use std::sync::Arc;
 
-/// The shared orbit camera and its independent image-plane roll.
+/// The shared orbit camera, its independent image-plane roll and its pan.
 ///
 /// See [`crate::raster`]'s module doc comment for why the solid view must use exactly
-/// `pleochroma::optics::raytracer::Camera::new(yaw, pitch, distance, 42.0).with_roll(roll)`, the
-/// same call the path tracer uses.
+/// `pleochroma::optics::raytracer::Camera::new(yaw, pitch, distance, 42.0).with_roll(roll)
+/// .with_pan(pan)`, the same call the path tracer uses.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraPose {
     /// Orbit yaw, radians.
@@ -21,6 +21,9 @@ pub struct CameraPose {
     pub roll: f32,
     /// Orbit distance, model units.
     pub distance: f32,
+    /// Where the orbit centre sits in the picture, in image half-heights (x right, y up, in
+    /// the picture's axes); `[0.0, 0.0]` is centred.
+    pub pan: [f32; 2],
 }
 
 /// A facet-id-keyed highlight update.
@@ -57,7 +60,7 @@ pub struct FacetOverlay {
 /// `corner_points` and `facet_centroids` are built once per mesh
 /// ([`crate::mesh_cache::CachedMesh`]) and shared by `Arc`, never rebuilt per frame;
 /// `camera` and `size` are exactly the pose and pixel size the raster used, so a
-/// point projected with `Camera::new(..).with_roll(roll)` at `size` lands on
+/// point projected with `Camera::new(..).with_roll(roll).with_pan(pan)` at `size` lands on
 /// the same pixel the pick buffer holds.
 #[derive(Debug, Clone)]
 pub struct FrameGeometry {

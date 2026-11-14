@@ -235,6 +235,7 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                 yaw,
                 pitch,
                 camera_roll,
+                camera_pan,
                 distance,
                 light_yaw,
                 light_pitch,
@@ -1014,7 +1015,9 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                 thread::sleep(std::time::Duration::from_millis(16));
                 continue;
             }
-            let camera = Camera::new(yaw, pitch, distance, DEFAULT_FOV_DEG).with_roll(camera_roll);
+            let camera = Camera::new(yaw, pitch, distance, DEFAULT_FOV_DEG)
+                .with_roll(camera_roll)
+                .with_pan(camera_pan);
 
             // A loaded HDR panorama, lit at `exposure`, replaces the analytic studio rig as
             // this frame's environment source. The GPU megakernel has its own `env_mode` for

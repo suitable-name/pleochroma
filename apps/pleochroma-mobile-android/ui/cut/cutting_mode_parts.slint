@@ -1,21 +1,27 @@
-// Pieces of the Cutting Mode screen. The screen is white on black in every theme, for
-// maximum contrast at the faceting machine, so its colors are fixed here and do not come
-// from `Theme`. No hover states: a finger has no hover.
+// Pieces of the Cutting Mode screen. The screen is the quietest, highest-contrast page of the
+// app, for the faceting machine: the page ground with the primary text on it, the cyan accent
+// for the facet code and the step bar, and the largest type of the app. Its colors are the
+// theme's, so High Contrast (a black ground, white text, a bright cyan, 3 px edges) carries
+// over. No hover states: a finger has no hover.
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Icon } from "../shell/icon.slint";
 
 export global ModeColors {
-    out property <color> background: #000000;
-    out property <color> ink: #ffffff;
-    // Captions and secondary text; about 10.6:1 against black.
-    out property <color> dim: #b8b8b8;
-    out property <color> accent: #ffb74d;
-    out property <color> done: #1f9d4d;
-    out property <color> key: #1e1e1e;
-    out property <color> key-pressed: #3d3d3d;
-    out property <color> outline: #5a5a5a;
-    out property <color> track: #2e2e2e;
+    out property <color> background: Theme.surface;
+    out property <color> ink: Theme.on-surface;
+    // Captions and secondary text: the desktop's text-secondary (7:1 on the ground).
+    out property <color> dim: Theme.text-secondary;
+    out property <color> accent: Theme.accent;
+    // A done step: the success green with dark text on it.
+    out property <color> done: Theme.success;
+    out property <color> on-done: Theme.on-success;
+    out property <color> key: Theme.surface-container;
+    out property <color> key-pressed: Theme.surface-highest;
+    out property <color> outline: Theme.outline-variant;
+    out property <color> track: Theme.surface-highest;
+    // The width of the edge of the step buttons.
+    out property <length> edge: Theme.high-contrast ? 3px : 1px;
 }
 
 // A small gray label above a number.
@@ -32,6 +38,9 @@ export component ModeCaption inherits Text {
 export component Numeral inherits VerticalLayout {
     in property <string> caption;
     in property <string> value;
+    // What is drawn, when it differs from `value` only by invisible break hints (which
+    // must not count toward the size); empty draws `value`.
+    in property <string> display;
     in property <length> avail-width;
     in property <length> size-cap: 96px;
     in property <length> min-size: 36px;
@@ -57,7 +66,7 @@ export component Numeral inherits VerticalLayout {
     }
 
     Text {
-        text: root.value;
+        text: root.display != "" ? root.display : root.value;
         color: ModeColors.ink;
         font-size: root.size;
         font-weight: 700;
@@ -67,17 +76,23 @@ export component Numeral inherits VerticalLayout {
     }
 }
 
-// The previous and next buttons: 72 x 64 with a large chevron.
+// The previous and next buttons, in the thumb zone: 64 px high (56 at least), at least 72
+// wide, a large chevron and the word beside it. `trailing` puts the chevron after the word
+// (Next). `label` is the accessible name.
 export component ModeArrow inherits Rectangle {
     in property <image> icon;
     in property <string> label;
+    // The word on the button.
+    in property <string> caption: "";
+    in property <bool> trailing: false;
     in property <bool> enabled: true;
     callback clicked();
 
-    width: 72px;
+    min-width: 72px;
     height: 64px;
+    horizontal-stretch: 1;
     border-radius: 16px;
-    border-width: 1px;
+    border-width: ModeColors.edge;
     border-color: ModeColors.outline;
     background: root.enabled && touch.pressed ? ModeColors.key-pressed : ModeColors.key;
     opacity: root.enabled ? 1.0 : 0.3;
@@ -90,10 +105,30 @@ export component ModeArrow inherits Rectangle {
         }
     }
 
-    Icon {
-        source: root.icon;
-        tint: ModeColors.ink;
-        glyph: 40px;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 4px;
+        cross-axis-alignment: center;
+
+        if !root.trailing: Icon {
+            source: root.icon;
+            tint: ModeColors.ink;
+            glyph: 40px;
+        }
+
+        Text {
+            text: root.caption;
+            color: ModeColors.ink;
+            font-size: Theme.text-title-large;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+
+        if root.trailing: Icon {
+            source: root.icon;
+            tint: ModeColors.ink;
+            glyph: 40px;
+        }
     }
 
     touch := TouchArea {
@@ -105,7 +140,7 @@ export component ModeArrow inherits Rectangle {
 }
 
 // The full-width "Done" toggle, 72 px high. Done is a solid green with a check mark, not
-// done is a white outline, so the state reads from across the bench.
+// done is a bright outline, so the state reads from across the bench.
 export component DoneButton inherits Rectangle {
     in property <bool> done;
     callback clicked();
@@ -130,14 +165,14 @@ export component DoneButton inherits Rectangle {
 
         if root.done: Icon {
             source: Icons.check;
-            tint: ModeColors.ink;
+            tint: ModeColors.on-done;
             glyph: 40px;
         }
 
         Text {
             text: root.done ? "Done" : "Mark as Done";
-            color: ModeColors.ink;
-            font-size: 30px;
+            color: root.done ? ModeColors.on-done : ModeColors.ink;
+            font-size: Theme.base-font * 2.14;
             font-weight: 700;
             vertical-alignment: center;
         }

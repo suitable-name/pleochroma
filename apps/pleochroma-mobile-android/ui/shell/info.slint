@@ -37,6 +37,8 @@ export component InfoSheetHost inherits Rectangle {
         background: Theme.surface-container;
         border-top-left-radius: Theme.radius-xl;
         border-top-right-radius: Theme.radius-xl;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
         drop-shadow-color: Theme.shadow;
         drop-shadow-blur: Theme.shadow-blur-3;
         drop-shadow-offset-y: -Theme.shadow-offset-1;
@@ -58,7 +60,7 @@ export component InfoSheetHost inherits Rectangle {
 
             Text {
                 text: Shell.info-body;
-                color: Theme.on-surface-variant;
+                color: Theme.text-secondary;
                 font-size: Theme.text-body-large;
                 wrap: word-wrap;
             }

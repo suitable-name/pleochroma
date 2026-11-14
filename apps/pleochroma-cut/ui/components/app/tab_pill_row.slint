@@ -3,223 +3,161 @@ import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { GuideLockTip } from "../guide_lock.slint";
 
-// Catalogue tab pills (3D Spectral Preview / Cutting Instructions / Files &
-// Downloads) share one 28px row with the Live Render/Edit view pills -- split
-// out of `app.slint` to keep that file under its line budget. The row is always
-// visible (tabs must be reachable from every tab), with the view pills as a
-// conditional right-hand cluster shown only when `active_tab == 0` (they are
-// meaningless on Cutting Instructions/Files).
+// One segment of the place switcher: a tab, selected or not. `label` is the accessible name (the
+// visible `text` may be shorter on a narrow window).
+component PlaceSeg inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    // The open tutorial step outlines this segment (a cyan, 2px border).
+    in property <bool> highlighted: false;
+    in property <length> pad: 14px;
+    callback picked();
+
+    height: 26px;
+    width: seg_text.preferred-width + 2 * root.pad;
+    border-radius: 7px;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: root.selected ? Theme.bg-elevated : (seg_touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: seg_focus.has-focus || root.highlighted ? 2px : 0px;
+    border-color: seg_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+
+    accessible-role: AccessibleRole.tab;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.selected;
+    accessible-checked: root.selected;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+
+    seg_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) && root.enabled {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    seg_text := Text {
+        x: (parent.width - self.preferred-width) / 2;
+        y: 0px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        font-weight: root.selected ? 600 : 500;
+        color: root.selected ? Theme.text-primary : Theme.text-secondary;
+        vertical-alignment: center;
+        accessible-role: AccessibleRole.none;
+    }
+    seg_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.picked(); }
+    }
+    GuideLockTip { locked: !root.enabled; }
+}
+
+// The four places of the design as one segment: Live Render, Edit, Cutting Instructions and Files.
+// It replaces the two rows of pills the window had (the three catalogue tabs and the Live
+// Render / Edit view pills).
 //
-// `active_tab`/`render_view_tab` are two-way bound to `MainWindow`'s own
-// properties of the same name (see `app.slint`), so a click here updates
-// `MainWindow`'s copy immediately; the matching `*_changed` callbacks are
-// forwarded up separately since Rust hooks those directly on `MainWindow`.
+// `active_tab` (0 the 3D tab, 1 Cutting Instructions, 2 Files) and `render_view_tab` (0 Live Render,
+// 1 Edit, which only the 3D tab has) are two-way bound to `MainWindow`'s own properties of the same
+// name (see `app.slint`), so a click here updates `MainWindow`'s copy immediately; the matching
+// `*_changed` callbacks are forwarded up separately since Rust hooks those directly on
+// `MainWindow`. Picking Live Render or Edit sets both properties and raises both callbacks, as the
+// export indicator's own jump to Live Render does.
 //
-// While the worked-example guide runs, the Cutting Instructions/Files pills and
-// Live Render follow `GuideModel.allows_view_tabs()`. The 3D tab pill and the
-// Edit pill never lock, so the guide can never strand the user away from the
-// Edit sub-tab its steps happen in.
-export component TabViewPillRow inherits HorizontalLayout {
-    height: 28px;
-    spacing: root.tight ? 4px : 6px;
+// While the worked-example guide runs, Cutting Instructions, Files and Live Render follow
+// `GuideModel.allows_view_tabs()`. The Edit segment never locks, so the guide can never strand the
+// user away from the Edit view its steps happen in. Edit shows only while a design is open for
+// editing (`EditorModel.enabled`).
+//
+// It sits at the right end of the design header (`detail_header.slint`), so it has a fixed size and
+// never shrinks: the header's title elides instead.
+export component PlacesSegment inherits Rectangle {
+    width: places.preferred-width + 4px;
+    height: 30px;
+    border-radius: 9px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    accessible-role: AccessibleRole.tab-list;
+    accessible-label: "Places";
 
     in-out property <int> active_tab: 0;
     callback active_tab_changed(int);
     in-out property <int> render_view_tab: 0;
     callback render_view_tab_changed(int);
-    // Set by `app.slint` below 1200px: the three catalogue pills drop to short labels
-    // ("3D (1)", "Cutting (2)", "Files (3)") and every pill's side padding shrinks, so
-    // the row's minimum width no longer forces a clip beside a 340px library.
+    // Set by `app.slint` below 1200px: Cutting Instructions and Files & Downloads drop to
+    // "Cutting" and "Files", and the segments' side padding shrinks.
     in property <bool> compact: false;
-    // Set by `app.slint` below 800px. The five pills fit beside the 340px library only without
-    // their icons: with icons the Edit pill ran off the window edge. The accessible labels stay
-    // the same. Side padding and gaps shrink too, since Linux fonts (DejaVu, Noto) are wider
-    // than Segoe UI and would push the Edit pill past the edge again.
+    // Set by `app.slint` below 800px: shorter padding still, since Linux fonts (DejaVu, Noto) are
+    // wider than Segoe UI and the segment must stay beside the 340px library.
     in property <bool> tight: false;
 
-    Rectangle {
-        height: 28px;
-        background: root.active_tab == 0 ? Theme.primary : (tabpill0_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
-        border-radius: Theme.radius-sm;
-        border-width: 1px;
-        border-color: root.active_tab == 0 ? Theme.accent-cyan : Theme.border-subtle;
-        tabpill0_touch := TouchArea {
-            accessible-role: AccessibleRole.tab;
-            accessible-label: "3D Spectral Preview";
-            accessible-item-selectable: true;
-            accessible-item-selected: root.active_tab == 0;
-            accessible-checked: root.active_tab == 0;
-            accessible-action-default => { root.active_tab = 0; root.active_tab_changed(0); }
-            clicked => { root.active_tab = 0; root.active_tab_changed(0); }
+    // Which place is on: 0 Live Render, 1 Edit, 2 Cutting Instructions, 3 Files & Downloads.
+    property <int> place: root.active_tab == 0 ? (root.render_view_tab == 1 && EditorModel.enabled ? 1 : 0) : root.active_tab + 1;
+    property <length> pad: root.tight ? 8px : (root.compact ? 10px : 14px);
+
+    function go_view(view: int) {
+        if root.active_tab != 0 {
+            root.active_tab = 0;
+            root.active_tab_changed(0);
         }
-        HorizontalLayout {
-            padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
-            padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
-            alignment: center;
-            spacing: 6px;
-            // Centred by a layout of its own: a fixed-size Image in the row sits at the top of
-            // its cell (`vertical-alignment` only places the picture inside the Image).
-            if !root.tight: VerticalLayout {
-                alignment: center;
-                Image { source: @image-url("../../icons/gem.svg"); colorize: root.active_tab == 0 ? Theme.text-on-primary : Theme.text-secondary; width: 11px; height: 11px; }
-            }
-            Text { text: root.compact ? "3D (1)" : "3D Spectral Preview (1)"; font-size: 11px; font-weight: 600; color: root.active_tab == 0 ? Theme.text-on-primary : Theme.text-secondary; vertical-alignment: center; }
-        }
+        root.render_view_tab = view;
+        root.render_view_tab_changed(view);
+    }
+    function go_tab(tab: int) {
+        root.active_tab = tab;
+        root.active_tab_changed(tab);
     }
 
-    Rectangle {
-        height: 28px;
-        opacity: GuideModel.allows_view_tabs() ? 1.0 : 0.4;
-        background: root.active_tab == 1 ? Theme.primary : (tabpill1_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
-        border-radius: Theme.radius-sm;
-        border-width: 1px;
-        border-color: root.active_tab == 1 ? Theme.accent-cyan : Theme.border-subtle;
-        tabpill1_touch := TouchArea {
+    places := HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        PlaceSeg {
+            text: "Live Render";
+            hint: "Look at the finished stone, lit and rendered.";
+            selected: root.place == 0;
             enabled: GuideModel.allows_view_tabs();
-            accessible-role: AccessibleRole.tab;
-            accessible-label: "Cutting Instructions";
-            accessible-item-selectable: true;
-            accessible-item-selected: root.active_tab == 1;
-            accessible-checked: root.active_tab == 1;
-            accessible-enabled: GuideModel.allows_view_tabs();
-            accessible-action-default => { root.active_tab = 1; root.active_tab_changed(1); }
-            clicked => { root.active_tab = 1; root.active_tab_changed(1); }
+            highlighted: GuideModel.highlight_target == "live_render_tab";
+            pad: root.pad;
+            picked => { root.go_view(0); }
         }
-        GuideLockTip { locked: !GuideModel.allows_view_tabs(); }
-        HorizontalLayout {
-            padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
-            padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
-            alignment: center;
-            spacing: 6px;
-            if !root.tight: VerticalLayout {
-                alignment: center;
-                Image { source: @image-url("../../icons/ruler.svg"); colorize: root.active_tab == 1 ? Theme.text-on-primary : Theme.text-secondary; width: 11px; height: 11px; }
-            }
-            Text { text: root.compact ? "Cutting (2)" : "Cutting Instructions (2)"; font-size: 11px; font-weight: 600; color: root.active_tab == 1 ? Theme.text-on-primary : Theme.text-secondary; vertical-alignment: center; }
+        if EditorModel.enabled: PlaceSeg {
+            text: "Edit";
+            hint: "Change the design: the tiers, the solid and the cutting order.";
+            selected: root.place == 1;
+            pad: root.pad;
+            picked => { root.go_view(1); }
         }
-    }
-
-    Rectangle {
-        height: 28px;
-        opacity: GuideModel.allows_view_tabs() ? 1.0 : 0.4;
-        background: root.active_tab == 2 ? Theme.primary : (tabpill2_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
-        border-radius: Theme.radius-sm;
-        border-width: 1px;
-        border-color: root.active_tab == 2 ? Theme.accent-cyan : Theme.border-subtle;
-        tabpill2_touch := TouchArea {
+        PlaceSeg {
+            text: root.compact ? "Cutting" : "Cutting Instructions";
+            label: "Cutting Instructions";
+            hint: "The step-by-step cutting instructions for this design.";
+            selected: root.place == 2;
             enabled: GuideModel.allows_view_tabs();
-            accessible-role: AccessibleRole.tab;
-            accessible-label: "Files & Downloads";
-            accessible-item-selectable: true;
-            accessible-item-selected: root.active_tab == 2;
-            accessible-checked: root.active_tab == 2;
-            accessible-enabled: GuideModel.allows_view_tabs();
-            accessible-action-default => { root.active_tab = 2; root.active_tab_changed(2); }
-            clicked => { root.active_tab = 2; root.active_tab_changed(2); }
+            pad: root.pad;
+            picked => { root.go_tab(1); }
         }
-        GuideLockTip { locked: !GuideModel.allows_view_tabs(); }
-        HorizontalLayout {
-            padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
-            padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
-            alignment: center;
-            spacing: 6px;
-            if !root.tight: VerticalLayout {
-                alignment: center;
-                Image { source: @image-url("../../icons/folder.svg"); colorize: root.active_tab == 2 ? Theme.text-on-primary : Theme.text-secondary; width: 11px; height: 11px; }
-            }
-            Text { text: root.compact ? "Files (3)" : "Files & Downloads (3)"; font-size: 11px; font-weight: 600; color: root.active_tab == 2 ? Theme.text-on-primary : Theme.text-secondary; vertical-alignment: center; }
+        PlaceSeg {
+            text: root.compact ? "Files" : "Files & Downloads";
+            label: "Files & Downloads";
+            hint: "The files attached to this design, and the files you can make from it.";
+            selected: root.place == 3;
+            enabled: GuideModel.allows_view_tabs();
+            pad: root.pad;
+            picked => { root.go_tab(2); }
         }
-    }
-
-    Rectangle { horizontal-stretch: 1; }
-
-    // View pills -- the Live Render/Edit sub-tab -- only meaningful while
-    // looking at the 3D Preview tab.
-    if root.active_tab == 0: HorizontalLayout {
-        spacing: root.tight ? 4px : 6px;
-
-        Rectangle {
-            height: 28px;
-            opacity: GuideModel.allows_view_tabs() ? 1.0 : 0.4;
-            background: root.render_view_tab == 0 ? Theme.primary : (live_render_tab_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
-            border-radius: Theme.radius-sm;
-            // The open tutorial step may outline this pill (a cyan, 2px border).
-            border-width: GuideModel.highlight_target == "live_render_tab" ? 2px : 1px;
-            border-color: root.render_view_tab == 0 || GuideModel.highlight_target == "live_render_tab" ? Theme.accent-cyan : Theme.border-subtle;
-            live_render_tab_touch := TouchArea {
-                enabled: GuideModel.allows_view_tabs();
-                accessible-role: AccessibleRole.tab;
-                accessible-label: "Live Render";
-                accessible-item-selectable: true;
-                accessible-item-selected: root.render_view_tab == 0;
-                accessible-checked: root.render_view_tab == 0;
-                accessible-enabled: GuideModel.allows_view_tabs();
-                accessible-action-default => { root.render_view_tab = 0; root.render_view_tab_changed(0); }
-                clicked => { root.render_view_tab = 0; root.render_view_tab_changed(0); }
-            }
-            GuideLockTip { locked: !GuideModel.allows_view_tabs(); }
-            HorizontalLayout {
-                padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
-                padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
-                alignment: center;
-                spacing: 6px;
-                if !root.tight: VerticalLayout {
-                    alignment: center;
-                    Image {
-                        source: @image-url("../../icons/gem.svg");
-                        colorize: root.render_view_tab == 0 ? Theme.text-on-primary : Theme.text-secondary;
-                        width: 11px;
-                        height: 11px;
-                    }
-                }
-                Text {
-                    text: "Live Render";
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: root.render_view_tab == 0 ? Theme.text-on-primary : Theme.text-secondary;
-                    vertical-alignment: center;
-                }
-            }
-        }
-
-        if EditorModel.enabled: Rectangle {
-            height: 28px;
-            background: root.render_view_tab == 1 ? Theme.primary : (edit_tab_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
-            border-radius: Theme.radius-sm;
-            border-width: 1px;
-            border-color: root.render_view_tab == 1 ? Theme.accent-cyan : Theme.border-subtle;
-            edit_tab_touch := TouchArea {
-                accessible-role: AccessibleRole.tab;
-                accessible-label: "Edit";
-                accessible-item-selectable: true;
-                accessible-item-selected: root.render_view_tab == 1;
-                accessible-checked: root.render_view_tab == 1;
-                accessible-action-default => { root.render_view_tab = 1; root.render_view_tab_changed(1); }
-                clicked => { root.render_view_tab = 1; root.render_view_tab_changed(1); }
-            }
-            HorizontalLayout {
-                padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
-                padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
-                alignment: center;
-                spacing: 6px;
-                if !root.tight: VerticalLayout {
-                    alignment: center;
-                    Image {
-                        source: @image-url("../../icons/pencil.svg");
-                        colorize: root.render_view_tab == 1 ? Theme.text-on-primary : Theme.text-secondary;
-                        width: 11px;
-                        height: 11px;
-                    }
-                }
-                Text {
-                    text: "Edit";
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: root.render_view_tab == 1 ? Theme.text-on-primary : Theme.text-secondary;
-                    vertical-alignment: center;
-                }
-            }
-        }
-
     }
 }

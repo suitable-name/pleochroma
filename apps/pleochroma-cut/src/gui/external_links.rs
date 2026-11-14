@@ -6,7 +6,7 @@
 //! through `cmd.exe` or any other shell, where `&`, `|`, `^` and `%` in a link would be
 //! read as shell syntax.
 
-use crate::{EditorModel, MainWindow, gui::show_toast};
+use crate::{EditorModel, ExportModel, MainWindow, gui::show_toast};
 use slint::ComponentHandle;
 use std::{
     ffi::OsStr,
@@ -210,6 +210,49 @@ pub(super) fn setup_reveal_last_saved_callback(ui: &MainWindow) {
             let path = std::path::PathBuf::from(saved.as_str());
             let target = path.parent().unwrap_or(&path);
             if let Err(message) = open_local_path(target) {
+                warn!("{message}");
+                show_toast(&ui, &message, "error");
+            }
+        });
+    setup_open_exports_folder_callback(ui);
+}
+
+/// The first folder that exists among the export folder the still-export dialog uses (`chosen`,
+/// empty until one is picked), the folder of the last file the Edit tab wrote, and `./exports/`.
+fn exports_folder_target(chosen: &str, last_saved: &str) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if !chosen.is_empty() {
+        candidates.push(PathBuf::from(chosen));
+    }
+    if !last_saved.is_empty() {
+        let path = PathBuf::from(last_saved);
+        candidates.push(
+            path.parent()
+                .map_or_else(|| path.clone(), Path::to_path_buf),
+        );
+    }
+    candidates.push(PathBuf::from("exports"));
+    candidates.into_iter().find(|folder| folder.is_dir())
+}
+
+/// Files page: "Open Exports Folder". See [`exports_folder_target`]; says so when there is none yet.
+fn setup_open_exports_folder_callback(ui: &MainWindow) {
+    let ui_weak = ui.as_weak();
+    ui.global::<ExportModel>()
+        .on_open_exports_folder(move |chosen| {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let last_saved = ui.global::<EditorModel>().get_last_saved_path();
+            let Some(target) = exports_folder_target(chosen.as_str(), last_saved.as_str()) else {
+                show_toast(
+                    &ui,
+                    "There is no exports folder yet. Export something first.",
+                    "info",
+                );
+                return;
+            };
+            if let Err(message) = open_local_path(&target) {
                 warn!("{message}");
                 show_toast(&ui, &message, "error");
             }

@@ -270,13 +270,14 @@ pub use zoning::{
 /// 42: `SceneState::hdr_orientation` appended after `tray_reflection`, then
 ///     `SceneState::estimator` (the stone estimator every engine of the frame runs). A viewer
 ///     and its workers must be replaced together.
-pub const PROTOCOL_VERSION: u16 = 42;
+/// 43: `SceneState::camera_pan` appended after `estimator`. A viewer and its workers must be replaced together.
+pub const PROTOCOL_VERSION: u16 = 43;
 
 #[cfg(test)]
 mod tests {
     #[test]
     /// Pins the constant so a bump is always a deliberate, reviewed edit.
     fn protocol_version_matches_constant() {
-        assert_eq!(super::PROTOCOL_VERSION, 42);
+        assert_eq!(super::PROTOCOL_VERSION, 43);
     }
 }

@@ -2,6 +2,7 @@ import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { LibraryModel } from "../../models/library.slint";
+import { CuttingTableModel } from "../../models/cutting_table.slint";
 import { GuideLockTip } from "../guide_lock.slint";
 
 // One row of the File menu. Space or Enter runs it, Escape closes the menu (`dismissed`).
@@ -303,6 +304,15 @@ export component FileMenu inherits HorizontalLayout {
                     locked: !GuideModel.allows_file_ops();
                     highlighted: GuideModel.highlight_target == "export_asc_button";
                     activated => { anchor.close_menu(); EditorModel.export_asc(); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                // The cut order as text on the clipboard (the Cutting Instructions page's Copy as
+                // Text, over the design as edited here). Nothing to copy before a solve.
+                FileMenuItem {
+                    label: "Copy Cutting Schedule";
+                    description: "Copy the cut order as text (a table you can paste into a spreadsheet or a note).";
+                    enabled: EditorModel.has_design && EditorModel.cutting_rows.length > 0;
+                    activated => { anchor.close_menu(); CuttingTableModel.copy_rows(EditorModel.cutting_rows); }
                     dismissed => { anchor.close_menu(); }
                 }
                 // The cutting instructions in both formats, side by side: the HTML page is the

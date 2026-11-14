@@ -42,7 +42,9 @@ mod rows_gaps_planner;
 mod rows_library;
 mod rows_physics;
 mod rows_radv;
+mod rows_shader_cache;
 mod rows_startup;
+mod rows_ui_round1;
 mod rows_windows;
 mod setups;
 mod states_axis;
@@ -54,6 +56,7 @@ mod states_gaps_planner;
 mod states_gaps_sweep;
 mod states_more;
 mod states_physics;
+mod states_popups;
 mod states_radv;
 mod states_reach;
 mod windows_more;
@@ -76,6 +79,7 @@ pub fn pieces() -> Vec<Piece> {
     all.extend(states_axis::pieces());
     all.extend(states_color::pieces());
     all.extend(states_physics::pieces());
+    all.extend(states_popups::pieces());
     all.extend(states_radv::pieces());
     all.extend(states_gaps_editor::pieces());
     all.extend(windows_reach::pieces());
@@ -187,10 +191,12 @@ fn all_rows() -> Vec<&'static Row> {
     rows.extend(rows_editor::rows());
     rows.extend(rows_windows::rows());
     rows.extend(rows_radv::rows());
+    rows.extend(rows_shader_cache::rows());
     rows.extend(rows_axis::rows());
     rows.extend(rows_physics::rows());
     rows.extend(rows_gaps_editor::rows());
     rows.extend(rows_gaps_planner::rows());
+    rows.extend(rows_ui_round1::rows());
     rows.retain(|row| !replaced.contains(&row.key()));
     rows.extend(checked);
     rows

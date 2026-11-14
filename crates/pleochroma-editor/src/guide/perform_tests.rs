@@ -125,7 +125,8 @@ impl Sim {
         Ok(())
     }
 
-    /// The Tier form's Add Tier or Save Tier, with the side rule the desktop's save applies.
+    /// The Tier form's Add This Tier, or an edit of a picked row, with the side rule the desktop's
+    /// apply uses.
     fn tier(&mut self, entry: &TierEntry) -> Result<(), String> {
         let save = resolve_tier(&self.session.design, entry)?;
         if save.angle.trim_start().starts_with('=') {

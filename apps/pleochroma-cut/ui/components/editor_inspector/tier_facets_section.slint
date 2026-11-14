@@ -1,14 +1,13 @@
-import { CheckBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { TierTableModel } from "../../models/tier_table.slint";
 import { WarningLine } from "../warning_line.slint";
 import { CompactIcon, TipButton } from "../compact_controls.slint";
 import { SurfaceFinishSection } from "surface_finish_section.slint";
+import { ChoiceSeg } from "choice_seg.slint";
 
-// A `TipButton` in a fixed-width cell, for the Set and Clear buttons beside a text field. A
-// bare `TipButton` in the row would share the spare width with the field and could cut the
-// last button off at the edge.
+// A `TipButton` in a fixed-width cell, for the Clear button beside a text field.
 component FixedTip inherits Rectangle {
     in property <string> text;
     in property <string> reader_label;
@@ -16,7 +15,7 @@ component FixedTip inherits Rectangle {
     in property <bool> enabled: true;
     callback clicked();
 
-    width: 64px;
+    width: 60px;
     TipButton {
         width: parent.width;
         height: parent.height;
@@ -28,38 +27,107 @@ component FixedTip inherits Rectangle {
     }
 }
 
-// The Tier tab's per-facet editing, cheater offset and note, split out of `TierFormTab`. Shown
-// only for a saved tier (`TierFormTab` instantiates it under `has_loaded_tier`). Everything here
-// applies immediately rather than being staged in the form: the facet chips, the position and
-// rotate boxes, the cheater offset (Advanced only) and the note.
+// The index wheel as a picture, for display only (Fable E8): a ring with the gear's zero marked and
+// a dot on every facet position of the tier. Chips and buttons do the editing; a dial with 120 teeth
+// has under 4 px per tooth, too small to click or drag safely.
+component IndexDial inherits Rectangle {
+    in property <float> teeth: 96;
+    in property <string> summary;
+
+    width: 92px;
+    height: 92px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.summary;
+    property <length> ring: 40px;
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 2 * root.ring;
+        height: 2 * root.ring;
+        border-radius: root.ring;
+        background: Theme.bg-input;
+        border-width: 1px;
+        border-color: Theme.border-medium;
+    }
+    // The zero tooth.
+    Rectangle {
+        x: root.width / 2 - 1px;
+        y: root.height / 2 - root.ring - 3px;
+        width: 2px;
+        height: 7px;
+        background: Theme.text-muted;
+    }
+    Text {
+        x: 0px;
+        y: root.height / 2 - 12px;
+        width: root.width;
+        text: "" + Math.round(root.teeth);
+        font-size: 15px;
+        font-weight: 700;
+        color: Theme.text-primary;
+        horizontal-alignment: center;
+    }
+    Text {
+        x: 0px;
+        y: root.height / 2 + 5px;
+        width: root.width;
+        text: "gear";
+        font-size: 10px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+    }
+    for chip in EditorModel.selected_tier_chips: Rectangle {
+        property <angle> turn: (chip.position / max(1.0, root.teeth)) * 360deg;
+        width: 9px;
+        height: 9px;
+        border-radius: 5px;
+        x: root.width / 2 + (root.ring - 1px) * Math.sin(self.turn) - 4.5px;
+        y: root.height / 2 - (root.ring - 1px) * Math.cos(self.turn) - 4.5px;
+        background: chip.detached ? Theme.text-muted : (chip.frosted ? Theme.accent-cyan : Theme.accent-cyan-hover);
+        border-width: 1px;
+        border-color: Theme.bg-darkest;
+    }
+}
+
+// The Tier tab's per-facet editing, finish, cheater offset and note, split out of `TierFormTab`.
+// Shown only for a saved tier (`TierFormTab` instantiates it under `has_loaded_tier`). Everything
+// here applies immediately rather than being staged in the form: the facet chips, the position and
+// rotate boxes, the finish, the cheater offset (Advanced only) and the note. A text field applies on
+// Enter or when it is left, never per key.
 //
-// Keyboard: the facet chips are one Tab stop (a row of chips would otherwise be dozens of
-// stops): Left and Right move along them, Enter detaches or reattaches the chosen facet
-// (Advanced) and Delete removes it.
+// Keyboard: the facet chips are one Tab stop: Left and Right move along them, Enter detaches or
+// reattaches the chosen facet (Advanced) and Delete removes it.
 export component TierFacetsSection inherits VerticalLayout {
     // `false` while the worked-example guide locks the Tier tab; ANDed into every `enabled:`.
     in property <bool> unlocked: true;
     // Whether the Advanced controls show (`GuideModel.shows_advanced()` in `TierFormTab`).
     in property <bool> advanced: false;
     in property <int> loaded_tier_index: -1;
-    // Whether the selection-fed parts (the chips, the cheater offset and the note: Rust pushes
-    // them for `EditorModel.selected_tier_index`) describe the tier the form shows. False while a
-    // kept draft of one tier stays in the form after the table selection moved to another: those
-    // controls would then write the selected tier's facets or text onto the drafted tier, so they
-    // are disabled and a line above the chips says why.
+    // Whether the selection-fed parts (the chips, the cheater offset and the note) describe the tier
+    // the form shows. False while a kept draft of one tier stays in the form after the table
+    // selection moved to another: those controls would then write the selected tier's facets or text
+    // onto the drafted tier, so they are disabled and a line above the chips says why.
     in property <bool> selection_is_loaded: true;
     // Per-facet scratch fields: typed position for "+ Add" and tooth count for "Rotate".
     in-out property <string> new_facet_position;
     in-out property <string> rotate_by_text;
+
+    // The gear's tooth count, for the dial.
+    property <float> teeth: EditorModel.gear_index == 0 ? 96.0
+        : (EditorModel.gear_index == 1 ? 80.0
+        : (EditorModel.gear_index == 2 ? 77.0
+        : (EditorModel.gear_index == 3 ? 72.0
+        : (EditorModel.gear_index == 4 ? 64.0
+        : (EditorModel.gear_index == 5 ? 120.0 : EditorModel.gear_custom_text.to-float())))));
 
     // The chip the keyboard cursor is on (kept inside the strip as the number of chips changes).
     property <int> chip_cursor: 0;
     property <int> chip_count: EditorModel.selected_tier_chips.length;
     property <int> chip_at: Math.max(0, Math.min(root.chip_cursor, root.chip_count - 1));
     // The chips lie in a grid that wraps at the strip's width (Slint layouts have no flow wrap, so
-    // the cells are placed by hand). A chip holds up to three 20 px buttons in the Advanced
-    // interface (detach, frost, remove) and one in the Simple one, so it is 80 px or 56 px wide;
-    // the cells are 4 px apart.
+    // the cells are placed by hand). A chip holds up to three 20 px buttons in the Advanced interface
+    // (detach, frost, remove) and one in the Simple one, so it is 80 px or 56 px wide.
     property <length> chip_w: root.advanced ? 80px : 56px;
     property <length> chip_h: 48px;
     property <length> chip_gap: 4px;
@@ -80,22 +148,37 @@ export component TierFacetsSection inherits VerticalLayout {
         return content_y;
     }
     // "+ Add" and Enter in the position box: the text is read in Rust (a plain number or a small
-    // calculation, with a plain message when it cannot be read) and the box clears once the facet
-    // is in.
+    // calculation, with a plain message when it cannot be read) and the box clears once the facet is in.
     function add_facet() {
         if TierTableModel.add_facet(root.loaded_tier_index, root.new_facet_position) {
             root.new_facet_position = "";
         }
     }
+    // What a field held when it gained focus, so leaving it unchanged applies nothing.
+    property <string> cheater_at_focus;
+    property <string> note_at_focus;
+    function apply_cheater() {
+        if root.selection_is_loaded && EditorModel.selected_tier_cheater_offset_text != root.cheater_at_focus {
+            root.cheater_at_focus = EditorModel.selected_tier_cheater_offset_text;
+            EditorModel.apply_cheater_offset(root.loaded_tier_index, EditorModel.selected_tier_cheater_offset_text);
+        }
+    }
+    function apply_note() {
+        if root.selection_is_loaded && EditorModel.selected_tier_note_text != root.note_at_focus {
+            root.note_at_focus = EditorModel.selected_tier_note_text;
+            EditorModel.apply_tier_note(root.loaded_tier_index, EditorModel.selected_tier_note_text);
+        }
+    }
 
-    spacing: 8px;
-    // One chip per facet, with detach, frost and remove actions. Adding and mirroring are the
-    // row below the strip. Only for saved tiers.
+    spacing: 12px;
+    // One chip per facet, with detach, frost and remove actions. Adding, mirroring and rotating are
+    // the rows below the strip. Only for saved tiers.
     VerticalLayout {
-        spacing: 4px;
+        spacing: 6px;
         Text {
             text: "Facets";
-            font-size: 10px;
+            font-size: 11px;
+            font-weight: 700;
             color: Theme.text-muted;
             accessible-role: AccessibleRole.text;
         }
@@ -104,18 +187,14 @@ export component TierFacetsSection inherits VerticalLayout {
                     ? "No tier is selected in the table, so the facets, cheater offset and note are not shown."
                     : "These facets, the cheater offset and the note belong to Tier #" + (EditorModel.selected_tier_index + 1)
                         + ", the tier selected in the table.")
-                + " Save or discard your draft of Tier #" + (root.loaded_tier_index + 1) + " to edit them.";
+                + " Leave the draft of Tier #" + (root.loaded_tier_index + 1) + " to edit them.";
         }
-        // Chips come from `EditorModel.selected_tier_chips`, not from the tier row: a per-row
-        // `[IndexChipItem]` would be `ModelRc`-backed (`Rc`, not `Send`) and could not cross the
-        // background thread that builds `tiers`. See that property's doc comment.
+        // Chips come from `EditorModel.selected_tier_chips`, not from the tier row (a per-row model
+        // could not cross the background thread that builds `tiers`).
         //
-        // The chips wrap at the strip's width (cells placed by hand, `chip_cols`). Past three rows
-        // the strip scrolls vertically, so a large gear never widens the whole inspector.
-        //
-        // The strip is one Tab stop; its keys are in `key-pressed` below.
+        // The chips wrap at the strip's width. Past three rows the strip scrolls vertically, so a
+        // large gear never widens the whole inspector. The strip is one Tab stop.
         chip_strip := FocusScope {
-            // As tall as its rows (three at most; a longer list scrolls).
             height: root.chip_strip_h;
             enabled: root.unlocked && root.selection_is_loaded && root.chip_count > 0;
             // The cursor, mirrored so the strip can scroll it into view.
@@ -168,10 +247,8 @@ export component TierFacetsSection inherits VerticalLayout {
                     // The keyboard cursor, while the strip has focus.
                     property <bool> ringed: chip_strip.has-focus && idx == root.chip_at;
                     background: chip.detached ? Theme.bg-input : Theme.bg-card-hover;
-                    border-radius: Theme.radius-sm;
+                    border-radius: 10px;
                     border-width: self.ringed ? 2px : ((chip.detached || chip.frosted) ? 1px : 0px);
-                    // Slint has no dashed stroke: a thin muted border stands in for the
-                    // "looks different" of a detached facet.
                     border-color: self.ringed ? Theme.accent-cyan-hover : (chip.frosted ? Theme.accent-cyan : Theme.text-muted);
                     accessible-role: AccessibleRole.list-item;
                     accessible-label: self.chip_tooltip;
@@ -182,15 +259,13 @@ export component TierFacetsSection inherits VerticalLayout {
                         spacing: 2px;
                         Text {
                             text: chip.label;
-                            font-size: 10px;
-                            font-weight: 600;
+                            font-size: 11px;
+                            font-weight: 700;
                             color: chip.frosted ? Theme.accent-cyan : (chip.detached ? Theme.text-muted : Theme.text-primary);
                             horizontal-alignment: center;
                         }
-                        // Up to three 20x20 buttons (icons, not text glyphs: the UI font has no
-                        // scissors/cross symbols). The Simple interface keeps only
-                        // Remove. Tab does not stop on them -- the strip's keys do
-                        // the same.
+                        // Up to three 20x20 buttons. The Simple interface keeps only Remove. Tab does
+                        // not stop on them -- the strip's keys do the same.
                         HorizontalLayout {
                             alignment: center;
                             spacing: 4px;
@@ -237,85 +312,104 @@ export component TierFacetsSection inherits VerticalLayout {
                 }
             }
         }
-        // Row one: add one position, or mirror the whole tier.
+        // The dial on the left (a picture), the editing controls on the right.
         HorizontalLayout {
-            spacing: 4px;
-            LineEdit {
-                enabled: root.unlocked;
-                text <=> root.new_facet_position;
-                placeholder-text: "position";
-                accessible-label: "Position of the Facet to Add";
+            spacing: 12px;
+            IndexDial {
+                teeth: root.teeth;
+                summary: "Index wheel of " + Math.round(root.teeth) + " teeth, " + root.chip_count + " facets of this tier marked";
+            }
+            VerticalLayout {
                 horizontal-stretch: 1;
-                min-width: 90px;
-                changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                accepted => {
-                    if root.new_facet_position != "" {
-                        root.add_facet();
+                spacing: 6px;
+                alignment: center;
+                // Row one: add one position, or mirror the whole tier.
+                HorizontalLayout {
+                    spacing: 4px;
+                    LineEdit {
+                        enabled: root.unlocked;
+                        text <=> root.new_facet_position;
+                        placeholder-text: "Add index...";
+                        accessible-label: "Position of the Facet to Add";
+                        horizontal-stretch: 1;
+                        min-width: 60px;
+                        changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                        accepted => {
+                            if root.new_facet_position != "" {
+                                root.add_facet();
+                            }
+                        }
+                    }
+                    TipButton {
+                        // Disabled while the position is empty: the add could only fail then.
+                        enabled: root.unlocked && root.new_facet_position != "";
+                        text: "+ Add";
+                        reader_label: "Add Facet";
+                        hint: root.new_facet_position == ""
+                            ? "Type an index position first -- a number or a small calculation, for example 24 or 96/4."
+                            : "Add a facet at the index position you typed, together with the\nother facets that go with it in the stone's symmetry. You can\ntype a number or a small calculation, for example 24 or 96/4.";
+                        clicked => { root.add_facet(); }
+                    }
+                    TipButton {
+                        enabled: root.unlocked;
+                        text: "Mirror";
+                        hint: "Reflect every facet of this tier to the other side\nof the stone: each index position becomes its mirror\nimage about position 0. It takes effect at once.";
+                        clicked => { EditorModel.tier_mirror_indices(root.loaded_tier_index); }
                     }
                 }
-            }
-            TipButton {
-                // Disabled while the position is empty: the add could only fail then.
-                enabled: root.unlocked && root.new_facet_position != "";
-                text: "+ Add";
-                reader_label: "Add Facet";
-                hint: "Add a facet at the index position you typed, together with the\nother facets that go with it in the stone's symmetry. You can\ntype a number or a small calculation, for example 24 or 96/4.";
-                clicked => { root.add_facet(); }
-            }
-            TipButton {
-                enabled: root.unlocked;
-                text: "Mirror";
-                hint: "Reflect every facet of this tier to the other side\nof the stone: each index position becomes its mirror\nimage about position 0. It takes effect at once.";
-                clicked => { EditorModel.tier_mirror_indices(root.loaded_tier_index); }
-            }
-        }
-        // Row two (Advanced): rotate every position of the tier by a number of teeth.
-        if root.advanced: HorizontalLayout {
-            spacing: 4px;
-            LineEdit {
-                enabled: root.unlocked;
-                text <=> root.rotate_by_text;
-                placeholder-text: "teeth";
-                accessible-label: "Number of Teeth to Rotate By";
-                horizontal-stretch: 1;
-                min-width: 56px;
-                changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            }
-            TipButton {
-                enabled: root.unlocked;
-                text: "Rotate";
-                reader_label: "Rotate Up";
-                icon: @image-url("../../icons/rotate-ccw.svg");
-                hint: "Move every facet of this tier up by that many teeth (to higher\nindex numbers). You can type a number or a small calculation.";
-                clicked => { TierTableModel.rotate_tier(root.loaded_tier_index, root.rotate_by_text, 1); }
-            }
-            TipButton {
-                enabled: root.unlocked;
-                text: "Rotate";
-                reader_label: "Rotate Down";
-                icon: @image-url("../../icons/rotate-cw.svg");
-                hint: "Move every facet of this tier down by that many teeth (to lower\nindex numbers). You can type a number or a small calculation.";
-                clicked => { TierTableModel.rotate_tier(root.loaded_tier_index, root.rotate_by_text, -1); }
+                // Row two (Advanced): rotate every position of the tier by a number of teeth.
+                if root.advanced: HorizontalLayout {
+                    spacing: 4px;
+                    LineEdit {
+                        enabled: root.unlocked;
+                        text <=> root.rotate_by_text;
+                        placeholder-text: "teeth";
+                        accessible-label: "Number of Teeth to Rotate By";
+                        horizontal-stretch: 1;
+                        min-width: 44px;
+                        changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                    }
+                    TipButton {
+                        enabled: root.unlocked;
+                        text: "Rotate Up";
+                        reader_label: "Rotate Up";
+                        icon: @image-url("../../icons/rotate-ccw.svg");
+                        hint: "Move every facet of this tier up by that many teeth (to higher\nindex numbers). You can type a number or a small calculation.";
+                        clicked => { TierTableModel.rotate_tier(root.loaded_tier_index, root.rotate_by_text, 1); }
+                    }
+                    TipButton {
+                        enabled: root.unlocked;
+                        text: "Rotate Down";
+                        reader_label: "Rotate Down";
+                        icon: @image-url("../../icons/rotate-cw.svg");
+                        hint: "Move every facet of this tier down by that many teeth (to lower\nindex numbers). You can type a number or a small calculation.";
+                        clicked => { TierTableModel.rotate_tier(root.loaded_tier_index, root.rotate_by_text, -1); }
+                    }
+                }
             }
         }
     }
 
-    // Tier finish: applies at once and is one undo step. A tier with some frosted facets (set on
-    // the chips, Advanced) says so under the tick box.
+    // Tier finish: applies at once and is one undo step. A tier with some frosted facets (set on the
+    // chips, Advanced) says so under the segment.
     VerticalLayout {
         spacing: 4px;
         Rectangle {
             height: frost_lbl.preferred-height;
             Tooltip { text: @markdown("A frosted tier is cut with a matte, light-scattering finish\ninstead of a polished one. The renders show it frosted,\nthe cutting sheet says so, and it is saved in the design\nfile and in a Gem Cut Studio export. See the glossary."); }
-            frost_lbl := Text { x: 0px; text: "Finish"; font-size: 10px; color: Theme.text-muted; }
+            frost_lbl := Text { x: 0px; text: "Finish"; font-size: 11px; font-weight: 700; color: Theme.text-muted; }
         }
-        CheckBox {
+        ChoiceSeg {
             enabled: root.unlocked && root.selection_is_loaded;
-            text: "Frosted";
-            checked <=> EditorModel.selected_tier_frosted;
-            accessible-label: "Frosted Tier";
-            accessible-description: "Cut every facet of this tier with a frosted finish instead of a polished one.";
-            toggled => { EditorModel.set_tier_frosted(root.loaded_tier_index, self.checked); }
+            labels: ["Polished", "Frosted"];
+            reader_labels: ["Polished Tier", "Frosted Tier"];
+            group_label: "Finish";
+            hint: "Cut every facet of this tier with a frosted finish instead of a polished one.";
+            picked: EditorModel.selected_tier_frosted ? 1 : 0;
+            selected(i) => {
+                EditorModel.selected_tier_frosted = i == 1;
+                EditorModel.set_tier_frosted(root.loaded_tier_index, i == 1);
+            }
         }
         if EditorModel.selected_tier_frosted_partly: Text {
             text: "Some facets of this tier are frosted; they are marked on the facet chips.";
@@ -333,13 +427,13 @@ export component TierFacetsSection inherits VerticalLayout {
         loaded_tier_index: root.loaded_tier_index;
     }
 
-    // Cheater/azimuth offset (as in Gem Cut Studio): applies at once, not staged. Advanced only.
+    // Cheater/azimuth offset (as in Gem Cut Studio): applies when the field is left, Advanced only.
     if root.advanced: VerticalLayout {
         spacing: 4px;
         Rectangle {
             height: cheater_lbl.preferred-height;
-            Tooltip { text: @markdown("Cheater/azimuth offset in degrees -- compensates cutting an\noff-tooth index or a known machine error. Positive moves the\nfacet toward higher index numbers. Blank clears it. You can\ntype arithmetic, for example 12+0.5. See the glossary."); }
-            cheater_lbl := Text { x: 0px; text: "Cheater Offset (deg)"; font-size: 10px; color: Theme.text-muted; }
+            Tooltip { text: @markdown("Cheater/azimuth offset in degrees -- compensates cutting an\noff-tooth index or a known machine error. Positive moves the\nfacet toward higher index numbers. Blank clears it. You can\ntype arithmetic, for example 12+0.5. It applies on Enter or when you\nleave the field. See the glossary."); }
+            cheater_lbl := Text { x: 0px; text: "Cheater Offset (deg)"; font-size: 11px; font-weight: 700; color: Theme.text-muted; }
         }
         HorizontalLayout {
             spacing: 4px;
@@ -349,15 +443,15 @@ export component TierFacetsSection inherits VerticalLayout {
                 text <=> EditorModel.selected_tier_cheater_offset_text;
                 placeholder-text: "none";
                 accessible-label: "Cheater Offset in Degrees";
-                accepted => { EditorModel.apply_cheater_offset(root.loaded_tier_index, EditorModel.selected_tier_cheater_offset_text); }
-                changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            }
-            FixedTip {
-                enabled: root.unlocked && root.selection_is_loaded;
-                text: "Set";
-                reader_label: "Set Cheater Offset";
-                hint: "Apply the cheater offset you typed to this tier. It takes effect at once.";
-                clicked => { EditorModel.apply_cheater_offset(root.loaded_tier_index, EditorModel.selected_tier_cheater_offset_text); }
+                accepted => { root.apply_cheater(); }
+                changed has-focus => {
+                    EditorModel.text_focus = self.has-focus;
+                    if self.has-focus {
+                        root.cheater_at_focus = EditorModel.selected_tier_cheater_offset_text;
+                    } else {
+                        root.apply_cheater();
+                    }
+                }
             }
             FixedTip {
                 enabled: root.unlocked && root.selection_is_loaded;
@@ -366,20 +460,20 @@ export component TierFacetsSection inherits VerticalLayout {
                 hint: "Remove the cheater offset from this tier.";
                 clicked => {
                     EditorModel.selected_tier_cheater_offset_text = "";
+                    root.cheater_at_focus = "";
                     EditorModel.apply_cheater_offset(root.loaded_tier_index, "");
                 }
             }
         }
     }
 
-    // Cutter-authored note for this tier: applies immediately,
-    // not staged. Only shown for saved tiers.
+    // Cutter-authored note for this tier: applies when the field is left. Only for saved tiers.
     VerticalLayout {
         spacing: 4px;
         Rectangle {
             height: note_lbl.preferred-height;
-            Tooltip { text: @markdown("A cutter-authored note for this tier, e.g.\n\"check meet here\" or \"grind slowly\". Blank clears it."); }
-            note_lbl := Text { x: 0px; text: "Note"; font-size: 10px; color: Theme.text-muted; }
+            Tooltip { text: @markdown("A cutter-authored note for this tier, e.g.\n\"check meet here\" or \"grind slowly\". Blank clears it. It applies\non Enter or when you leave the field."); }
+            note_lbl := Text { x: 0px; text: "Note"; font-size: 11px; font-weight: 700; color: Theme.text-muted; }
         }
         HorizontalLayout {
             spacing: 4px;
@@ -389,15 +483,15 @@ export component TierFacetsSection inherits VerticalLayout {
                 text <=> EditorModel.selected_tier_note_text;
                 placeholder-text: "none";
                 accessible-label: "Note for This Tier";
-                accepted => { EditorModel.apply_tier_note(root.loaded_tier_index, EditorModel.selected_tier_note_text); }
-                changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            }
-            FixedTip {
-                enabled: root.unlocked && root.selection_is_loaded;
-                text: "Set";
-                reader_label: "Set Note";
-                hint: "Save the note you typed on this tier. It takes effect at once.";
-                clicked => { EditorModel.apply_tier_note(root.loaded_tier_index, EditorModel.selected_tier_note_text); }
+                accepted => { root.apply_note(); }
+                changed has-focus => {
+                    EditorModel.text_focus = self.has-focus;
+                    if self.has-focus {
+                        root.note_at_focus = EditorModel.selected_tier_note_text;
+                    } else {
+                        root.apply_note();
+                    }
+                }
             }
             FixedTip {
                 enabled: root.unlocked && root.selection_is_loaded;
@@ -406,6 +500,7 @@ export component TierFacetsSection inherits VerticalLayout {
                 hint: "Remove the note from this tier.";
                 clicked => {
                     EditorModel.selected_tier_note_text = "";
+                    root.note_at_focus = "";
                     EditorModel.apply_tier_note(root.loaded_tier_index, "");
                 }
             }

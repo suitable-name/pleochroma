@@ -1,10 +1,12 @@
-import { LineEdit } from "std-widgets.slint";
 import { Shell } from "../models.slint";
 import { Theme } from "../theme.slint";
 import { TopBar } from "../shell/top_bar.slint";
 import { PageScroll } from "../shell/page_scroll.slint";
 import { ListRow } from "../shell/list_row.slint";
 import { PrimaryButton, TextButton } from "../shell/buttons.slint";
+import { TextField } from "../shell/inputs.slint";
+import { FieldLabel, PageColumn, GroupHeader } from "../pages/fields.slint";
+import { Card } from "props/props_parts.slint";
 import { HistoryModel } from "history.slint";
 
 export global VariantsModel {
@@ -21,6 +23,15 @@ export global VariantsModel {
     callback save(bool); callback open-selected(); callback rename(); callback update-note(); callback remove();
 }
 
+// The page's side margin for the texts and buttons that sit between the cards.
+component Pad inherits VerticalLayout {
+    padding-left: Theme.space-lg;
+    padding-right: Theme.space-lg;
+    padding-top: Theme.space-xs;
+    padding-bottom: Theme.space-xs;
+    spacing: Theme.space-sm;
+}
+
 export component VariantsScreen inherits Rectangle {
     background: Theme.surface;
     TouchArea { }
@@ -28,34 +39,50 @@ export component VariantsScreen inherits Rectangle {
         TopBar { title: "Saved Variants"; show-back: true; back-clicked => { Shell.request-back(); } }
         PageScroll {
             vertical-stretch: 1;
-            VerticalLayout {
-                padding: Theme.space-md;
-                spacing: Theme.space-sm;
-                Text { text: "Variants survive restarts. Opening one is a single reversible edit."; wrap: word-wrap; color: Theme.on-surface-variant; }
+            PageColumn { VerticalLayout {
+                padding-bottom: Theme.space-lg;
+                Pad { FieldLabel { text: "Variants survive restarts. Opening one is a single reversible edit."; } }
                 for row[index] in VariantsModel.rows: ListRow {
                     title: (VariantsModel.selected == index ? "Selected · " : "") + row;
                     clicked => { if (!VariantsModel.busy) { VariantsModel.select(index); } }
                 }
-                Text { text: "Name"; color: Theme.on-surface-variant; }
-                LineEdit { text <=> VariantsModel.name; enabled: !VariantsModel.busy; }
-                Text { text: "Notes"; color: Theme.on-surface-variant; }
-                LineEdit { text <=> VariantsModel.note; enabled: !VariantsModel.busy; }
-                PrimaryButton { text: "Save Current As New Variant"; enabled: !VariantsModel.busy; clicked => { VariantsModel.save(false); } }
-                TextButton { text: "Save Selected Historical Step As New Variant"; enabled: !VariantsModel.busy && HistoryModel.selected >= 0; clicked => { VariantsModel.save(true); } }
-                PrimaryButton {
-                    text: VariantsModel.confirm-open ? "Confirm replace working copy" : "Open selected variant";
-                    enabled: !VariantsModel.busy && VariantsModel.selected >= 0;
-                    clicked => { VariantsModel.open-selected(); }
+                GroupHeader { text: "DETAILS"; }
+                Card {
+                    VerticalLayout {
+                        spacing: Theme.space-md;
+                        VerticalLayout {
+                            spacing: Theme.space-xs;
+                            FieldLabel { text: "Name"; }
+                            TextField { label: "Name"; text <=> VariantsModel.name; enabled: !VariantsModel.busy; }
+                        }
+                        VerticalLayout {
+                            spacing: Theme.space-xs;
+                            FieldLabel { text: "Notes"; }
+                            TextField { label: "Notes"; text <=> VariantsModel.note; enabled: !VariantsModel.busy; }
+                        }
+                    }
                 }
-                TextButton { text: "Rename Selected"; enabled: !VariantsModel.busy && VariantsModel.selected >= 0; clicked => { VariantsModel.rename(); } }
-                TextButton { text: "Update Selected Notes"; enabled: !VariantsModel.busy && VariantsModel.selected >= 0; clicked => { VariantsModel.update-note(); } }
-                TextButton {
-                    text: VariantsModel.confirm-delete ? "Confirm delete saved variant" : "Delete selected…";
-                    enabled: !VariantsModel.busy && VariantsModel.selected >= 0;
-                    clicked => { if (VariantsModel.confirm-delete) { VariantsModel.remove(); } else { VariantsModel.confirm-delete = true; } }
+                Pad {
+                    PrimaryButton { text: "Save Current As New Variant"; enabled: !VariantsModel.busy; clicked => { VariantsModel.save(false); } }
+                    TextButton { text: "Save Selected Historical Step As New Variant"; enabled: !VariantsModel.busy && HistoryModel.selected >= 0; clicked => { VariantsModel.save(true); } }
                 }
-                Text { text: VariantsModel.busy ? "Working…" : VariantsModel.status; wrap: word-wrap; color: Theme.on-surface; }
-            }
+                GroupHeader { text: "SELECTED VARIANT"; }
+                Pad {
+                    PrimaryButton {
+                        text: VariantsModel.confirm-open ? "Confirm replace working copy" : "Open selected variant";
+                        enabled: !VariantsModel.busy && VariantsModel.selected >= 0;
+                        clicked => { VariantsModel.open-selected(); }
+                    }
+                    TextButton { text: "Rename Selected"; enabled: !VariantsModel.busy && VariantsModel.selected >= 0; clicked => { VariantsModel.rename(); } }
+                    TextButton { text: "Update Selected Notes"; enabled: !VariantsModel.busy && VariantsModel.selected >= 0; clicked => { VariantsModel.update-note(); } }
+                    TextButton {
+                        text: VariantsModel.confirm-delete ? "Confirm delete saved variant" : "Delete selected…";
+                        enabled: !VariantsModel.busy && VariantsModel.selected >= 0;
+                        clicked => { if (VariantsModel.confirm-delete) { VariantsModel.remove(); } else { VariantsModel.confirm-delete = true; } }
+                    }
+                    Text { text: VariantsModel.busy ? "Working…" : VariantsModel.status; wrap: word-wrap; color: Theme.on-surface; }
+                }
+            } }
         }
     }
 }

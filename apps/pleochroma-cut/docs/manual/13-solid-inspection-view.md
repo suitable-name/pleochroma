@@ -24,7 +24,8 @@ almost every change — not just after Solve.
 
 ![The Solid view mode of the inspection viewport.](../../../../assets/solid_rendering.png)
 
-Four buttons sit above the Solid viewport:
+The mode segment at the top left of the Edit view, on the same glass as the Live Render
+view's, has four choices:
 
 - **Solid** — the flat-shaded software render, independent of the spectral
   path tracer.
@@ -54,15 +55,34 @@ The mode you pick is saved with your settings (Chapter 1 covers where settings
 are stored generally), but it is not restored: the app always starts in Solid,
 on the Live Render tab as well as in this viewport.
 
-**The toolbar and the hint strip.** Every button above the viewport has a hover note
-that says what it does, and you can reach each one with the Tab key and press it with
-Space or Enter; the viewport itself shows a colored outline while it has the keyboard.
-A round **?** at the end of the toolbar opens this chapter. Simple mode (Chapter 17) hides
-the **Tilt Curve** and **Save Lighting** buttons; **Preform**, **Snap** and **Slice**
-stay. The thin strip under the toolbar shows what the pointer will do and carries its own
-small buttons, each with a hover note too. Diagram hides the camera-direction
-buttons and Tilt Curve because its projections do not use the 3D camera. Its
-own pan, zoom, Reset View, picking and profile controls remain available.
+**The toolbar and the hint strip.** The controls float over the picture, on glass, like
+the Live Render view's. Every button has a hover note that says what it does, and you can
+reach each one with the Tab key and press it with Space or Enter; the viewport itself shows
+a colored outline while it has the keyboard.
+
+- **Top right:** the camera icons **Front**, **Top**, **Bottom**, **Left**, **Right**,
+  **Fit** and **Reset**, then a round **?** that opens this chapter. **Fit** keeps the
+  angle and changes only the distance so the whole stone fits; **Reset** puts the camera
+  angle, distance and light back and centres the stone.
+- **The SHOW group** (second row, left): toggles for **Preform**, **Snap**, **Crystal Axis**,
+  **Surface Finish** and **Slice**. A toggle that is on has a cyan surface. Preform shows in
+  the Solid view only; Crystal Axis only for a material that has an axis; Surface Finish and
+  Slice in every mode except Diagram. Below about 900 px the group folds into one **Show**
+  menu, with a count of how many are on; each item says in one line what it draws.
+- **Tilt Curve** is not in this toolbar: it is in the Edit view's command bar (Chapter 14),
+  and Simple mode (Chapter 17) hides it. The **Save Lighting** button is gone from here; the
+  lighting is saved from the rig menu of the Live Render view (Chapter 2).
+- **Bottom left:** a mouse button that opens the **gestures card** (drag, Ctrl and drag,
+  middle drag, scroll, a click on a facet, a drag on a handle). It opens by itself the
+  first time, closes when you drag in the view, and is shared with the Live Render view.
+  Next to it a short status line says when the picture is one edit behind, or that the
+  Ray-Traced view is approximate.
+- **The hint strip** under the toolbar shows what the pointer will do and carries the Slice
+  tool's own small buttons, each with a hover note too.
+
+Diagram hides the camera icons because its projections do not use the 3D camera; it shows
+**Reset View**, **Crown**, **Pavilion** and **Profile** in their place. Its pan, zoom, picking
+and profile controls remain available. Below about 760 px the toolbar takes three rows.
 
 ## Orbiting
 
@@ -73,6 +93,11 @@ the stone from the same pose. **Front** and **Top** buttons above the
 viewport snap that shared camera to the same canonical poses Chapter 2
 describes. A drag that barely moves before you release the mouse is still
 treated as a click, not a drag — see "Hovering and Clicking a Facet" below.
+
+Middle-drag, or Ctrl and drag (Cmd on macOS) on an empty part of the picture, moves the
+stone within the picture, shared with the Live Render viewport like the orbit; a press on a
+handle still grabs the handle, and in Slice mode a left drag still draws the line. **Front**,
+**Top**, the other named views and **Reset** centre the stone again.
 
 Diagram mode does not share this camera — its three panels are fixed
 orthographic projections — but dragging and scrolling still do something
@@ -153,7 +178,7 @@ slider on step 3, a candidate shows its own first three tiers.
 Diagram mode draws your design the way a faceting reference diagram
 usually does: three flat panels side by side.
 
-![The Diagram view with all panels and the Schedule tab.](../../../../assets/diagram_view.png)
+![The Diagram view with its three panels and the Cutting Instructions list below.](../../../../assets/diagram_view.png)
 
 - **Crown** — looking straight down at the top of the stone.
 - **Pavilion** — looking straight up at the bottom of the stone. Because

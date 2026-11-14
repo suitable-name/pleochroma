@@ -28,6 +28,7 @@ fn tent() -> LightingValues {
         camera_yaw: None,
         camera_pitch: None,
         camera_roll: None,
+        camera_pan: None,
         camera_distance: None,
     }
 }

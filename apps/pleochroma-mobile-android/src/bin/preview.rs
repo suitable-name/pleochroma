@@ -3,6 +3,7 @@
 //!
 //! ```text
 //! pleochroma-mobile-preview [--size WxH|phone|phone-land|tablet|tablet-land] [--data DIR]
+//!                          [--theme dark|high-contrast] [--cutting]
 //! ```
 //!
 //! `--size` defaults to `390x800` (`phone`). `phone-land` is `800x390`, `tablet` is
@@ -14,7 +15,10 @@
 //! template card, `--tab tiers|stone|light|checks` and `--sheet peek|half|full` pick the
 //! Design page's tab and sheet height, and `--view solid|diagram|render` sets the viewport
 //! mode (a render screenshot waits longer so the picture can converge). `--engine path|ray`
-//! chooses the renderer. `--screenshot FILE.png` saves the window shortly after start and
+//! chooses the renderer. `--theme dark|high-contrast` starts with that theme (`dark` is the
+//! default; the choice is not saved). `--cutting` opens Cutting Mode at its first step (it
+//! needs a design, so pair it with `--template N`; it also opens the Cut page unless `--page`
+//! says otherwise). `--screenshot FILE.png` saves the window shortly after start and
 //! quits; `--wait SECONDS` waits that many seconds before saving instead. Press Escape for
 //! Back.
 
@@ -24,11 +28,11 @@ use pleochroma_mobile_android::{
     platform_desktop::DesktopPlatform,
     run::{self, RunOptions},
 };
-use pleochroma_mobile_core::{layout::Destination, platform::AppDirs};
+use pleochroma_mobile_core::{layout::Destination, platform::AppDirs, settings::ThemeChoice};
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_SIZE: (f32, f32) = (390.0, 800.0);
-const USAGE: &str = "usage: pleochroma-mobile-preview [--size WxH|phone|phone-land|tablet|tablet-land] [--data DIR] [--page library|design|cut|more] [--template N] [--tab tiers|stone|light|checks] [--sheet peek|half|full] [--view solid|diagram|render] [--engine path|ray] [--wait SECONDS] [--screenshot FILE.png]";
+const USAGE: &str = "usage: pleochroma-mobile-preview [--size WxH|phone|phone-land|tablet|tablet-land] [--data DIR] [--page library|design|cut|more] [--template N] [--tab tiers|stone|light|checks] [--sheet peek|half|full] [--view solid|diagram|render] [--engine path|ray] [--theme dark|high-contrast] [--cutting] [--wait SECONDS] [--screenshot FILE.png]";
 
 /// What the command line asked for.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,7 +46,21 @@ struct PreviewArgs {
     sheet: Option<i32>,
     view: Option<i32>,
     engine: Option<u8>,
+    theme: Option<ThemeChoice>,
+    cutting: bool,
     wait: Option<Duration>,
+}
+
+/// The theme a name selects (`dark` or `high-contrast`).
+fn parse_theme(text: &str) -> Result<ThemeChoice, String> {
+    [
+        ("dark", ThemeChoice::Dark),
+        ("high-contrast", ThemeChoice::HighContrast),
+    ]
+    .into_iter()
+    .find(|(name, _)| name.eq_ignore_ascii_case(text))
+    .map(|(_, theme)| theme)
+    .ok_or_else(|| format!("bad theme {text:?}: expected dark or high-contrast"))
 }
 
 /// The viewport mode a name selects (0 Solid, 1 Diagram, 2 Render).
@@ -118,6 +136,8 @@ fn parse_args(
         sheet: None,
         view: None,
         engine: None,
+        theme: None,
+        cutting: false,
         wait: None,
     };
     let mut args = args.into_iter();
@@ -158,6 +178,11 @@ fn parse_args(
                     _ => return Err("--engine needs path or ray".to_owned()),
                 });
             }
+            "--theme" => {
+                let value = args.next().ok_or("--theme needs dark or high-contrast")?;
+                parsed.theme = Some(parse_theme(&value)?);
+            }
+            "--cutting" => parsed.cutting = true,
             "--view" => {
                 let value = args.next().ok_or("--view needs solid, diagram or render")?;
                 parsed.view = Some(parse_view(&value)?);
@@ -201,7 +226,10 @@ fn main() -> ExitCode {
     tracing::info!(size = ?args.size, data = %args.data.display(), "starting the mobile preview");
     let options = RunOptions {
         initial_size: Some(args.size),
-        destination: args.page,
+        // Cutting Mode belongs to the Cut page: open it there unless `--page` says otherwise.
+        destination: args
+            .page
+            .or_else(|| args.cutting.then_some(Destination::Cut)),
         screenshot: args.screenshot,
         template: args.template,
         tab: args.tab,
@@ -209,6 +237,8 @@ fn main() -> ExitCode {
         view: args.view,
         engine: args.engine,
         screenshot_delay: args.wait,
+        theme: args.theme,
+        cutting: args.cutting,
     };
     let platform: Arc<dyn pleochroma_mobile_core::platform::Platform> =
         Arc::new(DesktopPlatform::new(dirs));
@@ -294,6 +324,27 @@ mod tests {
         assert!(parse_sheet("huge").is_err());
         assert!(parse_args(args(&["--tab"]), PathBuf::new()).is_err());
         assert!(parse_args(args(&["--sheet", "x"]), PathBuf::new()).is_err());
+    }
+
+    #[test]
+    fn theme_and_cutting_flags_are_parsed() {
+        let plain = parse_args(args(&[]), PathBuf::new()).unwrap();
+        assert_eq!(
+            plain.theme, None,
+            "the stored theme (dark by default) applies"
+        );
+        assert!(!plain.cutting);
+        let parsed = parse_args(
+            args(&["--theme", "High-Contrast", "--cutting"]),
+            PathBuf::new(),
+        )
+        .unwrap();
+        assert_eq!(parsed.theme, Some(ThemeChoice::HighContrast));
+        assert!(parsed.cutting);
+        assert_eq!(parse_theme("dark").unwrap(), ThemeChoice::Dark);
+        assert!(parse_theme("light").is_err());
+        assert!(parse_args(args(&["--theme"]), PathBuf::new()).is_err());
+        assert!(parse_args(args(&["--theme", "sepia"]), PathBuf::new()).is_err());
     }
 
     #[test]

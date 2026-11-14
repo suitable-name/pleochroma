@@ -146,10 +146,24 @@ const SHADERS: &[(&str, &str)] = &[
         )),
     ),
     (
+        "ew_arm_uni_entry_finish.generated.wgsl",
+        include_str!(concat!(
+            env!("OUT_DIR"),
+            "/ew_arm_uni_entry_finish.generated.wgsl"
+        )),
+    ),
+    (
         "ew_arm_uni_internal.generated.wgsl",
         include_str!(concat!(
             env!("OUT_DIR"),
             "/ew_arm_uni_internal.generated.wgsl"
+        )),
+    ),
+    (
+        "ew_arm_uni_internal_transmit.generated.wgsl",
+        include_str!(concat!(
+            env!("OUT_DIR"),
+            "/ew_arm_uni_internal_transmit.generated.wgsl"
         )),
     ),
     (
@@ -830,7 +844,7 @@ fn shadow_variants_change_only_the_routed_functions() {
                     name.as_str(),
                     "bounce_extend"
                         | "bounce_arm_generic_core"
-                        | "bounce_arm_uni_internal_core"
+                        | "bounce_arm_uni_internal_branches"
                         | "try_split_exit_channel"
                         | "transport_main"
                 ) || (is_live && name == "transport_generate_ray")

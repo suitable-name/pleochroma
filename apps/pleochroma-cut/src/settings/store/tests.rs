@@ -378,6 +378,7 @@ fn save_then_load_round_trips_settings_and_presets() {
     original.settings.tray_reflection = 0.04;
     original.settings.env_map_yaw_deg = 125.0;
     original.settings.env_map_follows_camera = true;
+    original.settings.camera_pan = [0.3, -0.2];
     original
         .upsert_user_preset(LightingPreset {
             name: "Golden Hour".to_string(),
@@ -390,6 +391,7 @@ fn save_then_load_round_trips_settings_and_presets() {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,

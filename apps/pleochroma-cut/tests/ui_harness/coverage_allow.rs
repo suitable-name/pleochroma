@@ -194,7 +194,7 @@ pub const ALLOW: &[(&str, &str)] = &[
         "GPU render: VariantsModel.compare_pictures opens the Compare window, which renders both chosen variants (the pass denies the label)",
     ),
     (
-        "components/editor_command_bar/edit_groups.slint|SolveGroup|deep_solve_btn",
+        "components/editor_command_bar/edit_groups.slint|SolveGroup|\"Deep Solve\"",
         "long job: Deep Solve starts the slow verified solve on a worker (deep_solve_run::begin_deep_solve_run) and is enabled only for a design with printed proportions; its callback EditorModel.deep_solve has a direct-invoke row",
     ),
     (
@@ -214,8 +214,8 @@ pub const ALLOW: &[(&str, &str)] = &[
         "needs a finished render job with a result file (RenderJobRow.can_show): jobs finish only after a long render",
     ),
     (
-        "components/settings_dialog/environment_map_section.slint|EnvironmentMapSection|\"Load\"",
-        "real file: loads the HDR file named in SettingsModel.env_map_path through the file dialog (no HDR file in the profile)",
+        "components/settings_dialog/environment_map_section.slint|EnvironmentMapSection|\"Choose…\"",
+        "real file: picks and loads an HDR file through the file dialog in one step (ViewportModel.env_map_choose; no HDR file in the profile)",
     ),
     (
         "components/solid_viewport/hint_bar.slint|ManipulateHintBar|\"Discard\"",

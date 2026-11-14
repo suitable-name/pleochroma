@@ -1,12 +1,14 @@
 // Uniaxial entry arm, transmit half (see `ew_arm_uni_entry.wgsl` for the split). It takes the rays
 // the reflect half parked (`TAG_UNI_ENTRY_TRANSMIT`), repeats the hero's entry solve (a pure
 // function of the stored ray, so the same numbers) and runs the transmit branch of
-// `bounce_arm_uni_entry_core` followed by the surface-finish correction.
+// `bounce_arm_uni_entry_core`. The surface-finish correction follows in `ew_arm_uni_entry_finish`:
+// the Adreno 740 driver does not link this kernel with it.
 //
-// The per-channel entry pair is solved once per channel and serves both the direction-mismatch
-// bookkeeping and the matched transmission. It is a pure function of the channel's indices, so
-// hoisting it above the match test changes no value; the kernel has two solver call sites (hero
-// and loop).
+// The kernel has one solver call site. Each channel's entry pair is solved once and serves the
+// direction-mismatch bookkeeping and the matched transmission; it is a pure function of the
+// channel's indices, so solving it at the top of the iteration changes no value. Channel 0's pair
+// is the hero's (the arguments are identical), so the first iteration draws the hero's mode from
+// it before it runs channel 0.
 
 // The transmit branch of `bounce_arm_uni_entry_core`.
 fn ew_uni_entry_transmit(
@@ -27,46 +29,19 @@ fn ew_uni_entry_transmit(
     let uinc_frame = idx.uinc_frame;
     let n_o_hero = idx.n_o_hero;
     let n_e_hero = idx.n_e_hero;
-    let n_e_hero_solve = idx.n_e_raw_ch[0];
     let n_e_raw_ch = idx.n_e_raw_ch;
     let n_eff_ch = idx.n_eff_ch;
     let n1 = idx.n1;
     let n2 = idx.n2;
 
     // ---- ENTRY: mirrors apply_uniaxial_entry_bounce ----
-    let pair_hero = entry_solve_pair_with_incidence(uinc_frame, 1.0, n_o_hero, n_e_hero_solve, c_axis, uframe);
-    let sol_s_hero = pair_hero.s_sol;
-    let sol_p_hero = pair_hero.p_sol;
-    let reflect_mueller_hero = jones_to_mueller(sol_s_hero.r_s, sol_p_hero.r_s, sol_s_hero.r_p, sol_p_hero.r_p);
-    let entry_r_branch = clamp(reflect_mueller_hero[0][0], R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
     let entry_inc_flux = 0.5 * uframe.cos_i;
-    let p_o_raw = mode_power(sol_s_hero.t_o, sol_p_hero.t_o, sol_s_hero.flux_o, entry_inc_flux, (*s).stokes[0]);
-    let p_e_raw = mode_power(sol_s_hero.t_e, sol_p_hero.t_e, sol_s_hero.flux_e, entry_inc_flux, (*s).stokes[0]);
-    let p_o_hero = clamp(p_o_raw / max(p_o_raw + p_e_raw, 1e-12), R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
-    let entry_mode_split_rand = f32(discrete_draw(seed0, bounce, BIREFRINGENT_SPLIT_STREAM)) / 4294967295.0;
-    let use_extraordinary_entry = entry_mode_split_rand < (1.0 - p_o_hero);
-    var p_mode_hero_frac = p_o_hero;
-    if (use_extraordinary_entry) {
-        p_mode_hero_frac = 1.0 - p_o_hero;
-    }
-
-    let n2_hero_dir_e = select(n_o_hero, n2, use_extraordinary_entry);
-    let eta_dir_e = n1 / n2_hero_dir_e;
-    let sin2_t_dir_e = min(eta_dir_e * eta_dir_e * fma(-cos_i, cos_i, 1.0), 1.0);
-    let cos_t_dir_e = sqrt(max(1.0 - sin2_t_dir_e, 0.0));
-    let refr_wave_dir_e = normalize(eta_dir_e * wave_dir_at_bounce + fma(eta_dir_e, cos_i, -cos_t_dir_e) * normal);
-    var final_refr_dir_e = refr_wave_dir_e;
-    if (use_extraordinary_entry) {
-        final_refr_dir_e = extraordinary_poynting_dir(refr_wave_dir_e, c_axis, n_o_hero, n_e_hero);
-    }
-    let p_axis_transmitted = cross(refr_wave_dir_e, uframe.s_axis);
     // Exit collection (`apply_uniaxial_entry_collect`, as in `bounce_arm_uni_entry_core`): no
     // reflect-vs-transmit draw. The mirror reflection of every channel is staged as a leaf (its
     // own `R_k`-weighted state, nothing divided out, times the surface glare at bounce 0) and
     // the path takes the transmit branch undivided: `entry_t_div` is the `r_branch` of the
     // transmit loop, zero under collection, and the loop leaves the densities as they are. A
     // leaf of the last iteration earns nothing, as on the CPU (`ExitCollect::credit`).
-    let entry_t_div = select(entry_r_branch, 0.0, collect_on);
     let entry_leaf_on = collect_on && bounce + 1u < params.max_bounces;
     var entry_leaf_scale: f32 = 1.0;
     if (bounce == 0u && params.surface_glare < 1.0) {
@@ -74,19 +49,58 @@ fn ew_uni_entry_transmit(
     }
     let entry_mirror_dir = wave_dir_at_bounce - 2.0 * dot(wave_dir_at_bounce, normal) * normal;
 
+    // The hero's mode and direction, set from channel 0's pair in the first iteration below.
+    var entry_t_div: f32 = 0.0;
+    var p_mode_hero_frac: f32 = 0.0;
+    var use_extraordinary_entry = false;
+    var n2_hero_dir_e: f32 = 0.0;
+    var refr_wave_dir_e = vec3<f32>(0.0, 0.0, 0.0);
+    var final_refr_dir_e = vec3<f32>(0.0, 0.0, 0.0);
+    var p_axis_transmitted = vec3<f32>(0.0, 0.0, 0.0);
+
     // Interior dispersive event (air -> crystal entry): a mismatched channel keeps `path_pdf`
     // accumulating through this event's own `t_unpol_k` and narrows `compat` below, with no split.
     // See `bounce_arm_uni_entry_core` and the CPU `apply_uniaxial_entry_transmit_channels`.
     var entry_dirs: array<vec3<f32>, 8>;
-    var entry_dirs_valid: array<bool, 8>;
-    var entry_hero_match: array<bool, 8>;
+    // Bit k: channel k refracted (`entry_dirs[k]` holds its direction); that direction matches
+    // the hero's.
+    var entry_dirs_valid: u32 = 0u;
+    var entry_hero_match: u32 = 0u;
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
         entry_dirs[k] = vec3<f32>(0.0, 0.0, 0.0);
-        entry_dirs_valid[k] = false;
-        entry_hero_match[k] = false;
     }
     for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
         let n_o_k = n_o_hoisted[k];
+        // The entry pair of channel k; channel 0's arguments are the hero's (`n_o_hero ==
+        // n_o_hoisted[0]`, and the hero solves with `n_e_raw_ch[0]`).
+        let pair_k = entry_solve_pair_with_incidence(uinc_frame, 1.0, n_o_k, n_e_raw_ch[k], c_axis, uframe);
+        if (k == 0u) {
+            let sol_s_hero = pair_k.s_sol;
+            let sol_p_hero = pair_k.p_sol;
+            let reflect_mueller_hero = jones_to_mueller(sol_s_hero.r_s, sol_p_hero.r_s, sol_s_hero.r_p, sol_p_hero.r_p);
+            let entry_r_branch = clamp(reflect_mueller_hero[0][0], R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
+            let p_o_raw = mode_power(sol_s_hero.t_o, sol_p_hero.t_o, sol_s_hero.flux_o, entry_inc_flux, (*s).stokes[0]);
+            let p_e_raw = mode_power(sol_s_hero.t_e, sol_p_hero.t_e, sol_s_hero.flux_e, entry_inc_flux, (*s).stokes[0]);
+            let p_o_hero = clamp(p_o_raw / max(p_o_raw + p_e_raw, 1e-12), R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
+            let entry_mode_split_rand = f32(discrete_draw(seed0, bounce, BIREFRINGENT_SPLIT_STREAM)) / 4294967295.0;
+            use_extraordinary_entry = entry_mode_split_rand < (1.0 - p_o_hero);
+            p_mode_hero_frac = p_o_hero;
+            if (use_extraordinary_entry) {
+                p_mode_hero_frac = 1.0 - p_o_hero;
+            }
+
+            n2_hero_dir_e = select(n_o_hero, n2, use_extraordinary_entry);
+            let eta_dir_e = n1 / n2_hero_dir_e;
+            let sin2_t_dir_e = min(eta_dir_e * eta_dir_e * fma(-cos_i, cos_i, 1.0), 1.0);
+            let cos_t_dir_e = sqrt(max(1.0 - sin2_t_dir_e, 0.0));
+            refr_wave_dir_e = normalize(eta_dir_e * wave_dir_at_bounce + fma(eta_dir_e, cos_i, -cos_t_dir_e) * normal);
+            final_refr_dir_e = refr_wave_dir_e;
+            if (use_extraordinary_entry) {
+                final_refr_dir_e = extraordinary_poynting_dir(refr_wave_dir_e, c_axis, n_o_hero, n_e_hero);
+            }
+            p_axis_transmitted = cross(refr_wave_dir_e, uframe.s_axis);
+            entry_t_div = select(entry_r_branch, 0.0, collect_on);
+        }
         var n2k_dir = n_o_k;
         if (use_extraordinary_entry) {
             n2k_dir = n_eff_ch[k];
@@ -106,15 +120,9 @@ fn ew_uni_entry_transmit(
             final_dir_k = extraordinary_poynting_dir(refr_wave_dir_k, c_axis, n_o_k, n_e_eff_k);
         }
         entry_dirs[k] = final_dir_k;
-        entry_dirs_valid[k] = true;
+        entry_dirs_valid = entry_dirs_valid | (1u << k);
         let direction_matches_entry = directions_match(final_dir_k, final_refr_dir_e);
-        entry_hero_match[k] = direction_matches_entry;
-        // The entry pair of channel k (channel 0 reuses the hero's solution): the
-        // mismatch branch and the matched transmission below both read it.
-        var pair_k = pair_hero;
-        if (k != 0u) {
-            pair_k = entry_solve_pair_with_incidence(uinc_frame, 1.0, n_o_k, n_e_raw_ch[k], c_axis, uframe);
-        }
+        entry_hero_match = entry_hero_match | (u32(direction_matches_entry) << k);
         if (entry_leaf_on) {
             // The mirror leaf of channel k, from its incident state (nothing below has run yet).
             let mueller_leaf = jones_to_mueller(pair_k.s_sol.r_s, pair_k.p_sol.r_s, pair_k.s_sol.r_p, pair_k.p_sol.r_p);
@@ -183,13 +191,8 @@ fn ew_arm_uni_entry_transmit(@builtin(global_invocation_id) gid: vec3<u32>) {
     let seed0 = core.ray_meta.y;
 
     ew_uni_entry_transmit(&s, &h, rc, ew.bounce, seed0);
-    surface_finish_event(&s, &h, rc, ew.bounce, seed0);
     ew_store(i, s);
     ew_hit_store(i, h);
-
-    if (h.split_mask != 0u) {
-        ray_core[i].ray_meta.z = TAG_SPLIT;
-    } else {
-        ray_core[i].ray_meta.z = TAG_TAIL;
-    }
+    // `ew_arm_uni_entry_finish` applies the surface-finish correction and routes the ray.
+    ray_core[i].ray_meta.z = TAG_UNI_ENTRY_FINISH;
 }

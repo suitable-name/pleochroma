@@ -12,7 +12,7 @@ app works out the mast (solved depth) of every tier from its stated
 constraints, and builds the resulting solid to check that it is a real,
 closed stone. This can take real time — from under half a second on a
 small design to several seconds on a large one (over a hundred tiers).
-Every other edit in the app (Save Tier, Remove, Apply Preform, Undo, Redo)
+Every other edit in the app (a tier edit, Remove, Apply Preform, Undo, Redo)
 intentionally skips this and just marks the design **stale** instead.
 
 Above 16 tiers, Solve runs in the background rather than freezing the
@@ -38,7 +38,7 @@ numbers that might no longer be true.
 
 ## Auto-Solve: Skipping the Click on Small and Medium Designs
 
-The **Auto-Solve:** drop-down next to the Solve button (Off / 150 ms / 300 ms /
+The **Auto-Solve** menu (the chevron on the right of the Solve split button; its items read Auto-Solve Off / 150 ms / 300 ms /
 1 s / 3 s) lets small and medium designs skip the manual Solve click
 entirely. Its hover hint explains it in one sentence. After any edit, if this design's *last measured*
 solve took less

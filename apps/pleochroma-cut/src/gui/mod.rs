@@ -122,6 +122,7 @@ pub(crate) use {
     rough_plan::{
         EXPORT_SUFFIX as ROUGH_PLAN_EXPORT_SUFFIX, HARNESS_SEED_PLAN_NAME, harness_locate_window,
         harness_planner_window, harness_rig_window, harness_seed_rough_color_plan,
+        harness_view_report as harness_planner_view_report,
         harness_view_unsettled as harness_planner_view_unsettled,
     },
 };
@@ -130,8 +131,8 @@ pub(crate) use {
 pub(in crate::gui) use main_window::db_path;
 // Flat re-exports: the callers in `gui` use these as `gui::X`.
 pub(in crate::gui) use startup_settings::{
-    color_space_from_index, env_map_status_text, is_c_axis_override_available,
-    local_compute_target_from_index, local_preview_scale_from_index,
+    color_space_from_index, env_map_name_from_status, env_map_status_text,
+    is_c_axis_override_available, local_compute_target_from_index, local_preview_scale_from_index,
     refresh_lighting_preset_options, refresh_material_options,
 };
 // Used by child modules as `gui::starting_dir_from_picker_field`.
@@ -177,6 +178,7 @@ pub fn run_gui() -> anyhow::Result<()> {
     handle.ui.show()?;
     window_sizing::fit_initial_window_size(&handle.ui, editor_layout_touched);
     slint::run_event_loop()?;
+    crate::bridge::shader_cache::cancel();
     handle.ui.hide()?;
     // A restart the user asked for (the RADV shader workaround question or the Preferences
     // switch): the window-close guard already ran and the settings are saved, so the program

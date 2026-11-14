@@ -387,7 +387,8 @@ fn display_only_streams_tone_mapped_display_frames() {
     let pixels = display::decode_rgba8(encoding, W, H, &payload).unwrap();
     let sum = trace_samples(&image, 0, 2, 2);
     let camera = Camera::new(image.yaw, image.pitch, image.distance, DEFAULT_FOV_DEG)
-        .with_roll(image.camera_roll);
+        .with_roll(image.camera_roll)
+        .with_pan(image.camera_pan);
     let guides = generate_guide_buffers_with_index(
         W,
         H,

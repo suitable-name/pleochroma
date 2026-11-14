@@ -234,6 +234,8 @@ pub(in super::super) struct SliceLine {
     pub(in super::super) size: ScreenSize,
     /// The camera's `(yaw, pitch, distance, roll)` for that frame.
     pub(in super::super) pose: (f32, f32, f32, f32),
+    /// The camera's pan for that frame.
+    pub(in super::super) pan: [f32; 2],
 }
 
 impl SliceLine {
@@ -249,6 +251,7 @@ impl SliceLine {
                 geometry.camera.distance,
                 geometry.camera.roll,
             ),
+            pan: geometry.camera.pan,
         }
     }
 
@@ -256,7 +259,9 @@ impl SliceLine {
     /// define one.
     pub(in super::super) fn normal(&self, side: SliceSide) -> Option<Vec3> {
         let (yaw, pitch, distance, roll) = self.pose;
-        let camera = Camera::new(yaw, pitch, distance, CAMERA_FOV_DEG).with_roll(roll);
+        let camera = Camera::new(yaw, pitch, distance, CAMERA_FOV_DEG)
+            .with_roll(roll)
+            .with_pan(self.pan);
         slice_normal(&camera, self.a, self.b, self.size, side)
     }
 }

@@ -2,7 +2,7 @@
 // sheet) -- name, indices as removable chips with add, rotate, mirror and complete-orbit,
 // what the tier meets, and Duplicate / Delete / Move / Detach. Hosted inside the Tiers
 // tab as a full-height overlay.
-import { LineEdit } from "std-widgets.slint";
+import { TextField } from "../../shell/inputs.slint";
 import { Theme } from "../../theme.slint";
 import { Icons } from "../../icons.slint";
 import { PageScroll } from "../../shell/page_scroll.slint";
@@ -15,14 +15,14 @@ import { TiersModel } from "tiers_model.slint";
 
 // A small heading above a group.
 component SectionLabel inherits Text {
-    color: Theme.primary;
+    color: Theme.text-secondary;
     font-size: Theme.text-label-large;
-    font-weight: 500;
+    font-weight: 700;
 }
 
 // A paragraph of supporting text.
 component Note inherits Text {
-    color: Theme.on-surface-variant;
+    color: Theme.text-secondary;
     font-size: Theme.text-body;
     wrap: word-wrap;
 }
@@ -38,6 +38,12 @@ export component TierSheet inherits Rectangle {
     VerticalLayout {
         Rectangle {
             height: 56px;
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.outline-variant;
+            }
 
             HorizontalLayout {
                 padding-left: Theme.space-xs;
@@ -67,7 +73,7 @@ export component TierSheet inherits Rectangle {
 
                     Text {
                         text: TiersModel.tier-block;
-                        color: Theme.on-surface-variant;
+                        color: Theme.text-secondary;
                         font-size: Theme.text-label;
                         overflow: elide;
                     }
@@ -88,6 +94,7 @@ export component TierSheet inherits Rectangle {
             VerticalLayout {
                 padding-left: Theme.space-lg;
                 padding-right: Theme.space-lg;
+                padding-top: Theme.space-md;
                 padding-bottom: Theme.space-xl;
                 spacing: Theme.space-md;
 
@@ -95,9 +102,10 @@ export component TierSheet inherits Rectangle {
                     text: "Name";
                 }
 
-                LineEdit {
+                TextField {
                     text <=> TiersModel.tier-name;
                     placeholder-text: "Facet name";
+                    label: "Facet name";
                     accepted(text) => {
                         TiersModel.tier-rename(text);
                     }
@@ -113,11 +121,11 @@ export component TierSheet inherits Rectangle {
                 }
 
                 Rectangle {
-                    height: Theme.touch;
+                    height: Theme.touch + Theme.space-sm;
                     border-radius: Theme.radius-md;
-                    background: Theme.surface-high;
+                    background: Theme.surface;
                     border-width: 1px;
-                    border-color: Theme.outline-variant;
+                    border-color: Theme.accent;
                     accessible-role: AccessibleRole.button;
                     accessible-label: "Edit angle, " + TiersModel.tier-angle;
                     accessible-action-default => {
@@ -136,16 +144,16 @@ export component TierSheet inherits Rectangle {
 
                         Text {
                             text: TiersModel.tier-angle;
-                            color: Theme.primary;
+                            color: Theme.accent;
                             font-size: Theme.text-title-large;
-                            font-weight: 500;
+                            font-weight: 700;
                             vertical-alignment: center;
                             horizontal-stretch: 1;
                         }
 
                         Text {
                             text: "Edit";
-                            color: Theme.on-surface-variant;
+                            color: Theme.text-secondary;
                             font-size: Theme.text-label-large;
                             vertical-alignment: center;
                         }
@@ -166,12 +174,18 @@ export component TierSheet inherits Rectangle {
                     text: "Indices";
                 }
 
-                Rectangle {
-                    height: Math.ceil(TiersModel.tier-chips.length / 4) * 48px;
+                // The COMPLETE index list, wrapping into as many columns as fit.
+                chip-area := Rectangle {
+                    // Just wider than a three-digit chip ("108 ×") plus a gap.
+                    property <length> cell: Theme.base-font * 5.2;
+                    property <int> cols: max(1, Math.floor(self.width / self.cell));
 
+                    height: Math.ceil(TiersModel.tier-chips.length / self.cols) * 48px;
+
+                    // Chips packed from the left in equal cells, as in the Cut rows.
                     for chip[i] in TiersModel.tier-chips: Chip {
-                        x: Math.mod(i, 4) * (parent.width / 4);
-                        y: Math.floor(i / 4) * 48px;
+                        x: Math.mod(i, chip-area.cols) * chip-area.cell;
+                        y: Math.floor(i / chip-area.cols) * 48px;
                         text: chip.label + "  \u{d7}";
                         selected: chip.detached;
                         clicked => {

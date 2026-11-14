@@ -274,6 +274,22 @@ fn optical_hover_points(film: &Film<'_>) -> Result<Vec<(f32, f32)>, String> {
         .map(Spot::of)
         .collect();
     overlays.extend(guides);
+    // The figures card, the status pill and the problem banner also sit over the picture.
+    for name in [
+        "LiveFigures",
+        "StatusPill",
+        "ProblemBanner",
+        "GesturesButton",
+    ] {
+        overlays.extend(
+            view.root
+                .query_descendants()
+                .match_inherits(name)
+                .find_all()
+                .iter()
+                .map(Spot::of),
+        );
+    }
     let toolbar_actions: Vec<_> = view
         .root
         .query_descendants()

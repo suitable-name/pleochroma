@@ -53,7 +53,9 @@ pub enum Check {
     AdvancedInterfaceOn,
     /// The interface is in Simple mode, so switching to Advanced does something.
     SimpleInterfaceOn,
-    /// The control the command shows exists only in the Advanced interface.
+    /// The control the command shows exists only in the Advanced interface. No command asks for it
+    /// now (the Schedule tab moved to the Cutting Instructions page); kept for the next one.
+    #[cfg_attr(not(test), allow(dead_code))]
     NeedsAdvancedInterface,
     /// The guide leaves this group of controls usable.
     Guide(GuideGroup),

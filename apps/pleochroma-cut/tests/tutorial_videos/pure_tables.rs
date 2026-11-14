@@ -115,7 +115,7 @@ pub const SCRIPTED: &[(&str, usize, &str)] = &[
     ("welcome-tour", 3, "The tier table"),
     ("welcome-tour", 5, "The viewport"),
     ("welcome-tour", 7, "Help and the command palette"),
-    ("tiers-edit-a-tier", 4, "Save, Add and Undo"),
+    ("tiers-edit-a-tier", 4, "Edit, Add and Undo"),
     ("tiers-tier-notes", 2, "Notes stay with their tier"),
     ("tiers-index-shorthands", 0, "Typing eight numbers is slow"),
     ("tiers-step-series", 0, "A ladder of tiers"),

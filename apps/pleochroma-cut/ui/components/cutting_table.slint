@@ -2,21 +2,131 @@ import { ScrollView } from "std-widgets.slint";
 import { AngleItem } from "../types.slint";
 import { Theme } from "../theme.slint";
 import { LibraryModel } from "../models/library.slint";
+import { EditorModel } from "../models/editor.slint";
+import { GuideModel } from "../models/guide.slint";
 import { CuttingTableModel } from "../models/cutting_table.slint";
+import { CuttingModeModel } from "../models/cutting_mode.slint";
 import { HelpTopics } from "../models/help.slint";
 import { HelpButton } from "help_button.slint";
-import { ModePill } from "pill_button.slint";
-import { TipButton } from "compact_controls.slint";
+import { KitBadge, KitButton, KitIcons, KitSegment, KitSegmentBar } from "kit/kit.slint";
 
-// The library's Cutting Instructions tab: the selected design's steps as a table.
+// One index as a small chip.
+component CtChip inherits Rectangle {
+    in property <string> text;
+    in property <length> font_size: 13px;
+    height: self.font_size + 13px;
+    width: chip_text.preferred-width + 14px;
+    border-radius: 6px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    chip_text := Text {
+        x: 7px;
+        height: parent.height;
+        text: root.text;
+        font-size: root.font_size;
+        font-weight: 600;
+        color: Theme.text-primary;
+        vertical-alignment: center;
+    }
+}
+
+// The index wheel of one step as a display: the gear's ring, 0 at the top, and a dot with its number
+// at each index of the step (`indices` is the step's index text, `teeth` the gear). Not interactive.
+component CtDial inherits Rectangle {
+    in property <string> indices;
+    in property <float> teeth;
+    in property <length> dial: 150px;
+
+    width: root.dial;
+    height: root.dial;
+    accessible-role: AccessibleRole.image;
+    accessible-label: "Index Wheel: " + root.indices;
+
+    property <length> c: root.dial / 2;
+    property <length> r: root.dial / 2 - 14px;
+
+    Rectangle {
+        x: root.c - root.r;
+        y: root.c - root.r;
+        width: root.r * 2;
+        height: root.r * 2;
+        border-radius: root.r;
+        background: Theme.bg-input;
+        border-width: 1px;
+        border-color: Theme.border-medium;
+    }
+    Text {
+        x: root.c - 20px;
+        y: 0px;
+        width: 40px;
+        height: 12px;
+        text: "0";
+        font-size: 9px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+    }
+    Text {
+        x: root.c - 30px;
+        y: root.c - 16px;
+        width: 60px;
+        text: root.teeth;
+        font-size: 18px;
+        font-weight: 700;
+        color: Theme.text-secondary;
+        horizontal-alignment: center;
+    }
+    Text {
+        x: root.c - 30px;
+        y: root.c + 6px;
+        width: 60px;
+        text: "gear";
+        font-size: 9px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+    }
+    for chip in CuttingTableModel.split_indices(root.indices): Rectangle {
+        if chip.to-float() > 0 && root.teeth > 0: Rectangle {
+            property <angle> a: chip.to-float() / root.teeth * 360deg;
+            x: root.c + root.r * Math.sin(self.a) - 6px;
+            y: root.c - root.r * Math.cos(self.a) - 6px;
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+            background: Theme.accent-cyan;
+        }
+        if chip.to-float() > 0 && root.teeth > 0: Text {
+            property <angle> a: chip.to-float() / root.teeth * 360deg;
+            x: root.c + root.r * 0.68 * Math.sin(self.a) - 16px;
+            y: root.c - root.r * 0.68 * Math.cos(self.a) - 7px;
+            width: 32px;
+            height: 14px;
+            text: chip;
+            font-size: 10px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+// The library's Cutting Instructions tab: the steps of the design, in cutting order, as cards.
 //
-// Keyboard: Tab reaches the three filter pills (Space or Enter picks one), the Copy button and
-// the "?" button, and then the table itself. In the table Up and Down move a cursor from row to
-// row (over the rows the filter shows), Home and End jump to the first and last row, and Enter or
-// Space copies the cursor row. A click on a row copies it too. A screen reader hears each row as
-// one list item ("Step 3: facet A, angle 50.00, index 12, ...").
+// The rows are the open design as edited (`EditorModel.cutting_rows`) while the Edit tab holds a
+// solved design, else the selected library design's saved rows. Notes are read only here; a click
+// on one opens that tier in Edit. The three filter segments, Copy as Text, Print / PDF... and
+// Start Cut Mode sit above the list; the selected step is detailed in the panel beside it.
+//
+// Keyboard: Tab reaches the filter segments, the buttons and the "?" button, and then the list.
+// In the list Up and Down move a cursor from row to row (over the rows the filter shows), Home and
+// End jump to the first and last row, and Enter or Space copies the cursor row. A click on a card
+// copies it too. A screen reader hears each card as one list item ("Step 3: facet P3, angle 45.20,
+// index 15, 45, ...").
 export component CuttingTableView inherits Rectangle {
-    in property <[AngleItem]> angles: LibraryModel.current_angles;
+    in property <[AngleItem]> angles: EditorModel.has_design && EditorModel.cutting_rows.length > 0
+        ? EditorModel.cutting_rows : LibraryModel.current_angles;
+    // The rows are the open design's, not the library's saved ones.
+    property <bool> edited: EditorModel.has_design && EditorModel.cutting_rows.length > 0;
     in-out property <int> filter_mode: 0; // 0 = All, 1 = Pavilion, 2 = Crown
     // The row the keyboard cursor is on (its `order_idx`); -1 for none. Reset whenever another
     // design is shown or the filter changes.
@@ -24,16 +134,18 @@ export component CuttingTableView inherits Rectangle {
     changed angles => { root.cursor = -1; }
     changed filter_mode => { root.cursor = -1; }
 
-    callback copy_row(int); // order_idx
-    copy_row(idx) => { LibraryModel.copy_cutting_row(idx); }
-    callback copy_table();
-    copy_table => { LibraryModel.copy_cutting_table(); }
+    // The step panel shows only where there is room for it beside the list.
+    property <bool> side_panel: root.width >= 1000px;
+    property <bool> can_print: EditorModel.enabled && EditorModel.has_design && GuideModel.allows_file_ops();
+    property <string> cut_reason: CuttingModeModel.unavailable_reason();
+    // The step the cursor is on (the panel beside the list shows it); the rows are in order.
+    property <AngleItem> sel: root.angles[Math.max(0, root.cursor)];
 
-    // Pill counts come from Rust (`LibraryModel.filtered_row_count(mode)`, body
-    // `gui::library::detail::shared::count_angles_for_mode`). Slint has no loops or array
-    // filters, and a `pure function` cannot recurse. The count uses the same predicate as
-    // `row_shown` below: mode 0 every row, mode 1 `side < 0`, mode 2 `side > 0`. The keyboard
-    // cursor asks `CuttingTableModel.step_row` for the same reason.
+    callback copy_row(int); // order_idx
+    copy_row(idx) => { CuttingTableModel.copy_row_of(root.angles, idx); }
+    callback copy_table();
+    copy_table => { CuttingTableModel.copy_rows(root.angles); }
+
     background: Theme.bg-darkest;
     border-radius: Theme.radius-md;
     border-width: 1px;
@@ -41,55 +153,87 @@ export component CuttingTableView inherits Rectangle {
     accessible-role: AccessibleRole.groupbox;
     accessible-label: "Cutting Instructions";
 
-    VerticalLayout {
-        padding: 12px;
-        spacing: 10px;
+    // Explicit geometry: the conditional blocks below read `root.width`, so the layout must not feed
+    // its constraints back into it.
+    HorizontalLayout {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        padding: 14px;
+        spacing: 14px;
 
-        // Table Action Header
-        HorizontalLayout {
-            alignment: space-between;
-            spacing: 8px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            spacing: 10px;
 
-            Rectangle {
-                accessible-role: AccessibleRole.groupbox;
-                accessible-label: "Which Steps to Show";
-                HorizontalLayout {
-                    spacing: 6px;
+            // Action header
+            HorizontalLayout {
+                spacing: 10px;
 
-                    ModePill {
-                        width: 116px;
-                        font_size: 11px;
-                        text: "All Steps (" + LibraryModel.filtered_row_count(0) + ")";
-                        hint: "Show every step of the cutting instructions.";
-                        selected: root.filter_mode == 0;
-                        picked => { root.filter_mode = 0; }
-                    }
-                    ModePill {
-                        width: 108px;
-                        font_size: 11px;
-                        text: "Pavilion (" + LibraryModel.filtered_row_count(1) + ")";
-                        hint: "Show only the pavilion steps, the ones below the girdle.";
-                        selected: root.filter_mode == 1;
-                        picked => { root.filter_mode = 1; }
-                    }
-                    ModePill {
-                        width: 96px;
-                        font_size: 11px;
-                        text: "Crown (" + LibraryModel.filtered_row_count(2) + ")";
-                        hint: "Show only the crown steps, the ones above the girdle.";
-                        selected: root.filter_mode == 2;
-                        picked => { root.filter_mode = 2; }
+                VerticalLayout {
+                    alignment: center;
+                    KitSegmentBar {
+                        width: filters.preferred-width + 4px;
+                        accessible-role: AccessibleRole.groupbox;
+                        accessible-label: "Which Steps to Show";
+                        filters := HorizontalLayout {
+                            x: 2px;
+                            padding: 2px;
+                            spacing: 2px;
+                            KitSegment {
+                                text: "All Steps (" + CuttingTableModel.count_rows(root.angles, 0) + ")";
+                                hint: "Show every step of the cutting instructions.";
+                                on: root.filter_mode == 0;
+                                picked => { root.filter_mode = 0; }
+                            }
+                            KitSegment {
+                                text: "Pavilion (" + CuttingTableModel.count_rows(root.angles, 1) + ")";
+                                hint: "Show only the pavilion steps, the ones below the girdle.";
+                                on: root.filter_mode == 1;
+                                picked => { root.filter_mode = 1; }
+                            }
+                            KitSegment {
+                                text: "Crown (" + CuttingTableModel.count_rows(root.angles, 2) + ")";
+                                hint: "Show only the crown steps, the ones above the girdle.";
+                                on: root.filter_mode == 2;
+                                picked => { root.filter_mode = 2; }
+                            }
+                        }
                     }
                 }
-            }
-
-            HorizontalLayout {
-                spacing: 8px;
-                TipButton {
-                    text: "Copy Instructions";
+                if root.edited && root.width >= 1250px: VerticalLayout {
+                    alignment: center;
+                    KitBadge {
+                        text: "As edited in Edit" + (EditorModel.is_dirty ? ", not saved" : "");
+                        fill: Theme.accent-cyan-surface;
+                        ink: Theme.accent-cyan;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; min-width: 0px; }
+                KitButton {
+                    text: "Copy as Text";
+                    icon: KitIcons.copy;
                     hint: "Copy the whole cutting table to the clipboard, so you can paste it into a document.";
-                    icon: @image-url("../icons/clipboard.svg");
                     clicked => { root.copy_table(); }
+                }
+                KitButton {
+                    text: "Print / PDF…";
+                    icon: KitIcons.export;
+                    enabled: root.can_print;
+                    hint: root.can_print
+                        ? "Write the standard one-page cutting sheet of the design open in Edit as a PDF, ready to print."
+                        : "Open the design in Edit first.";
+                    clicked => { EditorModel.export_cutting_sheet_pdf(); }
+                }
+                KitButton {
+                    text: "Start Cut Mode";
+                    icon: KitIcons.play;
+                    kind: 1;
+                    enabled: root.cut_reason == "" && GuideModel.allows_advanced() && !CuttingModeModel.open;
+                    hint: root.cut_reason != "" ? root.cut_reason : "Go through the steps one page at a time, with the stone and the index wheel.";
+                    clicked => { CuttingModeModel.open_cutting_mode(); }
                 }
                 VerticalLayout {
                     alignment: center;
@@ -99,203 +243,300 @@ export component CuttingTableView inherits Rectangle {
                     }
                 }
             }
-        }
 
-        // Table Column Headers
-        Rectangle {
-            height: 32px;
-            background: Theme.bg-card;
-            border-radius: Theme.radius-sm;
-
+            // Column headings, on the cards' grid.
             HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 12px;
-                spacing: 8px;
-
-                // The three narrow columns have fixed widths; INDICES and the notes share the
-                // rest (1 : 2) and elide, so the table fits the narrowest window. No
-                // `alignment: start`: it defeats the stretch factors. The row below uses the
-                // same spacing and a 12 px trailing cell, so the columns line up.
-                Text { width: 36px; text: "#"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
-                Text { width: 72px; text: "FACET"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
-                Text { width: 64px; text: "ANGLE"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
-                // Same heading as the tier list in `editor_view.slint`.
-                Text { horizontal-stretch: 1; min-width: 0px; text: "INDICES"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
-                Text { horizontal-stretch: 2; min-width: 0px; text: "INSTRUCTIONS / NOTES"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
-                Rectangle { width: 12px; }
+                height: 20px;
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 14px;
+                Text { width: 30px; text: "#"; font-size: 11px; font-weight: 700; color: Theme.text-muted; horizontal-alignment: right; vertical-alignment: center; }
+                Rectangle { width: 4px; }
+                Text { width: 74px; text: "FACET"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
+                Text { width: 96px; text: "ANGLE"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
+                Text { horizontal-stretch: 3; min-width: 0px; text: "INDICES"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
+                Text { horizontal-stretch: 2; min-width: 0px; text: "NOTES · CLICK TO OPEN IN EDIT"; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
             }
-        }
 
-        if root.angles.length == 0: VerticalLayout {
-            alignment: center;
-            spacing: 8px;
-            vertical-stretch: 1;
-
-            // Centred by a layout of its own: a fixed-size Image in the column sits at the left
-            // of its cell (`horizontal-alignment` only places the picture inside the Image).
-            HorizontalLayout {
+            if root.angles.length == 0: VerticalLayout {
                 alignment: center;
-                Image { source: @image-url("../icons/ruler.svg"); colorize: Theme.text-muted; width: 32px; height: 32px; }
-            }
-            Text { text: "No cutting instructions recorded for this diagram"; font-size: 13px; color: Theme.text-muted; horizontal-alignment: center; }
-        }
+                spacing: 8px;
+                vertical-stretch: 1;
 
-        if root.angles.length > 0: Rectangle {
-            vertical-stretch: 1;
-            table_focus := FocusScope {
-                accessible-role: AccessibleRole.list;
-                accessible-label: "Cutting Instruction Steps";
-                accessible-description: "Up and Down move between steps. Enter copies the step you are on.";
-
-                key-pressed(event) => {
-                    if event.text == Key.DownArrow {
-                        root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, 1, root.filter_mode);
-                        return accept;
-                    }
-                    if event.text == Key.UpArrow {
-                        root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, -1, root.filter_mode);
-                        return accept;
-                    }
-                    if event.text == Key.Home {
-                        root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, -1000000, root.filter_mode);
-                        return accept;
-                    }
-                    if event.text == Key.End {
-                        root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, 1000000, root.filter_mode);
-                        return accept;
-                    }
-                    if (event.text == Key.Return || event.text == Key.Space) && root.cursor >= 0 {
-                        root.copy_row(root.cursor);
-                        return accept;
-                    }
-                    reject
+                // Centred by a layout of its own: a fixed-size Image in the column sits at the left
+                // of its cell (`horizontal-alignment` only places the picture inside the Image).
+                HorizontalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/ruler.svg"); colorize: Theme.text-muted; width: 32px; height: 32px; }
                 }
+                Text { text: "No cutting instructions recorded for this diagram"; font-size: 13px; color: Theme.text-muted; horizontal-alignment: center; }
+            }
 
-                table_scroll := ScrollView {
-                    VerticalLayout {
-                        spacing: 2px;
+            if root.angles.length > 0: Rectangle {
+                vertical-stretch: 1;
+                table_focus := FocusScope {
+                    accessible-role: AccessibleRole.list;
+                    accessible-label: "Cutting Instruction Steps";
+                    accessible-description: "Up and Down move between steps. Enter copies the step you are on.";
 
-                        for row in root.angles: Rectangle {
-                            // Pavilion/Crown filtering, driven by `AngleItem.side`
-                            // (-1 pavilion, 1 crown, 0 neither) so the filter never has to
-                            // reparse the formatted angle text. A row that does not match the
-                            // active filter collapses to zero height and `visible: false`
-                            // rather than being excluded from the `for`, since Slint has no
-                            // way to skip a repeater iteration outright.
-                            property <bool> row_shown: root.filter_mode == 0
-                                || (root.filter_mode == 1 && row.side < 0)
-                                || (root.filter_mode == 2 && row.side > 0);
-                            // A concave tier is ONE band of two lines: the facet line above and its
-                            // tool line (`AngleItem.second_line`) under it. The zebra alternates per
-                            // tier, not per line, so the two lines share this one background.
-                            property <bool> has_second_line: row.second_line != "";
-                            // The keyboard cursor is on this row.
-                            property <bool> is_cursor: root.cursor == row.order_idx;
-                            // Keep the cursor row inside the scrolled area.
-                            changed is_cursor => {
-                                if self.is_cursor && self.row_shown {
-                                    if self.y < -table_scroll.content-y {
-                                        table_scroll.content-y = -self.y;
-                                    } else if self.y + self.height > -table_scroll.content-y + table_scroll.visible-height {
-                                        table_scroll.content-y = -(self.y + self.height - table_scroll.visible-height);
-                                    }
-                                }
-                            }
-                            height: self.row_shown ? (self.has_second_line ? 54px : 32px) : 0px;
-                            visible: self.row_shown;
-                            clip: true;
-                            background: row_touch.has-hover ? Theme.bg-card-hover : (Math.mod(row.order_idx, 2) == 0 ? Theme.bg-input : Theme.bg-card);
-                            border-radius: 2px;
-                            border-width: self.is_cursor && table_focus.has-focus ? 2px : 0px;
-                            border-color: Theme.accent-cyan-hover;
+                    key-pressed(event) => {
+                        if event.text == Key.DownArrow {
+                            root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, 1, root.filter_mode);
+                            return accept;
+                        }
+                        if event.text == Key.UpArrow {
+                            root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, -1, root.filter_mode);
+                            return accept;
+                        }
+                        if event.text == Key.Home {
+                            root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, -1000000, root.filter_mode);
+                            return accept;
+                        }
+                        if event.text == Key.End {
+                            root.cursor = CuttingTableModel.step_row(root.angles, root.cursor, 1000000, root.filter_mode);
+                            return accept;
+                        }
+                        if (event.text == Key.Return || event.text == Key.Space) && root.cursor >= 0 {
+                            root.copy_row(root.cursor);
+                            return accept;
+                        }
+                        reject
+                    }
 
-                            accessible-role: AccessibleRole.list-item;
-                            accessible-label: "Step " + (row.order_idx + 1) + ": facet " + row.code
-                                + (row.facet != "" && row.code != row.facet ? " (was " + row.facet + ")" : "")
-                                + ", angle " + row.angle
-                                + (row.index_val != "" ? ", index " + row.index_val : "")
-                                + (row.notes != "" ? ", " + row.notes : "")
-                                + (row.second_line != "" ? ", " + row.second_line : "");
-                            accessible-description: "Click or press Enter to copy this row.";
-                            accessible-item-selectable: true;
-                            accessible-item-selected: self.is_cursor;
-                            accessible-item-index: row.order_idx;
-                            accessible-item-count: root.angles.length;
-                            accessible-action-default => { root.copy_row(row.order_idx); }
+                    table_scroll := ScrollView {
+                        VerticalLayout {
+                            spacing: 6px;
 
-                            row_touch := TouchArea {
-                                mouse-cursor: MouseCursor.pointer;
-                                clicked => {
-                                    root.cursor = row.order_idx;
-                                    root.copy_row(row.order_idx);
-                                }
-                            }
-                            Tooltip { text: @markdown("Click to copy this row."); }
-
-                            VerticalLayout {
-                                HorizontalLayout {
-                                    height: 32px;
-                                    padding-left: 12px;
-                                    padding-right: 12px;
-                                    spacing: 8px;
-
-                                    Text { width: 36px; text: row.order_idx + 1; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                    // The standard code (`P1`, `G1`, `C1`, `T`). A row whose
-                                    // original label differs (a catalogue row with 123/ABC labels)
-                                    // also shows it, small, as "was 3".
-                                    Rectangle {
-                                        width: 72px;
-                                        clip: true;
-                                        HorizontalLayout {
-                                            spacing: 4px;
-                                            alignment: start;
-                                            Text { text: row.code; font-size: 11px; font-weight: 600; color: Theme.accent-cyan; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                            if row.facet != "" && row.code != row.facet: Text { text: "was " + row.facet; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                        }
-                                    }
-                                    Text { width: 64px; text: row.angle; font-size: 11px; font-weight: 600; color: Theme.accent-amber; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                    Text { horizontal-stretch: 1; min-width: 0px; text: row.index_val; font-size: 11px; color: Theme.text-primary; overflow: elide; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                    Text { horizontal-stretch: 2; min-width: 0px; text: row.notes; font-size: 11px; color: Theme.text-secondary; overflow: elide; vertical-alignment: center; accessible-role: AccessibleRole.none; }
-                                    // The clipboard icon on hover shows that a click copies the
-                                    // row. Centred by a layout of its own: a fixed-size Image in
-                                    // the row sits at the top of its cell.
-                                    VerticalLayout {
-                                        alignment: center;
-                                        Image {
-                                            source: @image-url("../icons/clipboard.svg");
-                                            colorize: Theme.text-muted;
-                                            width: 12px;
-                                            height: 12px;
-                                            visible: row_touch.has-hover;
+                            for row[pos] in root.angles: Rectangle {
+                                // Pavilion/Crown filtering, driven by `AngleItem.side`
+                                // (-1 pavilion, 1 crown, 0 neither) so the filter never has to
+                                // reparse the formatted angle text. A row that does not match the
+                                // active filter collapses to zero height and `visible: false`
+                                // rather than being excluded from the `for`, since Slint has no
+                                // way to skip a repeater iteration outright.
+                                property <bool> row_shown: root.filter_mode == 0
+                                    || (root.filter_mode == 1 && row.side < 0)
+                                    || (root.filter_mode == 2 && row.side > 0);
+                                // A concave tier is ONE card of two lines: the facet line above and its
+                                // tool line (`AngleItem.second_line`) under it.
+                                property <bool> has_second_line: row.second_line != "";
+                                // The keyboard cursor is on this row.
+                                property <bool> is_cursor: root.cursor == row.order_idx;
+                                // Keep the cursor row inside the scrolled area.
+                                changed is_cursor => {
+                                    if self.is_cursor && self.row_shown {
+                                        if self.y < -table_scroll.content-y {
+                                            table_scroll.content-y = -self.y;
+                                        } else if self.y + self.height > -table_scroll.content-y + table_scroll.visible-height {
+                                            table_scroll.content-y = -(self.y + self.height - table_scroll.visible-height);
                                         }
                                     }
                                 }
-                                // The tool line, indented to sit under the facet name.
-                                if row.second_line != "": HorizontalLayout {
-                                    height: 20px;
-                                    padding-left: 48px;
-                                    padding-right: 12px;
-                                    Text {
-                                        horizontal-stretch: 1;
-                                        text: row.second_line;
-                                        font-size: 11px;
-                                        color: Theme.accent-cyan;
-                                        overflow: elide;
-                                        vertical-alignment: center;
-                                        accessible-role: AccessibleRole.none;
+                                height: self.row_shown ? (self.has_second_line ? 90px : 64px) : 0px;
+                                visible: self.row_shown;
+                                clip: true;
+                                border-radius: 10px;
+                                background: self.is_cursor ? Theme.surface-selected : (row_touch.has-hover ? Theme.bg-card-hover : Theme.surface-raised);
+                                border-width: self.is_cursor && table_focus.has-focus ? 2px : 1px;
+                                border-color: self.is_cursor ? Theme.accent-cyan : Theme.border-subtle;
+
+                                accessible-role: AccessibleRole.list-item;
+                                accessible-label: "Step " + (row.order_idx + 1) + ": facet " + row.code
+                                    + (row.facet != "" && row.code != row.facet ? " (was " + row.facet + ")" : "")
+                                    + ", angle " + row.angle
+                                    + (row.index_val != "" ? ", index " + row.index_val : "")
+                                    + (row.notes != "" ? ", " + row.notes : "")
+                                    + (row.second_line != "" ? ", " + row.second_line : "");
+                                accessible-description: "Click or press Enter to copy this row.";
+                                accessible-item-selectable: true;
+                                accessible-item-selected: self.is_cursor;
+                                accessible-item-index: pos;
+                                accessible-item-count: root.angles.length;
+                                accessible-action-default => { root.copy_row(pos); }
+
+                                row_touch := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        root.cursor = row.order_idx;
+                                        root.copy_row(pos);
+                                    }
+                                }
+                                Tooltip { text: @markdown("Click to copy this row."); }
+
+                                VerticalLayout {
+                                    HorizontalLayout {
+                                        height: 64px;
+                                        padding-left: 14px;
+                                        padding-right: 14px;
+                                        spacing: 14px;
+
+                                        Text { width: 30px; text: row.order_idx + 1; font-size: 14px; color: Theme.text-muted; horizontal-alignment: right; vertical-alignment: center; accessible-role: AccessibleRole.none; }
+                                        // The side of the stone, as a stripe (the code's letter says it too).
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                width: 4px;
+                                                height: 34px;
+                                                border-radius: 2px;
+                                                background: row.side < 0 ? Theme.accent-purple : (row.side > 0 ? Theme.accent-cyan : Theme.text-muted);
+                                            }
+                                        }
+                                        // The standard code (`P1`, `G1`, `C1`, `T`). A row whose
+                                        // original label differs (a catalogue row with 123/ABC labels)
+                                        // also shows it, small, as "was 3".
+                                        VerticalLayout {
+                                            width: 74px;
+                                            alignment: center;
+                                            Text { text: row.code; font-size: 18px; font-weight: 800; color: Theme.text-primary; overflow: elide; accessible-role: AccessibleRole.none; }
+                                            if row.facet != "" && row.code != row.facet: Text { text: "was " + row.facet; font-size: 11px; color: Theme.text-muted; overflow: elide; accessible-role: AccessibleRole.none; }
+                                        }
+                                        Text { width: 96px; text: row.angle; font-size: 22px; font-weight: 800; color: Theme.accent-amber; vertical-alignment: center; accessible-role: AccessibleRole.none; }
+                                        // The indices as chips; those that do not fit are clipped.
+                                        Rectangle {
+                                            horizontal-stretch: 3;
+                                            min-width: 0px;
+                                            clip: true;
+                                            HorizontalLayout {
+                                                spacing: 5px;
+                                                alignment: start;
+                                                for chip in CuttingTableModel.split_indices(row.index_val): VerticalLayout {
+                                                    alignment: center;
+                                                    CtChip { text: chip; }
+                                                }
+                                            }
+                                        }
+                                        // The note, read only; a click opens that tier in Edit.
+                                        Rectangle {
+                                            horizontal-stretch: 2;
+                                            min-width: 0px;
+                                            Text {
+                                                width: 100%;
+                                                height: 100%;
+                                                text: row.notes;
+                                                font-size: 13px;
+                                                color: Theme.text-secondary;
+                                                overflow: elide;
+                                                vertical-alignment: center;
+                                                accessible-role: AccessibleRole.none;
+                                            }
+                                            if row.notes != "": Rectangle {
+                                                accessible-role: AccessibleRole.button;
+                                                accessible-label: "Open " + row.code + " in Edit";
+                                                accessible-description: row.notes;
+                                                accessible-action-default => { CuttingTableModel.open_tier(row.code); }
+                                                TouchArea {
+                                                    mouse-cursor: MouseCursor.pointer;
+                                                    clicked => { CuttingTableModel.open_tier(row.code); }
+                                                }
+                                                Tooltip { text: @markdown("Open this tier in Edit."); }
+                                            }
+                                        }
+                                    }
+                                    // The tool line, indented to sit under the facet name.
+                                    if row.second_line != "": HorizontalLayout {
+                                        height: 26px;
+                                        padding-left: 62px;
+                                        padding-right: 14px;
+                                        Text {
+                                            horizontal-stretch: 1;
+                                            text: row.second_line;
+                                            font-size: 12px;
+                                            color: Theme.accent-cyan;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                            accessible-role: AccessibleRole.none;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                // The focus ring of the whole table while the cursor is not on a row yet.
+                    // The focus ring of the whole list while the cursor is not on a row yet.
+                    Rectangle {
+                        background: transparent;
+                        border-radius: Theme.radius-sm;
+                        border-width: table_focus.has-focus && root.cursor < 0 ? 2px : 0px;
+                        border-color: Theme.accent-cyan-hover;
+                    }
+                }
+            }
+        }
+
+        // The selected step in large type, with its indices, notes and tool line.
+        if root.side_panel: Rectangle {
+            width: 340px;
+            border-radius: 14px;
+            background: Theme.bg-card;
+            border-width: 1px;
+            border-color: Theme.border-subtle;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: "Selected Step";
+
+            if root.cursor < 0 || root.angles.length == 0: Text {
+                x: 18px;
+                y: 18px;
+                width: parent.width - 36px;
+                text: "Click a step, or move to it with Up and Down, to see it here in large type.";
+                font-size: 13px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            if root.cursor >= 0 && root.angles.length > 0: VerticalLayout {
+                padding: 18px;
+                spacing: 14px;
+                alignment: start;
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: "Step " + (root.sel.order_idx + 1); font-size: 13px; color: Theme.text-muted; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    VerticalLayout {
+                        alignment: center;
+                        KitBadge {
+                            text: root.sel.side < 0 ? "Pavilion" : (root.sel.side > 0 ? "Crown" : "Girdle");
+                            fill: root.sel.side < 0 ? Theme.badge-purple-bg : (root.sel.side > 0 ? Theme.accent-cyan-surface : Theme.bg-elevated);
+                            ink: root.sel.side < 0 ? Theme.badge-purple-text : (root.sel.side > 0 ? Theme.accent-cyan : Theme.text-secondary);
+                        }
+                    }
+                }
+                Text { text: root.sel.code; font-size: 34px; font-weight: 800; color: Theme.text-primary; }
+                Text { text: root.sel.angle; font-size: 44px; font-weight: 800; color: Theme.accent-amber; }
+                Text { text: "INDICES"; font-size: 11px; font-weight: 700; color: Theme.text-muted; }
                 Rectangle {
-                    background: transparent;
-                    border-radius: Theme.radius-sm;
-                    border-width: table_focus.has-focus && root.cursor < 0 ? 2px : 0px;
-                    border-color: Theme.accent-cyan-hover;
+                    height: 80px;
+                    clip: true;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for chip in CuttingTableModel.split_indices(root.sel.index_val): VerticalLayout {
+                            alignment: start;
+                            CtChip { text: chip; font_size: 18px; }
+                        }
+                    }
+                }
+                if LibraryModel.current_detail.gear.to-float() > 0 && root.sel.index_val != "" && root.height >= 620px: HorizontalLayout {
+                    alignment: center;
+                    CtDial {
+                        indices: root.sel.index_val;
+                        teeth: LibraryModel.current_detail.gear.to-float();
+                    }
+                }
+                if root.sel.second_line != "": Text { text: root.sel.second_line; font-size: 13px; color: Theme.accent-cyan; wrap: word-wrap; }
+                if root.sel.notes != "": Text { text: root.sel.notes; font-size: 14px; color: Theme.text-secondary; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    KitButton {
+                        text: "Open in Edit";
+                        hint: "Select this tier in the Edit tab to change its angle, indices or note.";
+                        clicked => { CuttingTableModel.open_tier(root.sel.code); }
+                    }
+                    KitButton {
+                        text: "Copy Step";
+                        icon: KitIcons.copy;
+                        hint: "Copy this step to the clipboard.";
+                        clicked => { root.copy_row(root.cursor); }
+                    }
                 }
             }
         }

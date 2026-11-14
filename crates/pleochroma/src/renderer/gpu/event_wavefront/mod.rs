@@ -32,9 +32,10 @@ pub use pipelines::EwPipelines;
 pub use crate::renderer::buffers::{
     ARM_FROSTED, ARM_GENERIC, ARM_TIR, ARM_UNI_ENTRY, ARM_UNI_INTERNAL, EwHit, EwParams, EwRayChan,
     EwRayCore, FLAG_HAVE_PREV_PLANE_NORMAL, FLAG_INSIDE_GEM, FLAG_IS_EXTRAORDINARY,
-    FLAG_PATH_ESCAPED, PHASE_END_STEP, PHASE_NEXT, PHASE_TERMINATE, TAG_ARM_BASE, TAG_DONE,
-    TAG_EXTEND, TAG_FINALIZE, TAG_NEE_HG, TAG_SCATTER, TAG_SCATTER_ORIENTED, TAG_SPLIT,
-    TAG_SURFACE, TAG_TAIL, TAG_UNI_ENTRY_TRANSMIT, TAG_ZONE_ABSORB,
+    FLAG_PATH_ESCAPED, PHASE_END_STEP, PHASE_NEXT, PHASE_PARK, PHASE_TERMINATE, TAG_ARM_BASE,
+    TAG_DONE, TAG_EXTEND, TAG_FINALIZE, TAG_NEE_HG, TAG_SCATTER, TAG_SCATTER_ORIENTED, TAG_SPLIT,
+    TAG_SURFACE, TAG_TAIL, TAG_UNI_ENTRY_FINISH, TAG_UNI_ENTRY_TRANSMIT, TAG_UNI_INTERNAL_TRANSMIT,
+    TAG_ZONE_ABSORB,
 };
 
 /// Why an event-wavefront GPU frame could not be produced.
@@ -83,6 +84,16 @@ pub enum EwError {
     /// An adaptive (live-tile) pass cannot run: the live pixel list does not fit one storage
     /// binding of the device, or a shader unit lost the line the live variant patches.
     LivePassUnavailable(String),
+    /// The driver could not build one of the kernels. wgpu treats that as fatal, so the device
+    /// is lost with it; a fresh device still runs every class whose kernels it builds.
+    KernelCompile {
+        /// The kernel the driver rejected.
+        kernel: EwKernel,
+        /// The class value the kernel was built for.
+        class: u32,
+        /// The failure the device recorded.
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for EwError {
@@ -129,8 +140,37 @@ impl std::fmt::Display for EwError {
                     "an adaptive pass cannot run on the event wavefront: {why}"
                 )
             }
+            Self::KernelCompile {
+                kernel,
+                class,
+                detail,
+            } => write!(
+                f,
+                "the GPU driver could not build the event wavefront kernel {} (class {class}): \
+                 {detail}",
+                kernel.entry_point()
+            ),
         }
     }
 }
 
 impl std::error::Error for EwError {}
+
+#[cfg(test)]
+mod error_text_tests {
+    use super::{EwError, EwKernel};
+
+    /// The message names the rejected kernel, its class and the device's failure.
+    #[test]
+    fn a_kernel_compile_error_names_the_kernel_and_the_class() {
+        let text = EwError::KernelCompile {
+            kernel: EwKernel::ArmUniEntryTransmit,
+            class: 14,
+            detail: "device lost".to_owned(),
+        }
+        .to_string();
+        assert!(text.contains("ew_arm_uni_entry_transmit"), "{text}");
+        assert!(text.contains("class 14"), "{text}");
+        assert!(text.contains("device lost"), "{text}");
+    }
+}

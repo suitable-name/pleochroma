@@ -143,7 +143,13 @@ fn stone_tab(sc: &mut Sc<'_, '_>, material: &str, how: Orient) -> Result<Shot, S
     sc.choose_material(material)?;
     sc.show_live_view();
     let ui = sc.ui();
-    ui.global::<ParametersModel>().invoke_show_tab(0);
+    // The Crystal Axis card is folded until opened; the folds are read when the tab mounts, so the
+    // bits are set first and the tab is mounted again through another one.
+    let dock = ui.global::<ParametersModel>();
+    dock.set_stone_folds(15);
+    dock.invoke_show_tab(1);
+    pump(300);
+    dock.invoke_show_tab(0);
     pump(1000);
     let settings = ui.global::<SettingsModel>();
     if !Sc::wait(15, || settings.get_c_axis_override_available()) {
@@ -286,7 +292,7 @@ fn planner_with_axis(sc: &mut Sc<'_, '_>) -> Result<RoughPlannerWindow, String> 
 /// The planner does not open, or the axis cannot be set.
 pub fn planner_axis(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     let window = planner_with_axis(sc)?;
-    wait_planner_view()?;
+    wait_planner_view(sc, &window)?;
     sc.snap_window("RoughPlannerWindow", &window)
 }
 
@@ -326,7 +332,7 @@ fn planned_with_axis(sc: &mut Sc<'_, '_>) -> Result<RoughPlannerWindow, String> 
         return Err("the selected layout has no Stones fold to open".to_owned());
     }
     pump(1500);
-    wait_planner_view()?;
+    wait_planner_view(sc, &window)?;
     Ok(window)
 }
 

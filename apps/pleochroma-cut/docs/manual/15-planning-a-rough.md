@@ -82,7 +82,8 @@ open; click the open step's header to fold it away. The column scrolls above the
 - **The done check.** The number circle turns into a green check when the step is
   complete: **Rough** when the model is valid, **Crystal Axis** when the axis is
   **Known** or when the material has no axis to set, **Shape Cuts** when every cut
-  row is valid. **Plan Settings** is always complete, so it keeps its number.
+  row is valid. **Plan Settings** is always complete (every field has a default), so it
+  always shows the check.
 - **The summary.** A closed step says what it holds, for example "Block 30 × 60 × 20
   mm · Tourmaline · 94.40 ct" for **Rough**, "4 cuts" for **Shape
   Cuts** or "Up to 2 designs · current filter, 321 designs" for **Plan Settings**.
@@ -168,8 +169,8 @@ loads. The scan card shows "Reading the mesh file..." with a progress bar once t
 triangles can be counted (or "Scaling the mesh..." for **Fit to Weight** on a mesh),
 the view says "Reading the scan...", and until the file is done the shape tiles,
 **Fit to Weight** and **Plan** wait ("waits for the scan"). **New Rough** or opening a saved plan
-drops a mesh that is still loading. A file larger than 64 MB is refused before any
-of it is read: "the file is 120.5 MB, and the planner reads mesh files up to 64 MB".
+drops a mesh that is still loading. A file larger than 64 MB (64 × 1024 × 1024 bytes)
+is refused before any of it is read: "the file is 120.5 MB, and the planner reads mesh files up to 64 MB".
 A file that is cut short names what is missing (for example that it ends inside the
 `face` element of a PLY file, or that a binary STL's header promises more triangles
 than the file holds), and an ASCII STL facet that is not a triangle is refused.
@@ -398,22 +399,30 @@ An inclusion is a flaw inside the rough that you know the place of: a crack, a
 feather, a crystal of another mineral. No stone can be cut through it, but it is
 still stone that you hold and paid for. The planner takes an inclusion as a **closed
 mesh inside the rough**: stones keep clear of it, and the weight and the yield count
-it as material. This works for a rough imported with **3D Scan**, convex
-or not; a block, a cylinder and a pebble have no mesh to put an inclusion in (see
-"Limitations").
+it as material. Every rough takes inclusions: a block, a cylinder, a pebble and a rough
+imported with **3D Scan**, convex or not.
 
-**Adding one.** Once a 3D scan is in place, the **Inclusions** row at the bottom of
-the **Rough** step shows how many inclusions there are and an **Add** button, which
-opens the inclusion form. Its **Kind** is a mesh file, **Mesh (OBJ, STL, PLY)**, or a shape
-you describe by its size (a diameter, axis or edge lengths in mm) and place with the
-**Position X**, **Y** and **Z** fields. The **Margin** field sets the margin (below). For a
-mesh choose **Add Inclusion...** and pick the inclusion's file (an `.obj`, `.stl` or `.ply`,
-the same formats as the rough); a shape is added with **Add Inclusion**. The
-file is read in the unit set in **File units** and in the same coordinates as
-the rough's own file, so export both from the same scene. The planner moves the
-inclusion exactly as the import moved the rough (the import puts the rough's bounding
-box at the origin) and as **Fit to Weight** has scaled it since. The file is read in
-the background ("Reading the inclusion...", "Adding the inclusion..."), and each added
+**Adding one.** The **Inclusions** row at the bottom of the **Rough** step shows how many
+inclusions there are and an **Add** button, which opens the inclusion form. Its
+**Margin** field sets the margin (below).
+
+- **On a block, a cylinder or a pebble** the form has a **Kind**: **Mesh File**, your own
+  closed 3D model of the inclusion, or a **Sphere**, an **Ellipsoid** or a **Box** that
+  you describe by its size (a diameter, axis or edge lengths in mm). The **Position X**,
+  **Y** and **Z** fields place the centre of the inclusion, in mm from the corner of the
+  rough; an empty field is the middle of the rough on that axis, and a mesh file is placed
+  by the centre of its bounding box. A shape is added with **Add Inclusion**; for a mesh
+  file choose **Add Inclusion...** and pick the file (an `.obj`, `.stl` or `.ply`); the
+  form's **File units** box sets the unit of its numbers, the same setting a 3D scan's card
+  shows, kept for the session. The rough keeps its sizes and its cuts editable.
+- **On a 3D scan** the inclusion is always a mesh file, so the form has no **Kind** and no
+  position: choose **Add Inclusion...** and pick the inclusion's file (an `.obj`, `.stl`
+  or `.ply`, the same formats as the rough). It is read in the unit set in **File units**
+  and in the same coordinates as the rough's own file, so export both from the same scene.
+  The planner moves the inclusion exactly as the import moved the rough (the import puts
+  the rough's bounding box at the origin) and as **Fit to Weight** has scaled it since.
+
+A mesh file is read in the background ("Reading the inclusion...", "Adding the inclusion..."), and each added
 or removed inclusion is one undo step. The rows under the button show every inclusion
 with its size and volume ("Inclusion 1: 4.6 x 4.6 x 4.6 mm, 97.3 mm³") and a
 **×** to remove it. A file with several separate closed surfaces adds them as one
@@ -780,8 +789,8 @@ planned.
 Step 4, **Plan Settings**, sets up what the planner may use and how much it must
 leave; the **Plan** block below the steps starts the plan.
 
-- **Designs, up to** — a stepper from 1 to 99: the most *different* designs one layout may
-  mix. Set it to 1 and every layout uses a single design (as many stones of it as
+- **Designs, up to** — a stepper from 1 to 99, 1 by default: the most *different* designs
+  one layout may mix. Set it to 1 and every layout uses a single design (as many stones of it as
   fit best, up to the stone limit below); raise it to let the planner combine a
   large stone of one design with smaller stones of others in the space that is
   left.
@@ -1434,11 +1443,8 @@ planner's own; they are not part of the main window's list in Appendix B.
   next plan. A plan whose designs were measured under the other rule shows a note saying
   so; it is not reported as changed for that reason alone, and its placements stay valid.
   The shape of the rough itself is covered in the section on non-convex roughs.
-  An inclusion or crack can be modelled as a closed mesh inside a mesh rough (see
-  "Inclusions"), and stones then keep clear of it. On a block, a cylinder or a
-  pebble it cannot be modelled yet, because those roughs have no mesh to put it in;
-  there, model the largest clean part of the rough you would actually cut from, or
-  import the rough as a mesh. A compact inclusion that you can see through the rough
+  An inclusion or crack can be modelled as a closed mesh inside any rough (see
+  "Inclusions"), and stones then keep clear of it. A compact inclusion that you can see through the rough
   can be located from photos taken on a camera rig (see "Locating Inclusions from
   Photos").
 - **A non-convex rough is checked, not optimised, around its notches.** The planner
@@ -1477,7 +1483,7 @@ planner's own; they are not part of the main window's list in Appendix B.
   cracks and color zoning that decide where you actually cut, and each stone
   starts as a preform that you shape before faceting (**Open in Editor** gives the
   editor that piece, see "From a Result to the Bench"). Only the inclusions you add
-  to a mesh rough are known to the planner (see "Inclusions"); color zoning is
+  are known to the planner (see "Inclusions"); color zoning is
   known only when a rough color has been fitted (Chapter 24), and
   any flaw you did not model never is. Calipers and a scale give
   you a few percent of error each. Use the weight check to catch a model that is

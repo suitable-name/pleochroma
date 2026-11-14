@@ -1,9 +1,7 @@
 @compute @workgroup_size(64)
-fn ew_split_resolve(
-    @builtin(global_invocation_id) gid: vec3<u32>,
-    @builtin(local_invocation_index) local_index: u32,
-) {
-    ew_fill_planes_shared(local_index);
+// No shared copy of the planes: the only plane reads are the exit splits' re-entry probes,
+// which read the binding (`try_split_exit_channel`).
+fn ew_split_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
     if (i >= ew.chunk_rays) {
         return;

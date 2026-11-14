@@ -27,9 +27,9 @@ export component Chip inherits Rectangle {
         height: 32px;
         width: lay.preferred-width;
         border-radius: Theme.radius-sm;
-        background: root.selected ? Theme.secondary-container : transparent;
-        border-width: root.selected ? 0px : 1px;
-        border-color: Theme.outline;
+        background: root.selected ? Theme.accent-surface : transparent;
+        border-width: 1px;
+        border-color: root.selected ? Theme.accent : Theme.outline;
 
         StateLayer {
             pressed: touch.pressed;
@@ -49,14 +49,14 @@ export component Chip inherits Rectangle {
 
                 Icon {
                     source: root.icon;
-                    tint: root.selected ? Theme.on-secondary-container : Theme.on-surface-variant;
+                    tint: root.selected ? Theme.accent : Theme.text-secondary;
                     glyph: 18px;
                 }
             }
 
             Text {
                 text: root.text;
-                color: root.selected ? Theme.on-secondary-container : Theme.on-surface-variant;
+                color: root.selected ? Theme.accent : Theme.text-secondary;
                 font-size: Theme.text-label-large;
                 font-weight: 500;
                 vertical-alignment: center;
@@ -79,15 +79,18 @@ export component Segmented inherits Rectangle {
 
     height: Theme.touch;
     border-radius: Theme.touch / 2;
-    border-width: 1px;
-    border-color: Theme.outline;
     clip: true;
 
     HorizontalLayout {
         spacing: 0px;
 
         for option[index] in root.options: Rectangle {
-            background: index == root.current ? Theme.secondary-container : transparent;
+            background: index == root.current ? Theme.accent-surface : transparent;
+            // The outer segments round their outer ends, so the fill follows the pill.
+            border-top-left-radius: index == 0 ? root.border-radius : 0px;
+            border-bottom-left-radius: index == 0 ? root.border-radius : 0px;
+            border-top-right-radius: index == root.options.length - 1 ? root.border-radius : 0px;
+            border-bottom-right-radius: index == root.options.length - 1 ? root.border-radius : 0px;
             accessible-role: AccessibleRole.button;
             accessible-label: option;
             accessible-checkable: true;
@@ -114,14 +117,14 @@ export component Segmented inherits Rectangle {
 
                     Icon {
                         source: @image-url("../icons/check.svg");
-                        tint: Theme.on-secondary-container;
+                        tint: Theme.accent;
                         glyph: 18px;
                     }
                 }
 
                 Text {
                     text: option;
-                    color: index == root.current ? Theme.on-secondary-container : Theme.on-surface;
+                    color: index == root.current ? Theme.accent : Theme.on-surface;
                     font-size: Theme.text-label-large;
                     font-weight: 500;
                     vertical-alignment: center;
@@ -135,5 +138,13 @@ export component Segmented inherits Rectangle {
                 }
             }
         }
+    }
+
+    // The pill outline, drawn above the segments so a selected segment's fill cannot
+    // square off its rounded ends.
+    Rectangle {
+        border-radius: root.border-radius;
+        border-width: 1px;
+        border-color: Theme.outline;
     }
 }

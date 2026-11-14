@@ -51,8 +51,17 @@ pub fn build_tray_shadow_check_map() -> TrayShadowMap {
     )
 }
 
-/// Compares 4096 deterministic rays using a 64 ULP or 1e-6 absolute budget; a CPU/GPU
-/// disagreement about a plane hit counts as one over-budget comparison.
+/// Absolute difference below which a lookup comparison is exempt from the ULP budget.
+///
+/// WGSL cannot forbid FMA contraction, so the GPU may fuse the plane hit's `origin + dir * t` and
+/// the lerps where the CPU does not. One ULP of the hit (about 5e-7 at |x| = 4) becomes up to
+/// 2e-7 in map coordinates, times 4 in texels (an 8-texel map), times the factor's slope across a
+/// texel (up to 3 in the check map): about 2.4e-6. The floor leaves room for that and nothing
+/// near the size of a wrong texel or band.
+const TRAY_SHADOW_ABS_FLOOR: f32 = 1e-5;
+
+/// Compares 4096 deterministic rays using a 64 ULP or [`TRAY_SHADOW_ABS_FLOOR`] budget; a
+/// CPU/GPU disagreement about a plane hit counts as one over-budget comparison.
 ///
 /// # Panics
 /// Panics on GPU API misuse.
@@ -130,7 +139,7 @@ pub fn run_tray_shadow_lookup(
     );
     compute::dispatch_and_wait(&ctx.device, &ctx.queue, &pipeline, &bindings, (64, 1, 1));
     let results: Vec<f32> = compute::readback(&ctx.device, &ctx.queue, &output, cases.len() * 4);
-    let mut comparison = UlpAccumulator::new("tray shadow lookup", 64, 1e-6);
+    let mut comparison = UlpAccumulator::new("tray shadow lookup", 64, TRAY_SHADOW_ABS_FLOOR);
     for (case, result) in cases.iter().zip(results.as_chunks::<4>().0) {
         let origin = Vec3::new(case.origin[0], case.origin[1], case.origin[2]);
         let dir = Vec3::new(
@@ -163,5 +172,6 @@ fn the_tray_shadow_lookup_matches_the_cpu() {
     ) else {
         return;
     };
-    assert!(run_tray_shadow_lookup(&ctx, &build_tray_shadow_check_map()).passed());
+    let result = run_tray_shadow_lookup(&ctx, &build_tray_shadow_check_map());
+    assert!(result.passed(), "{result:?}");
 }

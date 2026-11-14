@@ -1,6 +1,7 @@
 import { Theme } from "../../theme.slint";
 import { DesignLightingModel } from "../../models/design_lighting.slint";
 import { SettingLabel } from "setting_label.slint";
+import { KitIcon, KitIcons } from "../kit/kit.slint";
 
 // One wide button of the "Lighting for this design" group. `kind` 1 is the main action (the
 // dialog's cyan). Tab reaches it, Space or Enter presses it.
@@ -78,11 +79,21 @@ export component DesignLightingSection inherits VerticalLayout {
         hint: "Remember this lighting for the open design. It is kept in your library on this computer, not in the design file. It comes back when you open the design in the Edit tab, not while you only browse it in the catalogue.";
     }
 
-    Text {
-        text: !DesignLightingModel.available ? "Open or create a design to save lighting for it." : (DesignLightingModel.has_saved ? DesignLightingModel.summary : "Nothing saved. This design uses your normal lighting.");
-        font-size: 11px;
-        color: Theme.text-muted;
-        wrap: word-wrap;
+    // The status text always shows; the star in the saved list marks a matching entry only.
+    HorizontalLayout {
+        spacing: 6px;
+        if DesignLightingModel.has_saved: VerticalLayout {
+            alignment: start;
+            padding-top: 1px;
+            KitIcon { d: KitIcons.star; size: 12px; ink: Theme.accent-amber; }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: !DesignLightingModel.available ? "Open or create a design to save lighting for it." : (DesignLightingModel.has_saved ? DesignLightingModel.summary : "Nothing saved. This design uses your normal lighting.");
+            font-size: 11px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
     }
 
     DesignLightingButton {

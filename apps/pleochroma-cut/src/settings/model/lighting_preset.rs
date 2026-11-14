@@ -76,6 +76,10 @@ pub struct LightingPreset {
     /// Clockwise image-plane roll, radians; a pose without roll reads zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_roll: Option<f32>,
+    /// Where the stone sits in the picture, `[x, y]` in image half-heights; a pose without a
+    /// pan reads centred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_pan: Option<[f32; 2]>,
     /// Loaded HDR environment map path, if one was active when saved -- see this
     /// type's doc comment for the `None`-means-"leave it alone" semantics.
     #[serde(default)]
@@ -146,6 +150,7 @@ impl LightingPreset {
             camera_yaw: self.camera_yaw,
             camera_pitch: self.camera_pitch,
             camera_roll: self.camera_roll,
+            camera_pan: self.camera_pan,
             camera_distance: self
                 .camera_yaw
                 .and(self.camera_pitch)
@@ -177,6 +182,7 @@ impl LightingPreset {
             self.camera_yaw = Some(yaw);
             self.camera_pitch = Some(pitch);
             self.camera_roll = values.camera_roll;
+            self.camera_pan = values.camera_pan;
         }
         if let Some(distance) = values.camera_distance {
             self.camera_distance = distance;
@@ -205,6 +211,13 @@ impl LightingPreset {
 /// applying a lighting mood must only change the lighting, never reposition the camera
 /// or swap in an environment map. They also default out of the export fan-out list.
 ///
+/// `stone_shadow` is on for the looks on a white or grey tray (Studio Softbox, Daylight
+/// Bright, Light Tent, Daylight Sun, Window daylight): the shadow and the colored light the stone
+/// casts sit it on the paper. It is off on black velvet, where nothing of it shows, and for the
+/// Grading tray, whose even dome casts no shadow worth drawing in its face-up view.
+/// `tray_reflection` is off for every built-in: a glossy tray mirrors the studio rigs' lamps as
+/// blown-out discs, and light arriving from below through it leaves the pavilion grainy.
+///
 /// `exposure` is the compensation on top of the rig's incident-light meter
 /// (`RenderContext::effective_exposure`): `1.0` shows white paper as every rig shows it,
 /// above is brighter, below darker. The values are tuned on renders of an emerald and a
@@ -228,13 +241,14 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             // Ring lights on white paper clip; a ring-light product shot sits on a grey card.
             backdrop: crate::settings::model::Backdrop::Grey,
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
-            stone_shadow: false,
+            stone_shadow: true,
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
@@ -252,12 +266,13 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
-            stone_shadow: false,
+            stone_shadow: true,
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
@@ -273,6 +288,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -295,12 +311,13 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
-            stone_shadow: false,
+            stone_shadow: true,
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
@@ -324,6 +341,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: Some(0.0),
             camera_pitch: Some(1.48),
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -348,12 +366,13 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
-            stone_shadow: false,
+            stone_shadow: true,
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
@@ -373,12 +392,13 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
-            stone_shadow: false,
+            stone_shadow: true,
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
@@ -399,6 +419,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -515,11 +536,45 @@ mod tests {
             camera_yaw: Some(0.1),
             camera_pitch: Some(0.2),
             camera_roll: None,
+            camera_pan: Some([0.3, 0.1]),
             camera_distance: Some(3.0),
             ..LightingValues::default()
         };
         preset.set_values(&values);
         assert_eq!(preset.values(), values);
+    }
+
+    /// The pan is part of a saved view: a preset saved with a pan carries it, one saved before
+    /// pans existed reads centred, and a lighting-only save leaves the preset's view alone.
+    #[test]
+    fn a_saved_view_carries_its_pan_and_an_older_one_reads_centred() {
+        let older = r#"
+            name = "Older shot"
+            light_yaw_deg = 10.0
+            light_pitch_deg = 20.0
+            exposure = 1.0
+            lighting_rig = "Gem Studio Ring Lights"
+            camera_distance = 2.4
+            camera_yaw = 0.6
+            camera_pitch = 0.45
+            camera_roll = 0.5
+        "#;
+        let older: LightingPreset = toml::from_str(older).expect("an older view parses");
+        assert_eq!(older.camera_pan, None);
+        assert_eq!(older.values().pose_pan(), Some([0.0, 0.0]));
+
+        let mut shot = older;
+        shot.camera_pan = Some([0.4, 0.6]);
+        let toml_str = toml::to_string_pretty(&shot).expect("must serialize");
+        let back: LightingPreset = toml::from_str(&toml_str).expect("must deserialize");
+        assert_eq!(back.camera_pan, Some([0.4, 0.6]));
+        assert_eq!(back.values().pose_pan(), Some([0.4, 0.6]));
+
+        // The app's lighting carries no camera pose.
+        shot.set_values(&LightingValues::default());
+        assert_eq!(shot.camera_pan, Some([0.4, 0.6]), "no pose, the view stays");
+        let built_in = toml::to_string_pretty(&built_in_presets().remove(0)).expect("serializes");
+        assert!(!built_in.contains("camera_pan"), "{built_in}");
     }
 
     /// A newly saved lighting is named after its rig and the day, so it never reads like the
@@ -546,6 +601,7 @@ mod tests {
             camera_yaw: Some(0.6),
             camera_pitch: Some(0.45),
             camera_roll: Some(std::f32::consts::FRAC_PI_2),
+            camera_pan: Some([0.25, -0.5]),
             env_map_path: Some("C:/env/studio.hdr".to_string()),
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,

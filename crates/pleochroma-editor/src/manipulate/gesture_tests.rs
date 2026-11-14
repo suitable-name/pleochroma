@@ -279,7 +279,13 @@ fn slice_line() -> SliceLine {
         a: ScreenPoint::new(200.0, 300.0),
         b: ScreenPoint::new(600.0, 320.0),
         size: ScreenSize::new(800.0, 600.0),
-        pose: (0.5, 0.3, 4.0),
+        pose: pleochroma_solid::preview::CameraPose {
+            yaw: 0.5,
+            pitch: 0.3,
+            roll: 0.0,
+            distance: 4.0,
+            pan: [0.0, 0.0],
+        },
     }
 }
 
@@ -556,6 +562,7 @@ fn frame_geometry() -> pleochroma_solid::preview::FrameGeometry {
         bounding_radius: 1.5,
         camera: pleochroma_solid::preview::CameraPose {
             roll: 0.0,
+            pan: [0.0, 0.0],
             yaw: 0.5,
             pitch: 0.3,
             distance: 4.0,

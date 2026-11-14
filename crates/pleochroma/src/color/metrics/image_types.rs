@@ -179,8 +179,9 @@ pub struct OpticalImageRequest<'a> {
     pub want_fire: bool,
     /// Also trace the per-pixel scintillation temporal term (five yaw poses, centre ray).
     pub want_scintillation: bool,
-    /// The orbit pose `[yaw, pitch, distance]` that built [`Self::camera`]. Required when
-    /// `want_scintillation` is set (the offset cameras are rebuilt from it); otherwise unused.
+    /// The orbit pose `[yaw, pitch, distance]` [`Self::camera`] was built from, before any
+    /// roll or pan. Required when `want_scintillation` is set (the offset cameras are rebuilt
+    /// from it); otherwise unused.
     pub pose: Option<[f32; 3]>,
 }
 

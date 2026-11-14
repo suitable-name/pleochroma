@@ -7,7 +7,7 @@
 use crate::{CmChip, CmScheduleRow, CmWheelMark, CmWheelScale, CuttingModeModel, MainWindow};
 use pleochroma_cut_core::SheetOrientation;
 use pleochroma_editor::cutting_mode::{
-    CuttingPlan,
+    CuttingPlan, StepSide,
     axis_picture::AxisPicture,
     dial::IndexWheel,
     display::{StepPage, progress_fraction, progress_line, stone_caption, wheel_caption},
@@ -76,8 +76,13 @@ pub(super) fn push_page(
 
     model.set_schedule(ModelRc::new(VecModel::from(
         (0..plan.steps.len())
-            .filter_map(|i| StepPage::new(&plan.steps, i, progress))
-            .map(|row| CmScheduleRow {
+            .filter_map(|i| StepPage::new(&plan.steps, i, progress).map(|row| (i, row)))
+            .map(|(i, row)| CmScheduleRow {
+                side: match plan.steps[i].side {
+                    StepSide::Pavilion => 0,
+                    StepSide::Girdle => 1,
+                    StepSide::Crown => 2,
+                },
                 code: row.tier_name.into(),
                 angle: row.angle.into(),
                 indices: row

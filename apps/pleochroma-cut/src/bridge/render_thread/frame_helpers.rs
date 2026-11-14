@@ -116,7 +116,7 @@ pub(super) fn push_trace_progress<T: TraceActivitySink + 'static>(
         let stage = match flags.phase {
             RenderPhase::Bootstrap => "Preparing preview",
             RenderPhase::Moving => "Camera preview",
-            RenderPhase::Final if flags.samples == 0 => "Preparing trace",
+            RenderPhase::Final if flags.samples == 0 => super::progress::PREPARING_TRACE,
             RenderPhase::Final => "Rendering",
         };
         ui.update_trace_progress(

@@ -8,31 +8,38 @@ import { MotionPreviewPicker } from "../settings_dialog/motion_preview_picker.sl
 import { LiveComputePicker } from "../settings_dialog/live_compute_picker.slint";
 import { LocalComputePicker } from "../settings_dialog/local_compute_picker.slint";
 import { BouncesPicker } from "../settings_dialog/bounces_picker.slint";
-import { PerformanceCurvePanel } from "../settings_dialog/performance_curve_panel.slint";
-import { ToggleRow } from "../toggle_switch.slint";
 import { ExportModel } from "../../models/export.slint";
-import { GroupHeader, SliderRow, TextLink } from "parts.slint";
-import { SegmentPill } from "../pill_button.slint";
-import { SettingLabel } from "../settings_dialog/setting_label.slint";
+import { SliderRow } from "parts.slint";
+import { KitCard, KitFillSegments, KitFoldCard, KitIcons, KitInlineSlider, KitSection, KitSwitchRow } from "../kit/kit.slint";
+import { KitQualityTile, KitRowName, KitSummaryRow } from "../kit/r2r.slint";
 
-// The Parameters dock's Render & Output tab: the technical render options -- samples,
-// resolution, compute, ray bounces, denoise, the output defaults of the export dialogs, the
-// catalogue thumbnails and the tilt curve. The pickers read and write `SettingsModel`.
+// The Parameters dock's Render tab: the technical render options. One quality choice up top (the
+// presets Draft, Balanced, High and Custom), the details folded under it, compute as status rows,
+// what the export dialogs start from and the library thumbnails. The pickers read and write
+// `SettingsModel`.
 //
 // Nothing here keeps its own copy of a Rust-owned constant: the bounce ladder and every sample
 // range come from `SettingsModel` (published by `gui::render::parameter_constants` from
 // `settings::model::output_settings`), the remote choices read the one remote-availability
-// value (`RemoteWorkerModel.availability`), and "Reset this tab" is a Rust call.
+// value (`RemoteWorkerModel.availability`), the presets and what Custom remembers are Rust's
+// (`settings::model::QualityPreset`), and "Reset This Tab" is a Rust call. The tilt curve is not
+// on this tab: the viewports' Tilt Curve buttons open it.
 //
-// Simple mode (`GuideModel.shows_advanced()`) keeps target samples, resolution and denoise, and
-// hides the rest: catalogue preview size and samples, motion preview, live and local compute,
-// ray bounces and the tilt curve panel. A hidden control keeps its value and still applies; the
-// tab says so when one is off its default.
+// Simple mode (`GuideModel.shows_advanced()`) keeps the presets, target samples, resolution,
+// denoise and the exports rows, and hides whole cards (Compute, Ray-Traced View, Library
+// Thumbnails) and the motion preview and bounces rows. A hidden control keeps its value and still
+// applies; the tab says so when one is off its default.
 export component RenderOutputTab inherits VerticalLayout {
     // Rounded exponent driving the displayed sample count: `SliderBase` only snaps to `step` on
     // arrow-key nudges, not on pointer drag, so the rounding happens here.
     property <int> sample_exponent: Math.round(SettingsModel.target_samples_exponent);
     property <int> target_samples_count: Math.round(Math.pow(2.0, root.sample_exponent));
+    property <string> preset_name: ["Draft", "Balanced", "High", "Custom"][SettingsModel.quality_preset_index];
+    property <string> resolution_name: ["640 × 480", "800 × 600", "1280 × 720", "1920 × 1080"][SettingsModel.resolution_index];
+    property <bool> remote_in_use: RemoteWorkerModel.availability.configured && SettingsModel.live_compute_target_index != 0;
+    property <string> engine_name: SettingsModel.gpu_build
+        ? ["CPU", "CPU + GPU", "GPU"][SettingsModel.local_compute_target_index]
+        : "CPU";
 
     // Simple mode hides some controls that are off their defaults: say so (see the callback's
     // own comment in `models/settings.slint`).
@@ -70,137 +77,212 @@ export component RenderOutputTab inherits VerticalLayout {
         }
     }
 
-    GroupHeader { text: "Live View Quality"; }
-    // Target Samples moves in powers of two -- noise falls as 1/sqrt(N), so a linear 8..1024
-    // control would spend ~97% of its travel above 32 spp where each step barely changes
-    // anything visible. The slider drags the EXPONENT (3..=10); `sample_exponent` /
-    // `target_samples_count` above derive the count. The exponent range is Rust's
-    // (`LIVE_SAMPLES_EXPONENT_RANGE`).
-    SliderRow {
-        text: "Target Samples";
-        hint: "Target Samples: how many light paths are traced for every pixel\nbefore the picture counts as finished. More samples mean less\ngrain and a longer wait; each step doubles the number.";
-        value_text: root.target_samples_count + "";
-        minimum: SettingsModel.live_samples_min_exponent;
-        maximum: SettingsModel.live_samples_max_exponent;
-        step: 1;
-        value <=> SettingsModel.target_samples_exponent;
-        // The slider updates `target_samples_exponent` BEFORE firing `edited`, so
-        // `root.sample_exponent` reflects this change by the time it is read here.
-        edited(val) => { SettingsModel.target_samples_changed(root.sample_exponent); }
-    }
-
-    // Render Resolution - Segmented Pill Selector, same idiom as the Ray Bounces picker below
-    // and `export_dialog.slint`'s "Output Size" pills. A fixed list rather than a slider -- see
-    // `resolution_index` for why.
-    ResolutionPicker { }
-
-    // Motion Preview Resolution, off by default. Same segmented-pill idiom as Render Resolution
-    // above; a discrete choice rather than a slider since there's no meaningful continuum
-    // between "half" and "0.47". Advanced.
-    if GuideModel.shows_advanced(): MotionPreviewPicker { }
-
-    // Ray Bounces - Segmented Pill Selector. Advanced. The ladder is Rust's
-    // (`SettingsModel.bounce_ladder`); `bounces_picker.slint` has the measurements behind it.
-    if GuideModel.shows_advanced(): BouncesPicker { }
-
-    // Denoise live view: the same app-wide switch as the remote denoise row
-    // (`AppSettings::denoise_enabled`), bound to `RemoteWorkerModel.denoise_enabled` and the
-    // `denoise_toggled` callback, so the two rows always agree.
-    ToggleRow {
-        text: "Denoise Live View";
-        hint: "Denoise live view: smooth the grain out of the live picture\nwhile it builds up. Turn off to see the raw samples.";
-        checked: RemoteWorkerModel.denoise_enabled;
-        toggled => { RemoteWorkerModel.denoise_toggled(!RemoteWorkerModel.denoise_enabled); }
-    }
-
-    if GuideModel.shows_advanced(): GroupHeader { text: "Ray-Traced View"; }
-    if GuideModel.shows_advanced(): VerticalLayout {
+    // --- Quality -----------------------------------------------------------------------------
+    // Picking a tile sets the samples, the resolution and the bounces together (Rust). Touching
+    // one of those controls makes the preset Custom, and Custom remembers its own values.
+    KitSection { label: "LIVE VIEW QUALITY"; }
+    HorizontalLayout {
         spacing: 6px;
-        SettingLabel {
-            text: "Anti-Aliasing";
-            hint: "How many fixed sample positions per pixel the Ray-Traced\nview averages; Off uses one ray through the pixel center.";
+        KitQualityTile {
+            name: "Draft";
+            detail: "64 · fast";
+            hint: "Draft: 64 samples, 640 × 480, 12 bounces. Fast and grainy.";
+            on: SettingsModel.quality_preset_index == 0;
+            picked => {
+                SettingsModel.quality_preset_index = 0;
+                SettingsModel.quality_preset_selected(0);
+            }
         }
-        HorizontalLayout {
-            spacing: 4px;
-            for taps in [1, 4, 8, 16]: SegmentPill {
-                text: taps == 1 ? "Off" : taps + "×";
-                hint: "Ray-Traced Anti-Aliasing: " + taps + " fixed taps per pixel.";
-                selected: SettingsModel.ray_taps == taps;
-                picked => { SettingsModel.ray_taps_selected(taps); }
+        KitQualityTile {
+            name: "Balanced";
+            detail: "256 samples";
+            hint: "Balanced: 256 samples, 800 × 600, 12 bounces. The default.";
+            on: SettingsModel.quality_preset_index == 1;
+            picked => {
+                SettingsModel.quality_preset_index = 1;
+                SettingsModel.quality_preset_selected(1);
+            }
+        }
+        KitQualityTile {
+            name: "High";
+            detail: "1024 · slow";
+            hint: "High: 1024 samples, 1280 × 720, 24 bounces. Smooth and slow.";
+            on: SettingsModel.quality_preset_index == 2;
+            picked => {
+                SettingsModel.quality_preset_index = 2;
+                SettingsModel.quality_preset_selected(2);
+            }
+        }
+        KitQualityTile {
+            name: "Custom";
+            detail: "your mix";
+            hint: "Custom: your own samples, resolution and bounces. Changing any of them in the details below makes the preset Custom, and Custom remembers the values.";
+            on: SettingsModel.quality_preset_index == 3;
+            picked => {
+                SettingsModel.quality_preset_index = 3;
+                SettingsModel.quality_preset_selected(3);
             }
         }
     }
-    if GuideModel.shows_advanced(): ToggleRow {
-        text: "Fire";
-        hint: "Separate three color rays using the material's dispersion.";
-        checked: SettingsModel.ray_fire;
-        toggled => { SettingsModel.ray_fire_selected(!SettingsModel.ray_fire); }
-    }
-    if GuideModel.shows_advanced(): Text {
-        text: "Ray-Traced tints by the material's spectrum in 10 nm bands and uses approximate frost; it omits polarization, double refraction, haze, zoning, edge rounding and paths beyond the bounce cap. Metrics and diagnostics use their own tracer.";
-        wrap: word-wrap;
+    Text {
+        text: root.target_samples_count + " samples · " + root.resolution_name + " · " + SettingsModel.bounce_ladder[SettingsModel.bounce_index] + " bounces" + (RemoteWorkerModel.denoise_enabled ? " · denoised" : "");
         font-size: 11px;
-        color: Theme.text-muted;
+        color: Theme.text-secondary;
+        horizontal-alignment: center;
+        overflow: elide;
+        accessible-role: AccessibleRole.text;
     }
 
-    // Live Compute: which engine(s) trace the settled viewport image. Same segmented-pill idiom,
-    // and the same disabled-with-a-reason treatment, as `export_dialog.slint`'s "Compute"
-    // section; the remote choices follow `RemoteWorkerModel.availability` and the merged live
-    // transfer is shown read-only (it is edited per remote, in the Remote Coordinator dialog).
-    // Local Compute: which engine(s) the LOCAL (non-remote) render loop uses -- only
-    // shown on a GPU-capable build (`gpu_build`), since the choice is meaningless without a
-    // `gpu` feature to route through. Both advanced.
-    if GuideModel.shows_advanced(): GroupHeader { text: "Compute"; }
-    if GuideModel.shows_advanced(): LiveComputePicker { }
-    if SettingsModel.gpu_build && GuideModel.shows_advanced(): LocalComputePicker { }
+    KitFoldCard {
+        icon: KitIcons.image;
+        label: "Live View Details";
+        summary: root.preset_name;
+        open: true;
 
-    // Output defaults: what the Export and Tilt Video dialogs open with. They are the values of
-    // the last run (Rust remembers them when a run starts; `AppSettings::output`), and a dialog
-    // keeps its own controls as per-run overrides on top of them. Shown in both modes, read-only:
-    // the controls are in the dialogs themselves.
-    GroupHeader { text: "Output Defaults"; }
-    VerticalLayout {
-        spacing: 4px;
-        Text {
-            text: "The Export and Tilt Video dialogs open with the settings of your last run. Starting a run remembers the settings it used.";
-            font-size: 11px;
-            color: Theme.text-muted;
-            wrap: word-wrap;
-        }
-        Text {
-            text: "Still: " + SettingsModel.still_output_summary;
-            font-size: 11px;
-            font-weight: 600;
-            color: Theme.text-secondary;
-            wrap: word-wrap;
-            accessible-role: AccessibleRole.text;
-        }
-        Text {
-            text: "Tilt Video: "+ SettingsModel.tilt_output_summary;
-            font-size: 11px;
-            font-weight: 600;
-            color: Theme.text-secondary;
-            wrap: word-wrap;
-            accessible-role: AccessibleRole.text;
-        }
-        Text {
-            text: "\"Reset This Tab\" puts them back to the built-in defaults.";
-            font-size: 11px;
-            color: Theme.text-muted;
-            wrap: word-wrap;
-        }
-        HorizontalLayout {
-            spacing: 12px;
-            alignment: start;
-            TextLink {
-                text: "Open Export Dialog...";
-                hint: "Open the Export dialog to change the still-picture settings.";
-                clicked => { ExportModel.is_open = true; }
+        // Target Samples moves in powers of two -- noise falls as 1/sqrt(N), so a linear 8..1024
+        // control would spend ~97% of its travel above 32 spp where each step barely changes
+        // anything visible. The slider drags the EXPONENT (3..=10); `sample_exponent` /
+        // `target_samples_count` above derive the count. The exponent range is Rust's
+        // (`LIVE_SAMPLES_EXPONENT_RANGE`). It stays a continuous control, so a saved 384 shows.
+        Rectangle {
+            height: 30px;
+            KitInlineSlider {
+                label: "Target Samples";
+                value_text: root.target_samples_count + "";
+                minimum: SettingsModel.live_samples_min_exponent;
+                maximum: SettingsModel.live_samples_max_exponent;
+                step: 1;
+                value <=> SettingsModel.target_samples_exponent;
+                moved(val) => {
+                    SettingsModel.quality_preset_index = 3;
+                    SettingsModel.target_samples_changed(Math.round(val));
+                }
             }
-            TextLink {
-                text: "Open Tilt Video...";
-                hint: "Open the Tilt Performance dialog, where the tilt\nvideo is exported, to change its settings.";
-                clicked => {
+            Tooltip { text: @markdown("Target Samples: how many light paths are traced for every pixel\nbefore the picture counts as finished. More samples mean less\ngrain and a longer wait; each step doubles the number."); }
+        }
+
+        // Render Resolution: a fixed list rather than a slider -- see `resolution_index`.
+        ResolutionPicker { }
+
+        // Motion Preview Resolution, off by default. Advanced.
+        if GuideModel.shows_advanced(): MotionPreviewPicker { }
+
+        // Ray Bounces. Advanced. The ladder is Rust's (`SettingsModel.bounce_ladder`);
+        // `bounces_picker.slint` has the measurements behind it.
+        if GuideModel.shows_advanced(): BouncesPicker { }
+
+        // Denoise live view: the same app-wide switch as the remote denoise row
+        // (`AppSettings::denoise_enabled`), bound to `RemoteWorkerModel.denoise_enabled` and the
+        // `denoise_toggled` callback, so the two rows always agree.
+        Rectangle {
+            height: 30px;
+            KitSwitchRow {
+                label: "Denoise Live View";
+                on: RemoteWorkerModel.denoise_enabled;
+                toggled => { RemoteWorkerModel.denoise_toggled(!RemoteWorkerModel.denoise_enabled); }
+            }
+            Tooltip { text: @markdown("Denoise live view: smooth the grain out of the live picture\nwhile it builds up. Turn off to see the raw samples."); }
+        }
+    }
+
+    // --- Compute -----------------------------------------------------------------------------
+    // Which engine(s) trace the live image: this computer's (Local Compute, only on a GPU-capable
+    // build) and the remote worker's (Live Compute). Advanced.
+    if GuideModel.shows_advanced(): KitFoldCard {
+        icon: KitIcons.cpu;
+        label: "Compute";
+        summary: "This PC · " + root.engine_name + (root.remote_in_use ? " + remote" : "");
+
+        KitSummaryRow {
+            icon: KitIcons.cpu;
+            label: "This PC";
+            dot: Theme.accent-emerald;
+            detail: "Tracing with " + root.engine_name;
+        }
+        if SettingsModel.gpu_build: LocalComputePicker { }
+        Rectangle { height: 1px; background: Theme.border-subtle; }
+        LiveComputePicker { }
+    }
+
+    // --- Ray-Traced view ---------------------------------------------------------------------
+    if GuideModel.shows_advanced(): KitFoldCard {
+        icon: KitIcons.sparkle;
+        label: "Ray-Traced View";
+        summary: (SettingsModel.ray_taps == 1 ? "no anti-aliasing" : SettingsModel.ray_taps + "× anti-aliasing") + " · fire " + (SettingsModel.ray_fire ? "on" : "off");
+
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            KitRowName {
+                text: "Smoothing";
+                full: "Anti-Aliasing";
+                hint: "How many fixed sample positions per pixel the Ray-Traced\nview averages; Off uses one ray through the pixel center.";
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 32px;
+                KitFillSegments {
+                    width: 100%;
+                    height: 100%;
+                    labels: ["Off", "4×", "8×", "16×"];
+                    picked: SettingsModel.ray_taps == 1 ? 0 : (SettingsModel.ray_taps == 4 ? 1 : (SettingsModel.ray_taps == 16 ? 3 : 2));
+                    selected(idx) => { SettingsModel.ray_taps_selected([1, 4, 8, 16][idx]); }
+                }
+                Tooltip { text: @markdown("Ray-Traced Anti-Aliasing: how many fixed taps per pixel the view averages.\nOff uses one ray through the pixel center."); }
+            }
+        }
+        Rectangle {
+            height: 30px;
+            KitSwitchRow {
+                label: "Fire";
+                on: SettingsModel.ray_fire;
+                toggled => { SettingsModel.ray_fire_selected(!SettingsModel.ray_fire); }
+            }
+            Tooltip { text: @markdown("Separate three color rays using the material's dispersion."); }
+        }
+        Rectangle {
+            height: ray_note.preferred-height + 4px;
+            ray_note := Text {
+                x: 0px;
+                y: 2px;
+                width: parent.width;
+                text: "Ray-Traced tints by the material's spectrum in 10 nm bands and uses approximate frost; it omits polarization, double refraction, haze, zoning, edge rounding and paths beyond the bounce cap. Metrics and diagnostics use their own tracer.";
+                wrap: word-wrap;
+                font-size: 11px;
+                color: Theme.text-muted;
+            }
+        }
+    }
+
+    // --- Exports -----------------------------------------------------------------------------
+    // What the Export and Tilt Video dialogs open with: the values of the last run (Rust
+    // remembers them when a run starts; `AppSettings::output`). A dialog keeps its own controls as
+    // per-run overrides on top of them. Shown in both modes; the controls are in the dialogs.
+    KitSection { label: "EXPORTS START FROM"; }
+    KitCard {
+        VerticalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            KitSummaryRow {
+                icon: KitIcons.image;
+                label: "Still Picture";
+                detail: SettingsModel.still_output_summary;
+                action: "Export…";
+                action_label: "Open Export Dialog...";
+                action_hint: "Open the Export dialog to change the still-picture settings.";
+                action_clicked => { ExportModel.is_open = true; }
+            }
+            Rectangle { height: 1px; background: Theme.border-subtle; }
+            KitSummaryRow {
+                icon: KitIcons.film;
+                label: "Tilt Video";
+                detail: SettingsModel.tilt_output_summary;
+                action: "Tilt…";
+                action_label: "Open Tilt Video...";
+                action_hint: "Open the Tilt Performance dialog, where the tilt\nvideo is exported, to change its settings.";
+                action_clicked => {
                     if !TiltModel.dialog_open {
                         TiltModel.toggle_dialog();
                     }
@@ -208,60 +290,85 @@ export component RenderOutputTab inherits VerticalLayout {
             }
         }
     }
+    Text {
+        text: "Each dialog opens with your last run's settings.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        overflow: elide;
+    }
 
-    // Catalogue preview thumbnails: size and quality. Plain linear sliders (not the
-    // samples-exponent's drag-then-round idiom) since both ranges are narrow enough for a linear
-    // drag to stay fine-grained; the ranges are Rust's (`PREVIEW_SIZE_RANGE`,
+    // --- Library thumbnails ------------------------------------------------------------------
+    // Catalogue preview thumbnails: renderer, tray, size and quality. Plain linear sliders (not
+    // the samples-exponent's drag-then-round idiom) since both ranges are narrow enough for a
+    // linear drag to stay fine-grained; the ranges are Rust's (`PREVIEW_SIZE_RANGE`,
     // `PREVIEW_SAMPLES_RANGE`). Advanced.
-    if GuideModel.shows_advanced(): GroupHeader { text: "Library Thumbnails"; }
-    if GuideModel.shows_advanced(): Text { text: "Thumbnail Renderer"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
-    if GuideModel.shows_advanced(): HorizontalLayout {
-        spacing: 4px;
-        for label[index] in ["Path-Traced", "Ray-Traced"]: SegmentPill {
-            text: label;
-            hint: "Changing the thumbnail renderer marks existing\npictures outdated once; regenerate them to use this\nchoice. Ray-Traced uses eight fixed taps with Fire.";
-            selected: SettingsModel.thumbnail_renderer_index == index;
-            picked => { SettingsModel.thumbnail_renderer_selected(index); }
-        }
-    }
-    if GuideModel.shows_advanced(): Text { text: "Thumbnail Backdrop"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
-    if GuideModel.shows_advanced(): HorizontalLayout {
-        spacing: 4px;
-        // Backdrop indices: White 2, Grey 1, Black 3.
-        for choice[index] in [{ label: "White", value: 2 }, { label: "Grey", value: 1 }, { label: "Black", value: 3 }]: SegmentPill {
-            text: choice.label;
-            hint: "The tray the catalogue pictures are drawn on. Grey\nsets colorless stones apart from their background;\nchanging it marks existing pictures outdated once.";
-            selected: SettingsModel.thumbnail_backdrop_index == choice.value;
-            picked => { SettingsModel.thumbnail_backdrop_selected(choice.value); }
-        }
-    }
+    if GuideModel.shows_advanced(): KitFoldCard {
+        icon: KitIcons.library;
+        label: "Library Thumbnails";
+        summary: (SettingsModel.thumbnail_renderer_index == 0 ? "Path-traced" : "Ray-traced") + " · " + (SettingsModel.thumbnail_backdrop_index == 2 ? "white" : (SettingsModel.thumbnail_backdrop_index == 3 ? "black" : "grey"));
 
-    if GuideModel.shows_advanced(): SliderRow {
-        text: "Preview Image Size";
-        hint: "Preview Image Size: the width of the small pictures\nthe catalogue draws for each design, in pixels. Larger\npictures are sharper and take longer to draw.";
-        value_text: Math.round(SettingsModel.preview_size_val) + "px";
-        minimum: SettingsModel.preview_size_min;
-        maximum: SettingsModel.preview_size_max;
-        step: 16;
-        value <=> SettingsModel.preview_size_val;
-        edited(val) => { SettingsModel.preview_size_changed(Math.round(val)); }
-    }
-    if GuideModel.shows_advanced() && SettingsModel.thumbnail_renderer_index == 0: SliderRow {
-        text: "Preview Samples";
-        hint: "Preview Samples: how many light paths are traced for each pixel of a\ncatalogue picture. More samples mean less grain and a slower batch.";
-        value_text: Math.round(SettingsModel.preview_spp_val) + "";
-        minimum: SettingsModel.preview_samples_min;
-        maximum: SettingsModel.preview_samples_max;
-        step: 32;
-        value <=> SettingsModel.preview_spp_val;
-        edited(val) => { SettingsModel.preview_spp_changed(Math.round(val)); }
-    }
-
-    // Performance curve over tilt angles (extinction and brilliance graph). Advanced. Opens through
-    // `TiltModel.toggle_dialog()`, the same open/close path and stale-curve check as the viewports'
-    // Tilt Curve buttons. Do not set `TiltModel.dialog_open` directly: that skips the check.
-    if GuideModel.shows_advanced(): GroupHeader { text: "Tilt Performance"; }
-    if GuideModel.shows_advanced(): PerformanceCurvePanel {
-        open_performance_graph => { TiltModel.toggle_dialog(); }
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            KitRowName {
+                text: "Renderer";
+                full: "Thumbnail Renderer";
+                hint: "Changing the thumbnail renderer marks existing\npictures outdated once; regenerate them to use this\nchoice. Ray-Traced uses eight fixed taps with Fire.";
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 32px;
+                KitFillSegments {
+                    width: 100%;
+                    height: 100%;
+                    labels: ["Path-Traced", "Ray-Traced"];
+                    picked: SettingsModel.thumbnail_renderer_index;
+                    selected(idx) => { SettingsModel.thumbnail_renderer_selected(idx); }
+                }
+                Tooltip { text: @markdown("Changing the thumbnail renderer marks existing\npictures outdated once; regenerate them to use this\nchoice. Ray-Traced uses eight fixed taps with Fire."); }
+            }
+        }
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            KitRowName {
+                text: "Backdrop";
+                full: "Thumbnail Backdrop";
+                hint: "The tray the catalogue pictures are drawn on. Grey\nsets colorless stones apart from their background;\nchanging it marks existing pictures outdated once.";
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 32px;
+                // Backdrop indices: White 2, Grey 1, Black 3.
+                KitFillSegments {
+                    width: 100%;
+                    height: 100%;
+                    labels: ["White", "Grey", "Black"];
+                    picked: SettingsModel.thumbnail_backdrop_index == 2 ? 0 : (SettingsModel.thumbnail_backdrop_index == 1 ? 1 : 2);
+                    selected(idx) => { SettingsModel.thumbnail_backdrop_selected([2, 1, 3][idx]); }
+                }
+                Tooltip { text: @markdown("The tray the catalogue pictures are drawn on. Grey\nsets colorless stones apart from their background;\nchanging it marks existing pictures outdated once."); }
+            }
+        }
+        SliderRow {
+            text: "Preview Image Size";
+            hint: "Preview Image Size: the width of the small pictures\nthe catalogue draws for each design, in pixels. Larger\npictures are sharper and take longer to draw.";
+            value_text: Math.round(SettingsModel.preview_size_val) + "px";
+            minimum: SettingsModel.preview_size_min;
+            maximum: SettingsModel.preview_size_max;
+            step: 16;
+            value <=> SettingsModel.preview_size_val;
+            edited(val) => { SettingsModel.preview_size_changed(Math.round(val)); }
+        }
+        if SettingsModel.thumbnail_renderer_index == 0: SliderRow {
+            text: "Preview Samples";
+            hint: "Preview Samples: how many light paths are traced for each pixel of a\ncatalogue picture. More samples mean less grain and a slower batch.";
+            value_text: Math.round(SettingsModel.preview_spp_val) + "";
+            minimum: SettingsModel.preview_samples_min;
+            maximum: SettingsModel.preview_samples_max;
+            step: 32;
+            value <=> SettingsModel.preview_spp_val;
+            edited(val) => { SettingsModel.preview_spp_changed(Math.round(val)); }
+        }
     }
 }

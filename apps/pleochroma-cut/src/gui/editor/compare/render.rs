@@ -664,6 +664,7 @@ mod solid_frame_tests {
         yaw: 0.6,
         pitch: 0.45,
         distance: 3.5,
+        pan: [0.0, 0.0],
     };
 
     fn side() -> SideGeometry {
@@ -777,6 +778,7 @@ mod ray_refusal_tests {
                 yaw: 0.6,
                 pitch: 0.45,
                 distance: 3.5,
+                pan: [0.0, 0.0],
             },
             (8, 8),
             None,

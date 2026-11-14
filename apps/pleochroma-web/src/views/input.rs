@@ -30,6 +30,7 @@ fn current_pose(ctx: &Ctx) -> CameraPose {
         yaw: app.view.yaw,
         pitch: app.view.pitch,
         distance: app.view.distance,
+        pan: [0.0, 0.0],
     }
 }
 

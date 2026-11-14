@@ -99,7 +99,8 @@ pub enum CalibrationOutcome {
 /// cheap, so nothing has to outlive the caller's loop.
 fn scene_pieces(scene: &SceneState) -> (Camera, Vec<pleochroma::optics::raytracer::FacetFinish>) {
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     (camera, resolve_facet_finishes(scene))
 }
 

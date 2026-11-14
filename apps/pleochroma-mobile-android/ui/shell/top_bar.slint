@@ -24,6 +24,13 @@ export component TopBar inherits Rectangle {
     height: Theme.top-bar-height;
     background: Theme.surface;
 
+    // The hairline along the bar's bottom edge.
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.glass-edge;
+    }
+
     HorizontalLayout {
         padding-left: root.show-back ? Theme.space-xs : Theme.space-lg;
         padding-right: Theme.space-xs;

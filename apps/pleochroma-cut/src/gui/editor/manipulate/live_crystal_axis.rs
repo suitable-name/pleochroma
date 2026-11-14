@@ -88,7 +88,8 @@ pub(super) fn refresh(ui: &MainWindow, shared: &Shared) {
     }
     let (size, offset) = contain(viewport, image);
     let camera = Camera::new(render.yaw, render.pitch, render.distance, DEFAULT_FOV_DEG)
-        .with_roll(render.camera_roll);
+        .with_roll(render.camera_roll)
+        .with_pan(render.camera_pan);
     // The shown radius can come from the last Solid frame, so cap the marker
     // length by the current camera distance.
     let length = shown_length
@@ -149,5 +150,16 @@ mod tests {
         assert_eq!(upright[0].0, upright[1].0);
         assert!((turned[0].1 - turned[1].1).abs() < 1e-3);
         assert!(turned[1].0 > turned[0].0);
+    }
+
+    #[test]
+    fn marker_projection_follows_the_pan() {
+        // Half a picture height to the right and a quarter up: the stone's centre, and the
+        // vertical axis line through it, move to (450, 225) in a 600x600 picture.
+        let size = ScreenSize::new(600.0, 600.0);
+        let panned = Camera::new(0.0, 0.0, 2.4, DEFAULT_FOV_DEG).with_pan([0.5, 0.25]);
+        let [from, to] = line(&panned, size, Vec3::Y, 0.5, (0.0, 0.0)).unwrap();
+        assert!((from.0 - 450.0).abs() < 1e-2 && (to.0 - 450.0).abs() < 1e-2);
+        assert!((f32::midpoint(from.1, to.1) - 225.0).abs() < 1e-2);
     }
 }

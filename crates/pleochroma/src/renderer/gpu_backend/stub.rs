@@ -5,10 +5,12 @@ use std::sync::atomic::AtomicBool;
 
 use glam::Vec3;
 
-use super::{GpuAccumulate, GpuBatchItem, GpuPathCache, GpuPipelineKind, GpuSceneRef};
+use super::{
+    GpuAccumulate, GpuBatchItem, GpuPathCache, GpuPipelineKind, GpuSceneRef, GpuWarmFamilies,
+};
 use crate::{
     geometry::tool::ToolPrimitive,
-    optics::raytracer::surface::SurfaceScene,
+    optics::{materials::GemMaterial, raytracer::surface::SurfaceScene},
     renderer::adaptive::{LiveTiles, NoiseMetric, Pass, PendingCheck},
 };
 
@@ -270,6 +272,30 @@ impl GpuBackend {
         _cancel: &AtomicBool,
     ) -> GpuAccumulate {
         GpuAccumulate::Declined
+    }
+
+    /// Always declines a shader warm-up when the GPU feature is disabled.
+    pub const fn warm_pipelines_cancellable(
+        &self,
+        _scene: &GpuSceneRef<'_>,
+        _tools: &[ToolPrimitive],
+        _surface: &SurfaceScene<'_>,
+        _families: GpuWarmFamilies,
+        _cancel: &AtomicBool,
+    ) -> GpuAccumulate {
+        GpuAccumulate::Declined
+    }
+
+    /// Never: a build without GPU support keeps no pipelines.
+    #[must_use]
+    pub const fn persists_pipelines(&self) -> bool {
+        false
+    }
+
+    /// Empty: a build without GPU support compiles no pipelines.
+    #[must_use]
+    pub const fn warm_up_materials(_first: Option<&GemMaterial>) -> Vec<GemMaterial> {
+        Vec::new()
     }
 
     /// Always declines, leaving `out` untouched -- see the `gpu`-gated

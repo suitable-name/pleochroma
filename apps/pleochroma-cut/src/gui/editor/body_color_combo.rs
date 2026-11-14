@@ -21,11 +21,17 @@
 
 use std::cell::RefCell;
 
-use pleochroma::optics::{
-    absorption::AbsorptionTensor,
-    materials::{
-        GemMaterial,
-        variants::{ColorVariant, TensorRank, host_rank},
+use pleochroma::{
+    color::body_color::{Illuminant, body_colors},
+    optics::{
+        absorption::AbsorptionTensor,
+        materials::{
+            GemMaterial,
+            variants::{
+                ColorVariant, MATERIAL_DEFAULT_REFERENCE_PATH_MM, TensorRank, face_up_swatch_path,
+                host_rank,
+            },
+        },
     },
 };
 use pleochroma_cut_core::{Design, MaterialLookup, MaterialSelection};
@@ -68,6 +74,9 @@ pub(super) fn host_material(design: &Design, custom: &[GemMaterial]) -> Option<G
 pub(super) struct ShownColors {
     /// The rows, in combo order; Custom is last.
     pub(super) items: Vec<ColorEntryItem>,
+    /// The second half of each row's tile: the color across the crystal axis of a pleochroic
+    /// entry, else the row's own swatch (`None`: no swatch, as for Custom). Same length as `items`.
+    pub(super) across: Vec<Option<[u8; 3]>>,
     /// The row that shows the design's own color.
     pub(super) selected: usize,
     /// The design carries a legacy single color on a pleochroic material: the Stone tab shows the
@@ -124,7 +133,43 @@ pub(super) fn variant_is_stale(
 struct Shown {
     key: ShownKey,
     items: Vec<ColorEntryItem>,
+    across: Vec<Option<[u8; 3]>>,
     variants: Vec<ColorVariant>,
+}
+
+/// The color across the crystal axis (the ordinary ray) of each row of `items`, read at the
+/// optical path its swatch uses. A row that is not pleochroic, a preset and Custom give their own
+/// swatch.
+fn across_colors(
+    host: &GemMaterial,
+    items: &[ColorEntryItem],
+    variants: &[ColorVariant],
+) -> Vec<Option<[u8; 3]>> {
+    items
+        .iter()
+        .map(|item| {
+            let source = match &item.entry {
+                ColorEntry::MaterialDefault => Some((
+                    &host.absorption,
+                    host.absorption_unit,
+                    MATERIAL_DEFAULT_REFERENCE_PATH_MM,
+                )),
+                ColorEntry::Variant { key } => variants
+                    .iter()
+                    .find(|variant| &variant.key == key)
+                    .map(|variant| (&variant.absorption, variant.unit, variant.reference_path_mm)),
+                ColorEntry::Preset(_) | ColorEntry::Custom => None,
+            };
+            source
+                .filter(|(tensor, _, _)| tensor.is_pleochroic)
+                .map(|(tensor, unit, width)| {
+                    body_colors(tensor, face_up_swatch_path(unit, width), Illuminant::D65)
+                        .o_ray
+                        .srgb
+                })
+                .or_else(|| item.swatch_rgb())
+        })
+        .collect()
 }
 
 thread_local! {
@@ -165,17 +210,24 @@ pub(super) fn shown_colors(
     SHOWN.with_borrow_mut(|slot| {
         let shown = match slot.take() {
             Some(shown) if shown.key == key => shown,
-            _ => Shown {
-                items: color_entries_for_design(&host, saved_variants, &design.material),
-                variants: listed_variants(&host, saved_variants),
-                key,
-            },
+            _ => {
+                let items = color_entries_for_design(&host, saved_variants, &design.material);
+                let variants = listed_variants(&host, saved_variants);
+                Shown {
+                    across: across_colors(&host, &items, &variants),
+                    items,
+                    variants,
+                    key,
+                }
+            }
         };
         let selected = entry_for_selection(&design.material, &shown.items);
         let items = shown.items.clone();
+        let across = shown.across.clone();
         *slot = Some(shown);
         ShownColors {
             items,
+            across,
             selected,
             legacy_note,
             stale_variant,

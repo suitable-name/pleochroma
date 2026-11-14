@@ -562,7 +562,13 @@ fn base_lists_are_the_isotropic_set_plus_the_uniaxial_arms() {
     );
     assert_eq!(
         &UNIAXIAL_BASE_KERNELS[ISOTROPIC_BASE_KERNELS.len()..],
-        &["ArmUniEntry", "ArmUniEntryTransmit", "ArmUniInternal"]
+        &[
+            "ArmUniEntry",
+            "ArmUniEntryTransmit",
+            "ArmUniEntryFinish",
+            "ArmUniInternal",
+            "ArmUniInternalTransmit",
+        ]
     );
     let mut names = UNIAXIAL_BASE_KERNELS.to_vec();
     names.sort_unstable();

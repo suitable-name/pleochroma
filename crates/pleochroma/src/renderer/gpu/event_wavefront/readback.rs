@@ -31,8 +31,9 @@ fn read_mapped(buffer: &wgpu::Buffer, count: usize) -> Result<Vec<f32>, EwError>
 
 /// Reads `count` `f32`s from a mappable staging buffer.
 ///
-/// On native: starts the async mapping and polls until it completes or
-/// `compute::GPU_WAIT_TIMEOUT` elapses.
+/// On native: starts the async mapping and polls until it completes or the chunk deadline
+/// set through `clock::set_readback_deadline_ms` passes, never sooner than
+/// `compute::GPU_WAIT_TIMEOUT`.
 /// On wasm32: awaits a `futures_channel::oneshot` channel triggered by the browser `mapAsync`
 /// callback, raced against the chunk deadline set through `clock::set_readback_deadline_ms`.
 ///
@@ -57,14 +58,23 @@ pub async fn map_read(
             let _ = tx.send(result);
         });
 
+    let wait = native_wait();
     let start = std::time::Instant::now();
     loop {
-        if let Err(e) = device.poll(wgpu::PollType::Wait {
+        match device.poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: Some(crate::renderer::gpu::compute::GPU_WAIT_TIMEOUT),
+            timeout: Some(wait.saturating_sub(start.elapsed())),
         }) {
-            buffer.unmap();
-            return Err(EwError::DeviceLost(format!("device poll failed: {e}")));
+            Ok(_) => {}
+            // A slow GPU, not a lost one.
+            Err(wgpu::PollError::Timeout) => {
+                buffer.unmap();
+                return Err(EwError::ChunkTimeout);
+            }
+            Err(e) => {
+                buffer.unmap();
+                return Err(EwError::DeviceLost(format!("device poll failed: {e}")));
+            }
         }
 
         match rx.try_recv() {
@@ -74,7 +84,7 @@ pub async fn map_read(
                 return Err(EwError::DeviceLost(format!("buffer mapping failed: {e}")));
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
-                if start.elapsed() >= crate::renderer::gpu::compute::GPU_WAIT_TIMEOUT {
+                if start.elapsed() >= wait {
                     buffer.unmap();
                     return Err(EwError::ChunkTimeout);
                 }
@@ -89,6 +99,17 @@ pub async fn map_read(
     }
 
     read_mapped(buffer, count)
+}
+
+/// How long a native readback waits: the chunk deadline the accumulation loop set
+/// (`clock::chunk_deadline_ms`, ten seconds for a scene's first chunk), never less than
+/// `compute::GPU_WAIT_TIMEOUT`. The deadline is process-wide and another thread's renderer
+/// may have set it last; the floor keeps that from shortening this wait.
+#[cfg(not(target_arch = "wasm32"))]
+fn native_wait() -> std::time::Duration {
+    let floor = crate::renderer::gpu::compute::GPU_WAIT_TIMEOUT;
+    std::time::Duration::try_from_secs_f64(super::clock::readback_deadline_ms() / 1000.0)
+        .map_or(floor, |deadline| deadline.max(floor))
 }
 
 /// Reads `count` `f32`s from a mappable staging buffer on wasm32.

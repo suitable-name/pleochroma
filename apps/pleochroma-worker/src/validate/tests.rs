@@ -35,6 +35,7 @@ fn valid_scene() -> SceneState {
         head_shadow_deg: 16.0,
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        camera_pan: [0.0, 0.0],
     }
 }
 
@@ -578,6 +579,29 @@ fn rejects_non_finite_camera_roll() {
                 .unwrap_err()
                 .contains("camera_roll must be finite")
         );
+    }
+}
+
+#[test]
+fn rejects_a_non_finite_or_oversized_camera_pan_and_accepts_the_bound() {
+    use pleochroma::optics::raytracer::MAX_CAMERA_PAN;
+
+    for pan in [
+        [f32::NAN, 0.0],
+        [0.0, f32::INFINITY],
+        [f32::NEG_INFINITY, 0.0],
+        [MAX_CAMERA_PAN + 0.5, 0.0],
+        [0.0, -MAX_CAMERA_PAN - 0.5],
+    ] {
+        let mut scene = valid_scene();
+        scene.camera_pan = pan;
+        let err = validate_scene(&scene).unwrap_err();
+        assert!(err.contains("camera_pan"), "{err}");
+    }
+    for pan in [[0.0, 0.0], [MAX_CAMERA_PAN, -MAX_CAMERA_PAN], [1.7, -0.9]] {
+        let mut scene = valid_scene();
+        scene.camera_pan = pan;
+        assert!(validate_scene(&scene).is_ok(), "{pan:?}");
     }
 }
 

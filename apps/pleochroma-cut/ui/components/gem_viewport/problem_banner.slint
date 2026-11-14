@@ -1,0 +1,106 @@
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { KitButton, KitGlass, KitIcon, KitIcons } from "../kit/kit.slint";
+import { WrappedNote } from "../export_dialog/wrapped_note.slint";
+
+// Which problems the Live Render picture has right now. `gem_viewport.slint` reads `present` to
+// place the banner and the diagnostics panel.
+export global ProblemState {
+    // The material is refused: the picture would trace the wrong stone (path- and ray-traced).
+    out property <bool> refused: (ViewportModel.live_view_mode == 1 || ViewportModel.live_view_mode == 2) && ViewportModel.trace_refusal != "";
+    // The graphics card renderer is not running normally (path-traced only).
+    out property <bool> gpu: ViewportModel.live_view_mode == 1 && ViewportModel.gpu_status_text != "";
+    // The picture is from before the last edit (path-traced only).
+    out property <bool> stale: ViewportModel.live_view_mode == 1 && ViewportModel.trace_stale;
+    out property <bool> present: self.refused || self.gpu || self.stale;
+}
+
+// One banner, top centre, under the toolbar: says in words what is wrong with the picture and
+// holds its fix. Replaces the stale badge, the graphics-status pill and the refusal panel.
+export component ProblemBanner inherits KitGlass {
+    // The most width the banner may take (the host's width less its margins).
+    in property <length> avail: 640px;
+
+    width: min(640px, root.avail);
+    height: banner_lay.preferred-height + 16px;
+    background: Theme.surface-warning;
+    border-color: Theme.accent-amber;
+
+    banner_lay := VerticalLayout {
+        x: 8px;
+        y: 8px;
+        width: parent.width - 16px;
+        spacing: 6px;
+
+        // The material is refused.
+        if ProblemState.refused: HorizontalLayout {
+            spacing: 10px;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "Cannot trace this design: " + ViewportModel.trace_refusal;
+            VerticalLayout {
+                alignment: center;
+                KitIcon { d: KitIcons.warn; size: 16px; ink: Theme.accent-amber; }
+            }
+            WrappedNote {
+                horizontal-stretch: 1;
+                text: "Cannot trace this design. " + ViewportModel.trace_refusal;
+                font-size: 12px;
+                color: Theme.badge-amber-text;
+                vertical-alignment: center;
+            }
+        }
+
+        // The graphics card renderer is reacquiring or has fallen back to the processor.
+        if ProblemState.gpu: HorizontalLayout {
+            spacing: 10px;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "Graphics Status: " + ViewportModel.gpu_status_text;
+            accessible-description: "The graphics card renderer is not running normally; the status says what the program is doing about it.";
+            VerticalLayout {
+                alignment: center;
+                KitIcon { d: KitIcons.warn; size: 16px; ink: Theme.accent-amber; }
+            }
+            WrappedNote {
+                horizontal-stretch: 1;
+                text: "Graphics status: " + ViewportModel.gpu_status_text;
+                font-size: 12px;
+                color: Theme.badge-amber-text;
+                vertical-alignment: center;
+            }
+        }
+
+        // The picture is older than the design; Recompute solves again (a Solve like any other,
+        // locked while the worked-example guide runs).
+        if ProblemState.stale: HorizontalLayout {
+            spacing: 10px;
+            height: 30px;
+            VerticalLayout {
+                alignment: center;
+                KitIcon { d: KitIcons.warn; size: 16px; ink: Theme.accent-amber; }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: "This picture is from before your last edit.";
+                font-size: 12px;
+                color: Theme.badge-amber-text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            VerticalLayout {
+                alignment: center;
+                KitButton {
+                    text: "Recompute";
+                    kind: 1;
+                    h: 28px;
+                    enabled: GuideModel.allows_solve();
+                    hint: GuideModel.allows_solve()
+                        ? "Work this picture out again for the design as it is now."
+                        : GuideModel.locked_hint;
+                    clicked => { EditorModel.solve(); }
+                }
+            }
+        }
+    }
+}

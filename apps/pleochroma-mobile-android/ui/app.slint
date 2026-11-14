@@ -18,6 +18,7 @@ import { NavBar, NavRail } from "shell/nav.slint";
 import { Toast } from "shell/toast.slint";
 import { DialogHost } from "shell/dialog_host.slint";
 import { InfoSheetHost } from "shell/info.slint";
+import { ChoiceSheetHost } from "shell/inputs.slint";
 import { LibraryPage } from "pages/library.slint";
 import { DesignPage } from "pages/design.slint";
 import { CutPage } from "pages/cut.slint";
@@ -70,13 +71,9 @@ export component AppWindow inherits Window {
     property <length> inset-left: root.safe-area-insets.left;
     property <length> inset-right: root.safe-area-insets.right;
 
-    // Theme override. The Material widget style (AboutSlint, text selection) reads
-    // `Palette.color-scheme`; forcing dark or light writes it, and going back to
-    // "System" restores the value seen before the first override. (Until restart, the
-    // palette then ignores later system changes.)
-    property <int> theme-choice: Shell.theme-choice;
-    property <bool> palette-overridden: false;
-    property <ColorScheme> system-scheme: ColorScheme.unknown;
+    // The app is dark in both themes. The Material widget style (AboutSlint, text selection)
+    // reads `Palette.color-scheme`, which follows the system, so the window pins it to dark.
+    // High Contrast is handled by `Theme` (`PleoPalette.high-contrast`).
 
     function mirror-insets() {
         Shell.inset-top = root.inset-top;
@@ -94,6 +91,7 @@ export component AppWindow inherits Window {
     }
 
     init => {
+        Palette.color-scheme = ColorScheme.dark;
         root.mirror-insets();
         root.mirror-font-size();
         Shell.width-changed(root.width);
@@ -123,25 +121,31 @@ export component AppWindow inherits Window {
         root.mirror-insets();
     }
 
-    changed theme-choice => {
-        if (root.theme-choice == 0) {
-            if (root.palette-overridden) {
-                Palette.color-scheme = root.system-scheme;
-                root.palette-overridden = false;
+    // A key only reaches the item with keyboard focus (and its parents). A text field, choice
+    // field or stepper takes the focus when tapped; once its page is hidden, Slint drops the
+    // focus altogether and the Back key reached nothing. So every navigation change hands the
+    // focus back to the scope below (it also closes the soft keyboard of a field left behind).
+    property <int> back-target: Navigation.target;
+    changed back-target => {
+        back-scope.focus();
+    }
+
+    // The exit window: 2 s after the first Back on the Library root, Back arms again.
+    Timer {
+        interval: 2s;
+        running: Navigation.exit-armed;
+        triggered => {
+            Navigation.exit-armed = false;
+            if (Shell.toast-text == Navigation.exit-hint) {
+                Shell.toast-visible = false;
             }
-        } else {
-            if (!root.palette-overridden) {
-                root.system-scheme = Palette.color-scheme;
-                root.palette-overridden = true;
-            }
-            Palette.color-scheme = root.theme-choice == 1 ? ColorScheme.dark : ColorScheme.light;
         }
     }
 
     // The Back key (and Escape in the desktop preview). Rejecting it hands it to the
     // system: the Android backend reports a rejected Back as unhandled, so the
     // activity's default action runs (the app goes to the background).
-    FocusScope {
+    back-scope := FocusScope {
         init => {
             self.focus();
         }
@@ -231,6 +235,9 @@ export component AppWindow inherits Window {
                 Shell.toast-dismissed();
             }
         }
+
+        // The choice list of every `ChoiceField`; Back target 29 closes it.
+        ChoiceSheetHost { }
 
         InfoSheetHost { }
 

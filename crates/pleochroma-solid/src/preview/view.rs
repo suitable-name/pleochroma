@@ -487,6 +487,7 @@ mod cut_steps_tests {
             basis: ReplanBasis::FullSolve,
             camera: CameraPose {
                 roll: 0.0,
+                pan: [0.0, 0.0],
                 yaw: 0.6,
                 pitch: 0.45,
                 distance: 2.4,

@@ -5,6 +5,11 @@
 //! `tracing` events of the shared crates (through a `fmt` subscriber whose writer
 //! forwards each formatted line to `log`). Slint itself logs under the tag `slint`.
 //!
+//! `log` records pass from debug level up in a debug build and from info in a release
+//! build, except the shader compiler `naga` (warnings only) and `wgpu_core` / `wgpu_hal`
+//! (info and up): in a debug build naga logs every expression it checks, thousands of
+//! lines per shader, which bury the app's own lines and slow every pipeline compile.
+//!
 //! Read it with `adb logcat -s pleochroma slint`.
 
 use std::{io, sync::Once};
@@ -26,7 +31,8 @@ pub(crate) fn init() {
         android_logger::init_once(
             android_logger::Config::default()
                 .with_tag("pleochroma")
-                .with_max_level(level),
+                .with_max_level(level)
+                .with_filter(record_filter(level)),
         );
 
         // Release builds are stripped, so symbol names would be empty: addresses only.
@@ -41,6 +47,17 @@ pub(crate) fn init() {
 
         install_tracing();
     });
+}
+
+/// The `log` filter: `level` for every target except `naga` (warnings only) and
+/// `wgpu_core` / `wgpu_hal` (info and up).
+fn record_filter(level: log::LevelFilter) -> android_logger::Filter {
+    android_logger::FilterBuilder::new()
+        .filter_level(level)
+        .filter_module("naga", log::LevelFilter::Warn)
+        .filter_module("wgpu_core", log::LevelFilter::Info)
+        .filter_module("wgpu_hal", log::LevelFilter::Info)
+        .build()
 }
 
 /// Routes `tracing` events (default filter `info`) into `log`.

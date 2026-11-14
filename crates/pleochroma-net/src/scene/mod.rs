@@ -174,6 +174,17 @@ pub struct SceneState {
     /// Branching, which is what it was rendered with.
     #[serde(default)]
     pub estimator: pleochroma::optics::raytracer::Estimator,
+    /// Where the orbit centre (the stone) sits in the picture, in image half-heights: `x` to
+    /// the right, `y` up, in the picture's own axes after the roll. The eye moves parallel to
+    /// the image plane (`pleochroma::optics::raytracer::Camera::with_pan`), so the stone is
+    /// off-centre and seen from a slightly shifted point of view. `[0.0, 0.0]` is the centred
+    /// camera, bit-identical to a build without the field. Appended last for positional
+    /// postcard decoding (eight bytes, always written on the wire); `#[serde(default)]`, and
+    /// left out of human-readable output while centred: an old JSON scene or job reads as
+    /// centred. A worker refuses a non-finite component or one above
+    /// `pleochroma::optics::raytracer::MAX_CAMERA_PAN`.
+    #[serde(default)]
+    pub camera_pan: [f32; 2],
 }
 
 /// The default head-shadow radius (`16.0` degrees), the serde default of

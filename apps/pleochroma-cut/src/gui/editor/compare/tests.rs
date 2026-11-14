@@ -87,6 +87,7 @@ const START_POSE: CameraPose = CameraPose {
     yaw: 0.6,
     pitch: 0.45,
     distance: 2.4,
+    pan: [0.0, 0.0],
 };
 
 #[test]

@@ -320,8 +320,9 @@ pub(super) fn target_for(
         centroid,
     );
     let pose = geometry.camera;
-    let camera =
-        Camera::new(pose.yaw, pose.pitch, pose.distance, CAMERA_FOV_DEG).with_roll(pose.roll);
+    let camera = Camera::new(pose.yaw, pose.pitch, pose.distance, CAMERA_FOV_DEG)
+        .with_roll(pose.roll)
+        .with_pan(pose.pan);
     let size = ScreenSize::new(geometry.size.0 as f32, geometry.size.1 as f32);
     #[expect(
         clippy::cast_possible_truncation,

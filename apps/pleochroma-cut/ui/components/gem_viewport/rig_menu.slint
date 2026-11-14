@@ -1,0 +1,333 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { ParametersModel } from "../../models/parameters.slint";
+import { DesignLightingModel } from "../../models/design_lighting.slint";
+import { PhysicscolorModel } from "../../models/physics_color.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { KitIcon, KitIcons, KitRigThumb } from "../kit/kit.slint";
+import { SaveNameRow } from "../settings_dialog/lighting_presets_section.slint";
+
+// The two menus of the Live Render toolbar: the rig menu (opened by the lighting chip) and the
+// View menu (the camera buttons folded into one on a narrow view). Both are mounted by
+// `gem_viewport.slint` over a click-away scrim, and say `closed()` after any choice.
+
+// A small-capitals caption inside a menu.
+component MenuCaption inherits HorizontalLayout {
+    in property <string> text;
+    padding-left: 6px;
+    padding-top: 12px;
+    padding-bottom: 6px;
+    Text {
+        text: root.text;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.7px;
+        color: Theme.text-muted;
+    }
+}
+
+// One row of a menu: a rig picture or an icon, the name, a star (the design's own lighting) and a
+// check (the one in use). `name` is the accessible name; it keeps the old label of the control.
+component MenuRow inherits Rectangle {
+    in property <string> text;
+    in property <string> name;
+    in property <string> hint;
+    in property <string> icon;
+    // A `KitRigThumb` kind, or -1 for none.
+    in property <int> kind: -1;
+    in property <bool> on: false;
+    in property <bool> star: false;
+    in property <bool> choice: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 7px;
+    background: root.on ? Theme.surface-selected : (row_touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: row_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    opacity: root.enabled ? 1.0 : 0.45;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.name != "" ? root.name : root.text;
+    accessible-description: root.hint;
+    accessible-checkable: root.choice;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    row_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 8px;
+        spacing: 9px;
+        if root.kind >= 0: VerticalLayout {
+            alignment: center;
+            KitRigThumb { kind: root.kind; size: 24px; }
+        }
+        if root.kind < 0 && root.icon != "": VerticalLayout {
+            alignment: center;
+            width: 24px;
+            HorizontalLayout {
+                alignment: center;
+                KitIcon { d: root.icon; size: 14px; ink: Theme.text-secondary; }
+            }
+        }
+        if root.star: VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.star; size: 12px; ink: Theme.accent-amber; }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            font-size: 12px;
+            color: root.kind >= 0 || root.on ? Theme.text-primary : Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.on: VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.check; size: 13px; ink: Theme.accent-cyan; }
+        }
+    }
+    row_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The built-in rigs of one group (`ViewportModel.lighting_groups`), in `lighting_options` order.
+component RigGroup inherits VerticalLayout {
+    in property <int> group;
+    in property <string> caption;
+    callback chosen(int);
+    spacing: 0px;
+    MenuCaption { text: root.caption; }
+    // One wrapper per option, empty unless the option is in this group; the 2 px gap lives
+    // inside the `if`, so an empty wrapper takes no room.
+    for option[i] in ViewportModel.lighting_options: VerticalLayout {
+        if ViewportModel.lighting_groups[i] == root.group: VerticalLayout {
+            padding-top: 2px;
+            MenuRow {
+                kind: ViewportModel.lighting_kinds[i];
+                text: ViewportModel.lighting_short_names[i] != "" ? ViewportModel.lighting_short_names[i] : option;
+                // The old name of the Lighting drop-down entry.
+                name: option;
+                hint: ViewportModel.lighting_blurbs[i];
+                on: ViewportModel.selected_lighting_index == i;
+                choice: true;
+                clicked => {
+                    ViewportModel.selected_lighting_index = i;
+                    ViewportModel.lighting_changed(i);
+                    root.chosen(i);
+                }
+            }
+        }
+    }
+}
+
+// The lighting menu: the saved lightings, the built-in rigs by group, "Save Current Lighting...",
+// "Use This Lighting for This Design" and "All Rigs and Settings...".
+export component RigMenu inherits Rectangle {
+    // The tallest the menu may be (the host's height less its margins); it scrolls beyond that.
+    in property <length> max_h: 600px;
+    callback closed();
+
+    property <bool> saving: false;
+    property <string> new_name: "";
+
+    width: 250px;
+    height: min(menu_lay.preferred-height + 16px, root.max_h);
+    background: Theme.popup-surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: Theme.shadow-heavy;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Lighting Menu";
+
+    init => { menu_focus.focus(); }
+
+    menu_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.closed();
+                return accept;
+            }
+            return reject;
+        }
+
+        ScrollView {
+            menu_lay := VerticalLayout {
+                padding: 8px;
+                padding-top: 0px;
+                spacing: 2px;
+
+                if ViewportModel.lighting_presets.length > 0: MenuCaption { text: "SAVED"; }
+                for preset[i] in ViewportModel.lighting_presets: MenuRow {
+                    kind: ViewportModel.lighting_preset_kinds[i];
+                    text: preset.name;
+                    name: "Saved Lighting " + preset.name;
+                    hint: i == ViewportModel.design_lighting_preset ? "This design's own lighting." : "Use this saved lighting.";
+                    star: i == ViewportModel.design_lighting_preset;
+                    clicked => {
+                        ViewportModel.apply_lighting_preset(i);
+                        root.closed();
+                    }
+                }
+                RigGroup { group: 0; caption: "LIT MODELS"; chosen(i) => { root.closed(); } }
+                RigGroup { group: 1; caption: "STUDIO"; chosen(i) => { root.closed(); } }
+                RigGroup { group: 2; caption: "ANALYSIS"; chosen(i) => { root.closed(); } }
+                // The UV lamps belong to the `physical-color` build only.
+                if PhysicscolorModel.ui_enabled: RigGroup { group: 3; caption: "UV"; chosen(i) => { root.closed(); } }
+
+                Rectangle { height: 4px; }
+                Rectangle { height: 1px; background: Theme.border-subtle; }
+
+                // Saves the lighting and the camera pose under a name (advanced: hidden in Simple mode).
+                if GuideModel.shows_advanced(): MenuRow {
+                    icon: KitIcons.save;
+                    text: "Save Current Lighting…";
+                    name: "Save Lighting";
+                    hint: "Save lighting...: keep the current lighting and camera pose under a name. It joins the list under Saved lighting in the Lighting tab.";
+                    on: root.saving;
+                    clicked => {
+                        root.saving = !root.saving;
+                        // Same suggested name as the Lighting tab, already selected.
+                        root.new_name = root.saving ? ViewportModel.suggest_lighting_name() : "";
+                    }
+                }
+                if root.saving && GuideModel.shows_advanced(): Rectangle {
+                    height: 34px;
+                    background: Theme.hint-surface;
+                    border-radius: Theme.radius-sm;
+                    border-width: 1px;
+                    border-color: Theme.accent-cyan;
+                    HorizontalLayout {
+                        padding: 3px;
+                        SaveNameRow {
+                            name <=> root.new_name;
+                            placeholder: "Name this lighting...";
+                            field_label: "Name for the Saved Lighting";
+                            confirm_hint: "Save the lighting and the camera pose under this name";
+                            accepted(name) => {
+                                ViewportModel.save_view_preset(name);
+                                root.saving = false;
+                                root.new_name = "";
+                                root.closed();
+                            }
+                        }
+                    }
+                }
+
+                MenuRow {
+                    icon: KitIcons.star;
+                    text: "Use This Lighting for This Design";
+                    hint: DesignLightingModel.available
+                        ? "Save the lighting you see now (rig, light, exposure, glare, backdrop, head shadow and environment map) for this design. Saving again replaces it."
+                        : "Open or create a design first.";
+                    enabled: DesignLightingModel.available;
+                    clicked => {
+                        DesignLightingModel.use_for_design();
+                        root.closed();
+                    }
+                }
+                MenuRow {
+                    icon: KitIcons.grid;
+                    text: "All Rigs and Settings…";
+                    hint: "Open the Parameters panel on the Lighting tab.";
+                    clicked => {
+                        ParametersModel.show_tab(1);
+                        root.closed();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The camera buttons folded into one menu on a narrow view. The items keep the labels of the
+// buttons they stand for.
+export component ViewMenu inherits Rectangle {
+    callback closed();
+
+    width: 190px;
+    height: view_lay.preferred-height + 16px;
+    background: Theme.popup-surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: Theme.shadow-heavy;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "View Menu";
+
+    init => { view_focus.focus(); }
+
+    view_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.closed();
+                return accept;
+            }
+            return reject;
+        }
+
+        view_lay := VerticalLayout {
+            padding: 8px;
+            spacing: 2px;
+            MenuRow {
+                icon: KitIcons.reset;
+                text: "Reset Camera";
+                hint: "Return the camera angle, distance and light to their defaults and centre the stone in the picture again.";
+                clicked => {
+                    ViewportModel.reset_camera();
+                    root.closed();
+                }
+            }
+            MenuRow {
+                icon: KitIcons.front;
+                text: "Front";
+                hint: "Look at the stone from the front: girdle edge-on, index 0 towards you.";
+                clicked => {
+                    ViewportModel.set_view(0);
+                    root.closed();
+                }
+            }
+            MenuRow {
+                icon: KitIcons.top;
+                text: "Top";
+                hint: "Look straight down onto the table.";
+                clicked => {
+                    ViewportModel.set_view(1);
+                    root.closed();
+                }
+            }
+            MenuRow {
+                icon: KitIcons.turn;
+                text: "Turn 90°";
+                hint: "Turn the stone a quarter turn about its vertical axis, keeping the viewing angle: an oval that runs top to bottom then lies across the picture.";
+                clicked => {
+                    ViewportModel.set_view(6);
+                    root.closed();
+                }
+            }
+        }
+    }
+}

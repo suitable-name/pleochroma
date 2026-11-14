@@ -79,18 +79,15 @@ fn the_other_interface_command_is_available_in_simple_mode() {
 }
 
 #[test]
-fn the_schedule_tab_command_says_to_switch_when_the_simple_interface_is_on() {
-    let schedule = COMMANDS
+fn the_schedule_is_reached_by_go_to_cutting_instructions_not_an_inspector_tab() {
+    assert!(COMMANDS.iter().all(|c| c.id != "view.inspector_schedule"));
+    let cutting = COMMANDS
         .iter()
-        .find(|c| c.id == "view.inspector_schedule")
+        .find(|c| c.id == "view.tab_cutting")
         .unwrap();
+    assert_eq!(cutting.title, "Go to Cutting Instructions");
     let simple = CommandState::ready().with(Fact::SimpleInterface, true);
-    assert_eq!(
-        schedule.availability(&simple),
-        Err("Switch to the Advanced interface first")
-    );
-    assert_eq!(schedule.availability(&CommandState::ready()), Ok(()));
-    // The other inspector tabs exist in both interfaces.
+    // The inspector tabs that remain exist in both interfaces.
     for id in [
         "view.inspector_tier",
         "view.inspector_preform",

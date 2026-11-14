@@ -1,15 +1,15 @@
 import { Theme } from "../../theme.slint";
 import { RenderEffectsModel } from "../../models/render_effects.slint";
-import { PillButton, SegmentPill } from "../pill_button.slint";
+import { PillButton } from "../pill_button.slint";
 import { SettingLabel } from "../settings_dialog/setting_label.slint";
-import { ToggleRow } from "../toggle_switch.slint";
-import { GroupHeader, SliderRow } from "parts.slint";
+import { KitFillSegments, KitSection } from "../kit/kit.slint";
+import { StoneSlider, StoneSwitchRow } from "../kit/stone.slint";
 
-// The Stone tab's Inclusions group: the silk, needles or platelets the stone's material is
-// known for, as a preset from the catalogue with a strength (Density), a Silk Turn about the
-// crystal axis, a Sheen (how wide the glint cone is) and a Silk Color. Every choice is saved in
-// the design as one undoable step; "None" is the plain render. A material the catalogue has no
-// preset for says so and offers nothing.
+// The Stone tab's Inclusions rows (inside the Clarity card): the silk, needles or platelets the
+// stone's material is known for, as a preset from the catalogue with a strength (Density), a Silk
+// Turn about the crystal axis, a Sheen (how wide the glint cone is) and a Silk Color. Every choice
+// is saved in the design as one undoable step; "None" is the plain render. A material the catalogue
+// has no preset for says so and offers nothing.
 //
 // `saved_note` is the closing sentence of the tooltips (where the value lives); `ray_traced` is
 // true while the view is the Ray-Traced one, which does not draw inclusions.
@@ -17,11 +17,11 @@ export component InclusionsSection inherits VerticalLayout {
     in property <string> saved_note;
     in property <bool> ray_traced: false;
 
-    spacing: 10px;
+    spacing: 8px;
 
     init => { RenderEffectsModel.refresh(); }
 
-    GroupHeader { text: "Inclusions"; }
+    KitSection { label: "INCLUSIONS"; }
 
     if RenderEffectsModel.inclusion_preset_names.length == 0 && RenderEffectsModel.inclusion_own_count == 0: Text {
         text: RenderEffectsModel.inclusion_note != ""
@@ -91,34 +91,34 @@ export component InclusionsSection inherits VerticalLayout {
         if RenderEffectsModel.inclusion_preset != "": VerticalLayout {
             spacing: 8px;
 
-            SliderRow {
-                text: "Density";
+            StoneSlider {
+                label: "Density";
                 hint: "Density: how many inclusions the stone holds, from 0 (none) to\n1 (packed). About 0.35 is the usual amount for the preset." + root.saved_note;
                 value_text: Math.round(RenderEffectsModel.inclusion_density * 100.0) / 100.0 + "";
                 minimum: 0.0;
                 maximum: 1.0;
                 value <=> RenderEffectsModel.inclusion_density;
-                edited(val) => { RenderEffectsModel.inclusions_edited(); }
+                moved(val) => { RenderEffectsModel.inclusions_edited(); }
             }
 
-            ToggleRow {
-                text: "Set Silk Turn";
+            StoneSwitchRow {
+                label: "Set Silk Turn";
                 hint: "Silk Turn: turn the inclusions about the crystal\naxis. Off follows the stone's Second Axis." + root.saved_note;
-                checked: RenderEffectsModel.inclusion_turn_set;
+                on: RenderEffectsModel.inclusion_turn_set;
                 toggled => {
                     RenderEffectsModel.inclusion_turn_set = !RenderEffectsModel.inclusion_turn_set;
                     RenderEffectsModel.inclusions_edited();
                 }
             }
 
-            if RenderEffectsModel.inclusion_turn_set: SliderRow {
-                text: "Silk Turn";
+            if RenderEffectsModel.inclusion_turn_set: StoneSlider {
+                label: "Silk Turn";
                 hint: "Silk Turn: how far the inclusions are turned\nabout the crystal axis, from 0 to 180 degrees." + root.saved_note;
                 value_text: Math.round(RenderEffectsModel.inclusion_turn_deg) + "°";
                 minimum: 0.0;
                 maximum: 180.0;
                 value <=> RenderEffectsModel.inclusion_turn_deg;
-                edited(val) => { RenderEffectsModel.inclusions_edited(); }
+                moved(val) => { RenderEffectsModel.inclusions_edited(); }
             }
 
             VerticalLayout {
@@ -127,34 +127,12 @@ export component InclusionsSection inherits VerticalLayout {
                     text: "Sheen";
                     hint: "Sheen: how widely the light spreads off the\ninclusions. Soft is a diffuse glow, Sharp is a\nnarrow streak. Preset's Own keeps the preset's width." + root.saved_note;
                 }
-                HorizontalLayout {
-                    spacing: 4px;
-                    SegmentPill {
-                        text: "Preset's Own";
-                        hint: "Keep the width the preset has.";
-                        selected: RenderEffectsModel.inclusion_sheen == 0;
-                        picked => {
-                            RenderEffectsModel.inclusion_sheen = 0;
-                            RenderEffectsModel.inclusions_edited();
-                        }
-                    }
-                    SegmentPill {
-                        text: "Soft";
-                        hint: "A wider cone: a diffuse glow.";
-                        selected: RenderEffectsModel.inclusion_sheen == 1;
-                        picked => {
-                            RenderEffectsModel.inclusion_sheen = 1;
-                            RenderEffectsModel.inclusions_edited();
-                        }
-                    }
-                    SegmentPill {
-                        text: "Sharp";
-                        hint: "A narrower cone: sharp streaks.";
-                        selected: RenderEffectsModel.inclusion_sheen == 2;
-                        picked => {
-                            RenderEffectsModel.inclusion_sheen = 2;
-                            RenderEffectsModel.inclusions_edited();
-                        }
+                KitFillSegments {
+                    labels: ["Preset's Own", "Soft", "Sharp"];
+                    picked: RenderEffectsModel.inclusion_sheen;
+                    selected(i) => {
+                        RenderEffectsModel.inclusion_sheen = i;
+                        RenderEffectsModel.inclusions_edited();
                     }
                 }
             }
@@ -165,51 +143,20 @@ export component InclusionsSection inherits VerticalLayout {
                     text: "Silk Color";
                     hint: "Silk Color: the color of the light the inclusions scatter.\nGrey is white, Slightly Blue and Blue are the bluish look\nof fine silk. Preset's Own keeps the preset's color." + root.saved_note;
                 }
-                HorizontalLayout {
-                    spacing: 4px;
-                    SegmentPill {
-                        text: "Preset's Own";
-                        hint: "Keep the color the preset has.";
-                        selected: RenderEffectsModel.inclusion_color == 0;
-                        picked => {
-                            RenderEffectsModel.inclusion_color = 0;
-                            RenderEffectsModel.inclusions_edited();
-                        }
-                    }
-                    SegmentPill {
-                        text: "Grey";
-                        hint: "White scattered light.";
-                        selected: RenderEffectsModel.inclusion_color == 1;
-                        picked => {
-                            RenderEffectsModel.inclusion_color = 1;
-                            RenderEffectsModel.inclusions_edited();
-                        }
-                    }
-                    SegmentPill {
-                        text: "Slightly Blue";
-                        hint: "A faint bluish tint.";
-                        selected: RenderEffectsModel.inclusion_color == 2;
-                        picked => {
-                            RenderEffectsModel.inclusion_color = 2;
-                            RenderEffectsModel.inclusions_edited();
-                        }
-                    }
-                    SegmentPill {
-                        text: "Blue";
-                        hint: "A clearly bluish tint, as fine silk looks.";
-                        selected: RenderEffectsModel.inclusion_color == 3;
-                        picked => {
-                            RenderEffectsModel.inclusion_color = 3;
-                            RenderEffectsModel.inclusions_edited();
-                        }
+                KitFillSegments {
+                    labels: ["Preset's Own", "Grey", "Slightly Blue", "Blue"];
+                    picked: RenderEffectsModel.inclusion_color;
+                    selected(i) => {
+                        RenderEffectsModel.inclusion_color = i;
+                        RenderEffectsModel.inclusions_edited();
                     }
                 }
             }
 
-            ToggleRow {
-                text: "Show Silk Directions";
+            StoneSwitchRow {
+                label: "Show Silk Directions";
                 hint: "Draw the directions of the inclusions over the stone as lines,\nso you can see which way they run. A view aid: it is not saved.";
-                checked: RenderEffectsModel.show_silk_directions;
+                on: RenderEffectsModel.show_silk_directions;
                 toggled => {
                     RenderEffectsModel.show_silk_directions = !RenderEffectsModel.show_silk_directions;
                     RenderEffectsModel.silk_toggled(RenderEffectsModel.show_silk_directions);

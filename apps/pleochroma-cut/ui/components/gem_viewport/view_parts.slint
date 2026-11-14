@@ -1,0 +1,160 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon } from "../kit/kit.slint";
+
+// Small parts of the Live Render viewport's glass controls.
+
+// One choice of the mode segment. `text` is what shows (it may be short on a narrow view);
+// `name` is the accessible name, which stays the full one ("Path-Traced").
+export component ViewSegment inherits Rectangle {
+    in property <string> text;
+    in property <string> name;
+    in property <string> hint;
+    in property <bool> on: false;
+    callback picked();
+
+    height: 28px;
+    width: seg_text.preferred-width + 24px;
+    border-radius: 7px;
+    background: root.on ? Theme.bg-elevated : (seg_touch.has-hover ? Theme.bg-card-hover : transparent);
+    border-width: seg_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.radio-button;
+    accessible-enabled: true;
+    accessible-label: root.name != "" ? root.name : root.text;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => { root.picked(); }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    seg_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    seg_text := Text {
+        x: (parent.width - self.preferred-width) / 2;
+        y: 0px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        font-weight: root.on ? 600 : 500;
+        color: root.on ? Theme.text-primary : Theme.text-secondary;
+        vertical-alignment: center;
+    }
+    seg_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+// A thin divider between the groups of a glass toolbar.
+export component ToolDivider inherits Rectangle {
+    width: 1px;
+    height: 20px;
+    background: Theme.glass-edge;
+}
+
+// A labelled toggle of the toolbar: an icon and a short text, a cyan surface while on.
+// `name` is the accessible name (the text may be dropped on a narrow view).
+export component ToolToggle inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <string> name;
+    in property <string> hint;
+    in property <bool> on: false;
+    in property <bool> show_text: true;
+    in property <bool> enabled: true;
+    in property <bool> highlighted: false;
+    callback clicked();
+
+    property <bool> has_text: root.show_text && root.text != "";
+
+    height: 30px;
+    width: root.has_text ? tt_lay.preferred-width + 18px : 30px;
+    border-radius: 8px;
+    background: root.on ? Theme.accent-cyan-surface : (tt_touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: tt_focus.has-focus ? 2px : (root.highlighted ? 2px : 0px);
+    border-color: tt_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+    opacity: root.enabled ? 1.0 : 0.45;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.name != "" ? root.name : root.text;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    tt_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    tt_lay := HorizontalLayout {
+        x: 0px;
+        width: parent.width;
+        padding-left: root.has_text ? 9px : 0px;
+        padding-right: root.has_text ? 9px : 0px;
+        spacing: 6px;
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 15px; ink: root.on ? Theme.accent-cyan : Theme.text-secondary; }
+        }
+        if root.has_text: Text {
+            text: root.text;
+            font-size: 12px;
+            color: root.on ? Theme.text-primary : Theme.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+    tt_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A small read-only chip under the mode segment ("Approximate", "Color Data Updated").
+export component InfoChip inherits Rectangle {
+    in property <string> text;
+    in property <string> name;
+    in property <string> hint;
+    in property <color> fill: Theme.hint-surface;
+    in property <color> edge: Theme.border-medium;
+    in property <color> ink: Theme.text-primary;
+
+    height: 24px;
+    width: chip_text.preferred-width + 20px;
+    border-radius: 12px;
+    background: root.fill;
+    border-width: 1px;
+    border-color: root.edge;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.name != "" ? root.name : root.text;
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    chip_text := Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: root.ink;
+        vertical-alignment: center;
+    }
+}

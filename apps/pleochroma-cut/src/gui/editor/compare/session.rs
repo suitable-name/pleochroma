@@ -372,6 +372,7 @@ pub(super) fn fitted_pose(pose: CameraPose, radius: f64) -> CameraPose {
             .distance
             .max(fit_distance_for_radius(radius))
             .clamp(min, max),
+        pan: pose.pan,
     }
 }
 
@@ -418,6 +419,7 @@ pub(super) fn orbit(pose: CameraPose, dx: f32, dy: f32) -> CameraPose {
         yaw: dx.mul_add(-ORBIT_RADIANS_PER_PX, pose.yaw),
         pitch: clamp_pitch(dy.mul_add(ORBIT_RADIANS_PER_PX, pose.pitch)),
         distance: pose.distance,
+        pan: pose.pan,
     }
 }
 
@@ -445,6 +447,7 @@ pub(super) fn default_pose(radius: f64) -> CameraPose {
         yaw: 0.0,
         pitch: 0.0,
         distance: fit_distance_for_radius(radius).clamp(min, max),
+        pan: [0.0, 0.0],
     }
 }
 

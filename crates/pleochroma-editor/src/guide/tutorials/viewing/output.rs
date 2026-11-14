@@ -15,7 +15,7 @@ use crate::guide::{
     },
 };
 
-/// The tier form, the tier table and Undo: Save's lesson first changes a tier.
+/// The tier form, the tier list and Undo: Save's lesson first changes a tier.
 const EDIT: &[Group] = &[Group::TierForm, Group::TierTable, Group::History];
 
 /// File operations, the Advanced controls and Undo: the Gem Cut Studio export is an advanced
@@ -49,11 +49,11 @@ fn cutting_mode() -> Guide {
             "Cutting Mode is the cutting instructions made for the bench: one step on each page, large enough to read from your lap.",
         )
         .actions([
-            "Each page shows the tier, its angle in large figures, the indices to cut as chips, and a picture of the stone after the step beside the index wheel.",
+            "Each page shows the tier, its angle in large figures, the indices to cut as chips and a large index wheel. A strip of named steps runs along the page (windowed when there are more than 20), and a Next preview shows the step after this one.",
             "Right arrow or Page Down goes to the next step, left arrow or Page Up to the one before. Looking never marks anything.",
-            "Space or D marks the step done and goes on. Esc closes cutting mode.",
+            "Space or D marks the step done and goes on: the button reads like P3 Done \u{b7} Next. Esc closes cutting mode.",
         ])
-        .why("The cutting sheet and the Schedule tab hold the same numbers in one long list. Cutting Mode is for the moment you are cutting, with the next step always in front of you.")
+        .why("The cutting sheet and the Cutting Instructions page hold the same numbers in one long list. Cutting Mode is for the moment you are cutting, with the next step always in front of you.")
         .highlight("cutting_mode_button")
         .allow(ADVANCED),
     )
@@ -104,6 +104,7 @@ fn export_asc() -> Guide {
         )
         .actions([
             "Export .asc in the command bar's File menu writes the design as you edited it in this tab, wherever you choose.",
+            "Copy Cutting Schedule, in the same menu, puts the cut order on the clipboard as text instead.",
             "It does not add anything to your library. Save writes the whole .psdd design file instead.",
         ])
         .why("Use .asc to hand a schedule to another cutter or program. Use Save to keep working on the design later.")
@@ -294,9 +295,8 @@ fn save() -> Guide {
             "A saved design has a change worth saving, and the program shows you when it has not been.",
         )
         .actions([
-            "Click the Crown Main row in the tier table.",
-            "Change Angle to 35 in the Tier tab.",
-            "Click Save Tier.",
+            "Click the Crown Main row in the tier list.",
+            "Change Angle to 35 in the Tier tab and press Enter.",
         ])
         .check("The row reads 35.0, the window title starts with an asterisk and the status strip shows an amber UNSAVED badge.")
         .goal(Goal::tier("Crown Main", 35.0), "Crown Main at 35 degrees")

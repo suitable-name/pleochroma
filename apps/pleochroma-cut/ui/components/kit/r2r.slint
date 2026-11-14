@@ -1,0 +1,194 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon } from "icons.slint";
+
+// Parts of the Render tab: a quality tile, a row name, a small action button and a summary row.
+
+// One quality preset: its name and what it costs. Announced as a radio button named `name`.
+export component KitQualityTile inherits Rectangle {
+    in property <string> name;
+    in property <string> detail;
+    in property <string> hint;
+    in property <bool> on;
+    callback picked();
+
+    horizontal-stretch: 1;
+    min-width: 0px;
+    height: 52px;
+    border-radius: 10px;
+    background: root.on ? Theme.accent-cyan-surface : (tile_touch.has-hover ? Theme.bg-card-hover : Theme.bg-input);
+    border-width: root.on || tile_fs.has-focus ? 2px : 1px;
+    border-color: tile_fs.has-focus ? Theme.accent-cyan-hover : (root.on ? Theme.accent-cyan : Theme.border-subtle);
+    accessible-role: AccessibleRole.radio-button;
+    accessible-enabled: true;
+    accessible-label: root.name;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => { root.picked(); }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    tile_fs := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text {
+            text: root.name;
+            font-size: 12px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            text: root.detail;
+            font-size: 10px;
+            color: root.on ? Theme.text-secondary : Theme.text-muted;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+    tile_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+// The name of a row of a card. It shows `text`; a screen reader reads `full` (the control's
+// long name) and the tooltip says `hint`.
+export component KitRowName inherits Rectangle {
+    in property <string> text;
+    in property <string> full;
+    in property <string> hint;
+    in property <length> label_width: 104px;
+
+    width: root.label_width;
+    min-height: 16px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.full != "" ? root.full : root.text;
+    accessible-description: root.hint;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        font-size: 12px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+// A small action button of a card row. It shows `text`; a screen reader reads `label` when set.
+export component KitRowAction inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 28px;
+    width: act_text.preferred-width + 24px;
+    border-radius: 8px;
+    background: act_touch.has-hover && root.enabled ? Theme.bg-card-hover : Theme.bg-card;
+    border-width: act_fs.has-focus ? 2px : 1px;
+    border-color: act_fs.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    act_fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    act_text := Text {
+        x: 12px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        font-weight: 500;
+        color: root.enabled ? Theme.text-primary : Theme.text-disabled;
+        vertical-alignment: center;
+    }
+    act_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A row of a summary: an icon, a name with an optional status dot, what it is set to and an
+// optional action button.
+export component KitSummaryRow inherits HorizontalLayout {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> detail;
+    in property <color> dot: transparent;
+    in property <string> action;
+    in property <string> action_label;
+    in property <string> action_hint;
+    callback action_clicked();
+
+    height: 44px;
+    spacing: 10px;
+    VerticalLayout {
+        alignment: center;
+        KitIcon { d: root.icon; size: 16px; ink: Theme.text-secondary; }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        min-width: 0px;
+        alignment: center;
+        spacing: 1px;
+        HorizontalLayout {
+            spacing: 6px;
+            Text {
+                text: root.label;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+            }
+            if root.dot != transparent: VerticalLayout {
+                alignment: center;
+                Rectangle { width: 7px; height: 7px; border-radius: 3.5px; background: root.dot; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Text {
+            text: root.detail;
+            font-size: 11px;
+            color: Theme.text-muted;
+            overflow: elide;
+        }
+    }
+    if root.action != "": VerticalLayout {
+        alignment: center;
+        KitRowAction {
+            text: root.action;
+            label: root.action_label;
+            hint: root.action_hint;
+            clicked => { root.action_clicked(); }
+        }
+    }
+}

@@ -158,6 +158,7 @@ pub fn local_tracer(
         // viewport (`Interactive`) sums this worker's samples with its own local half, which
         // uses the Preview map, so both must; a batch/final request takes the Final map.
         pin: Arc::new(crate::assets::TrayPin::new(Some(request.intent))),
+        subbatch: super::sizing::subbatch_target(request.stream.transfer_mode),
     };
     let gpu = Arc::clone(gpu);
     move |sink| sink.run_tracer(&job, &gpu)

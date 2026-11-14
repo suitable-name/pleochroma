@@ -231,7 +231,7 @@ pub(super) fn push(window: &AppWindow, state: &AppState) {
         return;
     };
     let model = window.global::<TiersModel>();
-    let detail = ui::with(|ui| ui.rows.get(tier).and_then(|row| tier_detail(state, row)));
+    let detail = ui::with(|ui| ui::flat_row(ui, tier).and_then(|row| tier_detail(state, row)));
     let Some(detail) = detail else {
         // The tier is gone (an undo removed it): close the sheet without touching the state.
         ui::with(|ui| ui.sheet = None);

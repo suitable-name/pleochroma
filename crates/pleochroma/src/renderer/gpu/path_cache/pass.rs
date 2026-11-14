@@ -514,6 +514,25 @@ impl GpuFrameRenderer {
         }
     }
 
+    /// Builds the phase B, completion and reduce pipelines of `class` for a shader warm-up when
+    /// this renderer runs cached passes (the checks of [`Self::accumulate_cached_slab_body`]);
+    /// else nothing.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn warm_cached_pipelines(&mut self, class: u32) {
+        let runs_cached = self.pipeline_kind == GpuPipelineKind::Megakernel
+            && self
+                .ctx
+                .device
+                .limits()
+                .max_storage_buffers_per_shader_stage
+                >= PHASE_B_STORAGE_BUFFERS;
+        if !runs_cached {
+            return;
+        }
+        self.ensure_cached_pipelines(class);
+        self.ensure_completion(class);
+    }
+
     /// Creates the uniforms and grows the reduced-output buffer to `pixels` pixels.
     fn ensure_cached_buffers(&mut self, pixels: usize) {
         let device = &self.ctx.device;

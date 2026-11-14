@@ -24,11 +24,13 @@ use std::{
 };
 
 /// A snapshot of everything the orchestrator watches for a change, cheap to compare
-/// every poll tick.
+/// every poll tick. A pan is camera motion like an orbit or a roll: it restarts the settle
+/// debounce, so the remote epoch of the old framing is cancelled.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Pose {
     pub(super) yaw: f32,
     pub(super) camera_roll: f32,
+    pub(super) camera_pan: [f32; 2],
     pub(super) pitch: f32,
     pub(super) distance: f32,
     pub(super) light_yaw: f32,
@@ -42,6 +44,7 @@ pub(super) fn current_pose(ctx: &Mutex<RenderContext>) -> Pose {
     Pose {
         yaw: guard.yaw,
         camera_roll: guard.camera_roll,
+        camera_pan: guard.camera_pan,
         pitch: guard.pitch,
         distance: guard.distance,
         light_yaw: guard.light_yaw,
@@ -49,7 +52,7 @@ pub(super) fn current_pose(ctx: &Mutex<RenderContext>) -> Pose {
     }
 }
 
-/// Whether a mouse button is currently held for an orbit or light drag in either
+/// Whether a mouse button is currently held for an orbit, pan or light drag in either
 /// viewport (`RenderContext::camera_drag_held`), read fresh each poll tick. The raw
 /// flag -- `poll::poll_tick` applies the watchdog (`decisions::drag_held_effective`).
 #[must_use]
@@ -194,4 +197,20 @@ impl Orchestrator {
 /// event's handling must not permanently wedge every future one.
 pub(super) fn lock(state: &Arc<Mutex<Orchestrator>>) -> std::sync::MutexGuard<'_, Orchestrator> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pan alone is camera motion: the poll tick's pose comparison sees it, so the settle
+    /// restarts and the remote epoch of the old framing is cancelled.
+    #[test]
+    fn a_pan_alone_changes_the_watched_pose() {
+        let ctx = Mutex::new(RenderContext::default());
+        let centred = current_pose(&ctx);
+        assert_eq!(current_pose(&ctx), centred, "nothing changed");
+        RenderContext::lock(&ctx).camera_pan = [0.0, 0.25];
+        assert_ne!(current_pose(&ctx), centred);
+    }
 }

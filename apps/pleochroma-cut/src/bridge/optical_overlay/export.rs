@@ -173,8 +173,9 @@ fn apply_planned(
     if tile_rows == 0 {
         return Err("Diagnostic export exceeds tile memory budget".into());
     }
-    let camera =
-        Camera::new(pose[0], pose[1], scene.distance, DEFAULT_FOV_DEG).with_roll(scene.camera_roll);
+    let camera = Camera::new(pose[0], pose[1], scene.distance, DEFAULT_FOV_DEG)
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let environment = diagnostic_environment(scene, pose[0]);
     let render_tile = |y: usize, tile: &mut [u8]| -> Result<(), String> {
         let rows = tile.len() / row_bytes;

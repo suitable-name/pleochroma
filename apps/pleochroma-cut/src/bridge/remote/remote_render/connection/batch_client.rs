@@ -542,6 +542,7 @@ mod tests {
                     height: 8,
                     yaw: 0.4,
                     camera_roll: 0.0,
+                    camera_pan: [0.0, 0.0],
                     stone_shadow: false,
                     tray_reflection: 0.0,
                     hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),

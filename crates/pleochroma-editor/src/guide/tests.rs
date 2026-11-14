@@ -294,7 +294,11 @@ fn typed_meets(text: &str) -> MeetConstraint {
     if text == "Unspecified Vertex" {
         return MeetConstraint::MeetExisting;
     }
-    if let Some(value) = text.strip_prefix("Exact Scale Value \u{2014} ") {
+    // The window labels the entry "Exact Scale Value (Scale segment)".
+    let exact = text
+        .strip_prefix("Exact Scale Value (Scale segment) \u{2014} ")
+        .or_else(|| text.strip_prefix("Exact Scale Value \u{2014} "));
+    if let Some(value) = exact {
         return MeetConstraint::ScaleReference(value.trim().parse().expect("a scale value"));
     }
     if let Some(names) = text.strip_prefix("Named Facet(s) \u{2014} ") {

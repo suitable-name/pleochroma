@@ -275,6 +275,16 @@ pub struct AppSettings {
     pub render_height: u32,
     /// Maximum number of ray bounces per path.
     pub max_bounces: u32,
+    /// The Render tab's quality preset (Draft, Balanced, High or Custom). The three live-view
+    /// values above keep their own fields; this is the persisted choice on top of them. An old
+    /// file without the key reads Balanced and is shown as the preset its numbers match
+    /// ([`Self::quality_preset_shown`]).
+    #[serde(default)]
+    pub quality_preset: super::QualityPreset,
+    /// The samples, resolution and bounces Custom remembers; `None` until the user has made a
+    /// mix of their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_quality: Option<super::QualityValues>,
     /// Exposure multiplier applied when tone-mapping.
     pub exposure: f32,
     /// Light yaw in degrees.
@@ -293,6 +303,10 @@ pub struct AppSettings {
     /// Clockwise image-plane roll in radians. Older settings open without a roll.
     #[serde(default)]
     pub camera_roll: f32,
+    /// Where the stone sits in the picture, `[x, y]` in image half-heights (x right, y up, in
+    /// the picture's axes); `[0.0, 0.0]` is centred. Older settings open centred.
+    #[serde(default)]
+    pub camera_pan: [f32; 2],
     /// Camera distance from the stone.
     pub camera_distance: f32,
     /// Name of the selected material.
@@ -491,6 +505,14 @@ pub struct AppSettings {
     /// give the viewport more room.
     #[serde(default)]
     pub library_panel_collapsed: bool,
+    /// Whether the Live Render and Edit viewports' mouse-gestures card has been shown once
+    /// (it opens by itself until then). Not part of any "Reset This Tab".
+    #[serde(default)]
+    pub gestures_seen: bool,
+    /// Whether the Live Render viewport's Face-Up figures card is folded to one line.
+    /// Not part of any "Reset This Tab".
+    #[serde(default)]
+    pub figures_folded: bool,
     /// The solid preview's Solid/Path-Traced/Both/Diagram view-mode selector -- see
     /// [`DEFAULT_SOLID_VIEW_MODE`]. Still saved when the user changes it, but not
     /// applied at startup: the app always opens on the Live Render tab in Solid mode.
@@ -671,6 +693,11 @@ pub struct AppSettings {
     /// (`gui::parameters_dock`).
     #[serde(default)]
     pub parameters_dock_tab: u8,
+    /// Which folding cards of the Stone tab are open, one bit each (`ui/models/parameters.slint`,
+    /// `stone_folds`): 1 Crystal Axis, 2 Girdle & Edges, 4 Clarity, 8 Structure. A file without
+    /// the key loads `0`: all folded. Not part of any "Reset This Tab".
+    #[serde(default)]
+    pub stone_folds_open: u8,
     /// The new-version check: whether the user agreed to it, when it last ran and which
     /// version they skipped. A file without the table (every existing install, and a brand-new
     /// one) loads as "not asked yet", so the question is put once.

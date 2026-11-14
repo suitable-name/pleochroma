@@ -40,6 +40,8 @@ impl Film<'_> {
         if !panel.get_open() || panel.get_active_tab() != 0 {
             return Err("Stone panel did not open".into());
         }
+        // New/Edit Material... is an item of the identity card's "..." menu.
+        self.extra_click_panel("Material Menu")?;
         self.extra_click_panel("New/Edit Material...")?;
         if !self.ui.global::<ViewportModel>().get_material_editor_open() {
             return Err("Material Editor did not open".into());

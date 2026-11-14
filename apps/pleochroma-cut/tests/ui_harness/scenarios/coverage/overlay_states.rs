@@ -21,8 +21,8 @@ use crate::support::{
 use pleochroma_cut::{
     CommandPaletteModel, EditorModel, ExportModel, GuideModel, HelpModel, LibraryModel,
     ParametersModel, PreferencesModel, RawTextModel, RemoteWorkerModel, RenderJobsModel,
-    RetargetModel, ShortcutsModel, SweepModel, TiltModel, TiltVideoExportModel, TutorialsModel,
-    UpdateModel, VariantsModel, ViewportModel, harness_support,
+    RetargetModel, ShaderCacheModel, ShortcutsModel, SweepModel, TiltModel, TiltVideoExportModel,
+    TutorialsModel, UpdateModel, VariantsModel, ViewportModel, harness_support,
 };
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
@@ -217,6 +217,15 @@ pub(super) fn parameters(app: &HarnessApp, tab: i32) {
     pump(250);
 }
 
+/// The Live Render view with the Stone tab showing and every folding card of it open (Crystal
+/// Axis, Girdle & Edges, Clarity, Play-of-Color). The tab reads `ParametersModel.stone_folds` when
+/// it mounts, so the bits are set first and the tab is mounted again through another tab.
+pub(super) fn parameters_stone_open(app: &HarnessApp) {
+    app.ui().global::<ParametersModel>().set_stone_folds(15);
+    parameters(app, 2);
+    parameters(app, 0);
+}
+
 /// Two queued still-render jobs (nothing starts them), the Render Jobs panel open.
 ///
 /// "Add to Queue" first needs an export folder (a folder dialog while none is configured), so the
@@ -327,6 +336,8 @@ fn two_tiers_selected(a: &HarnessApp) {
     // filter's clear button.
     editor.set_tier_filter_text("1".into());
     press(a, "Steps / Mirror", None);
+    // "Select" is an item of the Tier List Menu: open the menu, then press the item.
+    press(a, "Tier List Menu", None);
     press(a, "Select", None);
 }
 
@@ -428,6 +439,23 @@ pub fn startup_states() -> Vec<State> {
             update.set_notice_text("Version 9.9.9 is available.".into());
             update.set_notice_visible(true);
         }),
+        state!(
+            "Shader cache card",
+            Startup,
+            Some("ShaderCacheCard"),
+            NONE,
+            |a| {
+                // The build never starts under the harness seams
+                // (`bridge::shader_cache::start`), so the card is raised the way its UI timer
+                // raises it.
+                let card = a.ui().global::<ShaderCacheModel>();
+                card.set_ray_text("Ready".into());
+                card.set_ray_fraction(1.0);
+                card.set_path_text("3 of 9".into());
+                card.set_path_fraction(0.33);
+                card.set_visible(true);
+            }
+        ),
         state!("Guide panel", Startup, Some("GuidePanel"), NONE, |a| {
             a.ui()
                 .global::<GuideModel>()
@@ -692,13 +720,6 @@ fn design_panel_states_first() -> Vec<State> {
             super::states_reach::optimize_ranges_custom
         ),
         state!(
-            "Inspector: Schedule",
-            Design,
-            Some("EditorInspector"),
-            NONE,
-            |a| inspector(a, 3)
-        ),
-        state!(
             "Inspector: History steps",
             Edited,
             Some("EditorInspector"),
@@ -781,7 +802,7 @@ fn design_panel_states_rest() -> Vec<State> {
             Design,
             Some("ParametersPanel"),
             NONE,
-            |a| parameters(a, 0)
+            parameters_stone_open
         ),
         state!(
             "Parameters: Lighting",

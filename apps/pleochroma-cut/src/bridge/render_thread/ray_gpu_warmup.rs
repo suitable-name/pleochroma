@@ -142,7 +142,10 @@ impl RayGpu {
                 if crate::harness_support::viewport_rendering_disabled() {
                     return WhittedGpuBackend::disabled();
                 }
-                WhittedGpuBackend::acquire()
+                // The startup shader cache build compiled its kernel; a device of its own only
+                // without that build, or once that backend was taken.
+                crate::bridge::shader_cache::take_ray_backend()
+                    .unwrap_or_else(WhittedGpuBackend::acquire)
             });
             let frame = owned.as_frame();
             let upload =

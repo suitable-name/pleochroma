@@ -15,15 +15,18 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// The newest job file format this version reads.
-pub const JOB_FORMAT_VERSION: u32 = 6;
+pub const JOB_FORMAT_VERSION: u32 = 7;
 /// The file format version a job is written in.
 ///
-/// A job lit by a turned HDR map needs format 6, a job with color zones format 5, a job with
-/// a tray reflection format 4 and a shadowed job format 3. Other jobs take their engine's
+/// A job whose camera pans the stone off-centre needs format 7 (an older reader would render
+/// it centred), a job lit by a turned HDR map format 6, a job with color zones format 5, a job
+/// with a tray reflection format 4 and a shadowed job format 3. Other jobs take their engine's
 /// format: 2 for Ray-Traced, 1 otherwise. The map's turn counts only in an HDR-lit scene.
 #[must_use]
 pub const fn format_for(job: &RenderJobFile) -> u32 {
-    if job.scene.hdr().is_some() && job.scene.hdr_orientation.is_turned() {
+    if job.scene.camera_pan[0] != 0.0 || job.scene.camera_pan[1] != 0.0 {
+        7
+    } else if job.scene.hdr().is_some() && job.scene.hdr_orientation.is_turned() {
         6
     } else if job.zoning.is_some() {
         5
@@ -831,6 +834,7 @@ pub(crate) mod test_support {
             head_shadow_deg: 22.0,
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         }
     }
 
@@ -906,6 +910,14 @@ pub(crate) mod test_support {
             yaw: 0.7,
             follows_camera: true,
         };
+        job.format = format_for(&job);
+        job
+    }
+
+    /// A still whose camera puts the stone off-centre (format 7).
+    pub fn panned_still_job() -> RenderJobFile {
+        let mut job = still_job();
+        job.scene.camera_pan = [0.25, -0.4];
         job.format = format_for(&job);
         job
     }

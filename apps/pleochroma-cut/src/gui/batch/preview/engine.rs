@@ -26,7 +26,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     panic::{self, AssertUnwindSafe},
     sync::{
-        Mutex, PoisonError,
+        Mutex, OnceLock, PoisonError,
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
     thread,
@@ -500,14 +500,47 @@ pub(super) fn finish_item_at_revision(
     );
 }
 
+/// The local lanes' GPU. The batch acquires it on a thread of its own, so neither the
+/// remote dispatchers nor the first local pictures wait for adapter acquisition and the
+/// megakernel compile. Until it is ready a local picture is traced on the CPU, the fallback
+/// every picture the GPU declines takes anyway.
+pub(super) struct LocalGpu {
+    /// Set once, by [`Self::acquire`].
+    acquired: OnceLock<GpuBackend>,
+    /// What a picture renders with until then: a backend that always declines.
+    pending: GpuBackend,
+}
+
+impl LocalGpu {
+    /// A GPU not acquired yet.
+    pub(super) const fn new() -> Self {
+        Self {
+            acquired: OnceLock::new(),
+            pending: GpuBackend::disabled(),
+        }
+    }
+
+    /// Acquires the adapter and compiles the megakernel. Slow: called once per batch, on a
+    /// thread of its own.
+    pub(super) fn acquire(&self) {
+        let _ = self.acquired.set(GpuBackend::acquire());
+    }
+
+    /// The backend a local picture renders with now: the acquired one once it is ready,
+    /// otherwise the declining stand-in.
+    pub(super) fn current(&self) -> &GpuBackend {
+        self.acquired.get().unwrap_or(&self.pending)
+    }
+}
+
 /// Runs one local lane: claims items via `WorkQueue::claim_local` (remote-failed items
 /// first, then fresh ones) until both piles are empty and `remote_lane_done` says no more
-/// requeues are coming (see `gui::batch::batch_queue`). `gpu` is the one `GpuBackend` every
-/// local lane shares, acquired once per batch; concurrent use is safe because the GPU queue
-/// serializes the dispatches.
+/// requeues are coming (see `gui::batch::batch_queue`). `gpu` is the [`LocalGpu`] every
+/// local lane shares; each picture takes the backend it holds when the picture starts.
+/// Concurrent use is safe because the GPU queue serializes the dispatches.
 pub(super) fn run_local_lane(
     shared: &LaneShared<'_>,
-    gpu: &GpuBackend,
+    gpu: &LocalGpu,
     ui_weak: &Weak<MainWindow>,
     remote_lane_done: &AtomicBool,
 ) {
@@ -540,7 +573,8 @@ pub(super) fn run_local_lane(
         let revision = resolved
             .as_ref()
             .map_or(RecordRevision::Unknown, |r| r.revision);
-        let bytes = resolved.and_then(|r| render_item_local(shared.ctx, gpu, &r, item.view));
+        let bytes =
+            resolved.and_then(|r| render_item_local(shared.ctx, gpu.current(), &r, item.view));
         finish_item_at_revision(shared, ui_weak, item.entry_id, item.view, bytes, revision);
 
         adjust_local_active(shared.progress, -1);
@@ -580,7 +614,7 @@ pub(super) fn build_items(entry_ids: &[i64]) -> Vec<PreviewItem> {
 /// queue; `remote_lane_done` is raised when the last of them ends.
 pub(super) fn run_batch_lanes(
     shared: &LaneShared<'_>,
-    gpu: &GpuBackend,
+    gpu: &LocalGpu,
     plan: super::super::batch_queue::LanePlan,
     remote_worker: Option<&WorkerSettings>,
     local_lane_total: u32,
@@ -607,8 +641,8 @@ pub(super) fn run_batch_lanes(
             }
         }
         if plan.run_local {
-            // The local lanes all share the one `gpu` acquired by the caller (see
-            // `run_local_lane`); the queue is their only coordination.
+            // The local lanes all share the caller's `gpu` (see `run_local_lane`); the
+            // queue is their only coordination.
             for _ in 0..local_lane_total {
                 let local_ui_weak = ui_weak.clone();
                 scope.spawn(move || {

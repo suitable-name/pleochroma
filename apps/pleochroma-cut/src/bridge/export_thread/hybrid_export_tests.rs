@@ -24,6 +24,7 @@ use std::sync::{Mutex, atomic::AtomicU32};
 fn export_completes_via_hybrid_or_cpu_path() {
     let scene = SceneSnapshot {
         camera_roll: 0.0,
+        camera_pan: [0.0, 0.0],
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
@@ -127,7 +128,8 @@ fn a_local_share_plus_its_complement_matches_render_accumulation() {
     let viewer = 5u32;
     let first = spp - viewer;
     let camera = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let mut combined = vec![Vec3::ZERO; (width * height) as usize];
     batch::render_batch(width, height, first, 0, &camera, &scene, &mut combined);
 

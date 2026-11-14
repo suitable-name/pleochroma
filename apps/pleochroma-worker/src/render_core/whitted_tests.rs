@@ -16,7 +16,8 @@ fn scene() -> SceneState {
 fn ray_worker_matches_the_shared_cpu_tracer_and_thread_counts() {
     let scene = scene();
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let finishes = resolve_facet_finishes(&scene);
     let frame = FrameScene {
         camera: &camera,

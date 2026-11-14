@@ -65,6 +65,7 @@ pub(super) fn reset_pose(aspect: f32) -> CameraPose {
     let (near, far) = orbit_distance_bounds(super::scene::SCENE_RADIUS);
     CameraPose {
         roll: 0.0,
+        pan: [0.0, 0.0],
         yaw: RESET_YAW,
         pitch: RESET_PITCH,
         distance: (fit_distance_for_radius(super::scene::SCENE_RADIUS) * widen(aspect))

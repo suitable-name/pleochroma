@@ -295,6 +295,7 @@ mod tests {
                 yaw: 0.0,
                 pitch: 0.0,
                 distance: 4.0,
+                pan: [0.0, 0.0],
             },
             size: (700, 360),
             diagram: Some(Arc::new(frame.layout)),

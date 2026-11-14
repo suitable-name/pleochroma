@@ -1,0 +1,117 @@
+import { Slider } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { SolidPreviewModel } from "../../models/solid_preview.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { KitGlass } from "../kit/kit.slint";
+
+// The Cut To scrubber at the bottom of the Edit viewport: how far through the cutting steps the
+// stone is drawn, so a cutter can see the rough after every tier. Position 0 is the rough, position
+// k the stone after the first k steps, and the far right the finished design.
+//
+// The order is the design's own cutting order (`cut_step_names`, from `Design::preview_steps`), never
+// the order of the groups. A tick and a label stand under every step; on a design with many steps the
+// labels thin out, keeping the first, the last and an even stride between them.
+//
+// The std `Slider` below does the dragging, the keys and the accessible slider ("Cut Step"); the
+// ticks and labels are drawn around it. `SolidPreviewModel.tier_cutoff`: `-1` finished, `-2` rough,
+// `n >= 0` after steps 0..=n. Rust reads it through `tier_cutoff_changed`.
+export component CutSlider inherits KitGlass {
+    height: 52px;
+    // The open tutorial step is about this slider: a cyan outline, 2px wide.
+    border-width: GuideModel.highlight_target == "cut_slider" ? 2px : 1px;
+    border-color: GuideModel.highlight_target == "cut_slider" ? Theme.accent-cyan : (SolidPreviewModel.tier_cutoff != -1 ? Theme.accent-amber : Theme.glass-edge);
+
+    // The slider handle's width: the thumb's travel is the track less this.
+    property <length> thumb: 20px;
+    property <int> steps: SolidPreviewModel.cut_step_count;
+    property <int> at: Math.round(SolidPreviewModel.cut_position);
+    // Pixels between two steps.
+    property <float> stride: root.steps > 0 ? ((track.width - root.thumb) / 1px) / root.steps : 0;
+    // Show every `every`-th label (a label is about 34 px wide).
+    property <int> every: root.stride <= 0 ? 1 : Math.max(1, Math.ceil(34.0 / root.stride));
+    // What the left block says: the step the stone is cut to, as short as it goes.
+    property <string> now: root.at >= root.steps ? "Finished" : (root.at <= 0 ? "Rough" : (SolidPreviewModel.cut_step_names.length >= root.at ? SolidPreviewModel.cut_step_names[root.at - 1] : SolidPreviewModel.cut_label));
+
+    pure function label_at(i: int) -> string {
+        return i <= 0 ? "Rough" : (SolidPreviewModel.cut_step_names.length >= i ? SolidPreviewModel.cut_step_names[i - 1] : "\{i}");
+    }
+    pure function labelled(i: int) -> bool {
+        return i == 0 || i == root.steps || (Math.mod(i, root.every) == 0 && root.steps - i >= root.every);
+    }
+
+    Tooltip { text: @markdown("**\{SolidPreviewModel.cut_label}**. Drag to see the stone after each tier of the cutting steps, in cutting order. All the way left is the rough, all the way right is the finished design. Live Render follows this slider; exports and tilt videos always show the finished stone."); }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        VerticalLayout {
+            width: 84px;
+            alignment: center;
+            spacing: 1px;
+            Text { text: "CUT TO"; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; color: Theme.text-muted; }
+            Text {
+                text: root.now;
+                font-size: 13px;
+                font-weight: 700;
+                color: SolidPreviewModel.tier_cutoff != -1 ? Theme.accent-amber : Theme.text-primary;
+                overflow: elide;
+            }
+        }
+        track := Rectangle {
+            horizontal-stretch: 1;
+            // One tick and, where there is room, one label per step.
+            for i in root.steps + 1: Rectangle {
+                x: root.thumb / 2 + (track.width - root.thumb) * i / Math.max(1, root.steps) - 17px;
+                y: 0px;
+                width: 34px;
+                height: parent.height;
+                if root.stride >= 4: Rectangle {
+                    x: 16px;
+                    y: 31px;
+                    width: 2px;
+                    height: 5px;
+                    background: i <= root.at ? Theme.accent-cyan : Theme.border-medium;
+                }
+                if root.labelled(i): Text {
+                    y: 38px;
+                    width: 100%;
+                    text: root.label_at(i);
+                    font-size: 9px;
+                    color: i == root.at ? Theme.text-primary : (i < root.at ? Theme.text-secondary : Theme.text-muted);
+                    horizontal-alignment: center;
+                    overflow: elide;
+                }
+            }
+            cut_slider := Slider {
+                accessible-label: "Cut Step";
+                x: 0px;
+                y: 3px;
+                width: parent.width;
+                minimum: 0;
+                // The last position is "Finished", this many steps in, so the control has a
+                // natural home for "no cut" at its far right rather than a reset button.
+                maximum: SolidPreviewModel.cut_step_count;
+                step: 1;
+                // Two-way, not a `value:` binding: a std Slider stops following a plain
+                // binding after the first drag, and Rust must be able to move the handle.
+                value <=> SolidPreviewModel.cut_position;
+                // `changed(value)` fires only for a user drag, key or click, not when Rust moves the
+                // handle. A `changed value` handler would also run on Rust moves and queue a redundant
+                // replan that can flush while a blocking Rust callback still holds the `EditorState`
+                // guard. `setup_tier_cutoff_callback` uses `try_borrow` and retries for the same
+                // reason. The handle snaps to whole steps; a drag raises the callback only on a
+                // step change.
+                changed(value) => {
+                    let steps = Math.round(value);
+                    let cutoff = steps >= SolidPreviewModel.cut_step_count ? -1 : (steps <= 0 ? -2 : steps - 1);
+                    SolidPreviewModel.cut_position = steps;
+                    if (cutoff != SolidPreviewModel.tier_cutoff) {
+                        SolidPreviewModel.tier_cutoff = cutoff;
+                        SolidPreviewModel.tier_cutoff_changed();
+                    }
+                }
+            }
+        }
+    }
+}

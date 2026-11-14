@@ -17,19 +17,19 @@ use super::{
         SliceSide, SnappedFacet, named_like_its_code, slice_normal, slice_tier, snap_to_gear,
         tangency_mast,
     },
-    target::{CAMERA_FOV_DEG, HandleTarget, ids_aligned, target_for},
+    target::{HandleTarget, camera_for_pose, ids_aligned, target_for},
     text,
 };
 use crate::session::clamp_nudge_to_side;
 use glam::Vec3;
-use pleochroma::{
-    geometry::meet_solver::{MeetConstraint, SolveStrategy, SolvedTier},
-    optics::raytracer::Camera,
-};
+use pleochroma::geometry::meet_solver::{MeetConstraint, SolveStrategy, SolvedTier};
 use pleochroma_cut_core::{
     ConstraintTier, Design, Edit, design::TierRef, expected_orbit, rotate_indices,
 };
-use pleochroma_solid::{facet_map::FacetMap, preview::FrameGeometry};
+use pleochroma_solid::{
+    facet_map::FacetMap,
+    preview::{CameraPose, FrameGeometry},
+};
 use std::{collections::BTreeSet, rc::Rc, sync::Arc};
 
 /// The angle step a sliced facet snaps to, in degrees.
@@ -174,8 +174,8 @@ pub struct SliceLine {
     pub b: ScreenPoint,
     /// The pick frame's size.
     pub size: ScreenSize,
-    /// The camera's `(yaw, pitch, distance)` for that frame.
-    pub pose: (f32, f32, f32),
+    /// The camera pose of that frame.
+    pub pose: CameraPose,
 }
 
 impl SliceLine {
@@ -186,11 +186,7 @@ impl SliceLine {
             a,
             b,
             size: ScreenSize::new(geometry.size.0 as f32, geometry.size.1 as f32),
-            pose: (
-                geometry.camera.yaw,
-                geometry.camera.pitch,
-                geometry.camera.distance,
-            ),
+            pose: geometry.camera,
         }
     }
 
@@ -198,8 +194,7 @@ impl SliceLine {
     /// define one.
     #[must_use]
     pub fn normal(&self, side: SliceSide) -> Option<Vec3> {
-        let (yaw, pitch, distance) = self.pose;
-        let camera = Camera::new(yaw, pitch, distance, CAMERA_FOV_DEG);
+        let camera = camera_for_pose(self.pose);
         slice_normal(&camera, self.a, self.b, self.size, side)
     }
 }

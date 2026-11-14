@@ -1,153 +1,194 @@
-import { Button } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { RetargetModel } from "../../models/retarget.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { CuttingModeModel } from "../../models/cutting_mode.slint";
-import { GuideLockTip } from "../guide_lock.slint";
+import { BaselineModel } from "../../models/baseline.slint";
+import { TiltModel } from "../../models/tilt.slint";
+import { KitIcons } from "../kit/kit.slint";
+import { BarButton, BarIcons, BarMenuCaption, BarMenuItem, BarMenuPanel, BarMenuRule } from "bar_parts.slint";
 
-// Retarget... / Tilt Curves / Cut Mode -- the bar's "do something with this design"
-// group. Wrapper and hint conventions are those of `edit_groups.slint`.
+// Retarget... / Tilt Curves / the tilt chart / Cut Mode -- the bar's "do something with this design"
+// group, as quiet icon-and-label buttons. A narrow dock keeps the icons and drops the words
+// (`show_text`); every name is still the accessible label.
 export component AnalysisGroup inherits HorizontalLayout {
-    height: 32px;
-    spacing: 8px;
+    // The words of Retarget and Cut Mode (the dock is at least ~840 px wide).
+    in property <bool> some_text: true;
+    // The words of Tilt Curves and the tilt chart too (at least ~990 px).
+    in property <bool> all_text: true;
 
-    function set_hint(text: string) {
-        EditorModel.hover_hint = text;
-    }
-    function clear_hint(text: string) {
-        if EditorModel.hover_hint == text {
-            EditorModel.hover_hint = "";
-        }
-    }
+    height: 32px;
+    spacing: 4px;
 
     // Proposes new facet angles for a different material, reviewed in a
     // modal dialog before anything is applied.
-    TouchArea {
-        width: retarget_btn.preferred-width;
-        height: 32px;
-        changed has-hover => { if self.has-hover { root.set_hint("Retarget: propose new facet angles so the design works in a different material, and review them before anything changes. See the glossary."); } else { root.clear_hint("Retarget: propose new facet angles so the design works in a different material, and review them before anything changes. See the glossary."); } }
-        retarget_btn := Button {
-            text: "Retarget...";
-            accessible-description: "Propose new facet angles so the design works in a different material. You review them before anything changes.";
-            enabled: GuideModel.allows_advanced();
-            clicked => { RetargetModel.open(); }
-        }
-        // The guide's Retarget lessons outline this button.
-        if GuideModel.highlight_target == "retarget_button": Rectangle {
-            border-width: 2px;
-            border-color: Theme.accent-cyan;
-            border-radius: Theme.radius-sm;
-        }
-        GuideLockTip { locked: !GuideModel.allows_advanced(); }
+    BarButton {
+        icon: BarIcons.retarget;
+        text: "Retarget…";
+        label: "Retarget...";
+        show_text: root.some_text;
+        hint: "Retarget: propose new facet angles so the design works in a different material, and review them before anything changes. See the glossary.";
+        enabled: GuideModel.allows_advanced();
+        locked: !GuideModel.allows_advanced();
+        highlighted: GuideModel.highlight_target == "retarget_button";
+        clicked => { RetargetModel.open(); }
     }
 
     // Runs the full 4-axis tilt-performance sweep for the design currently open in the
     // editor -- see `EditorModel.compute_tilt_curves_for_open_design` for what happens
-    // once it starts. Advanced: the Simple interface leaves it out.
-    if GuideModel.shows_advanced(): TouchArea {
-        width: compute_tilt_btn.preferred-width;
-        height: 32px;
-        changed has-hover => { if self.has-hover { root.set_hint("Tilt Curves: work out how bright, dark or see-through this stone looks as it is tilted, from table-up to a steep angle. Takes a few seconds. See the glossary."); } else { root.clear_hint("Tilt Curves: work out how bright, dark or see-through this stone looks as it is tilted, from table-up to a steep angle. Takes a few seconds. See the glossary."); } }
-        compute_tilt_btn := Button {
-            text: "Tilt Curves";
-            accessible-description: "Work out how bright, dark or see-through this stone looks as it is tilted. Takes a few seconds.";
-            enabled: GuideModel.allows_advanced();
-            clicked => { EditorModel.compute_tilt_curves_for_open_design(); }
-        }
-        GuideLockTip { locked: !GuideModel.allows_advanced(); }
+    // once it starts. Advanced: the Simple interface leaves it out. It COMPUTES the curves
+    // (the batch dialog); "Tilt Chart" beside it only shows them. The button says "Tilt Batch..."
+    // and is still announced as "Tilt Curves".
+    if GuideModel.shows_advanced(): BarButton {
+        icon: KitIcons.turn;
+        text: "Tilt Batch…";
+        label: "Tilt Curves";
+        show_text: root.all_text;
+        hint: "Tilt Batch: work out the tilt figures of this design (brightness, windowing and extinction, from table-up to a steep angle) and keep them. Opens a progress window and takes a few seconds. Tilt Chart shows the result. See the glossary.";
+        enabled: GuideModel.allows_advanced();
+        locked: !GuideModel.allows_advanced();
+        clicked => { EditorModel.compute_tilt_curves_for_open_design(); }
+    }
+
+    // The Edit tab's own route to the tilt-performance chart (it was a toggle in the viewport's
+    // toolbar), so a cutter isn't forced to leave the Edit tab and use the Live Render tab's "Tilt
+    // Curve" button. Same open/close and stale-cache check as `GemViewportView`'s own button, shared
+    // via `TiltModel.toggle_dialog()`. Advanced only. Its name is "Tilt Curve", the chart; "Tilt
+    // Curves" beside it works the figures out.
+    if GuideModel.shows_advanced(): BarButton {
+        icon: KitIcons.chart;
+        text: "Tilt Chart";
+        label: "Tilt Curve";
+        show_text: root.all_text;
+        hint: GuideModel.allows_advanced()
+            ? "Tilt Chart: open or close the chart of brilliance, windowing and extinction as the stone tilts. It shows the figures Tilt Batch works out. See the glossary."
+            : GuideModel.locked_hint;
+        enabled: GuideModel.allows_advanced();
+        locked: !GuideModel.allows_advanced();
+        on: TiltModel.dialog_open;
+        clicked => { TiltModel.toggle_dialog(); }
     }
 
     // Cutting mode (`models/cutting_mode.slint`, `gui::editor::cutting_mode`): the cutting
-    // steps one page at a time over the whole window. Dim, with the reason in the hint, while
+    // steps one page at a time over the whole window. A button, not a mode switch: it opens a
+    // full-screen view with its own Close. Dim, with the reason in the hint, while
     // there is nothing to cut (no design, no tiers, a design that does not solve).
-    TouchArea {
-        width: cut_mode_btn.preferred-width;
-        height: 32px;
-        property <string> cut_mode_hint: CuttingModeModel.unavailable_reason() == ""
-            ? "Walk through the cutting steps page by page. Done marks are kept for this design."
-            : CuttingModeModel.unavailable_reason();
-        property <string> cut_mode_tooltip_text: GuideModel.allows_advanced() ? self.cut_mode_hint : GuideModel.locked_hint;
-        changed has-hover => { if self.has-hover { root.set_hint(self.cut_mode_tooltip_text); } else { root.clear_hint(self.cut_mode_tooltip_text); } }
-        Tooltip { text: @markdown("\{cut_mode_tooltip_text}"); }
-        cut_mode_btn := Button {
-            text: "Cut Mode";
-            accessible-description: parent.cut_mode_tooltip_text;
-            enabled: GuideModel.allows_advanced() && !CuttingModeModel.open && CuttingModeModel.unavailable_reason() == "";
-            clicked => { CuttingModeModel.open_cutting_mode(); }
-        }
-        // The cutting-mode tutorial outlines this button.
-        if GuideModel.highlight_target == "cutting_mode_button": Rectangle {
-            border-width: 2px;
-            border-color: Theme.accent-cyan;
-            border-radius: Theme.radius-sm;
-        }
+    BarButton {
+        icon: BarIcons.cut;
+        text: "Cut Mode";
+        show_text: root.some_text;
+        hint: GuideModel.allows_advanced()
+            ? (CuttingModeModel.unavailable_reason() == ""
+                ? "Walk through the cutting steps page by page. Done marks are kept for this design."
+                : CuttingModeModel.unavailable_reason())
+            : GuideModel.locked_hint;
+        enabled: GuideModel.allows_advanced() && !CuttingModeModel.open && CuttingModeModel.unavailable_reason() == "";
+        locked: !GuideModel.allows_advanced();
+        highlighted: GuideModel.highlight_target == "cutting_mode_button";
+        clicked => { CuttingModeModel.open_cutting_mode(); }
     }
 }
 
-// Set Baseline and Compare. The Rust side is `setup_snapshot_callbacks`, and the ids keep their
-// "snapshot" names. Compare uses the comparison dialog shell of `retarget_dialog.slint`. Advanced
-// only: the Simple interface sets the Baseline from the Baseline strip
-// (`editor_inspector/baseline_strip.slint`).
+// The Baseline menu: what the figures are read against. "Set as Baseline" keeps the design as it is
+// now; "Compare..." and "Measure Tilt" work on it. The design snapshot Retarget and its Compare use
+// is the second section ("Set Baseline", "Compare"; the names are the old buttons'). A button with a
+// chevron that opens a menu, so it reads as a menu and not as a status. Advanced only (the Simple
+// interface shows the figures without changes).
 export component SnapshotGroup inherits HorizontalLayout {
+    in property <bool> show_text: true;
+
     height: 32px;
-    spacing: 8px;
+    spacing: 4px;
 
-    function set_hint(text: string) {
-        EditorModel.hover_hint = text;
-    }
-    function clear_hint(text: string) {
-        if EditorModel.hover_hint == text {
+    if GuideModel.shows_advanced(): menu_anchor := Rectangle {
+        property <bool> menu_open: false;
+        width: btn.width;
+        height: 32px;
+
+        function close_menu() {
+            self.menu_open = false;
             EditorModel.hover_hint = "";
+            btn.take_focus();
         }
-    }
 
-    if GuideModel.shows_advanced(): TouchArea {
-        width: snapshot_btn.preferred-width;
-        height: 32px;
-        changed has-hover => { if self.has-hover { root.set_hint("Set Baseline: keep the design as it is now as the Baseline, so the figures show every change from here and Compare can show what moved. The Baseline lives only in this session and is not saved to disk. See the glossary."); } else { root.clear_hint("Set Baseline: keep the design as it is now as the Baseline, so the figures show every change from here and Compare can show what moved. The Baseline lives only in this session and is not saved to disk. See the glossary."); } }
-        snapshot_btn := Button {
-            text: "Set Baseline";
-            accessible-description: "Keep the design as it is now as the Baseline, to compare with a later version. Not saved to disk.";
+        btn := BarButton {
+            icon: BarIcons.flag;
+            text: "Baseline";
+            show_text: root.show_text;
+            chevron: true;
+            expanded: menu_anchor.menu_open;
+            hint: (BaselineModel.has_baseline ? BaselineModel.label + ". " : "No Baseline yet. ") + "Keep the design as it is now as the Baseline, so the figures show every change from here.";
             enabled: GuideModel.allows_advanced();
-            clicked => { EditorModel.snapshot_design(); }
+            locked: !GuideModel.allows_advanced();
+            clicked => { menu_anchor.menu_open = !menu_anchor.menu_open; }
         }
-        // The guide's Baseline lessons outline this button.
-        if GuideModel.highlight_target == "snapshot_button": Rectangle {
-            border-width: 2px;
-            border-color: Theme.accent-cyan;
-            border-radius: Theme.radius-sm;
+
+        // A click anywhere else closes the menu.
+        if menu_anchor.menu_open: Rectangle {
+            x: -2000px;
+            y: -2000px;
+            width: 4000px;
+            height: 4000px;
+            z: 49;
+            TouchArea { clicked => { menu_anchor.close_menu(); } }
         }
-        GuideLockTip { locked: !GuideModel.allows_advanced(); }
-    }
-    // Gated on a Baseline existing (`EditorModel.has_snapshot`, pushed `true` the moment
-    // one is set); the hover hint explains the greyed state before that.
-    if GuideModel.shows_advanced(): TouchArea {
-        width: compare_snapshot_btn.preferred-width;
-        height: 32px;
-        changed has-hover => {
-            if self.has-hover {
-                root.set_hint(EditorModel.has_snapshot
+        if menu_anchor.menu_open: BarMenuPanel {
+            x: 0px;
+            y: menu_anchor.height + 2px;
+            z: 50;
+            menu_width: 276px;
+            init => { set_item.take_focus(); }
+            BarMenuCaption { text: BaselineModel.has_baseline ? BaselineModel.label : "No Baseline yet"; }
+            set_item := BarMenuItem {
+                text: "Set as Baseline";
+                hint: "Keep the design as it is now as the Baseline. The figures then show every change from here. The Baseline lives only in this session and is not saved to disk.";
+                activated => { menu_anchor.close_menu(); BaselineModel.set_baseline(); }
+                dismissed => { menu_anchor.close_menu(); }
+            }
+            BarMenuItem {
+                text: "Compare…";
+                label: "Compare...";
+                hint: "Compare the design now with the Baseline, tier by tier.";
+                enabled: BaselineModel.has_baseline;
+                activated => { menu_anchor.close_menu(); BaselineModel.compare(); }
+                dismissed => { menu_anchor.close_menu(); }
+            }
+            BarMenuItem {
+                text: BaselineModel.measuring_tilt ? "Stop Measuring" : "Measure Tilt";
+                label: BaselineModel.measuring_tilt ? "Stop" : "Measure Tilt";
+                hint: BaselineModel.measuring_tilt
+                    ? "Stop measuring the tilt averages."
+                    : "Measure the tilt averages of the Baseline and of the design now, over all four axes. Takes a few seconds.";
+                enabled: BaselineModel.has_baseline;
+                activated => { menu_anchor.close_menu(); BaselineModel.measure_tilt(); }
+                dismissed => { menu_anchor.close_menu(); }
+            }
+            BarMenuRule { }
+            BarMenuCaption { text: "DESIGN SNAPSHOT, FOR RETARGET"; }
+            // The set of the guide's Baseline lessons outlines these two.
+            BarMenuItem {
+                text: "Set Snapshot";
+                label: "Set Baseline";
+                detail: "Keep this design's tiers to compare later";
+                hint: "Set Baseline: keep the design as it is now as the Baseline, so the figures show every change from here and Compare can show what moved. The Baseline lives only in this session and is not saved to disk. See the glossary.";
+                highlighted: GuideModel.highlight_target == "snapshot_button";
+                activated => { menu_anchor.close_menu(); EditorModel.snapshot_design(); }
+                dismissed => { menu_anchor.close_menu(); }
+            }
+            // Gated on a snapshot existing (`EditorModel.has_snapshot`, pushed `true` the moment one
+            // is set); the hint explains the greyed state before that.
+            BarMenuItem {
+                text: "Compare with Snapshot…";
+                label: "Compare";
+                detail: "Side by side with the kept design";
+                hint: EditorModel.has_snapshot
                     ? "Compare the current design with the Baseline, side by side."
-                    : "Compare the current design with the Baseline. Press Set Baseline first: no Baseline has been set this session.");
-            } else {
-                root.clear_hint("Compare the current design with the Baseline, side by side.");
+                    : "Compare the current design with the Baseline. Press Set Baseline first: no Baseline has been set this session.";
+                enabled: EditorModel.has_snapshot;
+                highlighted: GuideModel.highlight_target == "compare_button";
+                activated => { menu_anchor.close_menu(); EditorModel.compare_to_snapshot(); }
+                dismissed => { menu_anchor.close_menu(); }
             }
         }
-        compare_snapshot_btn := Button {
-            text: "Compare";
-            accessible-description: EditorModel.has_snapshot
-                ? "Compare the current design with the Baseline, side by side."
-                : "Compare the current design with the Baseline. Not available until you set a Baseline.";
-            enabled: EditorModel.has_snapshot && GuideModel.allows_advanced();
-            clicked => { EditorModel.compare_to_snapshot(); }
-        }
-        // The guide's Baseline and Compare lesson outlines this button.
-        if GuideModel.highlight_target == "compare_button": Rectangle {
-            border-width: 2px;
-            border-color: Theme.accent-cyan;
-            border-radius: Theme.radius-sm;
-        }
-        GuideLockTip { locked: !GuideModel.allows_advanced(); }
     }
 }

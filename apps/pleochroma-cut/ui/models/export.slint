@@ -104,6 +104,9 @@ export global ExportModel {
     // text field; Rust persists every edit via `filename_template_changed`.
     in property <string> directory: "";
     callback change_directory();
+    // --- R3D --- The Files page's "Open Exports Folder": opens `directory` (this model's) in the
+    // file manager, else the folder of the last file the Edit tab wrote, else `./exports/`.
+    callback open_exports_folder(string);
     in-out property <string> filename_template: "";
     callback filename_template_changed(string);
     // Live "resolves to" preview of the filename template, for THIS export: the template,

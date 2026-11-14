@@ -15,7 +15,10 @@ use crate::{
     bridge::render_thread::RenderContext,
     gui::{
         editor::{
-            state::{EditorState, PendingGearRemap, gear_choice_to_teeth, gear_remap_preview},
+            state::{
+                EditorState, PendingGearRemap, gear_choice_to_teeth, gear_index_from_teeth,
+                gear_remap_preview,
+            },
             view::{SolidLastSolved, refresh_editor_panel_stale, submit_preview_replan},
         },
         show_toast,
@@ -148,8 +151,8 @@ pub(in crate::gui::editor) fn setup_gear_remap_confirm_callback(
             ui.global::<EditorModel>().set_gear_remap_open(false);
             show_toast(
                 &ui,
-                "The design changed while Apply Gear was open, so this preview no \
-                 longer matches it. Re-open Apply Gear to remap against the current \
+                "The design changed while the gear change was open, so this preview no \
+                 longer matches it. Pick the gear again to remap against the current \
                  design.",
                 "warning",
             );
@@ -207,9 +210,18 @@ pub(in crate::gui::editor) fn setup_gear_remap_cancel_callback(
         let Some(ui) = ui_weak.upgrade() else {
             return;
         };
-        state.borrow_mut().pending_gear_remap = None;
+        let gear_teeth = {
+            let mut st = state.borrow_mut();
+            st.pending_gear_remap = None;
+            st.design.meta.gear_teeth
+        };
         // Clears the recorded generation together with the pending remap.
         PENDING_GEAR_REMAP_GENERATION.with(|cell| cell.set(None));
-        ui.global::<EditorModel>().set_gear_remap_open(false);
+        let editor = ui.global::<EditorModel>();
+        editor.set_gear_remap_open(false);
+        // The Design sheet's gear segments follow `gear_index` at once, so a cancelled pick
+        // must not leave the segment on the gear that was not applied.
+        editor.set_gear_index(gear_index_from_teeth(gear_teeth));
+        editor.set_gear_custom_text(gear_teeth.to_string().into());
     });
 }

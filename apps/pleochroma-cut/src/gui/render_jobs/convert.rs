@@ -247,6 +247,8 @@ pub fn snapshot_from_scene(
         optical_diagnostics: None,
         yaw: scene.yaw,
         camera_roll: scene.camera_roll,
+        // A job stored before the pan existed reads centred (`SceneState`'s serde default).
+        camera_pan: scene.camera_pan,
         pitch: scene.pitch,
         distance: scene.distance,
         light_yaw: scene.light_yaw,

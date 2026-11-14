@@ -32,7 +32,10 @@ use pleochroma::{
         GpuAccumulate, GpuBackend, GpuSceneRef, scene_routes_to_gpu_with_tools,
     },
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// One frame's scene, as both backends need it. Bundled so the GPU and CPU paths
 /// (see [`ViewportGpu::try_accumulate_cancellable`]) share one description.
@@ -40,9 +43,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) struct BackendFrame<'a> {
     pub(super) width: u32,
     pub(super) height: u32,
-    /// Pose, carried separately from `camera` because the guide-buffer cache keys on
-    /// it (see `bridge::frame_cache::guide_pass`) and cannot recover it from a built
-    /// `Camera`.
+    /// The orbit pose `camera` was built from, before its roll and pan. Image caches key on the
+    /// built `camera` instead (see `bridge::frame_cache::guide_pass`), which carries both.
     pub(super) yaw: f32,
     pub(super) pitch: f32,
     pub(super) distance: f32,
@@ -115,7 +117,9 @@ pub(super) struct FrameOutputs<'a> {
               written at unrelated points of the frame loop; grouping them would only add an indirection"
 )]
 pub(super) struct ViewportGpu {
-    gpu: GpuBackend,
+    /// Shared with the startup shader cache build (`bridge::shader_cache`) once the preparation
+    /// worker takes it from there.
+    gpu: Arc<GpuBackend>,
     warmup: warmup::PathWarmup,
     shared_hdr: Option<std::sync::Arc<pleochroma::renderer::env_map::EnvironmentMap>>,
     guides: crate::bridge::frame_cache::guide_pass::GuideCache,
@@ -152,8 +156,9 @@ pub(super) struct ViewportGpu {
     observation: BenchmarkObservation,
 }
 
-/// The status pill's text while a GPU compiler/upload worker is running.
-pub(super) const PREPARING_STATUS: &str = "Preparing GPU renderer";
+/// The status text while a GPU compiler/upload worker is running. It is no fault: the main
+/// window keeps it out of the graphics-status banner.
+pub const PREPARING_STATUS: &str = "Preparing GPU renderer";
 
 impl ViewportGpu {
     pub(super) fn acquire() -> Self {
@@ -172,7 +177,7 @@ impl ViewportGpu {
 
     fn from_backend(gpu: GpuBackend, already_acquired: bool) -> Self {
         Self {
-            gpu,
+            gpu: Arc::new(gpu),
             warmup: warmup::PathWarmup::new(already_acquired),
             shared_hdr: None,
             guides: crate::bridge::frame_cache::guide_pass::GuideCache::new(),

@@ -97,44 +97,30 @@ impl Film<'_> {
 
     // --- The Stone tab ------------------------------------------------------------------------
 
-    /// Opens the Body Color list and moves to entry `wanted` with the keys, as a learner does.
-    /// Each arrow key applies its entry at once, so the list is followed one key at a time.
+    /// Presses the color tile of entry `wanted` of the Body Color group. The group is a list of
+    /// radio tiles (no combo box): each tile is named as its entry of
+    /// `EditorModel.body_color_options` is, and picking one applies it at once.
     fn choose_body_color_entry(&mut self, wanted: i32) -> Result<(), String> {
         let editor = self.ui.global::<EditorModel>();
-        let combo = self.stone_control("the Body Color list", |view| {
+        let name = usize::try_from(wanted)
+            .ok()
+            .and_then(|at| editor.get_body_color_options().row_data(at))
+            .ok_or_else(|| format!("the Body Color group has no entry {wanted}"))?;
+        let tile = self.stone_control("the Body Color tile", |view| {
             targets::role_label(
                 view,
-                "Body Color",
-                AccessibleRole::Combobox,
+                name.as_str(),
+                AccessibleRole::RadioButton,
                 Some("ParametersPanel"),
             )
         })?;
         let start = editor.get_body_color_index();
         if start == wanted {
             return Err(format!(
-                "the Body Color list is already on entry {wanted} before the lesson picks it"
+                "the Body Color group is already on entry {wanted} before the lesson picks it"
             ));
         }
-        self.click_and_invoke(&combo)?;
-        let budget = 3 * (wanted - start).abs() + 4;
-        for _ in 0..budget {
-            let current = editor.get_body_color_index();
-            if current == wanted {
-                break;
-            }
-            let key = if wanted > current { "Down" } else { "Up" };
-            self.rec
-                .press_keys(self.ui.window(), key)
-                .map_err(|e| format!("Body Color {key}: {e:?}"))?;
-            if !pacing::wait_real(Duration::from_millis(600), || {
-                editor.get_body_color_index() != current
-            }) {
-                break;
-            }
-        }
-        self.rec
-            .press_keys(self.ui.window(), "Return")
-            .map_err(|e| format!("Body Color Return: {e:?}"))?;
+        self.click_and_invoke(&tile)?;
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
             editor.get_body_color_index() == wanted
         }) {
@@ -260,6 +246,8 @@ impl Film<'_> {
     /// Step 7: the Material Editor, scrolled to its Color Variants section, then Cancel.
     fn show_color_variants_section(&mut self) -> Result<(), String> {
         let editor = self.ui.global::<ViewportModel>();
+        // New/Edit Material... is an item of the identity card's "..." menu.
+        self.press_stone_button("Material Menu")?;
         let open = self.stone_control("New/Edit Material...", |view| {
             targets::role_label(
                 view,

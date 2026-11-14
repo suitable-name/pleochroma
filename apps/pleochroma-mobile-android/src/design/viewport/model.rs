@@ -37,6 +37,8 @@ pub(super) fn push(window: &AppWindow, state: &AppState) {
     let model = window.global::<ViewportModel>();
 
     model.set_view_mode(viewport.mode.index());
+    model.set_diagram_single(state.window_class == WindowClass::Compact);
+    model.set_diagram_panel(viewport.panel().max(0));
     model.set_live_solid(render_view::live_solid(state));
     push_picture(&model, viewport);
     push_handles(&model, viewport, selected);

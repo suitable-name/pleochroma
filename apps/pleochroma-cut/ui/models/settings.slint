@@ -145,6 +145,11 @@ export global SettingsModel {
     // at startup.
     in-out property <string> env_map_path: "";
     in property <string> env_map_status: "";
+    // Fires when `env_map_status` changes (every load, clear, reset, saved lighting and design
+    // lighting writes it). Rust answers by setting `ViewportModel.env_map_name`
+    // (`gui::render::camera_lighting::setup_environment_map_callbacks`).
+    callback env_map_status_changed(string);
+    changed env_map_status => { env_map_status_changed(env_map_status); }
     in property <bool> env_map_loaded: false;
     // HDR environment map: carries the typed path field's text; `pick_hdr_file` below
     // only fills the field, this is a separate step.
@@ -215,4 +220,15 @@ export global SettingsModel {
     // every write-back and after a tab reset.
     in property <string> still_output_summary: "";
     in property <string> tilt_output_summary: "";
+
+    // --- R2R ---
+    // The Render tab's quality preset: 0 Draft, 1 Balanced (default), 2 High, 3 Custom. Rust owns
+    // it (`settings::model::QualityPreset`): it is pushed at startup and after a tab reset and
+    // when a preset is picked. A detail control (Target Samples, Render Resolution, Ray Bounces)
+    // sets 3 at once, so the tile follows the finger; Rust persists the same change and remembers
+    // the Custom values.
+    in-out property <int> quality_preset_index: 1;
+    // A preset tile was picked (0..=3). Rust sets the samples, resolution and bounces of the
+    // preset (Custom: the values it remembered) and pushes the three controls back.
+    callback quality_preset_selected(int);
 }

@@ -7,7 +7,7 @@ use crate::{
     perform_inputs::FIELD_PAUSE,
     routes::trace_running,
     support::app::pump,
-    targets::{self, Query, Spot},
+    targets,
 };
 use pleochroma_cut::{EditorModel, GuideModel, TemplateGalleryModel};
 use pleochroma_cut_core::{FreshDesignSpec, PreformShape, design::ConcaveTier};
@@ -434,11 +434,6 @@ impl Film<'_> {
 
     /// Films choosing the Meets kind `kind` in the Tier form and typing its value `text`.
     fn film_tier_meets(&mut self, kind: i32, text: &str) -> Result<(), String> {
-        let meets_combo = self
-            .inspector_form_control("Meets", uiprobe::AccessibleRole::Combobox)?
-            .ok_or_else(|| "Meets selector is not visible".to_owned())?;
-        self.click_and_invoke(&meets_combo)?;
-        self.rec.hold(pacing::MENU_HOLD)?;
         let label = match kind {
             0 => "Unspecified Vertex",
             1 => "Named Facet(s)",
@@ -448,34 +443,22 @@ impl Film<'_> {
             5 => "Table Width (mm)",
             _ => return Err(format!("unknown Meets option {kind}")),
         };
-        // Keyboard navigation is the visible user input for the open combo.
-        for _ in 0..6 {
-            self.rec
-                .press_keys(self.ui.window(), "Up")
-                .map_err(|e| format!("Meets Up: {e:?}"))?;
-        }
-        for _ in 0..kind {
-            self.rec
-                .press_keys(self.ui.window(), "Down")
-                .map_err(|e| format!("Meets Down: {e:?}"))?;
-        }
-        self.rec
-            .press_keys(self.ui.window(), "Return")
-            .map_err(|e| format!("Meets Return: {e:?}"))?;
-        let value = meets_combo
+        // Meets is a segment group: each segment is a radio button with the full name.
+        let segment = self
+            .inspector_form_control(label, uiprobe::AccessibleRole::RadioButton)?
+            .ok_or_else(|| format!("Meets segment {label:?} is not visible"))?;
+        self.click_and_invoke(&segment)?;
+        pump(80);
+        let picked = segment
             .handle
             .as_ref()
-            .and_then(uiprobe::ElementHandle::accessible_value)
-            .ok_or_else(|| {
-                format!("Meets {label:?}: combo has no accessible selection readback")
-            })?;
-        debug_check_with("Meets selection", &label, &value, value.contains(label));
-        if !value.contains(label) {
+            .and_then(uiprobe::ElementHandle::accessible_checked);
+        debug_check_with("Meets selection", &true, &picked, picked == Some(true));
+        if picked != Some(true) {
             return Err(format!(
-                "Meets selection expected {label:?}, read back {value:?}"
+                "Meets segment {label:?} was clicked but does not read as picked ({picked:?})"
             ));
         }
-        pump(80);
         self.rec.hold(FIELD_PAUSE)?;
 
         if kind != 0 && !text.is_empty() {
@@ -489,16 +472,13 @@ impl Film<'_> {
                 .input_spot(value_label)?
                 .ok_or_else(|| format!("Meets kind {kind}: {value_label} field is missing"))?;
             self.click_and_type(&spot, text)?;
-            let after = meets_combo
+            let after = segment
                 .handle
                 .as_ref()
-                .and_then(uiprobe::ElementHandle::accessible_value)
-                .ok_or_else(|| {
-                    format!("Meets {label:?}: combo lost its accessible readback after typing")
-                })?;
-            if !after.contains(label) {
+                .and_then(uiprobe::ElementHandle::accessible_checked);
+            if after != Some(true) {
                 return Err(format!(
-                    "Meets selection changed while typing {value_label}: expected {label:?}, read back {after:?}"
+                    "Meets selection changed while typing {value_label}: {label:?} reads {after:?}"
                 ));
             }
         }
@@ -533,86 +513,42 @@ impl Film<'_> {
             "SPH" => 4,
             _ => return Err(format!("unknown concave tool {tool:?}")),
         };
-        // The combo sits under `if concave_loaded`, so it exists only once the concave form has
-        // loaded after the click that chose it; wait for it to be there and enabled.
+        // The tiles sit under `if concave_loaded`, so they exist only once the concave form has
+        // loaded after the click that chose it; wait for the group to be there and enabled.
         let ready = pacing::wait_real(Duration::from_secs(3), || {
             self.inspector_label_state("Tool Shape") == Some(true)
         });
         let ed = self.ui.global::<EditorModel>();
-        let missing = |film: &Self, why: &str| {
-            format!(
-                "concave Tool Shape combo is missing ({why}): label state {:?} (None = absent, \
-                 Some(false) = disabled), inspector tab {}, concave mode {}, selected row {}, \
-                 locked hint {:?}, inspector: [{}]",
-                film.inspector_label_state("Tool Shape"),
-                ed.get_inspector_tab(),
-                ed.get_inspector_concave_mode(),
-                ed.get_selected_tier_index(),
-                film.ui.global::<GuideModel>().get_locked_hint(),
-                film.inspector_dump()
-            )
-        };
-        let Some(shape) =
-            self.inspector_form_control("Tool Shape", uiprobe::AccessibleRole::Combobox)?
+        let expected = TOOLS[tool_index];
+        // Each tool is a tile that reads as a radio button with the tool's full name.
+        let Some(tile) =
+            self.inspector_form_control(expected, uiprobe::AccessibleRole::RadioButton)?
         else {
             let why = if ready {
                 "present but not revealed by scrolling"
             } else {
                 "never loaded in 3 s"
             };
-            return Err(missing(self, why));
-        };
-        let read = |shape: &Spot| {
-            shape
-                .handle
-                .as_ref()
-                .and_then(uiprobe::ElementHandle::accessible_value)
-                .map(|value| value.to_string())
-        };
-        let index_of = |value: &str| TOOLS.iter().position(|name| *name == value);
-        self.click_and_invoke(&shape)?;
-        let mut trace = vec![format!("opened: {:?}", read(&shape))];
-        for pass in 0..3 {
-            let before = read(&shape);
-            let current = before.as_deref().and_then(index_of);
-            let (key, count) = match current {
-                Some(at) if at == tool_index => break,
-                Some(at) if at < tool_index => ("Down", tool_index - at),
-                Some(at) => ("Up", at - tool_index),
-                None => ("Up", 4),
-            };
-            for _ in 0..count {
-                self.rec
-                    .press_keys(self.ui.window(), key)
-                    .map_err(|e| format!("Tool Shape {key}: {e:?}"))?;
-                trace.push(format!("{key}: {:?}", read(&shape)));
-            }
-            if current.is_none() {
-                for _ in 0..tool_index {
-                    self.rec
-                        .press_keys(self.ui.window(), "Down")
-                        .map_err(|e| format!("Tool Shape Down: {e:?}"))?;
-                    trace.push(format!("Down: {:?}", read(&shape)));
-                }
-                break;
-            }
-            // A combo that only takes the highlighted entry on Return reads the same after the
-            // keys; correcting again would overshoot.
-            if pass == 0 && read(&shape) == before {
-                break;
-            }
-        }
-        self.rec
-            .press_keys(self.ui.window(), "Return")
-            .map_err(|e| format!("Tool Shape Return: {e:?}"))?;
-        pump(40);
-        let selected =
-            read(&shape).ok_or("Tool Shape combo has no accessible selection readback")?;
-        let expected = TOOLS[tool_index];
-        debug_check("Tool Shape selection", &expected, &selected);
-        if selected != expected {
             return Err(format!(
-                "Tool Shape expected {expected:?}, read back {selected:?}; trace {trace:?}"
+                "concave tool tile {expected:?} is missing ({why}): inspector tab {}, concave \
+                 mode {}, selected row {}, locked hint {:?}, inspector: [{}]",
+                ed.get_inspector_tab(),
+                ed.get_inspector_concave_mode(),
+                ed.get_selected_tier_index(),
+                self.ui.global::<GuideModel>().get_locked_hint(),
+                self.inspector_dump()
+            ));
+        };
+        self.click_and_invoke(&tile)?;
+        pump(40);
+        let picked = tile
+            .handle
+            .as_ref()
+            .and_then(uiprobe::ElementHandle::accessible_checked);
+        debug_check("Tool Shape selection", &Some(true), &picked);
+        if picked != Some(true) {
+            return Err(format!(
+                "Tool Shape tile {expected:?} was clicked but reads as {picked:?}"
             ));
         }
         Ok(())
@@ -689,52 +625,43 @@ impl Film<'_> {
             }
         }
 
+        // Stroke is a two-segment choice: "One Way" or "Back and Forth" (radio buttons).
+        let wanted = if reciprocating {
+            "Back and Forth"
+        } else {
+            "One Way"
+        };
         let motion = self
-            .inspector_form_control(
-                "Reciprocating (Stroked Back and Forth)",
-                uiprobe::AccessibleRole::Checkbox,
-            )?
-            .ok_or("Reciprocating checkbox is missing")?;
+            .inspector_form_control(wanted, uiprobe::AccessibleRole::RadioButton)?
+            .ok_or("the Stroke segment is missing")?;
         let checked = motion
             .handle
             .as_ref()
             .and_then(uiprobe::ElementHandle::accessible_checked)
-            .ok_or("Reciprocating checkbox has no checked-state readback")?;
-        if checked != reciprocating {
+            .ok_or("the Stroke segment has no checked-state readback")?;
+        if !checked {
             self.click_and_invoke(&motion)?;
         }
         let motion_now = motion
             .handle
             .as_ref()
             .and_then(uiprobe::ElementHandle::accessible_checked);
-        debug_check("Reciprocating checked", &Some(reciprocating), &motion_now);
-        if motion_now != Some(reciprocating) {
-            return Err("Reciprocating click did not set the requested motion".into());
+        debug_check("Stroke segment checked", &Some(true), &motion_now);
+        if motion_now != Some(true) {
+            return Err("the Stroke click did not set the requested motion".into());
         }
 
-        let commit = targets::run(
-            &self.view(),
-            &Query::Id("EditorInspector::tip-button-concave-loaded"),
-        )
-        .or_else(|| {
-            targets::role_label(
-                &self.view(),
-                "Add Concave Tier",
-                uiprobe::AccessibleRole::Button,
-                None,
-            )
-        })
-        .or_else(|| {
-            targets::role_label(
-                &self.view(),
-                "Save Concave Tier",
-                uiprobe::AccessibleRole::Button,
-                None,
-            )
-        })
-        .ok_or("concave form commit button is missing")?;
+        // The Add / Save button now sits at the end of the form (it scrolls with it).
+        let commit_label = if edit.is_some() {
+            "Save Concave Tier"
+        } else {
+            "Add Concave Tier"
+        };
+        let commit = self
+            .inspector_form_control(commit_label, uiprobe::AccessibleRole::Button)?
+            .ok_or_else(|| format!("concave form commit button {commit_label:?} is missing"))?;
 
-        self.click_pinned_commit(&commit)?;
+        self.click_and_invoke(&commit)?;
         pump(80);
         // The picture after the step shows the true end of the form (its last line and the spacer
         // above the pinned button), not wherever the last field lookup left it. Cosmetic, so a

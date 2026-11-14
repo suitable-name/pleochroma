@@ -142,6 +142,15 @@ fn change(state: &Shared, edit: impl FnOnce(&mut AppState) -> bool) -> bool {
 /// Opens Cutting Mode at `step` (a position in the cutting order; a negative or unknown
 /// step starts at the first step not done). Without a current solve it only says so.
 pub fn open(window: &AppWindow, state: &Shared, step: i32) {
+    if !open_quietly(window, state, step) {
+        window.global::<CutModel>().set_mode_open(false);
+        crate::push::toast::show(window, NOT_SOLVED_MESSAGE);
+    }
+}
+
+/// [`open`] without the "not solved" toast: true when Cutting Mode opened. The preview's
+/// `--cutting` retries it until the start-up solve has landed.
+pub fn open_quietly(window: &AppWindow, state: &Shared, step: i32) -> bool {
     wire(window, state);
     let opened = state.try_borrow_mut().is_ok_and(|mut app| {
         let opened = model::open(&mut app, usize::try_from(step).ok()).is_ok();
@@ -150,15 +159,13 @@ pub fn open(window: &AppWindow, state: &Shared, step: i32) {
         }
         opened
     });
-    let cut = window.global::<CutModel>();
     if !opened {
-        cut.set_mode_open(false);
-        crate::push::toast::show(window, NOT_SOLVED_MESSAGE);
-        return;
+        return false;
     }
     start_runtime();
-    cut.set_mode_open(true);
+    window.global::<CutModel>().set_mode_open(true);
     show(window, state);
+    true
 }
 
 /// Closes Cutting Mode: the screen may sleep, the diagram thread ends, and the Cut page
@@ -220,6 +227,13 @@ fn show(window: &AppWindow, state: &Shared) {
     request_diagram(window, &app);
 }
 
+/// The index list for the hero type: a long list wraps after a hyphen ("…-48-" / "56-…"),
+/// never before one, so no line starts with "-56". A word joiner (U+2060) forbids the
+/// break before each hyphen, and a zero-width space (U+200B) allows the one after it.
+fn wrap_after_hyphens(index_text: &str) -> String {
+    index_text.replace('-', "\u{2060}-\u{200B}")
+}
+
 /// Writes the `CutModel.mode-*` properties of the current step.
 fn write_view(window: &AppWindow, state: &AppState) {
     let Some(view) = model::view(state) else {
@@ -230,6 +244,7 @@ fn write_view(window: &AppWindow, state: &AppState) {
     cut.set_mode_step_count(to_i32(view.count));
     cut.set_mode_code(view.code.into());
     cut.set_mode_angle(view.angle_text.into());
+    cut.set_mode_index_display(wrap_after_hyphens(&view.index_text).into());
     cut.set_mode_index(view.index_text.into());
     cut.set_mode_name(view.name.into());
     cut.set_mode_notes(view.notes.into());
@@ -421,5 +436,35 @@ fn revalidate(window: &AppWindow) {
             close(window, &state);
             crate::push::toast::show(window, DESIGN_CHANGED_MESSAGE);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hyphen_breaks_only_after_itself() {
+        assert_eq!(
+            wrap_after_hyphens("96-08-16"),
+            "96\u{2060}-\u{200B}08\u{2060}-\u{200B}16"
+        );
+        assert_eq!(wrap_after_hyphens("48-56"), "48\u{2060}-\u{200B}56");
+    }
+
+    #[test]
+    fn an_index_without_a_hyphen_is_unchanged() {
+        assert_eq!(wrap_after_hyphens("48"), "48");
+        assert_eq!(wrap_after_hyphens(""), "");
+    }
+
+    #[test]
+    fn the_wrapped_text_reads_the_same_without_the_invisible_marks() {
+        let wrapped = wrap_after_hyphens("96-08-16");
+        let plain: String = wrapped
+            .chars()
+            .filter(|c| *c != '\u{2060}' && *c != '\u{200B}')
+            .collect();
+        assert_eq!(plain, "96-08-16");
     }
 }

@@ -428,14 +428,17 @@ Deliberately not keyed on the scene's material/geometry/lighting or which sample
 traced — those shift both engines' per-sample cost together, not their relative
 split, so a wrong guess there self-corrects within one job.
 
-**Cancellation latency.** GPU dispatches ride the same adaptive
-`TARGET_SUBBATCH` (~100 ms) loop that already bounded the CPU tracer, with the
-cancel flag checked *between* sub-batches — a GPU dispatch is simply one more
-blocking way to produce one sub-batch, not a new latency class. Inside a GPU
-sub-batch the flag is also checked before each chunk is dispatched (a chunk is
-sized to about 150 ms once the adapter has been timed, and a turn is two
-chunks), so a long sub-batch on a slow adapter stops sooner than the next
-sub-batch boundary. A cancelled or declined GPU sub-batch writes nothing into
+**Cancellation latency.** GPU dispatches ride the same adaptive sub-batch
+loop as the CPU tracer, with the cancel flag checked *between* sub-batches — a
+GPU dispatch is simply one more blocking way to produce one sub-batch, not a new
+latency class. The loop adapts toward `TARGET_SUBBATCH` (~100 ms) for a streamed
+request and toward `TARGET_SUBBATCH_FINAL_ONLY` (~500 ms) for a `FinalOnly` one
+(every chunk a coordinator sends, and its own lane): each sub-batch ends with the
+whole frame read back and added on the host, which a request that sends its
+radiance once does not need every 100 ms. Inside a GPU sub-batch the flag is also
+checked before each chunk is dispatched (a chunk is sized to about 150 ms once
+the adapter has been timed, and a turn is two chunks), so a long sub-batch stops
+sooner than the next sub-batch boundary. A cancelled or declined GPU sub-batch writes nothing into
 the worker's buffer; see "Device loss" above.
 
 **Why this is safe to mix with CPU workers.** A GPU worker's samples remain

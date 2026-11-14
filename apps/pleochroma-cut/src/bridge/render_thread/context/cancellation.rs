@@ -84,7 +84,7 @@ impl RenderContext {
 #[derive(PartialEq)]
 struct Activity {
     dimensions: (u32, u32),
-    pose: [u32; 6],
+    pose: [u32; 8],
     /// The HDR map's yaw bits and whether it follows the camera; zeros without a map.
     hdr: [u32; 2],
     quality: (u32, u32),
@@ -128,6 +128,8 @@ impl Activity {
                 ctx.yaw.to_bits(),
                 ctx.pitch.to_bits(),
                 ctx.camera_roll.to_bits(),
+                ctx.camera_pan[0].to_bits(),
+                ctx.camera_pan[1].to_bits(),
                 ctx.distance.to_bits(),
                 ctx.light_yaw.to_bits(),
                 ctx.light_pitch.to_bits(),
@@ -268,6 +270,32 @@ mod tests {
         assert_eq!(
             (rolled.yaw, rolled.pitch, rolled.distance),
             (original.yaw, original.pitch, original.distance)
+        );
+    }
+
+    #[test]
+    fn a_pan_invalidates_the_image_without_changing_orbit_zoom_or_roll() {
+        let ctx = context();
+        let original = snapshot_frame_inputs(&ctx);
+        RenderContext::lock(&ctx).camera_pan = [0.4, -0.3];
+        assert!(original.cancel.load(Ordering::Acquire));
+        let panned = snapshot_frame_inputs(&ctx);
+        assert!(panned.dirty);
+        assert_ne!(panned.scene_generation, original.scene_generation);
+        assert_eq!(panned.camera_pan, [0.4, -0.3]);
+        assert_eq!(
+            (
+                panned.yaw,
+                panned.pitch,
+                panned.distance,
+                panned.camera_roll
+            ),
+            (
+                original.yaw,
+                original.pitch,
+                original.distance,
+                original.camera_roll
+            )
         );
     }
 }

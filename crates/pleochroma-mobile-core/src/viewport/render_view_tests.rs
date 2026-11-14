@@ -467,3 +467,28 @@ fn nothing_is_wanted_while_the_solid_view_is_up() {
     assert_eq!(maintain(&mut app, Duration::from_secs(1)), Maintain::Idle);
     assert!(!app.viewport.driver.is_active());
 }
+
+#[test]
+fn the_device_phrase_says_this_device_in_plain_words() {
+    assert_eq!(
+        device_phrase("Device GPU · Adreno").as_deref(),
+        Some("on this device's GPU")
+    );
+    assert_eq!(
+        device_phrase("Device CPU").as_deref(),
+        Some("on this device's CPU")
+    );
+    assert_eq!(
+        device_phrase("Device CPU · frame exceeds the GPU memory budget").as_deref(),
+        Some("on this device's CPU (picture too large for the GPU)")
+    );
+    assert_eq!(
+        device_phrase("Remote · reconnecting").as_deref(),
+        Some("on the server")
+    );
+    assert_eq!(device_phrase("Preparing renderer"), None);
+    for report in ["Device GPU", "Device CPU · exceeds", "Remote"] {
+        let text = device_phrase(report).unwrap_or_default();
+        assert!(!text.contains("phone"), "{text}");
+    }
+}

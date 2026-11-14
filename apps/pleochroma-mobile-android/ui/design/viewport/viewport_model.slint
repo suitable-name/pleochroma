@@ -14,6 +14,14 @@ export global ViewportModel {
     // follows `TiersModel.selected-tier`; no Slint handler uses this callback.
     callback tier-picked(int);
 
+    // ---- the Diagram panels ----------------------------------------------------------
+    // A phone draws one panel at a time and shows the Crown / Pavilion / Profile segment;
+    // a tablet draws all three (no segment). `diagram-panel` is the panel drawn now
+    // (0 Crown, 1 Pavilion, 2 Profile).
+    in property <bool> diagram-single: false;
+    in-out property <int> diagram-panel: 0;
+    callback diagram-panel-chosen(int);
+
     // ---- the picture ---------------------------------------------------------------
     in property <image> frame;
     in property <bool> has-frame: false;
@@ -75,6 +83,22 @@ export global ViewportModel {
     in property <length> line-y: 0px;
     in property <length> line-len: 0px;
     in property <float> line-deg: 0.0;
+
+    // ---- the figures card ----------------------------------------------------------
+    // Folded to one line. A phone starts folded and the tablet open (the viewport sets the
+    // start once, on its first appearance); the choice is kept for the session.
+    in-out property <bool> figures-folded: true;
+    // The viewport has chosen the start fold for the window class.
+    in-out property <bool> figures-fold-seeded: false;
+    // Copies the five numbers to the clipboard.
+    callback figures-copy();
+
+    // ---- the sheet's remembered height ----------------------------------------------
+    // The Design sheet's detent (0 peek, 1 half) per view mode, for the session only: Solid
+    // opens at half, Diagram and Render at peek. Full (2) is never stored.
+    in-out property <int> sheet-memory-solid: 1;
+    in-out property <int> sheet-memory-diagram: 0;
+    in-out property <int> sheet-memory-render: 0;
 
     // ---- Slint -> Rust --------------------------------------------------------------
     // The viewport's size changed.

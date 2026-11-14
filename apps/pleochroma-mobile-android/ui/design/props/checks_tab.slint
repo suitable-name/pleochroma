@@ -1,17 +1,21 @@
-// The Checks tab: the verdict (Good, Check or Problem) with the findings behind it and a Fix
-// button where the shared code offers a one-step fix, the proportions table, the preform
-// and yield inputs, and the weight estimate.
+// The Checks tab: each finding of the verdict is a card (a warning icon, a heading, the finding
+// in words, "Show on the Stone", "Open <tier>" where a tier applies, and a Fix button where the
+// shared code offers a one-step fix); when there are none, one positive line. Below them the
+// proportions table, the preform and yield inputs, the weight estimate and the metrics.
 //
-// The verdict needs a solve that matches the design; until then the card says what is
-// missing (`PropsModel.checks-note`) and only the preform fields work. The tab fills its
-// parent.
+// The verdict needs a solve that matches the design; until then a card says what is missing
+// (`PropsModel.checks-note`) and only the preform fields work. The tab fills its parent.
 import { Theme } from "../../theme.slint";
+import { Icons } from "../../icons.slint";
 import { Shell } from "../../models.slint";
+import { Icon } from "../../shell/icon.slint";
 import { PageScroll } from "../../shell/page_scroll.slint";
 import { ListRow } from "../../shell/list_row.slint";
 import { StateLayer } from "../../shell/state_layer.slint";
 import { InfoButton } from "../../shell/info.slint";
 import { PrimaryButton, TonalButton, TextButton } from "../../shell/buttons.slint";
+import { TiersModel } from "../tiers/tiers_model.slint";
+import { TierIcons } from "../tiers/tier_icons.slint";
 import { PropsModel, WarningItem, ProportionItem } from "props_model.slint";
 import { SectionHeader, SettingBlock, NumberField, MetricLine } from "props_parts.slint";
 import { NumberSheet } from "number_sheet.slint";
@@ -27,60 +31,92 @@ component Inset inherits HorizontalLayout {
     @children
 }
 
-// The big answer. Colored by the verdict level once a solve backs it.
-component VerdictCard inherits Rectangle {
+// What the verdict means; behind the info button of the status card and the Warnings header.
+// (`InfoButton` takes plain strings, so both places share this one text.)
+global VerdictInfo {
+    out property <string> body: "Good: the stone solves and closes, and nothing needs a second look. Check: it can be cut, but something deserves attention. Problem: it does not solve or close, or the optics are clearly poor. The cards below say why, and some have a Fix button that makes the change in one undoable step.";
+}
+
+// The status above the findings, for the two states without a card per finding: no solve
+// that matches the design yet (what is missing, or the problem), and a clean verdict (one
+// positive line).
+component StatusCard inherits Rectangle {
     property <int> level: PropsModel.verdict-level;
     property <bool> ready: PropsModel.checks-ready;
-    property <color> ink: root.ready || root.level == 2 ? Theme.verdict-content(root.level) : Theme.on-surface-variant;
+    property <bool> problem: !root.ready && root.level == 2;
 
-    background: root.ready || root.level == 2 ? Theme.verdict-container(root.level) : Theme.surface-high;
+    background: root.ready ? Theme.success-container.with-alpha(0.35) : (root.problem ? Theme.error-container : Theme.surface-high);
     border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: root.ready ? Theme.success : (root.problem ? Theme.error : Theme.outline-variant);
     height: content.preferred-height;
 
-    content := VerticalLayout {
-        padding: Theme.space-lg;
-        spacing: Theme.space-xs;
+    content := HorizontalLayout {
+        padding: Theme.space-md;
+        padding-left: Theme.space-lg;
+        spacing: Theme.space-md;
 
-        HorizontalLayout {
-            spacing: Theme.space-sm;
+        Rectangle {
+            width: 24px;
 
-            Text {
-                text: root.ready ? ["Good", "Check", "Problem"][root.level] : (root.level == 2 ? "Problem" : "Not Checked Yet");
-                color: root.ink;
-                font-size: Theme.text-headline-small;
-                font-weight: 600;
-                vertical-alignment: center;
-                horizontal-stretch: 1;
-                overflow: elide;
-            }
-
-            InfoButton {
-                tint: root.ink;
-                info-title: "Verdict";
-                info-body: "Good: the stone solves and closes, and nothing needs a second look. Check: it can be cut, but something deserves attention. Problem: it does not solve or close, or the optics are clearly poor. The findings below say why, and some have a Fix button that makes the change in one undoable step.";
+            Icon {
+                y: 0px;
+                source: root.ready ? Icons.check : (root.problem ? TierIcons.warning : Icons.info);
+                tint: root.ready ? Theme.success : (root.problem ? Theme.error : Theme.text-secondary);
+                glyph: 24px;
             }
         }
 
-        Text {
-            text: root.ready ? PropsModel.verdict-text : PropsModel.checks-note;
-            color: root.ink;
-            font-size: Theme.text-body-large;
-            wrap: word-wrap;
+        VerticalLayout {
+            alignment: center;
+            spacing: Theme.space-xs;
+            horizontal-stretch: 1;
+
+            if !root.ready: Text {
+                text: root.problem ? "Problem" : "Not Checked Yet";
+                color: Theme.on-surface;
+                font-size: Theme.text-title;
+                font-weight: 600;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: root.ready ? PropsModel.verdict-text : PropsModel.checks-note;
+                color: root.ready ? Theme.on-surface : Theme.text-secondary;
+                font-size: Theme.text-body-large;
+                wrap: word-wrap;
+            }
+        }
+
+        InfoButton {
+            info-title: "Verdict";
+            info-body: VerdictInfo.body;
         }
     }
 }
 
-// One finding, with Show (selects its tier) and Fix. A fix that removes something asks
-// first, right in the card.
+// One finding as a card: a warning icon and heading, the finding in words, then "Show on the
+// Stone" (selects its tier) and "Open <tier>" (the tier's sheet) where a tier applies, and the
+// Fix button where there is a one-step fix. A fix that removes something asks first, right
+// in the card.
 component WarningCard inherits Rectangle {
     in property <WarningItem> item;
+    // The heading; the finding's own words stand in until it arrives.
+    in property <string> title;
+    // The label of the "Open <tier>" button; empty when the finding is not about a flat tier.
+    in property <string> open-label;
     callback show-tier();
+    callback open-tier();
     callback run-fix();
 
     property <bool> armed: false;
+    // 2 problem, 1 check, 0 a note.
+    property <color> tint: root.item.level == 2 ? Theme.error : (root.item.level == 1 ? Theme.warning : Theme.text-secondary);
 
-    background: Theme.surface-high;
-    border-radius: Theme.radius-md;
+    background: root.item.level == 2 ? Theme.error-container : (root.item.level == 1 ? Theme.warning-container : Theme.surface-high);
+    border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: root.item.level == 0 ? Theme.outline-variant : root.tint;
     height: content.preferred-height;
 
     changed item => {
@@ -88,31 +124,40 @@ component WarningCard inherits Rectangle {
     }
 
     content := VerticalLayout {
-        padding: Theme.space-md;
+        padding: Theme.space-lg;
         spacing: Theme.space-sm;
 
         HorizontalLayout {
             spacing: Theme.space-sm;
 
             Rectangle {
-                width: 16px;
+                width: 24px;
 
-                Rectangle {
-                    y: 6px;
-                    width: 10px;
-                    height: 10px;
-                    border-radius: 5px;
-                    background: Theme.verdict-mark(root.item.level);
+                Icon {
+                    y: 0px;
+                    source: root.item.level == 0 ? Icons.info : TierIcons.warning;
+                    tint: root.tint;
+                    glyph: 24px;
                 }
             }
 
             Text {
-                text: root.item.text;
+                text: root.title != "" ? root.title : root.item.text;
                 color: Theme.on-surface;
-                font-size: Theme.text-body;
+                font-size: Theme.text-title;
+                font-weight: 600;
                 wrap: word-wrap;
+                vertical-alignment: center;
                 horizontal-stretch: 1;
             }
+        }
+
+        if root.title != "": Text {
+            text: root.item.text;
+            // On the tinted card the primary text color reads best; a note stays secondary.
+            color: root.item.level == 0 ? Theme.text-secondary : Theme.on-surface;
+            font-size: Theme.text-body-large;
+            wrap: word-wrap;
         }
 
         if root.armed: Text {
@@ -123,21 +168,28 @@ component WarningCard inherits Rectangle {
             wrap: word-wrap;
         }
 
-        HorizontalLayout {
-            alignment: end;
-            spacing: Theme.space-xs;
+        if root.item.tier >= 0 && !root.armed: HorizontalLayout {
+            alignment: start;
+            spacing: Theme.space-sm;
 
-            if root.item.tier >= 0 && !root.armed: TextButton {
-                text: "Show";
+            TonalButton {
+                text: "Show on the Stone";
                 clicked => {
                     root.show-tier();
                 }
             }
 
-            if root.item.fix-label != "" && !root.armed: InfoButton {
-                info-title: root.item.fix-label;
-                info-body: root.item.fix-hint;
+            if root.open-label != "": PrimaryButton {
+                text: root.open-label;
+                clicked => {
+                    root.open-tier();
+                }
             }
+        }
+
+        if root.item.fix-label != "" || root.armed: HorizontalLayout {
+            alignment: start;
+            spacing: Theme.space-xs;
 
             if root.item.fix-label != "" && !root.armed: TonalButton {
                 text: root.item.fix-label;
@@ -148,6 +200,11 @@ component WarningCard inherits Rectangle {
                         root.armed = true;
                     }
                 }
+            }
+
+            if root.item.fix-label != "" && !root.armed: InfoButton {
+                info-title: root.item.fix-label;
+                info-body: root.item.fix-hint;
             }
 
             if root.armed: TextButton {
@@ -228,19 +285,37 @@ component ProportionLine inherits Rectangle {
 }
 
 component ChecksBody inherits PageScroll {
-    Inset {
-        VerdictCard { }
+    // No solve for this design yet, or a clean verdict: one card or line. (A verdict with
+    // findings has no banner; its cards are the answer.)
+    if !PropsModel.checks-ready || PropsModel.warnings.length == 0: Inset {
+        StatusCard { }
     }
 
-    if PropsModel.checks-ready && PropsModel.warnings.length > 0: SectionHeader {
-        text: "Warnings";
+    if PropsModel.checks-ready && PropsModel.warnings.length > 0: HorizontalLayout {
+        SectionHeader {
+            text: "Warnings";
+            horizontal-stretch: 1;
+        }
+
+        InfoButton {
+            info-title: "Verdict";
+            info-body: VerdictInfo.body;
+        }
     }
 
     for warning[index] in PropsModel.warnings: Inset {
         WarningCard {
             item: warning;
+            title: index < TiersModel.check-titles.length ? TiersModel.check-titles[index] : "";
+            open-label: index < TiersModel.check-open-labels.length ? TiersModel.check-open-labels[index] : "";
             show-tier => {
                 PropsModel.show-warning(index);
+            }
+            open-tier => {
+                PropsModel.show-warning(index);
+                PropsModel.close-number();
+                PropsModel.design-tab = 0;
+                TiersModel.open-tier(TiersModel.check-open-rows[index]);
             }
             run-fix => {
                 PropsModel.fix-warning(index);

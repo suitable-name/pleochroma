@@ -6,6 +6,7 @@ const POSE: CameraPose = CameraPose {
     yaw: 0.5,
     pitch: 0.25,
     distance: 6.0,
+    pan: [0.0, 0.0],
 };
 
 fn at(ms: u64) -> Duration {

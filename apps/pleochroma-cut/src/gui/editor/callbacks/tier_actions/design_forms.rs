@@ -249,7 +249,7 @@ pub(in crate::gui::editor) fn setup_apply_preform_y_offset_callback(
                 let Some(mm_per_unit) = st.design.yield_report(&solved).mm_per_unit else {
                     show_toast(
                         &ui,
-                        "Set a girdle diameter in the Yield tab before setting a Y-offset in \
+                        "Set the stone width (Stone tab, or Yield in the Preform tab) before setting a Y-offset in \
                      millimetres.",
                         "error",
                     );

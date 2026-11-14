@@ -14,6 +14,12 @@ pub fn set_pipeline_cache_dir(dir: PathBuf) -> bool {
     CACHE_DIR.set(dir).is_ok()
 }
 
+/// Whether [`set_pipeline_cache_dir`] has set a folder.
+#[must_use]
+pub fn configured() -> bool {
+    CACHE_DIR.get().is_some()
+}
+
 /// Stable shader and override identity, independent of labels or override ordering.
 ///
 /// The version includes the pinned wgpu cache format and our

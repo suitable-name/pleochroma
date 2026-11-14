@@ -6,7 +6,11 @@
 //! never raised through `GuideModel.event`: the video is abandoned instead.
 
 use crate::{
-    director::Film, pacing, scripts::pure_tables::output_path, support::WindowView, targets,
+    director::Film,
+    pacing,
+    scripts::pure_tables::output_path,
+    support::{WindowView, app::pump},
+    targets,
 };
 use pleochroma_cut::{
     ActivityModel, EditorModel, LibraryModel, MainWindow, PreferencesModel, TutorialRowData,
@@ -222,30 +226,27 @@ impl Film<'_> {
         Ok(true)
     }
 
-    /// Opens the Auto-Solve combo and picks Off (`on` false) or 300 ms (`on` true). The list
-    /// is Off, 150 ms, 300 ms, 1 s, 3 s.
-    fn film_auto_solve(&mut self, on: bool) -> Result<(), String> {
-        let combo = targets::resolve(&self.view(), "auto_solve");
-        let targets::Resolved::Found(combo) = combo else {
-            return Err("Auto-Solve combo is missing".into());
+    /// Presses the chevron of the Solve button (label "Auto-Solve") and then the menu item
+    /// `item` ("Auto-Solve Off", "Auto-Solve 150 ms", "Auto-Solve 300 ms", "Auto-Solve 1 s" or
+    /// "Auto-Solve 3 s").
+    pub(crate) fn pick_auto_solve_item(&mut self, item: &str) -> Result<(), String> {
+        let targets::Resolved::Found(chevron) = targets::resolve(&self.view(), "auto_solve") else {
+            return Err("the Auto-Solve chevron of the Solve button is missing".into());
         };
-        self.click_and_invoke(&combo)?;
-        for _ in 0..4 {
-            self.rec
-                .press_keys(self.ui.window(), "Up")
-                .map_err(|e| format!("Auto-Solve Up: {e:?}"))?;
-        }
-        if on {
-            // Off -> 150 ms -> 300 ms.
-            for _ in 0..2 {
-                self.rec
-                    .press_keys(self.ui.window(), "Down")
-                    .map_err(|e| format!("Auto-Solve Down: {e:?}"))?;
-            }
-        }
-        self.rec
-            .press_keys(self.ui.window(), "Return")
-            .map_err(|e| format!("Auto-Solve Return: {e:?}"))?;
+        self.click_and_invoke(&chevron)?;
+        pump(80);
+        let entry = targets::role_label(&self.view(), item, uiprobe::AccessibleRole::Button, None)
+            .ok_or_else(|| format!("the Auto-Solve menu has no {item:?} item"))?;
+        self.click_and_invoke(&entry)
+    }
+
+    /// Opens the Auto-Solve menu and picks Off (`on` false) or 300 ms (`on` true).
+    fn film_auto_solve(&mut self, on: bool) -> Result<(), String> {
+        self.pick_auto_solve_item(if on {
+            "Auto-Solve 300 ms"
+        } else {
+            "Auto-Solve Off"
+        })?;
         let budget = self.ui.global::<EditorModel>().get_auto_solve_budget_ms();
         if on && budget != 300 {
             return Err(format!(
@@ -644,6 +645,9 @@ impl Film<'_> {
             "tiers_multi_selected" => {
                 // The Multi-Select lesson names its two tiers (Crown Main and Pavilion Main): they
                 // are ticked by name, not by their row numbers, which depend on the template.
+                // Select is an item of the tier list's "..." menu now.
+                self.press_label("Tier List Menu")?;
+                pump(80);
                 self.press_label("Select")?;
                 for name in ["Crown Main", "Pavilion Main"] {
                     self.film_reveal_tier(name)?;

@@ -65,6 +65,19 @@ pub fn camera_pose() -> Option<(f32, f32, f32)> {
     })
 }
 
+/// The pan of the registered viewport (`[x, y]` in image half-heights, x right, y up), if any.
+#[cfg(feature = "ui-harness")]
+#[must_use]
+pub fn camera_pan() -> Option<[f32; 2]> {
+    CAMERA.with(|cell| {
+        let guard = cell.borrow();
+        let handles = guard.as_ref()?;
+        let render_ctx = handles.render_ctx.upgrade()?;
+        let ctx = RenderContext::lock(&render_ctx);
+        Some(ctx.camera_pan)
+    })
+}
+
 /// The light's current yaw and pitch in radians, read without changing the render.
 #[cfg(feature = "ui-harness")]
 #[must_use]

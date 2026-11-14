@@ -218,7 +218,10 @@ nor a girdle diameter; then `migrated_stone_effects` becomes `true` and they are
 build), so applying a saved lighting sets the whole look. They also carry the map rotation
 (`env_map_yaw_deg`, `env_map_follows_camera`, defaults `0` and `false`), which reaches fan-out
 exports, render jobs (format 6 for a turned HDR scene), remote renders and tilt videos the way
-the live view uses it. A newly saved lighting is
+the live view uses it. A lighting saved with the camera view (`camera_yaw`, `camera_pitch`,
+`camera_roll`) also carries `camera_pan`; applying a view saved before the pan existed centres
+the stone, and applying a lighting saved without the camera leaves the camera, pan included,
+where it is. A newly saved lighting is
 named "<rig> - <date>" by default.
 
 ### Interface Preferences
@@ -278,6 +281,7 @@ optional: a file without it loads the default shown.
 | Key | Values | Default |
 |---|---|---|
 | `render_width`, `render_height` | live render size in pixels (the dialog offers 640x480, 800x600, 1280x720, 1920x1080; a hand-edited size still loads) | `800`, `600` |
+| `camera_pan` | `[x, y]`: where the stone sits in the live picture, in image half-heights (x right, y up, in the picture's axes after `camera_roll`); a middle-button or Ctrl+left drag in the 3D views moves it, and the reset view and the preset views centre the stone again. Each component is limited to `-4.0..=4.0` on load, and one that is not a number loads `0.0` | `[0.0, 0.0]` |
 | `backdrop` | `"AsLit"`, `"Grey"`, `"White"`, `"Black"`: the lit tray under the stone, seen around and through it (As Lit = the lighting's own ground) | `"White"` |
 | `stone_shadow` | `true` / `false`: the stone's shadow and colored caustics on a studio backdrop | `false` |
 | `tray_reflection` | `0.0` to `1.0`: the head-on reflectance of the tray under the stone (about `0.04` = black acrylic, `1.0` = mirror); `0.0` is off | `0.0` |
@@ -409,4 +413,4 @@ Ray-Traced is an explicit view choice; startup still opens the Live Render tab i
 
 `thumbnail_backdrop` (`"Grey"` by default; `"White"` or `"Black"`) is the tray catalogue thumbnails are rendered on, independent of the live view's `backdrop`. It is part of the preview fingerprint (`backdrop=grey`), so changing it marks cached thumbnails outdated once. Set through **Thumbnail Backdrop** in Advanced Render & Output or the preview offer's Picture Quality block.
 
-The still export and tilt-video dialogs each remember their own `engine` alongside their other output settings. Both default to Path-Traced; switching to Ray-Traced exposes Anti-Aliasing (1, 4, 8 or 16 taps, initially 16) and Fire. This choice is independent of the live view and thumbnail renderer. Output jobs freeze the engine and its AA/Fire settings: Path-Traced jobs with no shadow and no reflection remain format 1 and Ray-Traced jobs use format 2; the shadow alone makes a job use format 3, and any job with "Tray Reflection" above 0 uses format 4, with or without the shadow (a stone with color zones makes a Path-Traced job format 5, and a turned HDR map format 6, whatever else it holds). Local, Remote and Both compute choices work for both renderers with protocol-42 workers. Ray-Traced output never denoises or adds optical overlays; metric-curve annotations on tilt videos still use the independent analytical tracer.
+The still export and tilt-video dialogs each remember their own `engine` alongside their other output settings. Both default to Path-Traced; switching to Ray-Traced exposes Anti-Aliasing (1, 4, 8 or 16 taps, initially 16) and Fire. This choice is independent of the live view and thumbnail renderer. Output jobs freeze the engine and its AA/Fire settings: Path-Traced jobs with no shadow and no reflection remain format 1 and Ray-Traced jobs use format 2; the shadow alone makes a job use format 3, and any job with "Tray Reflection" above 0 uses format 4, with or without the shadow (a stone with color zones makes a Path-Traced job format 5, a turned HDR map format 6, and an off-centre stone (`camera_pan` not `[0.0, 0.0]`) format 7, whatever else it holds). Local, Remote and Both compute choices work for both renderers with protocol-43 workers. Ray-Traced output never denoises or adds optical overlays; metric-curve annotations on tilt videos still use the independent analytical tracer.

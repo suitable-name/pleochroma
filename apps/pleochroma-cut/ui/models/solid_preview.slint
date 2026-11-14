@@ -141,6 +141,10 @@ export global SolidPreviewModel {
     // The slider's label for the current position: "Rough", "After <tier> (k of N)" or
     // "Finished". Written by Rust together with `tier_cutoff`, so label and view agree.
     in-out property <string> cut_label: "Finished";
+    // --- R3A --- The code of each cutting step in the design's cutting order ("P1", "G1", "C3",
+    // "T"), one per step: `cut_step_names[k - 1]` names slider position `k`. Written by Rust
+    // (`cut_slider::publish`) with `cut_step_count`; the Cut To scrubber labels its ticks with it.
+    in-out property <[string]> cut_step_names: [];
     // Setting `tier_cutoff` alone changes nothing on screen: the preview only
     // redraws when something requests a replan, and a property write is not a
     // request. The slider fires this straight after writing the value, and

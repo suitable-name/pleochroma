@@ -1,9 +1,7 @@
-import { Slider } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { SolidPreviewModel } from "../../models/solid_preview.slint";
 import { ViewportModel } from "../../models/viewport.slint";
 import { EditorModel } from "../../models/editor.slint";
-import { TiltModel } from "../../models/tilt.slint";
 import { ManipulateModel } from "../../models/manipulate.slint";
 import { CrystalAxisModel } from "../../models/crystal_axis.slint";
 import { SurfaceModel } from "../../models/surface.slint";
@@ -11,8 +9,12 @@ import { SettingsModel } from "../../models/settings.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { HelpTopics } from "../../models/help.slint";
 import { HelpButton } from "../help_button.slint";
-import { PillButton, ModePill } from "../pill_button.slint";
 import { PreviewBadge } from "../material_chip.slint";
+import { KitBadge, KitGlass, KitIcon, KitIconButton, KitIcons } from "../kit/kit.slint";
+// The mouse button and gestures card shared with the Live Render viewport (L1).
+import { GesturesButton } from "../gem_viewport/gestures.slint";
+// The Cut To scrubber along the bottom edge.
+import { CutSlider } from "cut_scrubber.slint";
 // A running catalogue-wide batch (tilt sweep or preview render) sets
 // `ctx.export_active`, which suspends the live tracer exactly like an explicit
 // pause -- this strip folds that into a banner so a frozen Path-traced/Both
@@ -20,95 +22,110 @@ import { PreviewBadge } from "../material_chip.slint";
 // `batch_suspends_tracer` property.
 import { BatchModel } from "../../models/batch.slint";
 
-// The Edit tab's Solid viewport toolbar: mode toggle and cut slider, camera pose pills, tool
-// pills, the Diagram enlarge pills and the status strip. Driven by globals
-// (`SolidPreviewModel`/`ViewportModel`/`EditorModel`/`TiltModel`/`BatchModel`), except
-// `diagram_zoom`/`diagram_pan_*`, which `SolidViewportView` owns and shares two-way so the
-// "Reset View" pill can reset them.
+// The Edit tab's Solid viewport toolbar, on the same glass as the Live Render viewport's so a
+// mode switch does not make the controls jump. The picture fills the view and the controls float
+// over it:
+//   * top left   the mode segment (Solid / Path-Traced / Ray-Traced / Diagram);
+//   * top right  one glass group: the camera view icons (Front, Top, Bottom, Left, Right, Fit,
+//                Reset) or, in Diagram mode, Reset View and the Crown / Pavilion / Profile
+//                selectors; then the "?" button (the Tilt Curve toggle lives in the command bar);
+//   * second row the SHOW group of overlay toggles (Preform, Snap, Crystal Axis, Surface Finish,
+//                Slice); below 900 px the toggles fold into a "Show" menu;
+//   * bottom     the Cut To scrubber (`cut_scrubber.slint`); above it, at the left, the mouse
+//                button that opens the gestures card, then the status line.
+// Below 760 px the view icons move to a second row and the Show control to a third.
 //
-// The pills take about 1350px in one row, and the Edit viewport is guaranteed only 380px,
-// so the toolbar re-flows by its own width (see `SolidViewportToolbar`). The pills live in
-// the row components below (`CutSlider`, `ModePills`, `ViewPills`, `ToolPills`), so each
-// layout can group them differently.
+// Driven by globals (`SolidPreviewModel`/`ViewportModel`/`EditorModel`/`BatchModel`),
+// except `diagram_zoom`/`diagram_pan_*`, which `SolidViewportView` owns and shares two-way so the
+// "Reset View" button can reset them.
 //
-// Every pill is a `PillButton` or `ModePill` (`components/pill_button.slint`): a tooltip in
-// plain words, Tab to reach it, Space or Enter to press it, a screen-reader label. Simple
-// mode hides the Tilt Curve pill (`GuideModel.shows_advanced()`); the pills most designs need
-// (modes, camera, Preform, Snap, Slice) stay.
+// Accessible labels are the old pill names (the visible text may be shorter), because tutorial
+// routes and the UI harness find the controls by them. Simple mode hides the Tilt Curve toggle
+// (`GuideModel.shows_advanced()`).
 
-// The "Cut" slider: how far through the cutting steps to draw the stone, so a cutter
-// can see the rough after every tier. Position 0 is the rough (the preform alone),
-// position k the stone after the first k steps, and the far right the finished design.
-// The steps are the design's flat and concave tiers (`cut_slider.rs`). The label and
-// the tooltip come from Rust (`SolidPreviewModel.cut_label`), written together with the
-// cutoff, so they always describe what the viewport shows. The mount sites show it in
-// every mode that draws the stone (not the Diagram, which always shows the finished
-// design), and keep it while a cut is active even if the solid is momentarily missing.
-// `SolidPreviewModel.tier_cutoff`: `-1` finished, `-2` rough, `n >= 0` after steps 0..=n.
-component CutSlider inherits Rectangle {
-    height: 28px;
-    width: cut_layout.preferred-width;
-    background: Theme.bg-input;
-    border-radius: Theme.radius-sm;
-    // The open tutorial step is about this slider: a cyan outline, 2px wide.
-    border-width: GuideModel.highlight_target == "cut_slider" ? 2px : 1px;
-    border-color: GuideModel.highlight_target == "cut_slider" ? Theme.accent-cyan : (SolidPreviewModel.tier_cutoff != -1 ? Theme.accent-amber : Theme.border-subtle);
+// Icon paths the kit does not have (the Edit mockup's own set).
+global SolidIcons {
+    out property <string> preform: "M12 3 L20 8 V16 L12 21 L4 16 V8 Z";
+    out property <string> magnet: "M6 4 V12 A6 6 0 0 0 18 12 V4 M6 4 H10 V12 A2 2 0 0 0 14 12 V4 H18";
+    out property <string> slice: "M4 14 H20 M7 9 L12 4 L17 9 M7 19 L12 22 L17 19";
+    out property <string> finish: "M4 18 L10 6 L16 18 M7 13 H13 M18 8 V18";
+}
 
-    Tooltip { text: @markdown("**\{SolidPreviewModel.cut_label}**. Drag to see the stone after each tier of the cutting steps. All the way left is the rough, all the way right is the finished design. Live Render follows this slider; exports and tilt videos always show the finished stone."); }
+// The five overlay toggles, once, for both the SHOW group and the Show menu. `kind`: 0 Preform,
+// 1 Snap, 2 Crystal Axis, 3 Surface Finish, 4 Slice.
+global ShowState {
+    // Preform: Solid view only (the path tracer does not draw the preform, and the Diagram has
+    // its own facet labels). Snap: every mode. Crystal Axis: an anisotropic material only.
+    // Surface Finish and Slice: the three modes that draw the stone, not the Diagram.
+    out property <[bool]> shown: [
+        SolidPreviewModel.view_mode == 0,
+        true,
+        SettingsModel.c_axis_override_available,
+        SolidPreviewModel.view_mode != 3,
+        SolidPreviewModel.view_mode != 3,
+    ];
+    out property <[bool]> on: [
+        SolidPreviewModel.show_preform_planes,
+        !ManipulateModel.snap_off,
+        CrystalAxisModel.show_axis,
+        SurfaceModel.show_overlay,
+        ManipulateModel.slice_mode,
+    ];
+    // How many of the shown toggles are on: the count on the Show menu button.
+    out property <int> count: (root.shown[0] && root.on[0] ? 1 : 0) + (root.shown[1] && root.on[1] ? 1 : 0) + (root.shown[2] && root.on[2] ? 1 : 0) + (root.shown[3] && root.on[3] ? 1 : 0) + (root.shown[4] && root.on[4] ? 1 : 0);
+    out property <[string]> icons: [SolidIcons.preform, SolidIcons.magnet, KitIcons.axis, SolidIcons.finish, SolidIcons.slice];
+    // The old pill names: the accessible labels.
+    out property <[string]> texts: ["Preform", "Snap", "Crystal Axis", "Surface Finish", "Slice"];
+    // What each draws or does, in one line (the Show menu's second line).
+    out property <[string]> details: [
+        "the rough's own bounding planes",
+        "angle and depth handles snap to round values",
+        "the crystal axis, with a handle to turn it",
+        "a dot per finished facet, tinted by its grade",
+        "drag a line to cut a new facet (S)",
+    ];
+    out property <[string]> hints: [
+        "Show or hide the rough's own bounding planes (the preform) in the Solid view. See the glossary.",
+        "Snapping for the angle and depth handles on the selected facet: coarse by default (0.1 degree, 0.01 mast), fine while you hold Shift, none when this is off. The index handle always moves in whole teeth.",
+        "Show the stone's crystal axis over it, with a handle to turn it. A biaxial stone also shows its Second Axis. It switches on by itself the first time you set the axis.",
+        "Show the surface finish of the tiers over the stone: a dot on each finished facet, tinted by its grade, and a tick along the direction of its scratches. Set the finish with a right-click on a tier.",
+        "Cut a new facet with the mouse (shortcut S): drag a line across the stone and the part to the right of your drag is cut away. Nothing is kept until you press Keep.",
+    ];
+    // The tutorial highlight target of each toggle ("" for none).
+    out property <[string]> targets: ["", "snap_pill", "crystal_axis_toggle", "", "slice_pill"];
 
-    cut_layout := HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 6px;
-
-        // One line ("After G1 Girdle (2 of 4)" does not fit two lines in the 28px row), elided
-        // when a tier name is long; the tooltip has the full label. The whole control stays
-        // about 190px wide, inside the slack of the toolbar's re-flow thresholds below.
-        Text {
-            width: 112px;
-            text: SolidPreviewModel.cut_label;
-            font-size: 10px;
-            font-weight: 600;
-            color: SolidPreviewModel.tier_cutoff != -1 ? Theme.accent-amber : Theme.text-secondary;
-            vertical-alignment: center;
-            wrap: no-wrap;
-            overflow: elide;
-        }
-        cut_slider := Slider {
-            accessible-label: "Cut Step";
-            width: 56px;
-            minimum: 0;
-            // The last position is "Finished", this many steps in, so the control has a
-            // natural home for "no cut" at its far right rather than a reset button.
-            maximum: SolidPreviewModel.cut_step_count;
-            step: 1;
-            // Two-way, not a `value:` binding: a std Slider stops following a plain
-            // binding after the first drag, and Rust must be able to move the handle.
-            value <=> SolidPreviewModel.cut_position;
-            // `changed(value)` fires only for a user drag, key or click, not when Rust moves the
-            // handle. A `changed value` handler would also run on Rust moves and queue a redundant
-            // replan that can flush while a blocking Rust callback still holds the `EditorState`
-            // guard. `setup_tier_cutoff_callback` uses `try_borrow` and retries for the same
-            // reason. The handle snaps to whole steps; a drag raises the callback only on a
-            // step change.
-            changed(value) => {
-                let steps = Math.round(value);
-                let cutoff = steps >= SolidPreviewModel.cut_step_count ? -1 : (steps <= 0 ? -2 : steps - 1);
-                SolidPreviewModel.cut_position = steps;
-                if (cutoff != SolidPreviewModel.tier_cutoff) {
-                    SolidPreviewModel.tier_cutoff = cutoff;
-                    SolidPreviewModel.tier_cutoff_changed();
-                }
-            }
+    public function toggle(kind: int) {
+        if kind == 0 {
+            SolidPreviewModel.show_preform_planes = !SolidPreviewModel.show_preform_planes;
+        } else if kind == 1 {
+            ManipulateModel.snap_off = !ManipulateModel.snap_off;
+            ManipulateModel.snap_toggled();
+        } else if kind == 2 {
+            CrystalAxisModel.show_axis = !CrystalAxisModel.show_axis;
+            CrystalAxisModel.show_axis_toggled(CrystalAxisModel.show_axis);
+        } else if kind == 3 {
+            SurfaceModel.show_overlay = !SurfaceModel.show_overlay;
+            SurfaceModel.overlay_changed();
+        } else if kind == 4 {
+            ManipulateModel.slice_mode = !ManipulateModel.slice_mode;
+            ManipulateModel.slice_toggled();
         }
     }
 }
 
-// The "?" button at the end of the toolbar's first row: the manual page for the Solid view,
-// or for the Diagram while that mode shows.
+// A thin divider inside a glass group.
+component Div inherits Rectangle {
+    width: 1px;
+    height: 20px;
+    background: Theme.border-medium;
+}
+
+// The "?" button of the toolbar: the manual page for the Solid view, or for the Diagram while
+// that mode shows.
 component ToolbarHelp inherits VerticalLayout {
     alignment: center;
     help-button-view-mode := HelpButton {
+        diameter: 26px;
         topic: SolidPreviewModel.view_mode == 3 ? HelpTopics.diagram-view : HelpTopics.solid-view;
         hint: SolidPreviewModel.view_mode == 3
             ? "Open the manual page on the Diagram view"
@@ -116,317 +133,474 @@ component ToolbarHelp inherits VerticalLayout {
     }
 }
 
-// Solid toggles its edge layer over either tracer; only one tracer may be selected.
-// Diagram is exclusive. `tight` is the phone-width variant with narrower pills.
-component ModePills inherits HorizontalLayout {
-    in property <bool> tight: false;
-    spacing: root.tight ? 6px : 8px;
+// One segment of the mode group, like `KitSegment` but with a visible `text` that may be shorter
+// than the accessible `label`, and a tutorial outline. Solid, Path-Traced and Ray-Traced override
+// the role to a button (as before); the Diagram segment stays a radio button.
+component ModeSeg inherits Rectangle {
+    in property <string> text;
+    // The accessible name; the visible text when empty.
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> selected: false;
+    // The open tutorial step is about this choice: it gets a cyan outline.
+    in property <bool> highlighted: false;
+    callback picked();
 
-    ModePill {
-        width: root.tight ? 48px : 84px;
-        text: "Solid";
-        hint: "Show the flat-shaded stone alone, or toggle its facet edges over the selected tracer.";
-        accessible-role: AccessibleRole.button;
-        // The visible word is the label: assistive tech and the UI harness find the pill by it.
-        accessible-label: self.text;
-        selected: SolidPreviewModel.solid_selected;
-        highlighted: GuideModel.highlight_target == "view_modes";
-        picked => { SolidPreviewModel.toggle_solid(); }
+    height: 28px;
+    width: seg_text.preferred-width + 24px;
+    border-radius: 7px;
+    background: root.selected ? Theme.bg-elevated : (seg_touch.has-hover ? Theme.bg-card-hover : transparent);
+    border-width: seg_focus.has-focus || root.highlighted ? 2px : 0px;
+    border-color: seg_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.picked(); }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    seg_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
     }
-    ModePill {
-        width: root.tight ? 82px : 110px;
-        text: "Path-Traced";
-        hint: "Select the realistic light-traced picture. Keep Solid selected to draw facet edges over it. In a combined view, click again to return to Solid alone.";
-        accessible-role: AccessibleRole.button;
-        accessible-label: self.text;
-        selected: SolidPreviewModel.path_selected;
-        highlighted: GuideModel.highlight_target == "view_modes";
-        picked => { SolidPreviewModel.toggle_path(); }
+    seg_text := Text {
+        x: (parent.width - self.preferred-width) / 2;
+        y: 0px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        font-weight: root.selected ? 600 : 500;
+        color: root.selected ? Theme.text-primary : Theme.text-secondary;
+        vertical-alignment: center;
     }
-    ModePill {
-        width: root.tight ? 82px : 110px;
-        text: "Ray-Traced";
-        hint: "Ray-Traced is an approximation: one index per color chain and averaged color; no polarization, doubling, haze, zoning, edge rounding or diffuse frost light. Energy past the bounce limit is omitted.";
-        accessible-role: AccessibleRole.button;
-        accessible-label: self.text;
-        selected: SolidPreviewModel.ray_selected;
-        highlighted: GuideModel.highlight_target == "view_modes";
-        picked => { SolidPreviewModel.toggle_ray(); }
-    }
-    ModePill {
-        width: root.tight ? 60px : 96px;
-        text: "Diagram";
-        hint: "A flat faceting diagram -- crown, pavilion and side profile -- with the index wheel. It does not turn with the camera.";
-        selected: SolidPreviewModel.view_mode == 3;
-        highlighted: GuideModel.highlight_target == "view_modes";
-        picked => { SolidPreviewModel.view_mode = 3; }
+    seg_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
     }
 }
 
-// The camera pose pills: Front / Top / Bottom / Left / Right / Fit / Reset.
-// `tight` is the phone-width variant with narrower pills.
-component ViewPills inherits HorizontalLayout {
-    in property <bool> tight: false;
-    spacing: root.tight ? 6px : 8px;
+// A labelled button in a glass group: an icon and a short name, with a cyan surface while it is
+// on. `checkable` says a screen reader it is a toggle; leave it off for a plain action. The name
+// is always the accessible label, even when `show_text` hides it.
+component ToolToggle inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    // One plain sentence: what it does. The tooltip and the accessible description.
+    in property <string> hint;
+    in property <bool> on: false;
+    in property <bool> show_text: true;
+    in property <bool> checkable: true;
+    in property <bool> enabled: true;
+    // The open tutorial step is about this button: it gets a cyan outline.
+    in property <bool> highlighted: false;
+    callback clicked();
 
-    // Front / Top -- canonical poses for the shared orbit camera (the same
-    // `ViewportModel.set_view` the Live Render viewport's buttons call).
-    PillButton {
-        width: root.tight ? 50px : 56px;
-        text: "Front";
-        hint: "Look at the stone from the front: girdle edge-on, index 0 towards you.";
-        clicked => { ViewportModel.set_view(0); }
-    }
-    PillButton {
-        width: root.tight ? 38px : 48px;
-        text: "Top";
-        hint: "Look straight down onto the table.";
-        clicked => { ViewportModel.set_view(1); }
+    height: 30px;
+    width: tlay.preferred-width;
+    border-radius: 8px;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: root.on ? Theme.accent-cyan-surface : (tool_touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: tool_focus.has-focus || root.highlighted ? 2px : 0px;
+    border-color: tool_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.on;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
     }
 
-    // Bottom, Left and Right: one-click views of the pavilion and the sides, without a
-    // free-drag orbit. Same `ViewportModel.set_view` as Front/Top; the kind-to-pose mapping is
-    // in `setup_set_view_callback`.
-    PillButton {
-        width: root.tight ? 56px : 66px;
-        text: "Bottom";
-        hint: "Look straight up at the culet and the pavilion.";
-        clicked => { ViewportModel.set_view(2); }
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    tool_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
     }
-    PillButton {
-        width: root.tight ? 44px : 52px;
-        text: "Left";
-        hint: "Look at the stone's left side.";
-        clicked => { ViewportModel.set_view(3); }
+    tlay := HorizontalLayout {
+        padding-left: root.icon != "" && !root.show_text ? 8px : 10px;
+        padding-right: root.icon != "" && !root.show_text ? 8px : 10px;
+        spacing: 6px;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 15px; ink: root.on ? Theme.accent-cyan : Theme.text-secondary; }
+        }
+        if root.show_text: Text {
+            text: root.text;
+            font-size: 12px;
+            color: root.on ? Theme.text-primary : Theme.text-secondary;
+            vertical-alignment: center;
+        }
     }
-    PillButton {
-        width: root.tight ? 48px : 58px;
-        text: "Right";
-        hint: "Look at the stone's right side.";
-        clicked => { ViewportModel.set_view(4); }
-    }
-    // Fit (`set_view` kind `5`) keeps the current orbit angle and recomputes only the distance
-    // from the mesh's bounding radius, which recovers a framing after a free-drag orbit.
-    PillButton {
-        width: root.tight ? 34px : 44px;
-        text: "Fit";
-        hint: "Keep the current angle, but change the distance so the whole stone fits the view.";
-        clicked => { ViewportModel.set_view(5); }
-    }
-    // `ViewportModel.reset_camera`: the same pose and light reset as the Live Render Reset
-    // button. Its Rust handler also redraws both viewports.
-    PillButton {
-        width: root.tight ? 48px : 56px;
-        text: "Reset";
-        hint: "Put the camera angle, distance and light back to their defaults.";
-        clicked => { ViewportModel.reset_camera(); }
+    tool_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
     }
 }
 
-// The tool pills: Tilt Curve, Preform, Snap and Slice, plus Diagram mode's own
-// Reset View and Crown/Pavilion/Profile enlarge pills. `tight` is the phone-width
-// variant with narrower pills. `diagram_zoom`/`diagram_pan_*` are the toolbar's
-// two-way properties (the "Reset View" pill resets them).
-component ToolPills inherits HorizontalLayout {
-    in property <bool> tight: false;
-    // Which pills this row mounts: 0 every pill, 1 without the Diagram's Crown / Pavilion /
-    // Profile enlarge pills, 2 only those three. The narrow toolbar puts them on a row of their
-    // own, because in Diagram mode all of them plus the Parameters buttons are wider than the
-    // 380px the Edit viewport is guaranteed. 3 and 4 are the two halves of part 1 (Tilt Curve,
-    // Preform, Snap / Crystal Axis, Surface Finish, Slice), for a viewport too narrow to hold
-    // the whole tight row (about 460px).
-    in property <int> part: 0;
-    property <bool> first_half: root.part == 0 || root.part == 1 || root.part == 3;
-    property <bool> second_half: root.part == 0 || root.part == 1 || root.part == 4;
-    property <bool> enlarge_row: root.part == 0 || root.part == 2;
+// The camera view icons: Front / Top / Bottom / Left / Right / Fit / Reset. Front to Right and Fit
+// are `ViewportModel.set_view` kinds 0 to 5 (the same call the Live Render viewport's buttons make;
+// the kind-to-pose mapping is in `setup_set_view_callback`). Reset is `ViewportModel.reset_camera`,
+// the same pose and light reset as Live Render's, whose Rust handler also redraws both viewports.
+component ViewIcons inherits HorizontalLayout {
+    spacing: 2px;
+    VerticalLayout {
+        alignment: center;
+        KitIconButton {
+            d: KitIcons.front;
+            size: 30px;
+            icon_size: 15px;
+            label: "Front";
+            hint: "Look at the stone from the front: girdle edge-on, index 0 towards you.";
+            clicked => { ViewportModel.set_view(0); }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        KitIconButton {
+            d: KitIcons.top;
+            size: 30px;
+            icon_size: 15px;
+            label: "Top";
+            hint: "Look straight down onto the table.";
+            clicked => { ViewportModel.set_view(1); }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        KitIconButton {
+            d: KitIcons.bottom;
+            size: 30px;
+            icon_size: 15px;
+            label: "Bottom";
+            hint: "Look straight up at the culet and the pavilion.";
+            clicked => { ViewportModel.set_view(2); }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        KitIconButton {
+            d: KitIcons.left;
+            size: 30px;
+            icon_size: 15px;
+            label: "Left";
+            hint: "Look at the stone's left side.";
+            clicked => { ViewportModel.set_view(3); }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        KitIconButton {
+            d: KitIcons.right;
+            size: 30px;
+            icon_size: 15px;
+            label: "Right";
+            hint: "Look at the stone's right side.";
+            clicked => { ViewportModel.set_view(4); }
+        }
+    }
+    // Fit keeps the current orbit angle and recomputes only the distance from the mesh's
+    // bounding radius, which recovers a framing after a free-drag orbit.
+    VerticalLayout {
+        alignment: center;
+        KitIconButton {
+            d: KitIcons.expand;
+            size: 30px;
+            icon_size: 15px;
+            label: "Fit";
+            hint: "Keep the current angle, but change the distance so the whole stone fits the view.";
+            clicked => { ViewportModel.set_view(5); }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        KitIconButton {
+            d: KitIcons.reset;
+            size: 30px;
+            icon_size: 15px;
+            label: "Reset";
+            hint: "Put the camera angle, distance and light back to their defaults and centre the stone in the picture again.";
+            clicked => { ViewportModel.reset_camera(); }
+        }
+    }
+}
+
+// Diagram mode's own buttons: Reset View (the diagram's zoom and pan back to normal) and the
+// Crown / Pavilion / Profile selectors, which enlarge one of the diagram's three panels to fill
+// the view (a second press, a double-click or Escape goes back to all three).
+// `diagram_enlarged_panel` in `models/solid_preview.slint` holds the choice. `diagram_zoom` and
+// `diagram_pan_*` are the toolbar's two-way properties.
+component DiagramTools inherits HorizontalLayout {
     in-out property <float> diagram_zoom: 1.0;
     in-out property <length> diagram_pan_x: 0px;
     in-out property <length> diagram_pan_y: 0px;
-    spacing: root.tight ? 6px : 8px;
-
-    // The Edit tab's own route to the tilt-performance chart, so a
-    // cutter isn't forced to leave the Edit tab and use the Live
-    // Render tab's "Tilt Curve" button (and, to change what it showed,
-    // the catalogue list, which overwrites the design being edited).
-    // Same open/close + stale-cache-check sequence as
-    // `GemViewportView`'s own button, shared via
-    // `TiltModel.toggle_dialog()`. An advanced tool: hidden in Simple mode, locked with the
-    // other advanced actions while a guide runs.
-    if SolidPreviewModel.view_mode != 3 && GuideModel.shows_advanced() && root.first_half: PillButton {
-        width: root.tight ? 76px : 82px;
-        text: "Tilt Curve";
-        hint: GuideModel.allows_advanced()
-            ? "Open the tilt-performance chart: brilliance, windowing and extinction as the stone tilts. See the glossary."
-            : GuideModel.locked_hint;
-        enabled: GuideModel.allows_advanced();
-        lit: TiltModel.dialog_open;
-        checkable: true;
-        clicked => { TiltModel.toggle_dialog(); }
-    }
-
-    // Shows or hides the rough's bounding (preform) planes. Shown only in the Solid view: the
-    // path tracer does not draw the preform, and the Diagram has its own facet labels.
-    if SolidPreviewModel.view_mode == 0 && root.first_half: PillButton {
-        width: root.tight ? 68px : 96px;
-        text: "Preform";
-        hint: "Show or hide the rough's own bounding planes (the preform) in the Solid view. See the glossary.";
-        lit: SolidPreviewModel.show_preform_planes;
-        checkable: true;
-        clicked => { SolidPreviewModel.show_preform_planes = !SolidPreviewModel.show_preform_planes; }
-    }
-
-    // Snapping for the angle and depth drag handles on the selected facet
-    // (`ManipulateModel`): lit while snapping is on. Shown in every mode that draws the
-    // handles: Solid, Path-traced, Both and the Diagram view.
-    if root.first_half: PillButton {
-        width: root.tight ? 46px : 64px;
-        text: "Snap";
-        hint: "Snapping for the angle and depth handles on the selected facet: coarse by default (0.1 degree, 0.01 mast), fine while you hold Shift, none when this is off. The index handle always moves in whole teeth.";
-        lit: !ManipulateModel.snap_off;
-        highlighted: GuideModel.highlight_target == "snap_pill";
-        checkable: true;
-        clicked => {
-            ManipulateModel.snap_off = !ManipulateModel.snap_off;
-            ManipulateModel.snap_toggled();
+    spacing: 2px;
+    VerticalLayout {
+        alignment: center;
+        ToolToggle {
+            text: "Reset View";
+            hint: "Put the diagram's zoom and pan back to normal.";
+            checkable: false;
+            clicked => {
+                root.diagram_zoom = 1.0;
+                root.diagram_pan_x = 0px;
+                root.diagram_pan_y = 0px;
+            }
         }
     }
-
-    // Crystal Axis: draws the stone's crystal axis over it (and a biaxial stone's Second Axis),
-    // with a handle to drag (`CrystalAxisModel`). Off by default and remembered per user; it also
-    // switches itself on, for the session, the first time the axis is edited. Offered for an
-    // anisotropic material only (an isotropic stone has no axis), in every view that draws the
-    // stone and in the Diagram's profile panel.
-    if SettingsModel.c_axis_override_available && root.second_half: PillButton {
-        width: root.tight ? 84px : 104px;
-        text: "Crystal Axis";
-        hint: "Show the stone's crystal axis over it, with a handle to turn it. A biaxial stone also shows its Second Axis. It switches on by itself the first time you set the axis.";
-        lit: CrystalAxisModel.show_axis;
-        highlighted: GuideModel.highlight_target == "crystal_axis_toggle";
-        checkable: true;
-        clicked => {
-            CrystalAxisModel.show_axis = !CrystalAxisModel.show_axis;
-            CrystalAxisModel.show_axis_toggled(CrystalAxisModel.show_axis);
+    VerticalLayout {
+        alignment: center;
+        ToolToggle {
+            text: "Crown";
+            hint: "Enlarge the Crown panel to fill the view (or double-click a panel). Click again, double-click or press Escape to go back to all three.";
+            on: SolidPreviewModel.diagram_enlarged_panel == 0;
+            clicked => { SolidPreviewModel.diagram_enlarged_panel = SolidPreviewModel.diagram_enlarged_panel == 0 ? -1 : 0; }
         }
     }
-
-    // Surface Finish: tints each finished facet by its grade and draws the direction of its
-    // scratches over the stone (`SurfaceModel`). Drawn in the three views that show the stone.
-    if SolidPreviewModel.view_mode != 3 && root.second_half: PillButton {
-        width: root.tight ? 90px : 104px;
-        text: "Surface Finish";
-        hint: "Show the surface finish of the tiers over the stone: a dot on each finished facet, tinted by its grade, and a tick along the direction of its scratches. Set the finish with a right-click on a tier.";
-        lit: SurfaceModel.show_overlay;
-        checkable: true;
-        clicked => {
-            SurfaceModel.show_overlay = !SurfaceModel.show_overlay;
-            SurfaceModel.overlay_changed();
+    VerticalLayout {
+        alignment: center;
+        ToolToggle {
+            text: "Pavilion";
+            hint: "Enlarge the Pavilion panel to fill the view (or double-click a panel). Click again, double-click or press Escape to go back to all three.";
+            on: SolidPreviewModel.diagram_enlarged_panel == 1;
+            clicked => { SolidPreviewModel.diagram_enlarged_panel = SolidPreviewModel.diagram_enlarged_panel == 1 ? -1 : 1; }
         }
     }
-
-    // Slice: cut a new facet with the mouse (`ManipulateModel`, shortcut S). Lit
-    // while the tool is on; shown in the three modes that draw the stone.
-    if SolidPreviewModel.view_mode != 3 && root.second_half: PillButton {
-        width: root.tight ? 46px : 64px;
-        text: "Slice";
-        hint: "Cut a new facet with the mouse (shortcut S): drag a line across the stone and the part to the right of your drag is cut away. Nothing is kept until you press Keep.";
-        lit: ManipulateModel.slice_mode;
-        highlighted: GuideModel.highlight_target == "slice_pill";
-        checkable: true;
-        clicked => {
-            ManipulateModel.slice_mode = !ManipulateModel.slice_mode;
-            ManipulateModel.slice_toggled();
+    VerticalLayout {
+        alignment: center;
+        ToolToggle {
+            text: "Profile";
+            hint: "Enlarge the Profile panel to fill the view (or double-click a panel). Click again, double-click or press Escape to go back to all three.";
+            on: SolidPreviewModel.diagram_enlarged_panel == 2;
+            clicked => { SolidPreviewModel.diagram_enlarged_panel = SolidPreviewModel.diagram_enlarged_panel == 2 ? -1 : 2; }
         }
     }
+}
 
-    // Resets the diagram's zoom and pan. Shown only in Diagram mode, where Front/Top do not apply.
-    if SolidPreviewModel.view_mode == 3 && root.first_half: PillButton {
-        width: 76px;
-        text: "Reset View";
-        font_size: 11px;
-        hint: "Put the diagram's zoom and pan back to normal.";
-        clicked => {
-            root.diagram_zoom = 1.0;
-            root.diagram_pan_x = 0px;
-            root.diagram_pan_y = 0px;
+// The contents of the top-right glass: the view icons (or Diagram's buttons) and, when
+// `with_help`, the "?" button. The Tilt Curve toggle moved to the command bar.
+component ToolsGroup inherits HorizontalLayout {
+    in property <bool> with_help: false;
+    in-out property <float> diagram_zoom: 1.0;
+    in-out property <length> diagram_pan_x: 0px;
+    in-out property <length> diagram_pan_y: 0px;
+    padding-left: 6px;
+    padding-right: 6px;
+    spacing: 4px;
+    alignment: center;
+
+    if SolidPreviewModel.view_mode != 3: ViewIcons { }
+    if SolidPreviewModel.view_mode == 3: DiagramTools {
+        diagram_zoom <=> root.diagram_zoom;
+        diagram_pan_x <=> root.diagram_pan_x;
+        diagram_pan_y <=> root.diagram_pan_y;
+    }
+    if root.with_help: VerticalLayout {
+        alignment: center;
+        Div { }
+    }
+    if root.with_help: ToolbarHelp { }
+}
+
+// The Show menu's button (a narrow viewport): "Show" with how many overlays are on.
+component ShowMenuButton inherits KitGlass {
+    in property <bool> open: false;
+    in property <int> count: 0;
+    callback clicked();
+
+    height: 36px;
+    width: mlay.preferred-width;
+    border-width: menu_focus.has-focus ? 2px : 1px;
+    border-color: menu_focus.has-focus ? Theme.accent-cyan-hover : (root.open ? Theme.accent-cyan : Theme.glass-edge);
+
+    // "Show Overlays", not "Show": the verdict popover has a "Show" button of its own.
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Show Overlays";
+    accessible-description: root.count == 0 ? "None on" : "\{root.count} on";
+    accessible-action-default => { root.clicked(); }
+
+    Tooltip { text: @markdown("Choose what the viewport draws over the stone: the preform, snapping, the crystal axis, the surface finish and the Slice tool."); }
+
+    menu_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
         }
     }
+    mlay := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 6px;
+        Text {
+            text: "Show";
+            font-size: 12px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+        if root.count > 0: VerticalLayout {
+            alignment: center;
+            KitBadge { text: "\{root.count}"; fill: Theme.accent-cyan-surface; ink: Theme.accent-cyan; }
+        }
+        VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.chevron-down; size: 11px; ink: Theme.text-muted; }
+        }
+    }
+    menu_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
 
-    // Enlarges one of the diagram's three panels to fill the view. Clicking the enlarged
-    // panel's pill again returns to three panels. Three explicit pills, since each panel needs
-    // its own label. `diagram_enlarged_panel` in `models/solid_preview.slint` holds the choice.
-    if SolidPreviewModel.view_mode == 3 && root.enlarge_row: PillButton {
-        width: root.tight ? 52px : 58px;
-        text: "Crown";
-        font_size: 11px;
-        hint: "Enlarge the Crown panel to fill the view (or double-click a panel). Click again, double-click or press Escape to go back to all three.";
-        lit: SolidPreviewModel.diagram_enlarged_panel == 0;
-        checkable: true;
-        clicked => { SolidPreviewModel.diagram_enlarged_panel = SolidPreviewModel.diagram_enlarged_panel == 0 ? -1 : 0; }
+// One entry of the Show menu: a toggle with what it draws. Same labels and hints as the chips.
+component ShowItem inherits Rectangle {
+    in property <int> kind;
+    property <bool> on: ShowState.on[root.kind];
+
+    height: 44px;
+    border-radius: 8px;
+    background: root.on ? Theme.accent-cyan-surface.with-alpha(0.5) : (item_touch.has-hover ? Theme.bg-card-hover : transparent);
+    border-width: item_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: ShowState.texts[root.kind];
+    accessible-description: ShowState.hints[root.kind];
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => { ShowState.toggle(root.kind); }
+
+    Tooltip { text: @markdown("\{ShowState.hints[root.kind]}"); }
+
+    item_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                ShowState.toggle(root.kind);
+                return accept;
+            }
+            return reject;
+        }
     }
-    if SolidPreviewModel.view_mode == 3 && root.enlarge_row: PillButton {
-        width: root.tight ? 60px : 68px;
-        text: "Pavilion";
-        font_size: 11px;
-        hint: "Enlarge the Pavilion panel to fill the view (or double-click a panel). Click again, double-click or press Escape to go back to all three.";
-        lit: SolidPreviewModel.diagram_enlarged_panel == 1;
-        checkable: true;
-        clicked => { SolidPreviewModel.diagram_enlarged_panel = SolidPreviewModel.diagram_enlarged_panel == 1 ? -1 : 1; }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            KitIcon { d: ShowState.icons[root.kind]; size: 16px; ink: root.on ? Theme.accent-cyan : Theme.text-secondary; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 1px;
+            Text { text: ShowState.texts[root.kind]; font-size: 12px; font-weight: 600; color: Theme.text-primary; }
+            Text { text: ShowState.details[root.kind]; font-size: 10px; color: Theme.text-muted; overflow: elide; }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 30px;
+                height: 18px;
+                border-radius: 9px;
+                background: root.on ? Theme.accent-cyan : Theme.bg-elevated;
+                Rectangle {
+                    x: root.on ? 14px : 2px;
+                    y: 2px;
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 7px;
+                    background: Theme.text-primary;
+                }
+            }
+        }
     }
-    if SolidPreviewModel.view_mode == 3 && root.enlarge_row: PillButton {
-        width: root.tight ? 54px : 62px;
-        text: "Profile";
-        font_size: 11px;
-        hint: "Enlarge the Profile panel to fill the view (or double-click a panel). Click again, double-click or press Escape to go back to all three.";
-        lit: SolidPreviewModel.diagram_enlarged_panel == 2;
-        checkable: true;
-        clicked => { SolidPreviewModel.diagram_enlarged_panel = SolidPreviewModel.diagram_enlarged_panel == 2 ? -1 : 2; }
+    item_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { ShowState.toggle(root.kind); }
     }
 }
 
 // The toolbar re-flows by its own width (`root.width` is read here without a binding loop):
-//   wide   (>= 1740px) one row: Cut, modes, views, tools.
-//   medium (1260-1740) two rows: [Cut, modes, tools], [views].
-//   low    (740-1260)  three rows: [Cut, modes], [views], [tools].
-//   narrow (< 740) three rows of tighter pills, plus Cut while it shows; below 470px the
-//          tools row splits in two (`split`), so no pill is ever cut off.
-// The medium first row needs 1260px: Cut 166 + modes 424 + all six tool pills 554 + gaps,
-// the "?" and padding come to about 1220px.
-// Diagram omits the camera row and gives its panel selectors their own narrow row.
-// Rows are 28px with 8px between them. `top_height` is the rows' total height, for the hint
-// strip below them (`ManipulateHintBar.toolbar_height`).
-export component SolidViewportToolbar inherits VerticalLayout {
+//   >= 900px   the mode segment and the tools glass on the first row; below it the SHOW group
+//              and the Cut slider.
+//   760-900px  the same, with the SHOW group folded into the "Show" menu and the short mode names
+//              "Path" and "Ray".
+//   < 760px    three rows: the mode segment and the "?" button; the view icons and Tilt Curve;
+//              the Show menu and the Cut slider.
+// Rows are 36px glass with 8px between them, 12px from the edges. `top_height` is the rows' bottom
+// edge, for the hint strip below them (`ManipulateHintBar.toolbar_height`).
+export component SolidViewportToolbar inherits Rectangle {
     // Explicit `x`/`y`/`width`/`height`: a default-positioned overlay child would propagate its
     // constraints to the viewport (see "Sizing notes" in `app.slint`).
     x: 0px;
     y: 0px;
     width: 100%;
     height: 100%;
-    padding: 10px;
-    alignment: space-between;
 
     in-out property <float> diagram_zoom: 1.0;
     in-out property <length> diagram_pan_x: 0px;
     in-out property <length> diagram_pan_y: 0px;
+    // The Show menu is open (only drawn while `compact`).
+    in-out property <bool> show_open: false;
+    // True while the person drags in the view (`SolidViewportView.is_dragging`): an open gestures
+    // card closes at once.
+    in property <bool> dragging: false;
 
-    property <bool> wide: root.width >= 1740px;
-    property <bool> narrow: root.width < 740px;
-    property <bool> medium: !root.wide && root.width >= 1260px;
-    property <bool> low: !root.wide && !root.medium && !root.narrow;
-    // A narrow viewport that cannot hold the whole tight tools row (about 460px with 10px padding).
-    property <bool> split: root.narrow && root.width < 470px;
-    // Crystal Axis is the only pill the second half of the tools row has in Diagram mode.
-    property <bool> second_half_shows: SolidPreviewModel.view_mode != 3 || SettingsModel.c_axis_override_available;
+    // Short mode names and the Show menu.
+    property <bool> compact: root.width < 900px;
+    // The tools glass no longer fits beside the mode segment.
+    property <bool> stacked: root.width < 760px;
     // With a design to cut, in every mode that draws the stone: the Solid and Both
     // views show it, and the path tracer follows the cut too, so Path-traced keeps the
-    // slider rather than hiding a cut it still obeys. Not the Diagram, which always shows
-    // the finished design. Kept while a cut is active even if the solid is momentarily
-    // missing, so the cut can always be undone.
+    // slider rather than hiding a cut it still obeys. Not the Diagram, which always shows the
+    // finished design. Kept while a cut is active even if the solid is momentarily missing,
+    // so the cut can always be undone.
     property <bool> has_cut: SolidPreviewModel.view_mode != 3 && SolidPreviewModel.cut_step_count > 0 && (SolidPreviewModel.has_solid || SolidPreviewModel.path_selected || SolidPreviewModel.ray_selected || SolidPreviewModel.tier_cutoff != -1);
-    // The pill rows' height (28px rows, 8px between rows), for the hint strip
-    // that goes under them.
-    // Diagram has no camera row; narrow Diagram puts its panel selectors on a third row.
-    // A split tools row (`split`) is one more row, when its second half has any pill.
-    out property <length> top_height: (root.wide ? 28px : (SolidPreviewModel.view_mode == 3 ? (root.narrow ? 100px : (root.medium ? 28px : 64px)) : (root.medium ? 64px : (root.low ? 100px : (root.has_cut ? 136px : 100px))))) + (root.split && root.second_half_shows ? 36px : 0px);
+    // The row of the Show control.
+    property <length> show_y: root.stacked ? 100px : 56px;
+    // The rows' bottom edge: 12px + a 36px row, 8px and another row (and again when stacked).
+    out property <length> top_height: root.stacked ? 136px : 92px;
+    // The room the Cut To scrubber takes along the bottom edge (52px and its margins), or none.
+    out property <length> bottom_inset: root.has_cut ? 64px : 0px;
+
+    // The gestures of this view, for the card behind the mouse button. The Diagram has no orbit:
+    // its drag pans the picture.
+    property <[{k: string, v: string}]> gestures_3d: [
+        { k: "Drag", v: "Orbit the stone" },
+        { k: "Ctrl + drag", v: "Pan" },
+        { k: "Middle drag", v: "Pan" },
+        { k: "Scroll", v: "Zoom" },
+        { k: "Click a facet", v: "Select its tier" },
+        { k: "Drag a handle", v: "Change the facet" },
+    ];
+    property <[{k: string, v: string}]> gestures_diagram: [
+        { k: "Drag", v: "Pan the picture" },
+        { k: "Scroll", v: "Zoom" },
+        { k: "Double-click", v: "Enlarge a panel" },
+        { k: "Click a facet", v: "Select its tier" },
+    ];
 
     // A running catalogue batch suspends the Path-traced and Both images, which then stay
     // frozen, so the status strip reports it first.
@@ -439,145 +613,223 @@ export component SolidViewportToolbar inherits VerticalLayout {
     property <string> ray_note_tip: "Ray-Traced: approximate color and frost;\none index per color chain. No polarization,\ndoubling, haze, zoning or edge rounding;\nbounce-limited.";
     property <string> status_text: root.batch_suspends_tracer && (SolidPreviewModel.path_selected || SolidPreviewModel.ray_selected) ? "Live render paused -- a catalogue batch is running in the background." : (SolidPreviewModel.stale ? (SolidPreviewModel.has_solid ? "Preview one edit behind -- updating." : "Not solved -- click Solve to refresh.") : (SolidPreviewModel.status != "" ? SolidPreviewModel.status : (SolidPreviewModel.ray_selected ? root.ray_note : "")));
 
-    if root.wide: HorizontalLayout {
-        spacing: 8px;
-        if root.has_cut: CutSlider { }
-        ModePills { }
-        if SolidPreviewModel.view_mode != 3: ViewPills { }
-        ToolPills {
+    // Top left: the mode. Solid toggles its edge layer over either tracer; only one tracer may be
+    // selected. Diagram is exclusive.
+    KitGlass {
+        x: 12px;
+        y: 12px;
+        width: modes.preferred-width;
+        height: 36px;
+        modes := HorizontalLayout {
+            padding: 2px;
+            spacing: 2px;
+            ModeSeg {
+                text: "Solid";
+                hint: "Show the flat-shaded stone alone, or toggle its facet edges over the selected tracer.";
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Solid";
+                selected: SolidPreviewModel.solid_selected;
+                highlighted: GuideModel.highlight_target == "view_modes";
+                picked => { SolidPreviewModel.toggle_solid(); }
+            }
+            ModeSeg {
+                text: root.compact ? "Path" : "Path-Traced";
+                label: "Path-Traced";
+                hint: "Select the realistic light-traced picture. Keep Solid selected to draw facet edges over it. In a combined view, click again to return to Solid alone.";
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Path-Traced";
+                selected: SolidPreviewModel.path_selected;
+                highlighted: GuideModel.highlight_target == "view_modes";
+                picked => { SolidPreviewModel.toggle_path(); }
+            }
+            ModeSeg {
+                text: root.compact ? "Ray" : "Ray-Traced";
+                label: "Ray-Traced";
+                hint: "Ray-Traced is an approximation: one index per color chain and averaged color; no polarization, doubling, haze, zoning, edge rounding or diffuse frost light. Energy past the bounce limit is omitted.";
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Ray-Traced";
+                selected: SolidPreviewModel.ray_selected;
+                highlighted: GuideModel.highlight_target == "view_modes";
+                picked => { SolidPreviewModel.toggle_ray(); }
+            }
+            ModeSeg {
+                text: "Diagram";
+                hint: "A flat faceting diagram -- crown, pavilion and side profile -- with the index wheel. It does not turn with the camera.";
+                selected: SolidPreviewModel.view_mode == 3;
+                highlighted: GuideModel.highlight_target == "view_modes";
+                picked => { SolidPreviewModel.view_mode = 3; }
+            }
+        }
+    }
+
+    // Top right: the tools, with the "?" button.
+    if !root.stacked: KitGlass {
+        x: parent.width - self.width - 12px;
+        y: 12px;
+        width: wide_tools.preferred-width;
+        height: 36px;
+        wide_tools := ToolsGroup {
+            with_help: true;
             diagram_zoom <=> root.diagram_zoom;
             diagram_pan_x <=> root.diagram_pan_x;
             diagram_pan_y <=> root.diagram_pan_y;
         }
-        // Filler: keeps the pills at their own width.
-        Rectangle { horizontal-stretch: 1; }
-        ToolbarHelp { }
     }
 
-    if root.medium: VerticalLayout {
-        spacing: 8px;
+    // Stacked: the "?" button alone at the top right, the tools on the next row.
+    if root.stacked: KitGlass {
+        x: parent.width - self.width - 12px;
+        y: 12px;
+        width: 36px;
+        height: 36px;
         HorizontalLayout {
-            spacing: 8px;
-            if root.has_cut: CutSlider { }
-            ModePills { }
-            ToolPills {
-                diagram_zoom <=> root.diagram_zoom;
-                diagram_pan_x <=> root.diagram_pan_x;
-                diagram_pan_y <=> root.diagram_pan_y;
-            }
-            Rectangle { horizontal-stretch: 1; }
+            alignment: center;
             ToolbarHelp { }
         }
-        if SolidPreviewModel.view_mode != 3: HorizontalLayout {
-            spacing: 8px;
-            ViewPills { }
-            Rectangle { horizontal-stretch: 1; }
+    }
+    if root.stacked: KitGlass {
+        x: 12px;
+        y: 56px;
+        width: narrow_tools.preferred-width;
+        height: 36px;
+        narrow_tools := ToolsGroup {
+            diagram_zoom <=> root.diagram_zoom;
+            diagram_pan_x <=> root.diagram_pan_x;
+            diagram_pan_y <=> root.diagram_pan_y;
         }
     }
 
-    if root.low: VerticalLayout {
+    // The SHOW group (or the Show menu button) and the Cut slider.
+    HorizontalLayout {
+        x: 12px;
+        y: root.show_y;
+        width: parent.width - 24px;
+        height: 36px;
         spacing: 8px;
-        HorizontalLayout {
-            spacing: 8px;
-            if root.has_cut: CutSlider { }
-            ModePills { }
-            Rectangle { horizontal-stretch: 1; }
-            ToolbarHelp { }
-        }
-        if SolidPreviewModel.view_mode != 3: HorizontalLayout {
-            spacing: 8px;
-            ViewPills { }
-            Rectangle { horizontal-stretch: 1; }
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            ToolPills {
-                diagram_zoom <=> root.diagram_zoom;
-                diagram_pan_x <=> root.diagram_pan_x;
-                diagram_pan_y <=> root.diagram_pan_y;
+        alignment: start;
+
+        if !root.compact: KitGlass {
+            width: show_row.preferred-width;
+            height: 36px;
+            show_row := HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 6px;
+                spacing: 2px;
+                alignment: center;
+                Text {
+                    text: "SHOW";
+                    font-size: 9px;
+                    font-weight: 700;
+                    letter-spacing: 0.8px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+                Rectangle { width: 6px; }
+                for kind in 5: VerticalLayout {
+                    alignment: center;
+                    if ShowState.shown[kind]: ToolToggle {
+                        icon: ShowState.icons[kind];
+                        text: ShowState.texts[kind];
+                        hint: ShowState.hints[kind];
+                        on: ShowState.on[kind];
+                        highlighted: ShowState.targets[kind] != "" && GuideModel.highlight_target == ShowState.targets[kind];
+                        clicked => { ShowState.toggle(kind); }
+                    }
+                }
             }
-            Rectangle { horizontal-stretch: 1; }
+        }
+        if root.compact: ShowMenuButton {
+            open: root.show_open;
+            count: ShowState.count;
+            clicked => { root.show_open = !root.show_open; }
         }
     }
 
-    if root.narrow: VerticalLayout {
-        spacing: 8px;
-        if root.has_cut: HorizontalLayout {
-            spacing: 8px;
-            CutSlider { }
-            Rectangle { horizontal-stretch: 1; }
-            ToolbarHelp { }
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            ModePills { tight: true; }
-            Rectangle { horizontal-stretch: 1; }
-            // Without a cut slider on this row the help button sits here instead.
-            if !root.has_cut: ToolbarHelp { }
-        }
-        if SolidPreviewModel.view_mode != 3: HorizontalLayout {
-            spacing: 8px;
-            ViewPills { tight: true; }
-            Rectangle { horizontal-stretch: 1; }
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            ToolPills {
-                tight: true;
-                part: root.split ? 3 : 1;
-                diagram_zoom <=> root.diagram_zoom;
-                diagram_pan_x <=> root.diagram_pan_x;
-                diagram_pan_y <=> root.diagram_pan_y;
-            }
-            Rectangle { horizontal-stretch: 1; }
-        }
-        // Below 470px the rest of the tools get a row of their own instead of running off the edge.
-        if root.split && root.second_half_shows: HorizontalLayout {
-            spacing: 8px;
-            ToolPills {
-                tight: true;
-                part: 4;
-            }
-            Rectangle { horizontal-stretch: 1; }
-        }
-        // Narrow Diagram keeps its three panel selectors on a separate row.
-        if SolidPreviewModel.view_mode == 3: HorizontalLayout {
-            spacing: 8px;
-            ToolPills {
-                tight: true;
-                part: 2;
-            }
-            Rectangle { horizontal-stretch: 1; }
-        }
+    // The Cut To scrubber, the full width of the bottom edge.
+    if root.has_cut: CutSlider {
+        x: 12px;
+        y: parent.height - self.height - 12px;
+        width: parent.width - 24px;
     }
 
-    // Bottom group: the preview badge (when the picture uses a preview material) above the
-    // status line, so the rows above keep their own space-between placement.
+    // Bottom left: the mouse button and its gestures card. It opens by itself until the owner
+    // has seen it once (`ViewportModel.gestures_seen`).
+    GesturesButton {
+        x: 12px;
+        y: parent.height - 48px - root.bottom_inset;
+        open_by_default: !ViewportModel.gestures_seen;
+        dragging: root.dragging;
+        items: SolidPreviewModel.view_mode == 3 ? root.gestures_diagram : root.gestures_3d;
+        dismissed => { ViewportModel.gestures_seen_set(true); }
+    }
+
+    // Bottom group, right of the mouse button: the preview badge (when the picture uses a preview
+    // material) above the status line.
     VerticalLayout {
+        x: 56px;
+        y: 0px;
+        width: parent.width - 68px;
+        height: parent.height - root.bottom_inset;
+        padding-bottom: 16px;
         spacing: 4px;
-        if ViewportModel.previewing: PreviewBadge { row_height: 28px; }
-        if root.status_text != "": Rectangle {
-            height: 22px;
-            background: Theme.bg-input;
-            border-radius: Theme.radius-sm;
-            border-width: 1px;
-            border-color: Theme.border-subtle;
+        alignment: end;
+        if ViewportModel.previewing: HorizontalLayout {
+            alignment: start;
+            PreviewBadge { row_height: 28px; }
+        }
+        if root.status_text != "": HorizontalLayout {
+            alignment: start;
+            Rectangle {
+                height: 28px;
+                width: min(status_label.preferred-width + 20px, root.width - 80px);
+                background: Theme.glass-bg;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: Theme.glass-edge;
 
-            accessible-role: AccessibleRole.text;
-            accessible-label: root.status_text;
-            Tooltip { text: @markdown("\{root.status_text == root.ray_note ? root.ray_note_tip : root.status_text}"); }
+                accessible-role: AccessibleRole.text;
+                accessible-label: root.status_text;
+                Tooltip { text: @markdown("\{root.status_text == root.ray_note ? root.ray_note_tip : root.status_text}"); }
 
-            Text {
-                text: root.status_text;
-                font-size: 11px;
-                color: Theme.text-secondary;
-                horizontal-alignment: left;
-                vertical-alignment: center;
-                x: 8px;
-                width: parent.width - 16px;
-                height: parent.height;
-                overflow: elide;
+                status_label := Text {
+                    text: root.status_text;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: left;
+                    vertical-alignment: center;
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    overflow: elide;
+                }
             }
+        }
+    }
+
+    // The Show menu, open from its button; a click anywhere else closes it. The scrim sits under
+    // the menu and over the rest, so it takes the click instead of the viewport's drag area.
+    if root.show_open && root.compact: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        clicked => { root.show_open = false; }
+    }
+    if root.show_open && root.compact: Rectangle {
+        x: 12px;
+        y: root.show_y + 42px;
+        width: 300px;
+        height: menu_list.preferred-height;
+        background: Theme.popup-surface;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.shadow-heavy;
+        menu_list := VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+            for kind in 5: VerticalLayout { if ShowState.shown[kind]: ShowItem { kind: kind; } }
         }
     }
 }

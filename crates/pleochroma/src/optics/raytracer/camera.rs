@@ -78,6 +78,10 @@ pub const DEFAULT_POSE: OrbitPose = OrbitPose {
     distance: 2.4,
 };
 
+/// The largest pan component (in image half-heights) a renderer accepts; the viewport clamps far
+/// tighter (to the visible picture), this only bounds what a peer may send.
+pub const MAX_CAMERA_PAN: f32 = 4.0;
+
 /// Orbit pinhole camera looking at the origin.
 pub struct Camera {
     /// Eye position.
@@ -146,6 +150,18 @@ impl Camera {
         self
     }
 
+    /// Moves the eye parallel to the image plane so the orbit centre appears at `pan` (image
+    /// half-heights, x right, y up, in the picture's axes). `[0.0, 0.0]` keeps the camera
+    /// exact. Apply after [`Camera::with_roll`].
+    #[must_use]
+    pub fn with_pan(mut self, pan: [f32; 2]) -> Self {
+        if pan[0] != 0.0 || pan[1] != 0.0 {
+            let scale = self.origin.length() * self.fov_tan;
+            self.origin -= (self.right * pan[0] + self.up * pan[1]) * scale;
+        }
+        self
+    }
+
     /// Generates the primary ray through a (jittered) pixel position.
     #[must_use]
     pub fn generate_ray(
@@ -194,6 +210,66 @@ mod tests {
             let restored = Camera::new(yaw, pitch, 3.7, 42.0).with_roll(4.0 * FRAC_PI_2);
             assert!(restored.right.abs_diff_eq(original.right, 1e-6));
             assert!(restored.up.abs_diff_eq(original.up, 1e-6));
+        }
+    }
+
+    const POSES: [(f32, f32, f32); 5] = [
+        (0.6, 0.45, 2.4),
+        (-1.2, 0.3, 3.7),
+        (0.0, FRAC_PI_2, 2.4),
+        (0.7, -FRAC_PI_2, 5.0),
+        (2.0, -0.8, 1.5),
+    ];
+
+    #[test]
+    fn zero_pan_leaves_the_camera_bit_identical() {
+        for (yaw, pitch, distance) in POSES {
+            let a = Camera::new(yaw, pitch, distance, 42.0).with_roll(0.3);
+            let b = Camera::new(yaw, pitch, distance, 42.0)
+                .with_roll(0.3)
+                .with_pan([0.0, 0.0]);
+            assert_eq!(a.origin, b.origin);
+            assert_eq!(a.forward, b.forward);
+            assert_eq!(a.right, b.right);
+            assert_eq!(a.up, b.up);
+            assert_eq!(a.fov_tan, b.fov_tan);
+        }
+    }
+
+    /// The orbit centre projects to the picture coordinates `pan`, and the basis and field of
+    /// view never change.
+    #[test]
+    fn pan_puts_the_orbit_centre_at_the_pan_position() {
+        let pan = [0.4, -0.25];
+        for (yaw, pitch, distance) in POSES {
+            for roll in [0.0, 0.9] {
+                let base = Camera::new(yaw, pitch, distance, 42.0).with_roll(roll);
+                let panned = Camera::new(yaw, pitch, distance, 42.0)
+                    .with_roll(roll)
+                    .with_pan(pan);
+                assert_eq!(panned.forward, base.forward);
+                assert_eq!(panned.right, base.right);
+                assert_eq!(panned.up, base.up);
+                assert_eq!(panned.fov_tan, base.fov_tan);
+                let to_centre = -panned.origin;
+                let depth = to_centre.dot(panned.forward);
+                let x = to_centre.dot(panned.right) / depth / panned.fov_tan;
+                let y = to_centre.dot(panned.up) / depth / panned.fov_tan;
+                assert!((x - pan[0]).abs() < 1e-4, "x {x} for {yaw} {pitch}");
+                assert!((y - pan[1]).abs() < 1e-4, "y {y} for {yaw} {pitch}");
+            }
+        }
+    }
+
+    #[test]
+    fn pan_keeps_the_centre_at_the_same_place_for_another_distance() {
+        let pan = [-0.6, 0.5];
+        for distance in [1.5_f32, 2.4, 6.0] {
+            let c = Camera::new(0.6, 0.45, distance, 42.0).with_pan(pan);
+            let to_centre = -c.origin;
+            let depth = to_centre.dot(c.forward);
+            assert!((to_centre.dot(c.right) / depth / c.fov_tan - pan[0]).abs() < 1e-4);
+            assert!((to_centre.dot(c.up) / depth / c.fov_tan - pan[1]).abs() < 1e-4);
         }
     }
 

@@ -295,6 +295,9 @@ pub struct Options {
     pub snap: bool,
     /// The longest raster edge in pixels.
     pub max_edge: u32,
+    /// The Diagram view draws one panel at a time (a compact window); a wider window
+    /// draws all three.
+    pub single_panel: bool,
 }
 
 impl Default for Options {
@@ -303,6 +306,7 @@ impl Default for Options {
             handle_scale: 1.0,
             snap: true,
             max_edge: DEFAULT_MAX_EDGE,
+            single_panel: false,
         }
     }
 }

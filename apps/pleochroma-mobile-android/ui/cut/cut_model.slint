@@ -15,6 +15,11 @@ export struct CutRowData {
     angle: string,
     // `96-08-16`
     index-text: string,
+    // The same positions, one string each (`96`, `08`, `16`), for the row's chips: all of
+    // them, never cut short.
+    index-chips: [string],
+    // The longest chip's character count (a chip is as wide as its longest sibling).
+    chip-chars: int,
     name: string,
     notes: string,
     done: bool,
@@ -75,6 +80,8 @@ export global CutModel {
     in property <string> mode-code: "";
     in property <string> mode-angle: "";
     in property <string> mode-index: "";
+    // `mode-index` with invisible hints so a long list wraps after a hyphen, not before.
+    in property <string> mode-index-display: "";
     in property <string> mode-name: "";
     in property <string> mode-notes: "";
     in property <bool> mode-done: false;

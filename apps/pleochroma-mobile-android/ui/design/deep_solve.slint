@@ -1,9 +1,11 @@
 import { Shell } from "../models.slint";
-import { LineEdit, ProgressIndicator } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { TopBar } from "../shell/top_bar.slint";
 import { PageScroll } from "../shell/page_scroll.slint";
 import { PrimaryButton, TextButton } from "../shell/buttons.slint";
+import { TextField, ProgressBar } from "../shell/inputs.slint";
+import { FieldLabel, PageColumn, GroupHeader } from "../pages/fields.slint";
+import { Card } from "props/props_parts.slint";
 
 export global DeepSolveModel {
     in-out property <bool> open: false;
@@ -26,11 +28,22 @@ export global DeepSolveModel {
     callback pin(int);
 }
 
+// A caption above a number field; disabled while a search runs.
 component TargetField inherits VerticalLayout {
     in property <string> label;
     in-out property <string> value;
-    Text { text: root.label; color: Theme.on-surface-variant; }
-    LineEdit { text <=> root.value; enabled: !DeepSolveModel.running; }
+    spacing: Theme.space-xs;
+    FieldLabel { text: root.label; }
+    TextField { text <=> root.value; label: root.label; input-type: InputType.decimal; enabled: !DeepSolveModel.running; }
+}
+
+// The page's side margin for the texts and buttons that sit between the cards.
+component Pad inherits VerticalLayout {
+    padding-left: Theme.space-lg;
+    padding-right: Theme.space-lg;
+    padding-top: Theme.space-xs;
+    padding-bottom: Theme.space-xs;
+    spacing: Theme.space-sm;
 }
 
 export component DeepSolveScreen inherits Rectangle {
@@ -40,28 +53,37 @@ export component DeepSolveScreen inherits Rectangle {
         TopBar { title: "Deep Solve"; show-back: true; back-clicked => { Shell.request-back(); } }
         PageScroll {
             vertical-stretch: 1;
-            VerticalLayout {
-                padding: Theme.space-md;
-                spacing: Theme.space-md;
-                Text { text: DeepSolveModel.hint; wrap: word-wrap; color: Theme.on-surface; }
-                Text { text: "Printed targets: enter external published figures, never measurements of this candidate. Blank fields are omitted."; wrap: word-wrap; color: Theme.on-surface-variant; }
-                TargetField { label: "Vol/W³"; value <=> DeepSolveModel.vol; }
-                TargetField { label: "L/W"; value <=> DeepSolveModel.lw; }
-                TargetField { label: "C/W"; value <=> DeepSolveModel.cw; }
-                TargetField { label: "P/W"; value <=> DeepSolveModel.pw; }
-                TargetField { label: "H/W"; value <=> DeepSolveModel.hw; }
-                TextButton { text: "Use entered printed targets"; enabled: !DeepSolveModel.running; clicked => { DeepSolveModel.save-targets(); } }
-                PrimaryButton { text: "Run Deep Solve"; enabled: DeepSolveModel.available && !DeepSolveModel.running; clicked => { DeepSolveModel.start(); } }
-                if DeepSolveModel.running: ProgressIndicator { indeterminate: true; }
-                if DeepSolveModel.running: TextButton { text: "Cancel search"; clicked => { DeepSolveModel.cancel(); } }
-                Text { text: DeepSolveModel.status; wrap: word-wrap; color: Theme.on-surface; }
-                for tier[index] in DeepSolveModel.tiers: TextButton {
-                    text: tier;
-                    enabled: DeepSolveModel.can-pin;
-                    clicked => { DeepSolveModel.pin(index); }
+            PageColumn { VerticalLayout {
+                padding-bottom: Theme.space-lg;
+                Pad {
+                    Text { text: DeepSolveModel.hint; wrap: word-wrap; color: Theme.on-surface; }
+                    Text { text: "Printed targets: enter external published figures, never measurements of this candidate. Blank fields are omitted."; wrap: word-wrap; color: Theme.text-secondary; }
                 }
-                Text { text: "Pinning is an explicit edit. Undo restores the prior meet constraint. After pinning, rerun verification for the changed design."; wrap: word-wrap; color: Theme.on-surface-variant; }
-            }
+                GroupHeader { text: "PRINTED TARGETS"; }
+                Card {
+                    VerticalLayout {
+                        spacing: Theme.space-md;
+                        TargetField { label: "Vol/W³"; value <=> DeepSolveModel.vol; }
+                        TargetField { label: "L/W"; value <=> DeepSolveModel.lw; }
+                        TargetField { label: "C/W"; value <=> DeepSolveModel.cw; }
+                        TargetField { label: "P/W"; value <=> DeepSolveModel.pw; }
+                        TargetField { label: "H/W"; value <=> DeepSolveModel.hw; }
+                    }
+                }
+                Pad {
+                    TextButton { text: "Use entered printed targets"; enabled: !DeepSolveModel.running; clicked => { DeepSolveModel.save-targets(); } }
+                    PrimaryButton { text: "Run Deep Solve"; enabled: DeepSolveModel.available && !DeepSolveModel.running; clicked => { DeepSolveModel.start(); } }
+                    if DeepSolveModel.running: ProgressBar { indeterminate: true; }
+                    if DeepSolveModel.running: TextButton { text: "Cancel search"; clicked => { DeepSolveModel.cancel(); } }
+                    Text { text: DeepSolveModel.status; wrap: word-wrap; color: Theme.on-surface; }
+                    for tier[index] in DeepSolveModel.tiers: TextButton {
+                        text: tier;
+                        enabled: DeepSolveModel.can-pin;
+                        clicked => { DeepSolveModel.pin(index); }
+                    }
+                    Text { text: "Pinning is an explicit edit. Undo restores the prior meet constraint. After pinning, rerun verification for the changed design."; wrap: word-wrap; color: Theme.text-secondary; }
+                }
+            } }
         }
     }
 }

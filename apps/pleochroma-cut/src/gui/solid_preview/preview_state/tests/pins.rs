@@ -87,6 +87,7 @@ const PIN_CAMERA: CameraPose = CameraPose {
     yaw: 0.6,
     pitch: 0.45,
     distance: 2.4,
+    pan: [0.0, 0.0],
 };
 
 fn pin_job(view_mode: u8, size: (u32, u32), enlarged_panel: i32) -> PlanJob {

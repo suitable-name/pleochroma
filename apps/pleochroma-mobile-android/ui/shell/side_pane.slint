@@ -13,49 +13,59 @@ export component SidePane inherits Rectangle {
     out property <length> pane-width: root.collapsed ? 48px : min(480px, max(360px, root.preferred-open-width));
 
     width: root.pane-width;
-    background: Theme.surface-container;
+    background: transparent;
 
     animate width {
         duration: 180ms;
         easing: ease-out;
     }
 
-    // The separator along the pane's leading edge.
+    // The pane card: the desktop's glass surface with a soft edge, inset from the window
+    // edges (no drag handle: the width is fixed, only the chevron collapses it).
     Rectangle {
-        x: 0px;
-        width: 1px;
-        background: Theme.outline-variant;
-    }
+        x: Theme.space-xs;
+        y: Theme.space-xs;
+        width: parent.width - Theme.space-sm;
+        height: parent.height - Theme.space-sm;
+        background: Theme.high-contrast ? Theme.surface : Theme.surface-container;
+        border-radius: Theme.radius-lg;
+        border-width: Theme.high-contrast ? 2px : 1px;
+        border-color: Theme.high-contrast ? Theme.on-surface : Theme.glass-edge;
+        clip: true;
+        drop-shadow-color: Theme.shadow;
+        drop-shadow-blur: Theme.shadow-blur-3;
+        drop-shadow-offset-y: Theme.shadow-offset-2;
 
-    VerticalLayout {
-        HorizontalLayout {
-            height: Theme.touch;
-            padding-left: root.collapsed ? 0px : Theme.space-lg;
+        VerticalLayout {
+            HorizontalLayout {
+                height: Theme.touch;
+                padding-left: root.collapsed ? 0px : Theme.space-lg;
 
-            if !root.collapsed: Text {
-                text: root.title;
-                color: Theme.on-surface;
-                font-size: Theme.text-title;
-                font-weight: 500;
-                vertical-alignment: center;
-                overflow: elide;
-                horizontal-stretch: 1;
-            }
+                if !root.collapsed: Text {
+                    text: root.title;
+                    color: Theme.on-surface;
+                    font-size: Theme.text-title;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
 
-            IconButton {
-                icon: root.collapsed ? Icons.chevron-left : Icons.chevron-right;
-                label: root.collapsed ? "Expand Panel" : "Collapse Panel";
-                clicked => {
-                    root.collapsed = !root.collapsed;
+                IconButton {
+                    icon: root.collapsed ? Icons.chevron-left : Icons.chevron-right;
+                    label: root.collapsed ? "Expand Panel" : "Collapse Panel";
+                    clicked => {
+                        root.collapsed = !root.collapsed;
+                    }
                 }
             }
-        }
 
-        Rectangle {
-            visible: !root.collapsed;
-            clip: true;
+            Rectangle {
+                visible: !root.collapsed;
+                clip: true;
 
-            @children
+                @children
+            }
         }
     }
 }

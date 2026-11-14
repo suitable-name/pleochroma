@@ -1,0 +1,46 @@
+// The page parts of the Library and More pages: the field caption, the page column and the
+// group header. `TextField` (a 48 px pill or rounded box on the input surface) lives in the
+// input kit, `shell/inputs.slint`, with `ChoiceField`, `Stepper` and `ToggleRow`; it is
+// re-exported here so the pages' imports keep working.
+import { Theme } from "../theme.slint";
+
+export { TextField } from "../shell/inputs.slint";
+
+// A caption above a field.
+export component FieldLabel inherits Text {
+    color: Theme.text-secondary;
+    font-size: Theme.text-body;
+    wrap: word-wrap;
+}
+
+// A page body: a column at most 640 px wide, centered on a tablet.
+export component PageColumn inherits HorizontalLayout {
+    alignment: center;
+
+    VerticalLayout {
+        max-width: 640px;
+        horizontal-stretch: 1;
+        alignment: start;
+
+        @children
+    }
+}
+
+// The caption over a group of rows ("DESIGN", "LIBRARY", "APP").
+export component GroupHeader inherits Rectangle {
+    in property <string> text;
+
+    height: Theme.touch;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    Text {
+        x: Theme.space-lg;
+        y: parent.height - self.height - Theme.space-sm;
+        text: root.text;
+        color: Theme.text-secondary;
+        font-size: Theme.text-label;
+        font-weight: 700;
+        letter-spacing: 1px;
+    }
+}

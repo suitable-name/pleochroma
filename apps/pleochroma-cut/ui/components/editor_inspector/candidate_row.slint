@@ -1,8 +1,9 @@
 import { Theme } from "../../theme.slint";
 import { OptimizeCandidateRow } from "../../models/optimize.slint";
+import { R3Delta } from "../kit/r3c.slint";
 
-// The parts of the Optimize tab's candidate list: the figure cell, the column
-// heading and one row.
+// The parts of the Optimize tab's candidate list: the figure cell, the column heading (the small
+// tables under a picked candidate use it) and one candidate card.
 
 // One figure of a candidate row, coloured by whether it beats the starting stone.
 export component ResultCell inherits Text {
@@ -13,7 +14,7 @@ export component ResultCell inherits Text {
     color: root.dir > 0 ? Theme.accent-emerald : (root.dir < 0 ? Theme.accent-ruby : Theme.text-secondary);
 }
 
-// A small column heading of the candidate list, with a tooltip saying what the column is.
+// A small column heading of a table, with a tooltip saying what the column is.
 export component ColumnHead inherits Rectangle {
     in property <string> text;
     in property <string> tip;
@@ -34,8 +35,10 @@ export component ColumnHead inherits Rectangle {
     }
 }
 
-// One row of the candidate list (the starting stone, or a ranked candidate). A click picks it.
-// `ringed` draws the keyboard cursor while the list has focus.
+// One candidate of the list (the starting stone, or a ranked candidate), as a card: the rank, what
+// it changes, and its figures as chips. A chip carries an arrow as well as a color (up: better
+// than the starting stone, down: worse); a figure that is about the same has neither. A click
+// picks it. `ringed` draws the keyboard cursor while the list has focus.
 export component CandidateRowView inherits Rectangle {
     in property <OptimizeCandidateRow> item;
     in property <bool> selected: false;
@@ -43,50 +46,99 @@ export component CandidateRowView inherits Rectangle {
     in property <bool> ringed: false;
     callback clicked();
 
-    height: 22px;
-    border-radius: Theme.radius-sm;
-    background: root.selected ? Theme.surface-selected : (row_touch.has-hover ? Theme.bg-card-hover : transparent);
-    border-width: root.ringed ? 2px : 0px;
-    border-color: Theme.accent-cyan-hover;
+    property <bool> is_start: root.item.rank == "Start";
+
+    height: 64px;
+    border-radius: 10px;
+    background: root.selected ? Theme.surface-selected : (row_touch.has-hover ? Theme.bg-card-hover : Theme.surface-raised);
+    border-width: (root.selected || root.ringed) ? 2px : 1px;
+    border-color: root.ringed ? Theme.accent-cyan-hover : (root.selected ? Theme.accent-cyan : Theme.border-subtle);
+    clip: true;
     accessible-role: AccessibleRole.list-item;
-    accessible-label: (root.item.rank == "Start" ? "Starting Stone" : "Candidate " + root.item.rank) + ", score " + root.item.score;
+    accessible-label: (root.is_start ? "Starting Stone" : "Candidate " + root.item.rank) + ", score " + root.item.score;
+    accessible-description: root.is_start ? "The stone as it is now."
+        : root.item.changed + " tiers changed. Windowing " + root.item.windowing + ", brilliance " + root.item.brilliance
+            + ", extinction " + root.item.extinction + ", yield loss " + root.item.yield_loss + ".";
     accessible-item-selectable: true;
     accessible-item-selected: root.selected;
     accessible-action-default => { root.clicked(); }
 
-    HorizontalLayout {
-        padding-left: 4px;
-        padding-right: 4px;
-        spacing: 3px;
-        Text { width: 34px; text: root.item.rank; font-size: 10px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
-        ResultCell { width: 38px; text: root.item.score; dir: root.item.score_dir; font-weight: 700; }
-        ResultCell { width: 38px; text: root.item.windowing; dir: root.item.windowing_dir; }
-        ResultCell { width: 40px; text: root.item.brilliance; dir: root.item.brilliance_dir; }
-        ResultCell { width: 38px; text: root.item.extinction; dir: root.item.extinction_dir; }
-        ResultCell { width: 38px; text: root.item.yield_loss; dir: root.item.yield_dir; }
-        // The predicted face-up colour dot, then the lightness L*.
-        HorizontalLayout {
-            width: 72px;
-            padding-left: 6px;
-            spacing: 2px;
-            alignment: start;
-            if root.item.has_tone: Rectangle {
-                width: 10px;
-                Rectangle {
-                    width: 10px;
-                    height: 10px;
-                    y: (parent.height - self.height) / 2;
-                    border-radius: 5px;
-                    background: root.item.tone_swatch;
-                }
-            }
-            ResultCell { width: 54px; text: root.item.tone; dir: root.item.tone_dir; horizontal-alignment: left; }
-        }
-        ResultCell { horizontal-stretch: 1; text: root.item.changed; }
-    }
     row_touch := TouchArea {
         enabled: root.active;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 12px;
+        Text {
+            width: root.is_start ? 40px : 22px;
+            text: root.is_start ? "Start" : root.item.rank;
+            font-size: root.is_start ? 11px : 16px;
+            font-weight: 800;
+            color: root.selected ? Theme.text-primary : Theme.text-secondary;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 6px;
+            Text {
+                text: root.is_start ? "The stone as it is now"
+                    : (root.item.changed == "1" ? "1 tier changed" : root.item.changed + " tiers changed");
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                overflow: elide;
+            }
+            HorizontalLayout {
+                spacing: 5px;
+                alignment: start;
+                R3Delta {
+                    text: "Score " + root.item.score;
+                    trend: root.item.score_dir;
+                    arrow: root.item.score_dir > 0 ? 1 : (root.item.score_dir < 0 ? -1 : 0);
+                    hint: "One number combining all the measurements, using your objective.\nHigher is better: 100 is best, 0 is worst.";
+                }
+                R3Delta {
+                    text: "Bril. " + root.item.brilliance;
+                    trend: root.item.brilliance_dir;
+                    arrow: root.item.brilliance_dir > 0 ? 1 : (root.item.brilliance_dir < 0 ? -1 : 0);
+                    hint: "Tilt brilliance: the light the stone returns to the eye\nas it is tilted. Higher is better.";
+                }
+                R3Delta {
+                    text: "Wind. " + root.item.windowing;
+                    trend: root.item.windowing_dir;
+                    arrow: root.item.windowing_dir > 0 ? 1 : (root.item.windowing_dir < 0 ? -1 : 0);
+                    hint: "Windowing: the share of the stone that looks see-through.\nLower is better.";
+                }
+                R3Delta {
+                    text: "Ext. " + root.item.extinction;
+                    trend: root.item.extinction_dir;
+                    arrow: root.item.extinction_dir > 0 ? 1 : (root.item.extinction_dir < 0 ? -1 : 0);
+                    hint: "Extinction: the share of the stone that looks dead dark.\nLower is better.";
+                }
+                R3Delta {
+                    text: "Yield " + root.item.yield_loss;
+                    trend: root.item.yield_dir;
+                    arrow: root.item.yield_dir > 0 ? 1 : (root.item.yield_dir < 0 ? -1 : 0);
+                    hint: "Yield loss: how much more of the rough this candidate throws\naway. Lower is better.";
+                }
+                if root.item.has_tone: HorizontalLayout {
+                    spacing: 4px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle { width: 10px; height: 10px; border-radius: 5px; background: root.item.tone_swatch; }
+                    }
+                    R3Delta {
+                        text: "Tone " + root.item.tone;
+                        trend: root.item.tone_dir;
+                        arrow: root.item.tone_dir > 0 ? 1 : (root.item.tone_dir < 0 ? -1 : 0);
+                        hint: "Face-up lightness L* of the light the stone returns, with its\npredicted color. 100 is colorless.";
+                    }
+                }
+            }
+        }
     }
 }

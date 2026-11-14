@@ -18,7 +18,7 @@ macro_rules! ew_unit {
     };
 }
 
-/// The 16 event wavefront generated units, by (entry point name, source text).
+/// The 18 event wavefront generated units, by (entry point name, source text).
 const EW_UNITS: &[(&str, &str)] = &[
     ew_unit!("ew_generate"),
     ew_unit!("ew_extend"),
@@ -31,7 +31,9 @@ const EW_UNITS: &[(&str, &str)] = &[
     ew_unit!("ew_arm_tir"),
     ew_unit!("ew_arm_uni_entry"),
     ew_unit!("ew_arm_uni_entry_transmit"),
+    ew_unit!("ew_arm_uni_entry_finish"),
     ew_unit!("ew_arm_uni_internal"),
+    ew_unit!("ew_arm_uni_internal_transmit"),
     ew_unit!("ew_arm_generic"),
     ew_unit!("ew_split_resolve"),
     ew_unit!("ew_tail"),
@@ -116,7 +118,15 @@ const EXPECTED_STORAGE: &[(&str, &[&str])] = &[
         &["material", "ray_core", "ray_chan", "ray_hit"],
     ),
     (
+        "ew_arm_uni_entry_finish",
+        &["material", "ray_core", "ray_chan", "ray_hit"],
+    ),
+    (
         "ew_arm_uni_internal",
+        &["material", "dist_func", "ray_core", "ray_chan", "ray_hit"],
+    ),
+    (
+        "ew_arm_uni_internal_transmit",
         &["material", "dist_func", "ray_core", "ray_chan", "ray_hit"],
     ),
     (

@@ -1,22 +1,98 @@
-import { ComboBox } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { SettingsModel } from "../../models/settings.slint";
 import { ViewportModel } from "../../models/viewport.slint";
-import { EditorModel } from "../../models/editor.slint";
-import { PhysicscolorModel } from "../../models/physics_color.slint";
 import { EnvironmentMapSection } from "../settings_dialog/environment_map_section.slint";
-import { LightingPresetsSection, SaveNameRow } from "../settings_dialog/lighting_presets_section.slint";
+import { LightingPresetsSection } from "../settings_dialog/lighting_presets_section.slint";
 import { DesignLightingSection } from "../settings_dialog/design_lighting_section.slint";
-import { SettingLabel } from "../settings_dialog/setting_label.slint";
-import { ToggleRow } from "../toggle_switch.slint";
-import { SegmentPill } from "../pill_button.slint";
-import { FooterButton, GroupHeader, SliderRow } from "parts.slint";
+import { PhysicscolorModel } from "../../models/physics_color.slint";
+import { KitCard, KitChip, KitFoldCard, KitIcons, KitInlineSlider, KitRigThumb, KitSection, KitSegmentBar, KitSwitchRow } from "../kit/kit.slint";
+import { TextLink } from "parts.slint";
+import { DegreeField, LightDome } from "light_dome.slint";
+import { RigChangeButton } from "rig_gallery.slint";
 
-// The Parameters dock's Lighting & Environment tab. It is where the lighting of the picture is
-// set, in the order you would think about it: which lighting rig, where the main light is, how
-// bright the picture is, what surrounds the stone (an HDR map, the backdrop), how the viewer
-// shows up in the reflections (surface glare, head shadow), the lightings you saved, the lighting
-// the open design remembers, and the camera.
+// One backdrop choice: a dot of its color and its name. `as_lit` draws the dot half white, half
+// black (the lighting's own ground).
+component BackdropSeg inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <color> dot;
+    in property <bool> as_lit: false;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback picked();
+
+    horizontal-stretch: 1;
+    height: 28px;
+    border-radius: 7px;
+    background: root.on ? Theme.bg-elevated : (seg_touch.has-hover && root.enabled ? Theme.bg-card-hover : transparent);
+    border-width: seg_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    opacity: root.enabled ? 1.0 : 0.5;
+
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    seg_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 12px;
+                height: 12px;
+                border-radius: 6px;
+                background: root.as_lit
+                    ? @linear-gradient(135deg, Theme.swatch-white 0%, Theme.swatch-white 50%, Theme.swatch-black 50%, Theme.swatch-black 100%)
+                    : root.dot;
+                border-width: 1px;
+                border-color: Theme.border-control;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 12px;
+            font-weight: root.on ? 600 : 500;
+            color: root.on ? Theme.text-primary : Theme.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+
+    seg_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+// The Parameters dock's Lighting tab. It is where the lighting of the picture is set, in the
+// order you would think about it: which lighting rig (a card; "Change" opens the rig gallery,
+// which the panel draws over the tab), where the main light is (a dome, or the HDR map's rotation
+// dial), how bright the picture is, what surrounds the stone (the backdrop, the Stone Shadow, the
+// Tray Reflection, an HDR map), how the viewer shows up in the reflections (surface glare, head
+// shadow, folded), the lightings you saved and the lighting the open design remembers. The camera
+// has its buttons in the viewport.
 //
 // All of it is one scene description (`settings::model::LightingValues`): the live view, the
 // lighting a design remembers, a saved lighting and the render jobs carry the same fields, so
@@ -25,8 +101,23 @@ import { FooterButton, GroupHeader, SliderRow } from "parts.slint";
 // settings file. The tab is mounted in both views, so the Edit view's Path-traced and Both modes
 // reach it too.
 export component LightingTab inherits VerticalLayout {
+    // The rig gallery is open. The panel owns the popover (it must not scroll with this tab), so it
+    // binds this both ways.
+    in-out property <bool> gallery_open: false;
+
+    property <int> sel: ViewportModel.selected_lighting_index;
+    property <string> rig_name: ViewportModel.lighting_short_names[root.sel] != ""
+        ? ViewportModel.lighting_short_names[root.sel]
+        : ViewportModel.lighting_options[root.sel];
+    property <int> rig_group: root.sel < ViewportModel.lighting_groups.length
+        ? ViewportModel.lighting_groups[root.sel]
+        : (ViewportModel.lighting_is_studio[root.sel] ? 1 : 0);
+    property <string> rig_chip: root.rig_group == 0 ? "Lit model" : (root.rig_group == 1 ? "Studio" : (root.rig_group == 2 ? "Analysis" : "UV"));
+    property <color> rig_chip_ink: root.rig_group == 0 ? Theme.accent-cyan : (root.rig_group == 1 ? Theme.accent-amber : (root.rig_group == 2 ? Theme.accent-emerald : Theme.accent-purple));
+    property <color> rig_chip_fill: root.rig_group == 0 ? Theme.accent-cyan-surface : (root.rig_group == 1 ? Theme.surface-warning : Theme.bg-elevated);
+
     // Surface glare only scales the built-in lighting rigs: a loaded HDR map
-    // (`SettingsModel.env_map_loaded`) ignores it, so the slider greys out with a hint
+    // (`SettingsModel.env_map_loaded`) ignores it, so the slider greys out with a reason
     // rather than looking like it does something.
     property <bool> surface_glare_enabled: !SettingsModel.env_map_loaded;
     property <int> surface_glare_shown: Math.round(SettingsModel.surface_glare_pct / 5.0) * 5;
@@ -35,349 +126,344 @@ export component LightingTab inherits VerticalLayout {
     property <bool> studio_rig: ViewportModel.lighting_is_studio[ViewportModel.selected_lighting_index];
     property <bool> head_shadow_enabled: !SettingsModel.env_map_loaded && !root.studio_rig;
     property <int> head_shadow_shown: Math.round(SettingsModel.head_shadow_deg);
-    // The tray reflection reaches the same lights as the Stone Shadow: a studio light with a
-    // backdrop (not an HDR map, As Lit or the contrast and ultraviolet rigs).
-    property <bool> tray_reflection_enabled: !SettingsModel.env_map_loaded && SettingsModel.backdrop_index != 0
+    // The Stone Shadow and the tray reflection reach the same lights: a studio light or lit
+    // model with a backdrop (not an HDR map, As Lit or the contrast and ultraviolet rigs).
+    property <bool> shadow_enabled: !SettingsModel.env_map_loaded && SettingsModel.backdrop_index != 0
         && ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index];
+    property <string> shadow_reason: SettingsModel.env_map_loaded ? "not with HDR"
+        : SettingsModel.backdrop_index == 0 ? "needs a backdrop"
+        : !ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index] ? "not with this light" : "";
     property <int> tray_reflection_shown: Math.round(SettingsModel.tray_reflection_pct);
-    property <bool> saving_view: false;
-    property <string> new_view_name: "";
+    // Open from the start while a value is off its default, so a reset link is never hidden.
+    property <bool> viewer_open: false;
+    init => {
+        root.viewer_open = SettingsModel.surface_glare_pct < 99.5 || Math.abs(SettingsModel.head_shadow_deg - 16.0) > 0.5;
+    }
 
     spacing: 14px;
     // Rows keep their own height when the tab is shorter than the panel (see `StoneTab`).
     alignment: start;
 
     // --- Lighting rig ------------------------------------------------------------------
-    GroupHeader { text: "Lighting Rig"; }
-
-    VerticalLayout {
-        spacing: 4px;
-
-        Rectangle {
-            height: 32px;
-            background: Theme.hint-surface;
-            border-radius: Theme.radius-sm;
-            border-width: 1px;
-            border-color: Theme.border-medium;
-
-            // UV lamps exist only in the `physical-color` build (`PhysicscolorModel.ui_enabled`).
-            Tooltip { text: PhysicscolorModel.ui_enabled
-                ? @markdown("Lighting rig: the four studio rigs, or the lit models -- the\ngrading tray (D65 hemisphere + head shadow), light tent with black\ncards, daylight sky with sun -- the contrast view (ASET-style:\nred 45-75 deg, green 0-45 deg, blue 75-90 deg overhead, black\nbelow the horizon; not scored by the metrics) -- or a 365 nm or\n395 nm UV lamp (CPU only, lights fluorescent materials).")
-                : @markdown("Lighting rig: the four studio rigs, or the lit models -- the grading tray\n(D65 hemisphere + head shadow), light tent with black cards, daylight\nsky with sun, and the ASET-style contrast view (red 45-75 deg, green\n0-45 deg, blue 75-90 deg overhead; not scored by the metrics)."); }
-
-            ComboBox {
-                width: 100%;
-                height: 100%;
-                model: ViewportModel.lighting_options;
-                current-index <=> ViewportModel.selected_lighting_index;
-                accessible-label: "Lighting Rig";
-                // Emits the INDEX (already synced into `selected_lighting_index` by the
-                // two-way binding above when `selected` fires), not the display text.
-                selected(val) => { ViewportModel.lighting_changed(ViewportModel.selected_lighting_index); }
+    KitCard {
+        height: 84px;
+        HorizontalLayout {
+            padding: 10px;
+            spacing: 12px;
+            VerticalLayout {
+                alignment: center;
+                KitRigThumb { kind: ViewportModel.lighting_kinds[root.sel]; size: 56px; }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 3px;
+                Text {
+                    min-width: 0px;
+                    text: root.rig_name;
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    overflow: elide;
+                }
+                Text {
+                    min-width: 0px;
+                    text: SettingsModel.env_map_loaded ? "An HDR map is the light." : ViewportModel.lighting_blurbs[root.sel];
+                    font-size: 11px;
+                    color: Theme.text-muted;
+                    overflow: elide;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    KitChip { text: root.rig_chip; ink: root.rig_chip_ink; fill: root.rig_chip_fill; }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                RigChangeButton {
+                    hint: PhysicscolorModel.ui_enabled
+                        ? "Change the lighting rig: lit models, studio rigs, the contrast view or a UV lamp (CPU only)."
+                        : "Change the lighting rig: lit models, studio rigs or the contrast view.";
+                    clicked => { root.gallery_open = true; }
+                }
             }
         }
+    }
 
-        Text {
-            text: SettingsModel.env_map_loaded
-                ? "An HDR environment map is loaded: it lights the stone instead of this rig."
-                : (ViewportModel.lighting_is_studio[ViewportModel.selected_lighting_index]
-                    ? "A studio rig: pinpoint light sources, as in product photography."
-                    : "A lit model: the light, exposure and head shadow below shape the look.");
-            font-size: 10px;
-            color: Theme.text-muted;
-            wrap: word-wrap;
+    // --- Main light --------------------------------------------------------------------
+    // While an HDR map is loaded the light direction means nothing (the map is the light), so the
+    // dome turns into the map's rotation dial, and the map's "Turns with the Camera" shows. The
+    // handlers are Rust's (`gui::render::camera_lighting`), which also write the values back.
+    KitSection { label: SettingsModel.env_map_loaded ? "MAP ROTATION" : "MAIN LIGHT"; }
+
+    HorizontalLayout {
+        spacing: 16px;
+        LightDome {
+            azimuth: SettingsModel.env_map_loaded ? SettingsModel.env_map_yaw_deg : SettingsModel.light_yaw_deg;
+            elevation: SettingsModel.light_pitch_deg;
+            el_min: SettingsModel.light_elevation_min_deg;
+            el_max: SettingsModel.light_elevation_max_deg;
+            map_mode: SettingsModel.env_map_loaded;
+            edited(az, el) => {
+                if SettingsModel.env_map_loaded {
+                    SettingsModel.env_map_yaw_deg = az;
+                    ViewportModel.env_map_turn_changed(az);
+                } else {
+                    SettingsModel.light_yaw_deg = az;
+                    SettingsModel.light_pitch_deg = el;
+                    ViewportModel.light_pos_changed(az, el);
+                }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            alignment: center;
+            spacing: 8px;
+            if !SettingsModel.env_map_loaded: DegreeField {
+                name: "Azimuth";
+                field_label: "Light Azimuth in Degrees";
+                hint: "Light azimuth: the direction the main light shines from, as an angle\naround the stone (0 to 360 degrees). Dragging with the right mouse\nbutton, or Shift and the left button, in the viewport moves it too.";
+                value: SettingsModel.light_yaw_deg;
+                wraps: true;
+                applied(v) => {
+                    SettingsModel.light_yaw_deg = v;
+                    ViewportModel.light_pos_changed(v, SettingsModel.light_pitch_deg);
+                }
+            }
+            if !SettingsModel.env_map_loaded: DegreeField {
+                name: "Elevation";
+                field_label: "Light Elevation in Degrees";
+                hint: "Light elevation: how high the main light is above the\nstone, from low and raking to nearly straight overhead.";
+                value: SettingsModel.light_pitch_deg;
+                minimum: SettingsModel.light_elevation_min_deg;
+                maximum: SettingsModel.light_elevation_max_deg;
+                applied(v) => {
+                    SettingsModel.light_pitch_deg = v;
+                    ViewportModel.light_pos_changed(SettingsModel.light_yaw_deg, v);
+                }
+            }
+            if SettingsModel.env_map_loaded: DegreeField {
+                name: "Map Rotation";
+                field_label: "Map Rotation in Degrees";
+                hint: "Turns the HDR map around the stone, from 0 to 360 degrees. Dragging with the right mouse button, or Shift and the left button, in the viewport turns it too.";
+                value: SettingsModel.env_map_yaw_deg;
+                wraps: true;
+                applied(v) => {
+                    SettingsModel.env_map_yaw_deg = v;
+                    ViewportModel.env_map_turn_changed(v);
+                }
+            }
+            Text {
+                text: SettingsModel.env_map_loaded
+                    ? "Drag the dot or use the arrow keys. Right-drag, or Shift and drag, in the viewport turns the map."
+                    : "Drag the dot, or use the arrow keys (Shift for finer). Right-drag in the viewport moves the light too.";
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
         }
     }
 
-    // --- Light direction ---------------------------------------------------------------
-    // While an HDR map is loaded the light direction means nothing (the map is the light), so the
-    // group turns the map instead: its rotation, and whether it turns with the camera. The
-    // handlers are Rust's (`gui::render::camera_lighting`), which also write the values back.
-    GroupHeader { text: SettingsModel.env_map_loaded ? "Map Orientation" : "Light Direction"; }
-
-    if !SettingsModel.env_map_loaded: SliderRow {
-        icon: @image-url("../../icons/lightbulb.svg");
-        text: "Light Azimuth";
-        hint: "Light azimuth: the direction the main light shines from, as an angle\naround the stone (0 to 360 degrees). Dragging with the right mouse\nbutton, or Shift and the left button, in the viewport moves it too.";
-        value_text: Math.round(SettingsModel.light_yaw_deg) + "°";
-        slider_label: "Light Azimuth in Degrees";
-        minimum: 0.0;
-        maximum: 360.0;
-        value <=> SettingsModel.light_yaw_deg;
-        edited(val) => { ViewportModel.light_pos_changed(val, SettingsModel.light_pitch_deg); }
-    }
-
-    if !SettingsModel.env_map_loaded: SliderRow {
-        icon: @image-url("../../icons/lightbulb.svg");
-        text: "Light Elevation";
-        hint: "Light elevation: how high the main light is above the\nstone, from low and raking to nearly straight overhead.";
-        value_text: Math.round(SettingsModel.light_pitch_deg) + "°";
-        slider_label: "Light Elevation in Degrees";
-        minimum: SettingsModel.light_elevation_min_deg;
-        maximum: SettingsModel.light_elevation_max_deg;
-        value <=> SettingsModel.light_pitch_deg;
-        edited(val) => { ViewportModel.light_pos_changed(SettingsModel.light_yaw_deg, val); }
-    }
-
-    if SettingsModel.env_map_loaded: SliderRow {
-        icon: @image-url("../../icons/lightbulb.svg");
-        text: "Map Rotation";
-        hint: "Turns the HDR map around the stone, from 0 to 360 degrees. Dragging with the right mouse button, or Shift and the left button, in the viewport turns it too.";
-        value_text: Math.round(SettingsModel.env_map_yaw_deg) + "°";
-        slider_label: "Map Rotation in Degrees";
-        minimum: 0.0;
-        maximum: 360.0;
-        value <=> SettingsModel.env_map_yaw_deg;
-        edited(val) => { ViewportModel.env_map_turn_changed(val); }
-    }
-
-    if SettingsModel.env_map_loaded: ToggleRow {
-        text: "Turns with the Camera";
-        hint: "The map stays fixed relative to the view, so orbiting turns the stone under the same surroundings. Off keeps the map fixed in the world. Switching it keeps the picture as it is.";
-        checked: SettingsModel.env_map_follows_camera;
+    if SettingsModel.env_map_loaded: KitSwitchRow {
+        label: "Turns with the Camera";
+        on: SettingsModel.env_map_follows_camera;
         toggled => { ViewportModel.env_map_follow_changed(!SettingsModel.env_map_follows_camera); }
     }
 
-    Text {
-        text: SettingsModel.env_map_loaded
-            ? "Right-drag, or Shift and drag, in the viewport turns the map."
-            : "Right-drag, or Shift and drag, in the viewport moves the light too.";
-        font-size: 10px;
-        color: Theme.text-muted;
-        wrap: word-wrap;
-    }
-
-    // --- Exposure ----------------------------------------------------------------------
-    GroupHeader { text: "Exposure"; }
-
-    SliderRow {
-        text: "Overall Brightness";
-        hint: "Exposure: a correction on top of the light meter. 1x shows white paper the same under every lighting; lower is darker, higher brighter. Under an HDR map it scales the map's own light.";
+    // Exposure: a correction on top of the light meter. 1x shows white paper the same under every
+    // lighting; under an HDR map it scales the map's own light.
+    KitInlineSlider {
+        label: "Exposure";
         value_text: Math.round(SettingsModel.exposure_val * 100.0) / 100.0 + "x";
-        slider_label: "Exposure";
         minimum: SettingsModel.exposure_min;
         maximum: SettingsModel.exposure_max;
+        step: (SettingsModel.exposure_max - SettingsModel.exposure_min) / 100.0;
         value <=> SettingsModel.exposure_val;
-        edited(val) => { SettingsModel.exposure_changed(val); }
+        moved(val) => { SettingsModel.exposure_changed(val); }
     }
 
-    // --- Environment -------------------------------------------------------------------
-    GroupHeader { text: "Environment"; }
+    // --- Surroundings ------------------------------------------------------------------
+    KitSection { label: "SURROUNDINGS"; }
 
-    // HDR environment map: loads a Radiance .hdr equirectangular panorama as the render's
-    // environment in place of the lighting rig, superseded while a map is loaded.
-    EnvironmentMapSection { }
-
-    // Backdrop -- the tray the stone lies on, lit by the lighting rig. Every ray that leaves the
-    // stone sees it (the camera around the stone, and light leaving through the pavilion
-    // windows), so a window shows the tray. Indices: 0 as lit, 1 grey, 2 white (default),
-    // 3 black; the pills run As Lit, Black, Grey, White. An HDR map is the whole world, so the
-    // row is dimmed while one is loaded.
     VerticalLayout {
-        spacing: 4px;
-        SettingLabel {
-            text: "Backdrop";
-            note: SettingsModel.env_map_loaded ? "(not used with an HDR map)" : "";
-            hint: "Backdrop: the surface the stone lies on, lit by the lighting rig\nand seen both around the stone and through its windows. White\npaper, a grey card, black velvet, or the lighting's own ground.\nAn HDR map is the whole world, so it ignores the backdrop.";
-        }
-        HorizontalLayout {
-            spacing: 4px;
-            SegmentPill {
-                text: "As Lit";
-                hint: SettingsModel.env_map_loaded
-                    ? "Not used while an HDR map is loaded: the map is the world."
-                    : "The lighting's own ground. For the Grading tray that is nothing\nbelow the girdle (the ISO/GemRay convention): windows look black.";
-                enabled: !SettingsModel.env_map_loaded;
-                selected: SettingsModel.backdrop_index == 0;
-                picked => {
-                    SettingsModel.backdrop_index = 0;
-                    SettingsModel.backdrop_changed(0);
+        spacing: 8px;
+
+        // Backdrop -- the tray the stone lies on, lit by the lighting rig. Every ray that leaves
+        // the stone sees it, so a window shows the tray. Indices: 0 as lit, 1 grey, 2 white
+        // (default), 3 black; the segments run As Lit, Black, Grey, White. An HDR map is the whole
+        // world, so the row is dimmed while one is loaded.
+        KitSegmentBar {
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+                BackdropSeg {
+                    text: "As Lit";
+                    as_lit: true;
+                    hint: SettingsModel.env_map_loaded
+                        ? "Not used while an HDR map is loaded: the map is the world."
+                        : "The lighting's own ground. For the Grading tray that is nothing\nbelow the girdle (the ISO/GemRay convention): windows look black.";
+                    enabled: !SettingsModel.env_map_loaded;
+                    on: SettingsModel.backdrop_index == 0;
+                    picked => {
+                        SettingsModel.backdrop_index = 0;
+                        SettingsModel.backdrop_changed(0);
+                    }
+                }
+                BackdropSeg {
+                    text: "Black";
+                    dot: Theme.swatch-black;
+                    hint: SettingsModel.env_map_loaded
+                        ? "Not used while an HDR map is loaded: the map is the world."
+                        : "Black velvet (2 % reflectance).";
+                    enabled: !SettingsModel.env_map_loaded;
+                    on: SettingsModel.backdrop_index == 3;
+                    picked => {
+                        SettingsModel.backdrop_index = 3;
+                        SettingsModel.backdrop_changed(3);
+                    }
+                }
+                BackdropSeg {
+                    text: "Grey";
+                    dot: Colors.gray;
+                    hint: SettingsModel.env_map_loaded
+                        ? "Not used while an HDR map is loaded: the map is the world."
+                        : "An 18 % grey card.";
+                    enabled: !SettingsModel.env_map_loaded;
+                    on: SettingsModel.backdrop_index == 1;
+                    picked => {
+                        SettingsModel.backdrop_index = 1;
+                        SettingsModel.backdrop_changed(1);
+                    }
+                }
+                BackdropSeg {
+                    text: "White";
+                    dot: Colors.whitesmoke;
+                    hint: SettingsModel.env_map_loaded
+                        ? "Not used while an HDR map is loaded: the map is the world."
+                        : "White paper (90 % reflectance). The light meter shows it\nas the same off-white sheet under every lighting; pick\nBlack for the dark-room look of the Studio rigs.";
+                    enabled: !SettingsModel.env_map_loaded;
+                    on: SettingsModel.backdrop_index == 2;
+                    picked => {
+                        SettingsModel.backdrop_index = 2;
+                        SettingsModel.backdrop_changed(2);
+                    }
                 }
             }
-            SegmentPill {
-                text: "Black";
-                hint: SettingsModel.env_map_loaded
-                    ? "Not used while an HDR map is loaded: the map is the world."
-                    : "Black velvet (2 % reflectance).";
-                enabled: !SettingsModel.env_map_loaded;
-                selected: SettingsModel.backdrop_index == 3;
-                picked => {
-                    SettingsModel.backdrop_index = 3;
-                    SettingsModel.backdrop_changed(3);
+        }
+
+        Rectangle {
+            height: 30px;
+            KitSwitchRow {
+                label: "Stone Shadow";
+                reason: root.shadow_reason;
+                enabled: root.shadow_enabled;
+                on: SettingsModel.stone_shadow;
+                toggled => {
+                    SettingsModel.stone_shadow = !SettingsModel.stone_shadow;
+                    SettingsModel.stone_shadow_changed(SettingsModel.stone_shadow);
                 }
             }
-            SegmentPill {
-                text: "Grey";
-                hint: SettingsModel.env_map_loaded
-                    ? "Not used while an HDR map is loaded: the map is the world."
-                    : "An 18 % grey card.";
-                enabled: !SettingsModel.env_map_loaded;
-                selected: SettingsModel.backdrop_index == 1;
-                picked => {
-                    SettingsModel.backdrop_index = 1;
-                    SettingsModel.backdrop_changed(1);
+            Tooltip { text: @markdown("The stone casts its shadow and colored light onto the backdrop, as a stone on paper does. Studio lights only."); }
+        }
+
+        // Tray reflection: makes the tray under the stone glossy, 0-100 % head-on reflectance in
+        // steps of 1 (0 = off). Rust snaps and applies it (`gui::render::quality::
+        // setup_tray_reflection_callback`).
+        Rectangle {
+            height: 30px;
+            KitInlineSlider {
+                label: "Tray Reflection";
+                note: root.shadow_reason;
+                value_text: root.tray_reflection_shown == 0 ? "Off" : root.tray_reflection_shown + " %";
+                minimum: 0.0;
+                maximum: 100.0;
+                step: 1.0;
+                enabled: root.shadow_enabled;
+                value <=> SettingsModel.tray_reflection_pct;
+                moved(val) => { SettingsModel.tray_reflection_changed(Math.round(val)); }
+            }
+            Tooltip { text: @markdown("How mirror-like the surface under the stone is: its reflectance straight on. About 4 % looks like black acrylic or glass, 100 % is a mirror; glancing views reflect more."); }
+        }
+
+        // HDR environment map: loads a Radiance .hdr equirectangular panorama as the render's
+        // environment in place of the lighting rig, superseded while a map is loaded.
+        EnvironmentMapSection { }
+    }
+
+    // --- Viewer ------------------------------------------------------------------------
+    KitFoldCard {
+        icon: KitIcons.eye;
+        label: "Viewer";
+        summary: "Glare " + root.surface_glare_shown + " % · head shadow " + root.head_shadow_shown + "°";
+        open <=> root.viewer_open;
+
+        // Surface glare: scales the white mirror image of the light on the table (the
+        // cross-polarised look), 0-100 % in steps of 5. Rust snaps and applies it
+        // (`gui::render::quality::setup_surface_glare_callback`). It applies to the built-in
+        // lighting rigs, to the path-traced view and to exports; the Solid view is unaffected.
+        Rectangle {
+            height: 30px;
+            KitInlineSlider {
+                label: "Surface Glare";
+                note: !root.surface_glare_enabled ? "not with HDR" : "";
+                value_text: root.surface_glare_shown + " %";
+                minimum: 0.0;
+                maximum: 100.0;
+                step: 5.0;
+                enabled: root.surface_glare_enabled;
+                value <=> SettingsModel.surface_glare_pct;
+                moved(val) => { SettingsModel.surface_glare_changed(Math.round(val / 5.0) * 5.0); }
+            }
+            Tooltip { text: @markdown("Surface glare: hides the white mirror image of the light on the table\nso the inner facets stay visible. 0 % keeps only light that entered the\nstone. Applies to the built-in lighting rigs, not to HDR maps, and to\nthe path-traced view and exports (the Solid view is unaffected)."); }
+        }
+        if root.surface_glare_shown < 100 && root.surface_glare_enabled: HorizontalLayout {
+            alignment: end;
+            TextLink {
+                text: "Reset to 100 %";
+                hint: "Put the surface glare back to 100 %, the unchanged look.";
+                clicked => {
+                    SettingsModel.surface_glare_pct = 100.0;
+                    SettingsModel.surface_glare_changed(100.0);
                 }
             }
-            SegmentPill {
-                text: "White";
-                hint: SettingsModel.env_map_loaded
-                    ? "Not used while an HDR map is loaded: the map is the world."
-                    : "White paper (90 % reflectance). The light meter shows it\nas the same off-white sheet under every lighting; pick\nBlack for the dark-room look of the Studio rigs.";
-                enabled: !SettingsModel.env_map_loaded;
-                selected: SettingsModel.backdrop_index == 2;
-                picked => {
-                    SettingsModel.backdrop_index = 2;
-                    SettingsModel.backdrop_changed(2);
+        }
+
+        // Head shadow: the angular radius of the viewer's head shadow on the lit rigs, 0-30
+        // degrees (0 = off). Rust rounds and applies it
+        // (`gui::render::quality::setup_head_shadow_callback`).
+        Rectangle {
+            height: 30px;
+            KitInlineSlider {
+                label: "Head Shadow";
+                note: SettingsModel.env_map_loaded
+                    ? "not with HDR"
+                    : (root.studio_rig ? "not used by studio rigs" : "");
+                value_text: root.head_shadow_shown == 0 ? "Off" : root.head_shadow_shown + "°";
+                minimum: 0.0;
+                maximum: 30.0;
+                step: 1.0;
+                enabled: root.head_shadow_enabled;
+                value <=> SettingsModel.head_shadow_deg;
+                moved(val) => { SettingsModel.head_shadow_changed(Math.round(val)); }
+            }
+            Tooltip { text: @markdown("How much of the sky the viewer's head hides: the dark table\nreflections a face-up stone shows. 16 degrees is a head at\narm's length; 0 turns it off. Product-photography rigs (D65\nDaylight, Incandescent, Ring Lights, Dark Spotlight) ignore it."); }
+        }
+        if root.head_shadow_shown != 16 && root.head_shadow_enabled: HorizontalLayout {
+            alignment: end;
+            TextLink {
+                text: "Reset to 16°";
+                hint: "Put the head shadow back to 16 degrees, a head at arm's length.";
+                clicked => {
+                    SettingsModel.head_shadow_deg = 16.0;
+                    SettingsModel.head_shadow_changed(16.0);
                 }
             }
         }
     }
 
-    ToggleRow {
-        text: "Stone Shadow";
-        note: SettingsModel.env_map_loaded ? "(not used with an HDR map)"
-            : SettingsModel.backdrop_index == 0 ? "(needs a backdrop)"
-            : !ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index] ? "(not used with this light)" : "";
-        hint: "The stone casts its shadow and colored light onto the backdrop, as a stone on paper does. Studio lights only.";
-        enabled: !SettingsModel.env_map_loaded && SettingsModel.backdrop_index != 0
-            && ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index];
-        checked: SettingsModel.stone_shadow;
-        toggled => {
-            SettingsModel.stone_shadow = !SettingsModel.stone_shadow;
-            SettingsModel.stone_shadow_changed(SettingsModel.stone_shadow);
-        }
-    }
-
-    // Tray reflection: makes the tray under the stone glossy, 0-100 % head-on reflectance in
-    // steps of 1 (0 = off). Rust snaps and applies it (`gui::render::quality::
-    // setup_tray_reflection_callback`). Outside a studio light with a backdrop the slider is
-    // dimmed, and the note says why, as the Stone Shadow row's does.
-    SliderRow {
-        text: "Tray Reflection";
-        note: SettingsModel.env_map_loaded ? "(not used with an HDR map)"
-            : SettingsModel.backdrop_index == 0 ? "(needs a backdrop)"
-            : !ViewportModel.lighting_supports_stone_shadow[ViewportModel.selected_lighting_index] ? "(not used with this light)" : "";
-        hint: "How mirror-like the surface under the stone is: its reflectance straight on. About 4 % looks like black acrylic or glass, 100 % is a mirror; glancing views reflect more.";
-        value_text: root.tray_reflection_shown == 0 ? "Off" : root.tray_reflection_shown + " %";
-        slider_label: "Tray Reflection in Percent";
-        minimum: 0.0;
-        maximum: 100.0;
-        step: 1.0;
-        enabled: root.tray_reflection_enabled;
-        value <=> SettingsModel.tray_reflection_pct;
-        edited(val) => { SettingsModel.tray_reflection_changed(Math.round(val)); }
-    }
-
-    // --- Observer ----------------------------------------------------------------------
-    GroupHeader { text: "Observer"; }
-
-    // Surface glare: scales the white mirror image of the light on the table (the
-    // cross-polarised look), 0-100 % in steps of 5. Rust snaps and applies it
-    // (`gui::render::quality::setup_surface_glare_callback`).
-    SliderRow {
-        text: "Surface Glare";
-        note: !root.surface_glare_enabled ? "(not used with an HDR map)" : "";
-        hint: "Surface glare: hides the white mirror image of the light on the table\nso the inner facets stay visible. 0 % keeps only light that entered the\nstone. Applies to the built-in lighting rigs, not to HDR maps, and to\nthe path-traced view and exports (the Solid view is unaffected).";
-        value_text: root.surface_glare_shown + " %";
-        slider_label: "Surface Glare in Percent";
-        link_text: root.surface_glare_shown < 100 && root.surface_glare_enabled ? "Reset to 100 %" : "";
-        link_hint: "Put the surface glare back to 100 %, the unchanged look.";
-        minimum: 0.0;
-        maximum: 100.0;
-        step: 5.0;
-        enabled: root.surface_glare_enabled;
-        value <=> SettingsModel.surface_glare_pct;
-        edited(val) => { SettingsModel.surface_glare_changed(Math.round(val / 5.0) * 5.0); }
-        link_clicked => {
-            SettingsModel.surface_glare_pct = 100.0;
-            SettingsModel.surface_glare_changed(100.0);
-        }
-    }
-
-    // Head shadow: the angular radius of the viewer's head shadow on the lit rigs, 0-30
-    // degrees (0 = off). Rust rounds and applies it
-    // (`gui::render::quality::setup_head_shadow_callback`).
-    SliderRow {
-        text: "Head Shadow";
-        note: SettingsModel.env_map_loaded
-            ? "(not used with an HDR map)"
-            : (root.studio_rig ? "(not used by studio rigs)" : "");
-        hint: "How much of the sky the viewer's head hides: the dark table\nreflections a face-up stone shows. 16 degrees is a head at\narm's length; 0 turns it off. Product-photography rigs (D65\nDaylight, Incandescent, Ring Lights, Dark Spotlight) ignore it.";
-        value_text: root.head_shadow_shown == 0 ? "Off" : root.head_shadow_shown + "°";
-        slider_label: "Head Shadow in Degrees";
-        link_text: root.head_shadow_shown != 16 && root.head_shadow_enabled ? "Reset to 16°" : "";
-        link_hint: "Put the head shadow back to 16 degrees, a head at arm's length.";
-        minimum: 0.0;
-        maximum: 30.0;
-        step: 1.0;
-        enabled: root.head_shadow_enabled;
-        value <=> SettingsModel.head_shadow_deg;
-        edited(val) => { SettingsModel.head_shadow_changed(Math.round(val)); }
-        link_clicked => {
-            SettingsModel.head_shadow_deg = 16.0;
-            SettingsModel.head_shadow_changed(16.0);
-        }
-    }
-
-    // --- Saved lighting ----------------------------------------------------------------
-    GroupHeader { text: "Saved Lighting"; }
-
+    // --- Saved lightings and this design -----------------------------------------------
     LightingPresetsSection { }
 
-    // --- This design -------------------------------------------------------------------
-    GroupHeader { text: "This Design"; }
-
     DesignLightingSection { }
-
-    // --- Camera ------------------------------------------------------------------------
-    GroupHeader { text: "Camera"; }
-
-    VerticalLayout {
-        spacing: 6px;
-        HorizontalLayout {
-            spacing: 6px;
-            FooterButton {
-                horizontal-stretch: 1;
-                text: "Front";
-                hint: "Look at the stone from the front: girdle edge-on, index 0 towards you.";
-                clicked => { ViewportModel.set_view(0); }
-            }
-            FooterButton {
-                horizontal-stretch: 1;
-                text: "Top";
-                hint: "Look straight down onto the table.";
-                clicked => { ViewportModel.set_view(1); }
-            }
-            FooterButton {
-                horizontal-stretch: 1;
-                icon: @image-url("../../icons/reset.svg");
-                text: "Reset";
-                hint: "Return the camera to its default orbit and distance, and the\nlight to its default direction. A loaded HDR map returns to its\nunturned position. The rest of the lighting stays;\nReset this tab puts that back too, but not the camera.";
-                clicked => { ViewportModel.reset_camera(); }
-            }
-        }
-        footer-button-saving-view := FooterButton {
-            text: root.saving_view ? "Cancel" : "Save View as Saved Lighting...";
-            hint: root.saving_view
-                ? "Cancel saving the view"
-                : "Save the lighting you see now together with the way you\nare turned around the stone, so using it brings back the\nexact shot. It joins the list under Saved lighting.";
-            clicked => {
-                EditorModel.text_focus = false;
-                root.saving_view = !root.saving_view;
-                root.new_view_name = root.saving_view ? ViewportModel.suggest_lighting_name() : "";
-            }
-        }
-        if root.saving_view: SaveNameRow {
-            name <=> root.new_view_name;
-            placeholder: "Name this view...";
-            field_label: "Name for the Saved View";
-            confirm_hint: "Save the lighting and the camera pose under this name";
-            accepted(name) => {
-                ViewportModel.save_view_preset(name);
-                EditorModel.text_focus = false;
-                root.saving_view = false;
-                root.new_view_name = "";
-            }
-        }
-    }
 }

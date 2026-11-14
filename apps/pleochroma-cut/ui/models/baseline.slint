@@ -1,4 +1,4 @@
-// The Baseline strip's state (`components/editor_inspector/baseline_strip.slint` is its view).
+// The Baseline's state (the command bar's Baseline menu and the figures card are its views).
 //
 // The Baseline is the copy of the design that every later change is read against: set by Set
 // Baseline, automatically when a design opens, and after an Optimize or Retarget apply lands.
@@ -20,6 +20,15 @@ export struct BaselineCell {
     tone: int,
     // The Baseline and current values, or why the change is about the same.
     tooltip: string,
+    // --- R3A --- The pieces of `text` for the Edit viewport's figures card, in Live Render's order.
+    // The full name ("Brilliance").
+    name: string,
+    // The current value alone ("21.0 %").
+    value: string,
+    // The signed change alone ("+1.8").
+    delta: string,
+    // The value is outside the usual range (windowing above 10 %, extinction above 12 %).
+    flag: bool,
 }
 
 export global BaselineModel {

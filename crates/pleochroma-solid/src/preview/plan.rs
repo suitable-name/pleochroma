@@ -230,6 +230,7 @@ mod tests {
                 last_solved: Some(previous),
                 camera: CameraPose {
                     roll: 0.0,
+                    pan: [0.0, 0.0],
                     yaw: 0.0,
                     pitch: 0.0,
                     distance: 5.0,

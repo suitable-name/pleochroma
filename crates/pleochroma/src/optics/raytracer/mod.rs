@@ -43,7 +43,9 @@ pub const DEFAULT_MAX_BOUNCES: u32 = 12;
 // (feature="gpu" harnesses, crates/pleochroma/tests/), though submodules never go through this hub.
 
 // camera.rs
-pub use camera::{Camera, DEFAULT_FOV_DEG, DEFAULT_POSE, FacetFinish, HitRecord, OrbitPose, Ray};
+pub use camera::{
+    Camera, DEFAULT_FOV_DEG, DEFAULT_POSE, FacetFinish, HitRecord, MAX_CAMERA_PAN, OrbitPose, Ray,
+};
 
 // estimator.rs
 pub use estimator::{Estimator, default_estimator, set_default_estimator};

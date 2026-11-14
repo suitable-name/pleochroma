@@ -27,7 +27,7 @@ const CARD_MENU_ITEMS: [&str; 7] = [
     "Delete",
 ];
 
-/// `main.png`: the library with the design selected, 3D Spectral Preview, Path-Traced, settled.
+/// `main.png`: the library with the design selected, Live Render, Path-Traced, settled.
 ///
 /// # Errors
 ///
@@ -158,7 +158,8 @@ pub fn tilt_performance_export(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
 pub fn tilt_performance_cad(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     sc.open_in_editor(FVS)?;
     sc.set_view_mode(3);
-    sc.set_inspector_tab(3);
+    // There is no Schedule tab any more (index 3): the Tier tab is shown.
+    sc.set_inspector_tab(0);
     open_tilt(sc)?;
     sc.snap_main()
 }

@@ -373,7 +373,7 @@ mod tests {
     fn a_peer_advertising_the_previous_protocol_version_is_refused() {
         let current = crate::messages::PROTOCOL_VERSION;
         assert_eq!(
-            current, 42,
+            current, 43,
             "update this pinned value if PROTOCOL_VERSION moves again"
         );
         let local = hello(current, [1; 8]);
@@ -401,19 +401,19 @@ mod tests {
                 "{message}"
             );
             assert!(
-                message.contains("v36") && message.contains("v42"),
+                message.contains("v36") && message.contains("v43"),
                 "{message}"
             );
         }
     }
 
-    /// Each of protocol versions 37 to 41 changes a layout or a meaning that the current build
+    /// Each of protocol versions 37 to 42 changes a layout or a meaning that the current build
     /// relies on, so each is refused with the version-mismatch message, naming both versions,
     /// whichever side is older.
     #[test]
-    fn a_v37_to_v41_peer_is_refused_with_the_version_mismatch_message() {
+    fn a_v37_to_v42_peer_is_refused_with_the_version_mismatch_message() {
         let current = hello(crate::messages::PROTOCOL_VERSION, [1; 8]);
-        for version in [37, 38, 39, 40, 41] {
+        for version in [37, 38, 39, 40, 41, 42] {
             let old = hello(version, [1; 8]);
             for (local, remote) in [(&current, &old), (&old, &current)] {
                 let refusal = verify_compatible(local, remote).unwrap_err();
@@ -423,7 +423,7 @@ mod tests {
                     "{message}"
                 );
                 assert!(
-                    message.contains(&format!("v{version}")) && message.contains("v42"),
+                    message.contains(&format!("v{version}")) && message.contains("v43"),
                     "{message}"
                 );
             }

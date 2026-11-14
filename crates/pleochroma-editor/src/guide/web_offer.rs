@@ -15,6 +15,7 @@
 //! The pin that keeps the overlay honest is [`web_text_problems`]: no line a web learner reads may
 //! name a place only the desktop has ([`DESKTOP_ONLY_PHRASES`]).
 
+mod data_desktop_ui;
 mod data_features;
 mod data_solving;
 mod data_tiers;

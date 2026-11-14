@@ -239,7 +239,6 @@ pub static COMMANDS: &[Command] = &[
     table_view::view_inspector_tier(),
     table_view::view_inspector_preform(),
     table_view::view_inspector_optimize(),
-    table_view::view_inspector_schedule(),
     table_view::view_inspector_history(),
     table_view::view_inspector_variants(),
     table_view::view_library_panel(),

@@ -36,10 +36,12 @@ pub(super) struct TiersUi {
     pub(super) chips_model: Rc<VecModel<TierChipData>>,
     /// The model behind `TiersModel.angle-presets`.
     pub(super) presets_model: Rc<VecModel<AnglePresetData>>,
-    /// The rows as last pushed, in model order (flat tiers, then concave).
+    /// The rows as last pushed, in model order (the design's cutting order).
     pub(super) rows: Vec<MobileTierRow>,
     /// What [`Self::rows`] were built from.
     pub(super) rows_key: Option<RowsKey>,
+    /// The Checks tab's cards as last pushed: heading, "Open <tier>" label, list position.
+    pub(super) check_cards: Vec<(String, String, i32)>,
     /// The tier whose angle sheet is open.
     pub(super) angle: Option<usize>,
     /// The angle keypad's draft.
@@ -76,6 +78,14 @@ pub(super) fn flat_tier(row: i32) -> Option<usize> {
             .filter(|found| !found.is_concave)
             .map(|found| found.index)
     })
+}
+
+/// The row of flat tier `tier`, wherever it stands in the list (the list is in cutting
+/// order, so a tier's index is not its position).
+pub(super) fn flat_row(ui: &TiersUi, tier: usize) -> Option<&MobileTierRow> {
+    ui.rows
+        .iter()
+        .find(|row| !row.is_concave && row.index == tier)
 }
 
 /// Brings `model` to `items`, changing as few rows as possible so a list keeps its scroll

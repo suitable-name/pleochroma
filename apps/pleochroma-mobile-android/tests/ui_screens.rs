@@ -32,6 +32,8 @@
 //!   from an empty library, so `phone_library` and `tablet_library` show the empty state.
 //!
 //! Every shot starts from a fresh data directory. The design shots open template card 1.
+//! The `_hc` shots use the high-contrast theme (`--theme high-contrast`); `phone_cutting_mode`
+//! opens Cutting Mode (`--cutting`).
 
 use std::{
     fmt::Write as _,
@@ -53,11 +55,14 @@ const PHONE: &str = "390x800";
 const LIBRARY_WAIT: &str = "20";
 /// Seconds a render shot waits so the trace converges (the preview's own default is 8).
 const RENDER_WAIT: &str = "40";
+/// Seconds the Cutting Mode shot waits: the preview opens the mode after about a second and
+/// the step's diagram is drawn on a background thread.
+const CUTTING_WAIT: &str = "5";
 /// A tablet in landscape, as the preview's `tablet-land` preset (logical px).
 const TABLET: &str = "1280x800";
 
 /// Every shot, in the order it is taken.
-const SHOTS: [Shot; 15] = [
+const SHOTS: [Shot; 19] = [
     Shot {
         name: "phone_design_ray",
         args: &[
@@ -176,6 +181,23 @@ const SHOTS: [Shot; 15] = [
         ],
     },
     Shot {
+        name: "phone_stone_hc",
+        args: &[
+            "--size",
+            PHONE,
+            "--page",
+            "design",
+            "--template",
+            "1",
+            "--tab",
+            "stone",
+            "--sheet",
+            "half",
+            "--theme",
+            "high-contrast",
+        ],
+    },
+    Shot {
         name: "phone_light",
         args: &[
             "--size",
@@ -210,6 +232,33 @@ const SHOTS: [Shot; 15] = [
         args: &["--size", PHONE, "--page", "cut", "--template", "1"],
     },
     Shot {
+        name: "phone_cut_hc",
+        args: &[
+            "--size",
+            PHONE,
+            "--page",
+            "cut",
+            "--template",
+            "1",
+            "--theme",
+            "high-contrast",
+        ],
+    },
+    Shot {
+        name: "phone_cutting_mode",
+        args: &[
+            "--size",
+            PHONE,
+            "--page",
+            "cut",
+            "--template",
+            "1",
+            "--cutting",
+            "--wait",
+            CUTTING_WAIT,
+        ],
+    },
+    Shot {
         name: "phone_more",
         args: &["--size", PHONE, "--page", "more"],
     },
@@ -237,6 +286,19 @@ const SHOTS: [Shot; 15] = [
             "render",
             "--wait",
             RENDER_WAIT,
+        ],
+    },
+    Shot {
+        name: "tablet_design_diagram",
+        args: &[
+            "--size",
+            TABLET,
+            "--page",
+            "design",
+            "--template",
+            "1",
+            "--view",
+            "diagram",
         ],
     },
     Shot {

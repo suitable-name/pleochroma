@@ -60,7 +60,7 @@ pub fn welcome_tour_guide() -> Guide {
         .actions([
             "Click a row to select it.",
             "Read across a row: its name, angle, index positions and what it meets.",
-            "Use + Add Tier above the table to add a tier, and the buttons on a row to move, copy or delete it.",
+            "Use + Add Tier above the table to add a tier, and the \u{2026} menu on a row to move, copy or delete it.",
         ])
         .highlight("tier_table"),
     )
@@ -72,7 +72,7 @@ pub fn welcome_tour_guide() -> Guide {
         .actions([
             "The Tier tab changes one tier's angle, indices and name.",
             "The other tabs hold the rough (Preform), Optimize and the History of your edits.",
-            "The Advanced interface adds a Schedule tab with the cutting sheet.",
+            "The cutting order is on the Cutting Instructions page, in the places segment of the design header.",
         ])
         .highlight("inspector_tier"),
     )
@@ -147,7 +147,7 @@ mod tests {
     }
 
     /// The tour is shown on first run, in the Simple interface, whose inspector has the Tier,
-    /// Preform, Optimize and History tabs; the Schedule tab appears only in Advanced.
+    /// Preform, Optimize and History tabs; there is no Schedule tab any more.
     #[test]
     fn the_tour_names_the_tabs_the_simple_interface_shows() {
         let tour = welcome_tour_guide();

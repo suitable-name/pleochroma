@@ -1,8 +1,10 @@
-import { Button, ComboBox } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
+import { VerdictModel } from "../../models/verdict.slint";
 import { GuideLockTip } from "../guide_lock.slint";
+import { KitIcon, KitIcons } from "../kit/kit.slint";
+import { BarButton, BarIcons, BarMenuCaption, BarMenuItem, BarMenuPanel, BarMenuRule } from "bar_parts.slint";
 
 // A cutter-facing summary of what Ctrl+Z/Ctrl+Y will actually do, from
 // `Edit::describe` (`crates/pleochroma-cut-core/src/edit/edit_type.rs`) via
@@ -16,29 +18,12 @@ export global UndoRedoLabels {
     in property <string> redo_label: "";
 }
 
-// `Button` and `ComboBox` expose no `has-hover`, so each control below is wrapped in a
-// plain, passive `TouchArea` sized from its child's own preferred size. That wrapper never
-// wires `clicked`/`pointer-event`,
-// so it never consumes the press meant for the real control inside it; it only
-// observes `has-hover` for the hint line under the bar (`EditorModel.hover_hint`,
-// cleared on pointer-exit). Every control also ANDs the matching
-// `GuideModel.allows_*()` helper into its `enabled:` and carries a `GuideLockTip`,
-// so the worked-example guide can lock whatever its current step does not ask for.
-
-// Undo / Redo -- the first group of the bar.
+// Undo / Redo -- the first group of the bar: two icon buttons. A screen reader still hears
+// "Undo" and "Redo"; the tooltip says what the next undo or redo will do, and the shortcut.
 export component UndoRedoGroup inherits HorizontalLayout {
     // Every control of the bar is 32 px tall and every row 32 px, so they share one centre line.
     height: 32px;
-    spacing: 8px;
-
-    function set_hint(text: string) {
-        EditorModel.hover_hint = text;
-    }
-    function clear_hint(text: string) {
-        if EditorModel.hover_hint == text {
-            EditorModel.hover_hint = "";
-        }
-    }
+    spacing: 2px;
 
     // See `UndoRedoLabels`. The keyboard shortcut is appended so it is
     // discoverable from the hover hint alone, not only from the manual.
@@ -49,76 +34,390 @@ export component UndoRedoGroup inherits HorizontalLayout {
         return (EditorModel.can_redo && UndoRedoLabels.redo_label != "" ? "Redo: " + UndoRedoLabels.redo_label : "Redo the last undone edit.") + " (Ctrl+Y)";
     }
 
-    TouchArea {
-        width: undo_btn.preferred-width;
-        height: 32px;
-        changed has-hover => { if self.has-hover { root.set_hint(root.undo_hint()); } else { root.clear_hint(root.undo_hint()); } }
-        undo_btn := Button {
-            text: "Undo";
-            accessible-description: root.undo_hint();
-            enabled: EditorModel.can_undo && GuideModel.allows_history();
-            clicked => { EditorModel.undo(); }
-        }
-        GuideLockTip { locked: !GuideModel.allows_history(); }
+    BarButton {
+        icon: KitIcons.undo;
+        text: "Undo";
+        show_text: false;
+        hint: root.undo_hint();
+        enabled: EditorModel.can_undo && GuideModel.allows_history();
+        locked: !GuideModel.allows_history();
+        clicked => { EditorModel.undo(); }
     }
-    TouchArea {
-        width: redo_btn.preferred-width;
-        height: 32px;
-        changed has-hover => { if self.has-hover { root.set_hint(root.redo_hint()); } else { root.clear_hint(root.redo_hint()); } }
-        redo_btn := Button {
-            text: "Redo";
-            accessible-description: root.redo_hint();
-            enabled: EditorModel.can_redo && GuideModel.allows_history();
-            clicked => { EditorModel.redo(); }
-        }
-        GuideLockTip { locked: !GuideModel.allows_history(); }
+    BarButton {
+        icon: KitIcons.redo;
+        text: "Redo";
+        show_text: false;
+        hint: root.redo_hint();
+        enabled: EditorModel.can_redo && GuideModel.allows_history();
+        locked: !GuideModel.allows_history();
+        clicked => { EditorModel.redo(); }
     }
 }
 
-// Solve / Auto-Solve / Deep Solve -- every way of (re)computing the design, in one group.
-// Optimize is not here: the inspector's Optimize tab has its own Run and Cancel.
+// The solve state as the Solve button: "Solved · 47 ms", amber "Solved · 1 check", "Not solved",
+// "Failed", and while it runs "Solving..." with a Cancel in the same slot. One model for what was
+// three signals (the green word, the amber badge and the amber dot).
 //
-// The narrow bar shows the group twice: once with `show_deep: false` (Solve and Auto-Solve
-// on the first row, beside Undo/Redo and File) and once with `show_solve: false` (Deep Solve
-// at the start of the second row), so the first row fits the smallest dock. Only one instance
-// holds any given button, so each id stays unique.
+// The body solves again (F5). The chevron opens the Auto-Solve choice and Abandon Solve. The state is
+// carried by an icon as well as the color: a check, a warning sign, the circular arrow for stale.
+// The slot has ONE width, whatever it says, because the bar's width must not depend on a transient
+// state (the dock grows to the bar's minimum width).
 //
-// The bar's width must not depend on what is running, or the dock widens while a solve runs
-// (the dock grows to the bar's minimum width). So Solve and Abandon Solve are ONE button in
-// ONE fixed-width slot: it reads Solve, and while a solve runs it reads Abandon Solve and
-// stops the worker. The Solving... state itself shows in the status strip.
-export component SolveGroup inherits HorizontalLayout {
-    // Solve (Abandon Solve) and Auto-Solve.
-    in property <bool> show_solve: true;
-    // Deep Solve (Cancel Deep Solve).
-    in property <bool> show_deep: true;
+// The accessible name is "Solve" in every state; the state is in its description. While a solve runs
+// the Cancel inside it is "Abandon Solve".
+component SolveState inherits Rectangle {
+    // A narrow dock: the shortest wording.
+    in property <bool> compact: false;
 
-    height: 32px;
-    spacing: 8px;
+    property <bool> running: EditorModel.solve_running;
+    property <string> sstate: EditorModel.solve_state;
+    // How many checks the design has: the verdict's reasons, or the manufacturability warnings when
+    // there is no verdict yet.
+    property <int> checks: VerdictModel.level >= 1 ? VerdictModel.reasons.length : EditorModel.manufacturability_warnings.length;
+    property <bool> amber: !root.running && root.sstate == "solved" && root.checks > 0;
+    property <bool> needs_solve: !root.running && root.sstate == "stale";
+    property <bool> failed: !root.running && root.sstate == "failed";
+    // The check count is its own button (it opens the verdict's reasons) once there is a verdict
+    // to open; the status strip's badge shows it.
+    property <bool> check_chip: root.amber && VerdictModel.level >= 1;
+    property <string> check_text: root.checks + (root.checks == 1 ? " check" : " checks");
+    property <string> word: root.running ? "Solving..."
+        : root.needs_solve ? "Not solved"
+        : root.failed ? "Failed"
+        : root.check_chip ? "Solved"
+        : root.checks > 0 ? "Solved · " + root.checks + (root.checks == 1 ? " check" : " checks")
+        : (EditorModel.last_solve_duration_ms > 0 && GuideModel.shows_advanced() && !root.compact ? "Solved · " + EditorModel.last_solve_duration_ms + " ms" : "Solved");
+    property <string> icon: root.running ? ""
+        : root.needs_solve ? KitIcons.reset
+        : (root.failed || root.amber) ? KitIcons.warn
+        : KitIcons.check;
+    property <color> tone: root.running ? Theme.accent-amber
+        : root.needs_solve ? Theme.accent-cyan
+        : root.failed ? Theme.accent-ruby
+        : root.amber ? Theme.accent-amber
+        : Theme.accent-emerald;
+    property <bool> can_solve: EditorModel.busy_action == "" && GuideModel.allows_solve();
+    property <bool> menu_open: false;
+    // The state in words, for the description and the tooltip. "(F5)" is appended so the shortcut is
+    // discoverable from the hover hint itself.
+    property <string> state_hint: root.running ? "A solve is running. Press Abandon Solve to stop it and discard its result."
+        : root.needs_solve ? "The design changed since the last solve, so the tier table and the 3D view may be out of date. Press to solve again. (F5)"
+        : root.failed ? "The last solve did not give a valid stone. Press to solve again. (F5)"
+        : root.checks > 0 ? "Solved, with " + root.checks + (root.checks == 1 ? " check" : " checks") + " to look at. Press the check count for the reasons, or here to solve again. (F5)"
+        : "The tier table and the 3D view match the design as it is now. Press to solve again. (F5)";
+    // Besides what Solve does, names whichever OTHER action (Deep Solve/Optimize) is the reason the
+    // button is disabled.
+    property <string> solve_hint: "Recompute every tier's depth and validate the design. Runs in the background above 16 tiers. " + root.state_hint
+        + (EditorModel.busy_action != "" && EditorModel.busy_action != "Solve" ? (" Disabled while " + EditorModel.busy_action + " is running.") : "");
 
-    function set_hint(text: string) {
-        EditorModel.hover_hint = text;
-    }
-    function clear_hint(text: string) {
-        if EditorModel.hover_hint == text {
-            EditorModel.hover_hint = "";
+    function set_budget(ms: int) {
+        EditorModel.auto_solve_budget_ms = ms;
+        // The guide's auto-solve lesson waits for the choice, off or on.
+        if ms == 0 {
+            GuideModel.event("auto_solve_off");
+        } else {
+            GuideModel.event("auto_solve_on");
         }
     }
+    function close_menu() {
+        root.menu_open = false;
+        EditorModel.hover_hint = "";
+        chev_focus.focus();
+    }
 
-    // Besides what Solve does, names whichever OTHER action (Deep Solve/
-    // Optimize) is the reason the button below is disabled. "(F5)" is appended so
-    // the shortcut is discoverable from the hover hint itself.
-    function solve_hint() -> string {
-        return "Recompute every tier's depth and validate the design. Runs in the background above 16 tiers. (F5)"
-            + (EditorModel.busy_action != "" && EditorModel.busy_action != "Solve" ? (" Disabled while " + EditorModel.busy_action + " is running.") : "");
+    // A fixed slot: the longer wording ("Solved · 12 checks") and the Cancel never change it.
+    width: 176px;
+    height: 32px;
+    border-radius: 8px;
+    background: root.needs_solve && EditorModel.auto_solve_budget_ms == 0 ? Theme.accent-cyan-surface : Theme.bg-card-hover;
+    border-width: 1px;
+    border-color: root.amber || root.running ? Theme.accent-amber : (root.failed ? Theme.accent-ruby : Theme.border-subtle);
+
+    // The body: the state and "solve again".
+    body := Rectangle {
+        x: 0px;
+        width: parent.width - 28px;
+        height: parent.height;
+        border-radius: 8px;
+        opacity: root.running ? 1.0 : (root.can_solve ? 1.0 : 0.5);
+        background: body_touch.has-hover && root.can_solve && !root.running ? Theme.bg-elevated : transparent;
+        border-width: body_focus.has-focus || GuideModel.highlight_target == "solve_button" ? 2px : 0px;
+        border-color: body_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+        // "Solve" in every state: a route or a lesson that looks the button up by name keeps its hit.
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Solve";
+        accessible-description: root.state_hint;
+        accessible-enabled: root.can_solve && !root.running;
+        accessible-action-default => {
+            if root.can_solve && !root.running {
+                EditorModel.solve();
+            }
+        }
+
+        Tooltip { text: @markdown("\{root.solve_hint}"); }
+        body_focus := FocusScope {
+            enabled: root.can_solve && !root.running;
+            key-pressed(event) => {
+                if event.text == Key.Space || event.text == Key.Return {
+                    EditorModel.solve();
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: root.running ? 58px : (root.check_chip ? 70px : 6px);
+            spacing: 7px;
+            VerticalLayout {
+                alignment: center;
+                if root.icon == "": Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.tone; }
+                if root.icon != "": KitIcon { d: root.icon; size: 14px; stroke: 2.2px; ink: root.tone; }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.word;
+                font-size: 12px;
+                font-weight: 600;
+                color: root.amber ? Theme.accent-amber : (root.failed ? Theme.accent-ruby : Theme.text-primary);
+                vertical-alignment: center;
+                overflow: elide;
+                accessible-role: AccessibleRole.none;
+            }
+        }
+        body_touch := TouchArea {
+            enabled: root.can_solve && !root.running;
+            mouse-cursor: root.can_solve && !root.running ? MouseCursor.pointer : MouseCursor.default;
+            clicked => { EditorModel.solve(); }
+            changed has-hover => {
+                if self.has-hover {
+                    EditorModel.hover_hint = root.solve_hint;
+                } else if EditorModel.hover_hint == root.solve_hint {
+                    EditorModel.hover_hint = "";
+                }
+            }
+        }
+        // While a solve runs the slot offers its Cancel, so "Solving..." is never a dead end. Over
+        // the body's touch area, which is off while it runs.
+        if root.running: Rectangle {
+            width: cancel_text.preferred-width + 14px;
+            height: 22px;
+            x: parent.width - self.width - 6px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 6px;
+            background: cancel_touch.has-hover ? Theme.bg-elevated : transparent;
+            border-width: cancel_focus.has-focus ? 2px : 1px;
+            border-color: cancel_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Abandon Solve";
+            accessible-description: "Cancel the running solve and discard its result. The calculation stops within a moment.";
+            accessible-enabled: true;
+            accessible-action-default => { EditorModel.solve_cancel(); }
+            Tooltip { text: @markdown("Cancel the running solve and discard its result. The calculation stops within a moment."); }
+            cancel_focus := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        EditorModel.solve_cancel();
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            cancel_text := Text {
+                x: 7px;
+                height: parent.height;
+                text: "Cancel";
+                font-size: 11px;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                accessible-role: AccessibleRole.none;
+            }
+            cancel_touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { EditorModel.solve_cancel(); }
+            }
+        }
+        // The check count: a click opens the verdict's reasons (the status strip's popover) instead
+        // of solving again. Over the body's touch area.
+        if root.check_chip: Rectangle {
+            width: chip_text.preferred-width + 12px;
+            height: 22px;
+            x: parent.width - self.width - 5px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 6px;
+            background: chip_touch.has-hover ? Theme.badge-amber-bg : Theme.bg-input;
+            border-width: chip_focus.has-focus ? 2px : 1px;
+            border-color: chip_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-amber;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Design Checks";
+            accessible-description: "Show the " + root.check_text + " to look at, with their reasons and Fix buttons.";
+            accessible-enabled: true;
+            accessible-action-default => { VerdictModel.open_pulse += 1; }
+            Tooltip { text: @markdown("Show the \{root.check_text} to look at, with their reasons and Fix buttons."); }
+            chip_focus := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        VerdictModel.open_pulse += 1;
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            chip_text := Text {
+                x: 6px;
+                height: parent.height;
+                text: root.check_text;
+                font-size: 10px;
+                font-weight: 600;
+                color: Theme.accent-amber;
+                vertical-alignment: center;
+                accessible-role: AccessibleRole.none;
+            }
+            chip_touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { VerdictModel.open_pulse += 1; }
+            }
+        }
+        // The guide's "Solve and check" step outlines this button.
+        GuideLockTip { locked: !GuideModel.allows_solve() && !root.running; }
     }
-    // The same button's hint while a solve runs.
-    function abandon_hint() -> string {
-        return "Cancel the running solve and discard its result. The calculation stops within a moment.";
+
+    // The chevron: Auto-Solve and Abandon Solve.
+    chev := Rectangle {
+        x: parent.width - 28px;
+        width: 28px;
+        height: parent.height;
+        border-radius: 8px;
+        opacity: GuideModel.allows_solve() ? 1.0 : 0.5;
+        background: chev_touch.has-hover && GuideModel.allows_solve() ? Theme.bg-elevated : transparent;
+        border-width: chev_focus.has-focus || GuideModel.highlight_target == "auto_solve" ? 2px : 0px;
+        border-color: chev_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Auto-Solve";
+        accessible-description: "Choose when the design solves again by itself after an edit, or abandon a running solve.";
+        accessible-enabled: GuideModel.allows_solve();
+        accessible-expandable: true;
+        accessible-expanded: root.menu_open;
+        accessible-action-default => { root.menu_open = !root.menu_open; }
+
+        Tooltip { text: @markdown("Auto-Solve: after an edit, solve again by itself when this design's last solve was quicker than the chosen time. Also Abandon Solve."); }
+        Rectangle { x: 0px; width: 1px; height: parent.height - 12px; y: 6px; background: Theme.border-subtle; }
+        chev_focus := FocusScope {
+            enabled: GuideModel.allows_solve();
+            key-pressed(event) => {
+                if (event.text == Key.Space || event.text == Key.Return || event.text == Key.DownArrow) && GuideModel.allows_solve() {
+                    root.menu_open = true;
+                    return accept;
+                } else if event.text == Key.Escape && root.menu_open {
+                    root.menu_open = false;
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        KitIcon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            d: KitIcons.chevron-down;
+            size: 11px;
+            ink: Theme.text-muted;
+        }
+        chev_touch := TouchArea {
+            enabled: GuideModel.allows_solve();
+            mouse-cursor: pointer;
+            clicked => { root.menu_open = !root.menu_open; }
+        }
+        GuideLockTip { locked: !GuideModel.allows_solve(); }
     }
-    function slot_hint() -> string {
-        return EditorModel.solve_running ? root.abandon_hint() : root.solve_hint();
+
+    // A click anywhere else closes the menu.
+    if root.menu_open: Rectangle {
+        x: -2000px;
+        y: -2000px;
+        width: 4000px;
+        height: 4000px;
+        z: 49;
+        TouchArea { clicked => { root.close_menu(); } }
     }
+    if root.menu_open: BarMenuPanel {
+        x: 0px;
+        y: root.height + 2px;
+        z: 50;
+        menu_width: 214px;
+        init => { off_item.take_focus(); }
+        BarMenuCaption { text: "AUTO-SOLVE AFTER AN EDIT"; }
+        off_item := BarMenuItem {
+            text: "Off";
+            label: "Auto-Solve Off";
+            hint: "Do not solve by itself: an edit only marks the panel out of date until you press Solve.";
+            checkable: true;
+            checked: EditorModel.auto_solve_budget_ms == 0;
+            activated => { root.set_budget(0); root.close_menu(); }
+            dismissed => { root.close_menu(); }
+        }
+        BarMenuItem {
+            text: "150 ms";
+            label: "Auto-Solve 150 ms";
+            hint: "Solve again by itself when the last solve took under 150 ms (a short pause lets you finish typing first).";
+            checkable: true;
+            checked: EditorModel.auto_solve_budget_ms == 150;
+            activated => { root.set_budget(150); root.close_menu(); }
+            dismissed => { root.close_menu(); }
+        }
+        BarMenuItem {
+            text: "300 ms";
+            label: "Auto-Solve 300 ms";
+            hint: "Solve again by itself when the last solve took under 300 ms.";
+            checkable: true;
+            checked: EditorModel.auto_solve_budget_ms == 300;
+            activated => { root.set_budget(300); root.close_menu(); }
+            dismissed => { root.close_menu(); }
+        }
+        BarMenuItem {
+            text: "1 s";
+            label: "Auto-Solve 1 s";
+            hint: "Solve again by itself when the last solve took under one second.";
+            checkable: true;
+            checked: EditorModel.auto_solve_budget_ms == 1000;
+            activated => { root.set_budget(1000); root.close_menu(); }
+            dismissed => { root.close_menu(); }
+        }
+        BarMenuItem {
+            text: "3 s";
+            label: "Auto-Solve 3 s";
+            hint: "Solve again by itself when the last solve took under three seconds.";
+            checkable: true;
+            checked: EditorModel.auto_solve_budget_ms == 3000;
+            activated => { root.set_budget(3000); root.close_menu(); }
+            dismissed => { root.close_menu(); }
+        }
+        BarMenuRule { }
+        BarMenuItem {
+            text: "Abandon Solve";
+            hint: root.running ? "Cancel the running solve and discard its result. The calculation stops within a moment." : "Nothing to abandon: no solve is running.";
+            enabled: root.running;
+            activated => { EditorModel.solve_cancel(); root.close_menu(); }
+            dismissed => { root.close_menu(); }
+        }
+    }
+}
+
+// The Solve state button and Deep Solve -- every way of (re)computing the design, in one group.
+// Optimize is not here: the inspector's Optimize tab has its own Run and Cancel.
+//
+// Deep Solve is a separate, slower, externally-verified action. Disabled (with the reason in the
+// tooltip) rather than hidden, so a design with nothing to verify against reads as "not applicable
+// right now". Advanced: the Simple interface leaves it out (a running Deep Solve keeps its Cancel).
+// Deep Solve and Cancel Deep Solve share one slot of one width, so the bar does not change width.
+export component SolveGroup inherits HorizontalLayout {
+    // Deep Solve shows its name (the dock is wide enough); off, only its icon.
+    in property <bool> deep_text: true;
+    // The Solve button's shortest wording.
+    in property <bool> compact: false;
+
+    height: 32px;
+    spacing: 4px;
+
     // Appended to Deep Solve's tooltip whenever some OTHER action is the reason it is
     // disabled; a named function because `@markdown`'s dynamic text must be a plain
     // expression, never a nested ternary.
@@ -127,154 +426,28 @@ export component SolveGroup inherits HorizontalLayout {
             ? ("\n\nDisabled while " + EditorModel.busy_action + " is running.")
             : "";
     }
-    // The height of the bar's buttons, which the Auto-Solve row matches.
-    property <length> btn_h: 32px;
+    property <string> deep_hint: GuideModel.allows_advanced() ? EditorModel.deep_solve_hint + root.busy_suffix("Deep Solve") : GuideModel.locked_hint;
 
-    // Styled with the same "problem" ruby accent the status strip uses while
-    // stale, so the button that clears staleness stays visually tied to the strip.
-    if root.show_solve: TouchArea {
-        // Wide enough for the longer label in either state: a fixed slot, never the width
-        // of whichever label is showing.
-        width: abandon_probe.preferred-width + 36px;
-        height: root.btn_h;
-        changed has-hover => {
-            if self.has-hover {
-                root.set_hint(root.slot_hint());
-            } else {
-                root.clear_hint(root.solve_hint());
-                root.clear_hint(root.abandon_hint());
-            }
-        }
-        // Measures the longer label (default font, like the button's); never drawn.
-        abandon_probe := Text {
-            text: "Abandon Solve";
-            visible: false;
-        }
-        solve_btn := Button {
-            text: EditorModel.solve_running ? "Abandon Solve" : "Solve";
-            accessible-description: root.slot_hint();
-            // `busy_action` is "" only when none of Solve/Deep Solve/Optimize is
-            // running -- every launcher cross-disables on it. While Solve itself runs
-            // the button is the way to stop it, so it stays enabled.
-            enabled: EditorModel.solve_running || (EditorModel.busy_action == "" && GuideModel.allows_solve());
-            // Keyed off `EditorModel.solve_state`, not `status_is_problem` (set `true`
-            // by every ordinary edit), and only with auto-solve OFF: with it on, a
-            // background solve is already coming and the accent would just flicker.
-            primary: !EditorModel.solve_running && EditorModel.auto_solve_budget_ms == 0 && EditorModel.solve_state == "stale";
-            // While a solve runs the click cancels the worker at its next cancel point
-            // (`gui::editor::auto_solve::dispatch::cancel_in_flight_solve`, typically a few
-            // milliseconds) and discards its result.
-            clicked => {
-                if EditorModel.solve_running {
-                    EditorModel.solve_cancel();
-                } else {
-                    EditorModel.solve();
-                }
-            }
-        }
-        // The guide's "Solve and check" step outlines this button.
-        if GuideModel.highlight_target == "solve_button": Rectangle {
-            border-width: 2px;
-            border-color: Theme.accent-cyan;
-            border-radius: Theme.radius-sm;
-        }
-        GuideLockTip { locked: !GuideModel.allows_solve() && !EditorModel.solve_running; }
-    }
+    SolveState { compact: root.compact; }
 
-    // Auto-solve budget: after an edit, a background re-solve is scheduled
-    // (debounced) whenever the last measured solve took less than the budget;
-    // "Off" means plain stale-marker behaviour.
-    // Explicit width: a `ComboBox`'s preferred width is not derived from its model.
-    // Keyed off `EditorModel.dock_width` (set externally) rather than this
-    // component's own width, which would be a layout binding loop.
-    property <length> combo_width: EditorModel.dock_width < 760px ? 96px : 118px;
-    if root.show_solve: TouchArea {
-        // 6 px in front of the label and 2 behind the combo: the guide's 2 px outline and the
-        // focus ring sit in that room instead of cutting the "A" of the label.
-        width: 6px + auto_solve_label.preferred-width + 4px + root.combo_width + 2px;
-        // The Solve button's height, not the combo's own (shorter) preferred height: the
-        // label is centred in this row and the combo fills it.
-        height: root.btn_h;
-        changed has-hover => { if self.has-hover { root.set_hint("Auto-solve: after an edit, solve again by itself when this design's last solve was quicker than the chosen time (a short pause lets you finish typing first). Off only marks the panel out of date until you press Solve."); } else { root.clear_hint("Auto-solve: after an edit, solve again by itself when this design's last solve was quicker than the chosen time (a short pause lets you finish typing first). Off only marks the panel out of date until you press Solve."); } }
-        HorizontalLayout {
-            spacing: 4px;
-            padding-left: 6px;
-            padding-right: 2px;
-            auto_solve_label := Text {
-                text: "Auto-Solve:";
-                font-size: 11px;
-                color: Theme.text-muted;
-                vertical-alignment: center;
-            }
-            auto_solve_combo := ComboBox {
-                width: root.combo_width;
-                height: root.btn_h;
-                enabled: GuideModel.allows_solve();
-                accessible-label: "Auto-Solve";
-                accessible-description: "After an edit, solve again by itself when the last solve was quicker than this time. Off only marks the panel out of date.";
-                model: ["Off", "150 ms", "300 ms", "1 s", "3 s"];
-                current-index: EditorModel.auto_solve_budget_ms == 0 ? 0
-                    : EditorModel.auto_solve_budget_ms == 150 ? 1
-                    : EditorModel.auto_solve_budget_ms == 300 ? 2
-                    : EditorModel.auto_solve_budget_ms == 1000 ? 3
-                    : 4;
-                selected(val) => {
-                    EditorModel.auto_solve_budget_ms = val == "Off" ? 0
-                        : val == "150 ms" ? 150
-                        : val == "300 ms" ? 300
-                        : val == "1 s" ? 1000
-                        : 3000;
-                    // The guide's auto-solve lesson waits for the choice, off or on.
-                    if val == "Off" {
-                        GuideModel.event("auto_solve_off");
-                    } else {
-                        GuideModel.event("auto_solve_on");
-                    }
-                }
-            }
-        }
-        // The guide's auto-solve lesson outlines the label and the combo.
-        if GuideModel.highlight_target == "auto_solve": Rectangle {
-            border-width: 2px;
-            border-color: Theme.accent-cyan;
-            border-radius: Theme.radius-sm;
-        }
-        GuideLockTip { locked: !GuideModel.allows_solve(); }
+    if GuideModel.shows_advanced() && !EditorModel.deep_solve_running: BarButton {
+        icon: BarIcons.bolt;
+        text: "Deep Solve";
+        show_text: root.deep_text;
+        min_w: root.deep_text ? 118px : 0px;
+        hint: "Deep Solve: a slow check of the solved stone against the proportions printed for this design. It never changes the design. See the glossary." + (GuideModel.allows_advanced() ? "" : " " + GuideModel.locked_hint);
+        enabled: EditorModel.deep_solve_available && EditorModel.busy_action == "" && GuideModel.allows_advanced();
+        locked: !GuideModel.allows_advanced();
+        highlighted: GuideModel.highlight_target == "deep_solve_button";
+        clicked => { EditorModel.deep_solve(); }
     }
-
-    // A separate, slower, externally-verified action from "Solve". Disabled (with the
-    // reason in the tooltip) rather than hidden, so a design with nothing to verify
-    // against reads as "not applicable right now". Advanced: the Simple interface
-    // leaves it out (a running Deep Solve keeps its Cancel button).
-    if root.show_deep && !EditorModel.deep_solve_running && GuideModel.shows_advanced(): TouchArea {
-        width: deep_solve_btn.preferred-width;
-        height: root.btn_h;
-        changed has-hover => { if self.has-hover { root.set_hint("Deep Solve: a slow check of the solved stone against the proportions printed for this design. It never changes the design. See the glossary."); } else { root.clear_hint("Deep Solve: a slow check of the solved stone against the proportions printed for this design. It never changes the design. See the glossary."); } }
-        property <string> deep_solve_tooltip_text: GuideModel.allows_advanced() ? EditorModel.deep_solve_hint + root.busy_suffix("Deep Solve") : GuideModel.locked_hint;
-        // The hint's line-broken twin for the Tooltip; the accessible description keeps one line.
-        property <string> deep_solve_tooltip_lines: GuideModel.allows_advanced() ? EditorModel.deep_solve_tooltip + root.busy_suffix("Deep Solve") : GuideModel.locked_hint;
-        Tooltip { text: @markdown("\{deep_solve_tooltip_lines}"); }
-        deep_solve_btn := Button {
-            text: "Deep Solve";
-            accessible-description: parent.deep_solve_tooltip_text;
-            enabled: EditorModel.deep_solve_available && EditorModel.busy_action == "" && GuideModel.allows_advanced();
-            clicked => { EditorModel.deep_solve(); }
-        }
-        // The guide's Deep Solve lesson outlines this button.
-        if GuideModel.highlight_target == "deep_solve_button": Rectangle {
-            border-width: 2px;
-            border-color: Theme.accent-cyan;
-            border-radius: Theme.radius-sm;
-        }
-    }
-    // Wrapped like every other button of the bar, so it is as tall as they are.
-    if root.show_deep && EditorModel.deep_solve_running: TouchArea {
-        width: cancel_deep_btn.preferred-width;
-        height: root.btn_h;
-        cancel_deep_btn := Button {
-            text: "Cancel Deep Solve";
-            accessible-description: "Stop the running Deep Solve. The design is not changed.";
-            clicked => { EditorModel.deep_solve_cancel(); }
-        }
+    if EditorModel.deep_solve_running: BarButton {
+        icon: KitIcons.close;
+        text: "Cancel Deep Solve";
+        show_text: root.deep_text;
+        min_w: root.deep_text ? 118px : 0px;
+        on: true;
+        hint: "Stop the running Deep Solve. The design is not changed.";
+        clicked => { EditorModel.deep_solve_cancel(); }
     }
 }

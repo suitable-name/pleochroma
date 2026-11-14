@@ -63,7 +63,8 @@ pub fn cad_solved_diagram(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     sc.snap_main()
 }
 
-/// `diagram_view.png`: the Diagram view with all panels and the Schedule tab.
+/// `diagram_view.png`: the Diagram view with all panels and the Tier tab (the Schedule tab is
+/// gone; the cutting order is on the Cutting Instructions page).
 ///
 /// # Errors
 ///
@@ -71,7 +72,7 @@ pub fn cad_solved_diagram(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
 pub fn diagram_view(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     sc.open_in_editor(FVS)?;
     sc.set_view_mode(3);
-    sc.set_inspector_tab(3);
+    sc.set_inspector_tab(0);
     pump(1000);
     sc.snap_main()
 }
@@ -84,7 +85,7 @@ pub fn diagram_view(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
 pub fn diagram_view_detail(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     sc.open_in_editor(FVS)?;
     sc.set_view_mode(3);
-    sc.set_inspector_tab(3);
+    sc.set_inspector_tab(0);
     let ui = sc.ui();
     let solid = ui.global::<SolidPreviewModel>();
     let _ = Sc::wait(30, || solid.get_has_diagram());

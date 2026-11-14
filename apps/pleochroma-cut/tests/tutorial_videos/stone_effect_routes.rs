@@ -63,6 +63,34 @@ impl Film<'_> {
         Err(format!("{what} did not scroll into view in the Stone tab"))
     }
 
+    /// Opens the Stone tab's fold card `label` when it is folded. The cards (Crystal Axis 1,
+    /// Girdle & Edges 2, Clarity 4, Play-of-Color or Schiller 8: the bit is its place in
+    /// `ParametersModel.stone_folds`) start folded on a fresh install, and the controls inside a
+    /// folded card are not on screen, so every route that works one opens its card first, as a
+    /// learner does with a click on the card's header.
+    pub(crate) fn open_stone_fold(&mut self, label: &str, bit: i32) -> Result<(), String> {
+        let panel = self.ui.global::<ParametersModel>();
+        if panel.get_stone_folds() & bit != 0 {
+            return Ok(());
+        }
+        let header = self.stone_control(label, |view| {
+            targets::role_label(
+                view,
+                label,
+                uiprobe::AccessibleRole::Button,
+                Some("ParametersPanel"),
+            )
+        })?;
+        self.click_and_invoke(&header)?;
+        if !pacing::wait_real(pacing::STEP_TIMEOUT, || panel.get_stone_folds() & bit != 0) {
+            return Err(format!(
+                "the {label} card did not open (stone_folds {})",
+                panel.get_stone_folds()
+            ));
+        }
+        self.hold(pacing::RESULT_HOLD)
+    }
+
     /// The Parameters panel's scroll area and a small spot in its middle to turn the wheel over.
     fn stone_scroll_area(&self) -> Result<(Spot, Spot), String> {
         let panel = self
@@ -155,6 +183,8 @@ impl Film<'_> {
                 if settings.get_inclusion_sigma_s() > 0.0 {
                     return Err("Inclusion Haze is already on before the lesson drags it".into());
                 }
+                // The effect cards start folded: open Clarity first.
+                self.open_stone_fold("Clarity", 4)?;
                 self.drag_stone_slider("Inclusion Haze")?;
                 if settings.get_inclusion_sigma_s() <= 0.0 {
                     return Err("dragging Inclusion Haze did not change its value".into());
@@ -165,6 +195,7 @@ impl Film<'_> {
                 if settings.get_girdle_frosted() {
                     return Err("Frosted Girdle is already on before the lesson clicks it".into());
                 }
+                self.open_stone_fold("Girdle & Edges", 2)?;
                 let switch = self.stone_control("Frosted Girdle", |view| {
                     targets::role_label(
                         view,
@@ -184,6 +215,7 @@ impl Film<'_> {
                 if settings.get_edge_rounding_radius() > 0.0 {
                     return Err("Edge Rounding is already on before the lesson drags it".into());
                 }
+                self.open_stone_fold("Girdle & Edges", 2)?;
                 self.drag_stone_slider("Edge Rounding")?;
                 if settings.get_edge_rounding_radius() <= 0.0 {
                     return Err("dragging Edge Rounding did not change its value".into());

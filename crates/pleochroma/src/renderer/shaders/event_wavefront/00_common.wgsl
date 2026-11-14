@@ -14,11 +14,14 @@ const TAG_SPLIT: u32 = 9u;
 const TAG_TAIL: u32 = 10u;
 const TAG_FINALIZE: u32 = 11u;
 const TAG_NEE_HG: u32 = 12u;     // scatter event parked for ew_nee_hg (HDR environments only)
-// The three tags below belong to the kernels split off the heavy ones (browser compile time):
-// each is produced only when its kernel is in the dispatch list (see `kernels_for`).
+// The tags below belong to the kernels split off the heavy ones (browser compile time; the last
+// two because the Adreno 740 driver does not link the uniaxial arms whole): each is produced only
+// when its kernel is in the dispatch list (see `kernels_for`).
 const TAG_SCATTER_ORIENTED: u32 = 13u;     // ew_extend -> ew_scatter_oriented (oriented, Bragg)
 const TAG_ZONE_ABSORB: u32 = 14u;          // ew_surface -> ew_zoned_absorb (zoned, interior leg)
 const TAG_UNI_ENTRY_TRANSMIT: u32 = 15u;   // ew_arm_uni_entry -> ew_arm_uni_entry_transmit
+const TAG_UNI_ENTRY_FINISH: u32 = 16u;     // ew_arm_uni_entry_transmit -> ew_arm_uni_entry_finish
+const TAG_UNI_INTERNAL_TRANSMIT: u32 = 17u; // ew_arm_uni_internal -> ew_arm_uni_internal_transmit
 
 const RAY_FLAG_INSIDE_GEM: u32 = 1u;
 const RAY_FLAG_IS_EXTRAORDINARY: u32 = 2u;

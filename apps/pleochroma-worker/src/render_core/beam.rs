@@ -154,7 +154,8 @@ pub fn render_beam_tiles(
         return BeamTilesOutcome::Refused(BeamOff::TrayReflection);
     }
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let hdr_map = crate::assets::resolved_hdr_map(scene);
     let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
     let finishes = super::resolve_facet_finishes(scene);

@@ -1,5 +1,5 @@
 // The design viewport: the shaded solid or the 2D diagram as a picture, a gesture layer
-// over it, the manipulation handles, the Slice line, and the chips around it.
+// over it, the manipulation handles, the Slice line, and the glass controls around it.
 //
 // Fills its parent. Everything it shows comes from `ViewportModel`; the raster, the pan
 // and zoom and every handle position are computed in Rust (`src/design/viewport`).
@@ -12,19 +12,28 @@
 //                  the fingers' centre pans
 //   desktop preview  left drag = one finger, wheel = pinch, right drag = two-finger pan
 //
+// Controls, all glass over the picture (top row 48 px, edges 8 px plus the system insets):
+//   top left     the Solid / Diagram / Render segment (and, on a wide view, the tool chips)
+//   top right    the View button: Front, Top, Bottom, Left, Right, Fit, Reset and the
+//                Handles / Slice / Snap toggles ("Reset" alone in Diagram)
+//   under it     the figures card (Solid and Render), folded to one line on a phone
+//   foot         in Render, the status pill (`ui/design/render`)
+//
 // The third view mode, Render, swaps the picture for the progressive rendered frame
-// (`ui/design/render`) and adds its progress bar, status line and chips along the foot.
-// The camera gestures are the same; the raster, picks and handles belong to Solid and
-// Diagram only.
-import { ProgressIndicator } from "std-widgets.slint";
+// (`ui/design/render`). The camera gestures are the same; the raster, picks and handles
+// belong to Solid and Diagram only.
+import { ProgressBar } from "../../shell/inputs.slint";
+import { PleoFigures, PleoFigure } from "../../../../../ui-shared/figures.slint";
 import { Theme } from "../../theme.slint";
 import { Icons } from "../../icons.slint";
 import { Prefs, Shell } from "../../models.slint";
 import { Navigation } from "../../navigation.slint";
-import { Chip, Segmented } from "../../shell/chips.slint";
+import { Chip } from "../../shell/chips.slint";
 import { IconButton } from "../../shell/icon_button.slint";
+import { StateLayer } from "../../shell/state_layer.slint";
 import { RenderPicture, RenderControls } from "../render/render_view.slint";
 import { RenderModel } from "../render/render_model.slint";
+import { PropsModel } from "../props/props_model.slint";
 import { ViewportModel } from "viewport_model.slint";
 
 // A straight bar from (x0, y0), `len` long, tilted by `deg` degrees. The handles' stems
@@ -84,13 +93,116 @@ component HandleDot inherits Rectangle {
     }
 }
 
-// A translucent strip that gives the chips on top of the picture something to read on.
-component Strip inherits Rectangle {
-    height: 48px;
-    background: Theme.surface.with-alpha(0.66);
+// A row of chips on a glass pill (the tool chips and the Slice row sit on it, so they read
+// on a light render backdrop too).
+component GlassBar inherits Rectangle {
+    background: Theme.glass-bg;
+    border-radius: Theme.touch / 2;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
+    width: lay.preferred-width;
+    height: Theme.touch;
 
-    // Taps on the strip are not taps on the picture below.
+    // Taps on the bar are not taps on the picture below.
     TouchArea { }
+
+    lay := HorizontalLayout {
+        padding-left: Theme.space-xs;
+        padding-right: Theme.space-xs;
+        spacing: Theme.space-xs;
+        alignment: start;
+        @children
+    }
+}
+
+// The Solid / Diagram / Render segment on glass: the chosen one is a cyan-surface pill.
+component GlassSegmented inherits Rectangle {
+    in property <[string]> options;
+    in property <int> current: 0;
+    callback selected(int);
+
+    height: Theme.touch;
+    background: Theme.glass-bg;
+    border-radius: Theme.touch / 2;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
+
+    HorizontalLayout {
+        padding: 4px;
+        spacing: 0px;
+
+        for option[index] in root.options: Rectangle {
+            border-radius: (Theme.touch - 8px) / 2;
+            background: index == root.current ? Theme.accent-surface : transparent;
+            border-width: index == root.current ? 1px : 0px;
+            border-color: Theme.accent;
+            accessible-role: AccessibleRole.button;
+            accessible-label: option;
+            accessible-checkable: true;
+            accessible-checked: index == root.current;
+            accessible-action-default => { root.selected(index); }
+
+            StateLayer {
+                pressed: segment-touch.pressed;
+                hovered: segment-touch.has-hover;
+                border-radius: parent.border-radius;
+            }
+
+            Text {
+                text: option;
+                color: index == root.current ? Theme.on-surface : Theme.text-secondary;
+                font-size: Theme.text-label-large;
+                font-weight: index == root.current ? 700 : 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            segment-touch := TouchArea {
+                clicked => { root.selected(index); }
+            }
+        }
+    }
+}
+
+// The glass View button (or "Reset" in the Diagram view).
+component ViewButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected: false;
+    callback clicked();
+
+    width: max(Theme.touch * 1.5, label.preferred-width + 2 * Theme.space-lg);
+    height: Theme.touch;
+    background: Theme.glass-bg;
+    border-radius: Theme.touch / 2;
+    border-width: 1px;
+    border-color: root.selected ? Theme.accent : Theme.glass-edge;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.clicked(); }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+        border-radius: root.border-radius;
+    }
+
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.selected ? Theme.accent : Theme.on-surface;
+        font-size: Theme.text-label-large;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
 }
 
 export component DesignViewport inherits Rectangle {
@@ -110,6 +222,29 @@ export component DesignViewport inherits Rectangle {
     // Whether the View menu has the tool row.
     property <bool> menu-tools: !root.tools-inline && root.tools-shown;
 
+    // Edge to edge: a compact view spans the whole window, so the cutout and gesture insets
+    // apply to its sides; a wide view sits beside the rail and the pane. The sheet and the
+    // navigation bar already keep the bottom inset on a compact window.
+    property <length> pad-left: Theme.space-sm + (Shell.window-class == 0 ? Shell.inset-left : 0px);
+    property <length> pad-right: Theme.space-sm + (Shell.window-class == 0 ? Shell.inset-right : 0px);
+    property <length> pad-bottom: Theme.space-sm + Shell.page-inset-bottom;
+    // Below the top row.
+    property <length> top-edge: Theme.space-sm + Theme.touch + Theme.space-sm;
+    // The Slice row sits under the top row.
+    // The Diagram's panel segment (a phone draws one panel at a time) sits there too.
+    property <bool> panel-row: ViewportModel.view-mode == 1 && ViewportModel.diagram-single;
+    property <length> below-rows: root.top-edge + ((ViewportModel.slice-mode && ViewportModel.view-mode == 0) || root.panel-row ? Theme.touch + Theme.space-sm : 0px);
+
+    // The five numbers, from the Checks tab's measurements (empty until measured).
+    property <bool> has-figures: PropsModel.metric-labels.length >= 5 && PropsModel.metric-values.length >= 5;
+    property <[PleoFigure]> figures: root.has-figures ? [
+        { name: PropsModel.metric-labels[0], short: "Bril", value: PropsModel.metric-values[0], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[1], short: "Fire", value: PropsModel.metric-values[1], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[2], short: "Scint", value: PropsModel.metric-values[2], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[3], short: "Wind", value: PropsModel.metric-values[3], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[4], short: "Ext", value: PropsModel.metric-values[4], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+    ] : [];
+
     function button-code(button: PointerEventButton) -> int {
         if (button == PointerEventButton.left) {
             return 0;
@@ -121,6 +256,12 @@ export component DesignViewport inherits Rectangle {
     }
 
     init => {
+        // The figures start folded on a phone and open on a tablet; after that the choice
+        // is the user's, for the session.
+        if (!ViewportModel.figures-fold-seeded) {
+            ViewportModel.figures-folded = Shell.window-class == 0;
+            ViewportModel.figures-fold-seeded = true;
+        }
         ViewportModel.view-resized(root.width, root.height);
     }
 
@@ -253,28 +394,47 @@ export component DesignViewport inherits Rectangle {
     }
 
     if ViewportModel.hint-text != "": Rectangle {
-        x: Theme.space-sm;
-        y: root.height - self.height - Theme.space-sm;
-        width: root.width - 2 * Theme.space-sm;
+        x: root.pad-left;
+        // Above the Render pill, which holds the foot of the view in that mode.
+        y: root.height - self.height - root.pad-bottom - (ViewportModel.view-mode == 2 ? 3px + 56px + Theme.space-sm : 0px);
+        width: root.width - root.pad-left - root.pad-right;
         height: hint.preferred-height + Theme.space-sm * 2;
-        background: Theme.inverse-surface.with-alpha(0.88);
+        background: Theme.glass-bg;
         border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
 
         hint := Text {
             x: Theme.space-md;
             y: Theme.space-sm;
             width: parent.width - 2 * Theme.space-md;
             text: ViewportModel.hint-text;
-            color: Theme.on-inverse-surface;
-            font-size: Theme.text-label;
+            color: Theme.on-surface;
+            font-size: max(12px, Theme.text-label);
             wrap: word-wrap;
         }
     }
 
+    // The figures card: the five gemological numbers on glass, under the top row (Solid
+    // and Render). Folded to one line on a phone; a tap on the card copies the numbers.
+    if root.has-figures && ViewportModel.view-mode != 1 && !ViewportModel.slice-mode: PleoFigures {
+        x: root.pad-left;
+        y: root.top-edge;
+        figures: root.figures;
+        title: "FACE-UP";
+        show_bars: false;
+        show_deltas: false;
+        font-base: max(12px, Theme.base-font * 0.86);
+        fold-button-size: Theme.touch;
+        header-height: Theme.touch;
+        folded <=> ViewportModel.figures-folded;
+        copy => { ViewportModel.figures-copy(); }
+    }
+
     if ViewportModel.info-visible: Rectangle {
-        x: Theme.space-sm;
-        y: (ViewportModel.slice-mode ? 96px : 48px) + Theme.space-sm;
-        width: min(root.width - 2 * Theme.space-sm, 360px);
+        x: root.pad-left;
+        y: root.below-rows + Theme.space-sm;
+        width: min(root.width - root.pad-left - root.pad-right, 360px);
         height: max(info-text.preferred-height + Theme.space-md * 2, Theme.touch);
         background: Theme.surface-high;
         border-radius: Theme.radius-md;
@@ -305,136 +465,148 @@ export component DesignViewport inherits Rectangle {
         }
     }
 
-    // The top strip: Solid / Diagram, the tool chips (when the view is wide enough; else
-    // they are in the View menu) and the View menu.
-    Strip {
-        y: 0px;
-        width: root.width;
+    // The top row: the mode segment and, on a wide view, the tool chips (else they are in
+    // the View menu) on the left; the View button on the right.
+    top-segment := GlassSegmented {
+        x: root.pad-left;
+        y: Theme.space-sm;
+        width: min(252px, root.width - root.pad-left - root.pad-right - view-button.width - Theme.space-sm);
+        options: ["Solid", "Diagram", "Render"];
+        current: ViewportModel.view-mode;
+        selected(index) => {
+            ViewportModel.view-mode = index;
+            root.camera-menu = false;
+            ViewportModel.view-mode-chosen(index);
+        }
+    }
 
-        HorizontalLayout {
-            padding-left: Theme.space-sm;
-            padding-right: Theme.space-sm;
-            spacing: Theme.space-xs;
+    // The Diagram's panels, one at a time on a phone (the tablet draws all three).
+    if root.panel-row: GlassSegmented {
+        x: root.pad-left;
+        y: root.top-edge;
+        width: min(300px, root.width - root.pad-left - root.pad-right);
+        options: ["Crown", "Pavilion", "Profile"];
+        current: ViewportModel.diagram-panel;
+        selected(index) => {
+            ViewportModel.diagram-panel = index;
+            ViewportModel.diagram-panel-chosen(index);
+        }
+    }
 
-            Segmented {
-                width: min(252px, root.width - camera-choice.width - 2 * Theme.space-sm - 2 * Theme.space-xs);
-                options: ["Solid", "Diagram", "Render"];
-                current: ViewportModel.view-mode;
-                selected(index) => {
-                    ViewportModel.view-mode = index;
-                    root.camera-menu = false;
-                    ViewportModel.view-mode-chosen(index);
-                }
+    if root.tools-inline && root.tools-shown: GlassBar {
+        x: top-segment.x + top-segment.width + Theme.space-sm;
+        y: Theme.space-sm;
+
+        Chip {
+            text: "Handles";
+            selected: ViewportModel.handles-on;
+            clicked => {
+                ViewportModel.handles-toggled();
             }
+        }
 
-            if root.tools-inline && root.tools-shown: Chip {
-                text: "Handles";
-                selected: ViewportModel.handles-on;
-                clicked => {
-                    ViewportModel.handles-toggled();
-                }
+        Chip {
+            text: "Slice";
+            clicked => {
+                ViewportModel.slice-toggled();
             }
+        }
 
-            if root.tools-inline && root.tools-shown: Chip {
-                text: "Slice";
-                clicked => {
-                    ViewportModel.slice-toggled();
-                }
-            }
-
-            if root.tools-inline && root.tools-shown: Chip {
-                text: "Snap";
-                selected: Prefs.snap-to-gear;
-                clicked => {
-                    Prefs.set-snap-to-gear(!Prefs.snap-to-gear);
-                }
-            }
-
-            Rectangle {
-                horizontal-stretch: 1;
-            }
-
-            camera-choice := Chip {
-                text: ViewportModel.view-mode == 1 ? "Reset" : "View";
-                selected: root.camera-menu;
-                clicked => {
-                    if (ViewportModel.view-mode != 1) {
-                        RenderModel.controls-open = false;
-                        if !root.camera-menu { Shell.sheet-detent = 0; }
-                        root.camera-menu = !root.camera-menu;
-                    } else {
-                        ViewportModel.camera-chosen(6);
-                    }
-                }
+        Chip {
+            text: "Snap";
+            selected: Prefs.snap-to-gear;
+            clicked => {
+                Prefs.set-snap-to-gear(!Prefs.snap-to-gear);
             }
         }
     }
 
-    // The Slice row: the Slice tool's own chips, under the top strip while it is on.
-    if ViewportModel.slice-mode && ViewportModel.view-mode == 0: Strip {
-        y: 48px;
-        width: root.width;
-
-        HorizontalLayout {
-            padding-left: Theme.space-sm;
-            padding-right: Theme.space-sm;
-            spacing: Theme.space-xs;
-            alignment: start;
-
-            if !ViewportModel.slice-session: Chip {
-                text: "Slice";
-                selected: true;
-                clicked => {
-                    ViewportModel.slice-toggled();
-                }
-            }
-
-            if ViewportModel.slice-session: Chip {
-                text: "Keep";
-                selected: ViewportModel.slice-keep-ok;
-                clicked => {
-                    ViewportModel.slice-keep();
-                }
-            }
-
-            if ViewportModel.slice-session: Chip {
-                text: "Flip";
-                clicked => {
-                    ViewportModel.slice-flip();
-                }
-            }
-
-            if ViewportModel.slice-session: Chip {
-                text: "Discard";
-                clicked => {
-                    ViewportModel.slice-discard();
-                }
-            }
-
-            Chip {
-                text: "Symmetric";
-                selected: ViewportModel.slice-symmetric;
-                clicked => {
-                    ViewportModel.symmetric-toggled();
-                }
+    view-button := ViewButton {
+        x: root.width - root.pad-right - self.width;
+        y: Theme.space-sm;
+        text: ViewportModel.view-mode == 1 ? "Reset" : "View";
+        selected: root.camera-menu;
+        clicked => {
+            if (ViewportModel.view-mode != 1) {
+                RenderModel.controls-open = false;
+                root.camera-menu = !root.camera-menu;
+            } else {
+                ViewportModel.camera-chosen(6);
             }
         }
     }
 
-    // The View menu: the camera pills and, on a narrow view, the tool chips.
+    // The Slice row: the Slice tool's own chips, under the top row while it is on.
+    if ViewportModel.slice-mode && ViewportModel.view-mode == 0: GlassBar {
+        x: root.pad-left;
+        y: root.top-edge;
+        max-width: root.width - root.pad-left - root.pad-right;
+
+        if !ViewportModel.slice-session: Chip {
+            text: "Slice";
+            selected: true;
+            clicked => {
+                ViewportModel.slice-toggled();
+            }
+        }
+
+        if ViewportModel.slice-session: Chip {
+            text: "Keep";
+            selected: ViewportModel.slice-keep-ok;
+            clicked => {
+                ViewportModel.slice-keep();
+            }
+        }
+
+        if ViewportModel.slice-session: Chip {
+            text: "Flip";
+            clicked => {
+                ViewportModel.slice-flip();
+            }
+        }
+
+        if ViewportModel.slice-session: Chip {
+            text: "Discard";
+            clicked => {
+                ViewportModel.slice-discard();
+            }
+        }
+
+        Chip {
+            text: "Symmetric";
+            selected: ViewportModel.slice-symmetric;
+            clicked => {
+                ViewportModel.symmetric-toggled();
+            }
+        }
+    }
+
+    // The View menu: a glass card under the button with the camera pills and, on a narrow
+    // view, the tool chips. A tap outside closes it; Back closes it through `Navigation`.
+    if root.camera-menu && ViewportModel.view-mode != 1: TouchArea {
+        clicked => {
+            root.camera-menu = false;
+        }
+    }
+
     if root.camera-menu && ViewportModel.view-mode != 1: Rectangle {
-        x: 0px;
-        y: 48px;
-        width: root.width;
-        height: (root.menu-tools ? 3 : 2) * Theme.touch + Theme.space-sm;
-        background: Theme.surface.with-alpha(0.88);
+        width: min(root.width - root.pad-left - root.pad-right, 360px);
+        x: root.width - root.pad-right - self.width;
+        y: root.top-edge - Theme.space-xs;
+        height: (root.menu-tools ? 3 : 2) * Theme.touch + 2 * Theme.space-sm;
+        // Opaque: it opens over the figures card and the picture.
+        background: Theme.surface-high;
+        border-radius: Theme.radius-lg;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
+        drop-shadow-color: Theme.shadow;
+        drop-shadow-blur: Theme.shadow-blur-2;
+        drop-shadow-offset-y: Theme.shadow-offset-2;
 
         TouchArea { }
 
         VerticalLayout {
-            padding-left: Theme.space-sm;
-            padding-right: Theme.space-sm;
-            padding-top: Theme.space-xs;
+            padding: Theme.space-sm;
 
             HorizontalLayout {
                 spacing: Theme.space-xs;
@@ -535,12 +707,15 @@ export component DesignViewport inherits Rectangle {
         }
     }
 
-    // A small render bar; Settings first collapses the page sheet to its peek so the
-    // preview grows, then opens its tray.
+    // The Render overlay: the status pill, the progress line and the settings tray. Settings
+    // first collapses the page sheet to its peek so the preview grows, then opens its tray.
     if ViewportModel.view-mode == 2: RenderControls {
         y: root.height - self.height;
         width: root.width;
-        height-budget: max(0px, root.height - Theme.touch);
+        height-budget: max(0px, root.height - root.top-edge);
+        pad-left: root.pad-left;
+        pad-right: root.pad-right;
+        pad-bottom: root.pad-bottom;
         settings-toggled => {
             root.camera-menu = false;
             if !RenderModel.controls-open { Shell.sheet-detent = 0; }
@@ -553,7 +728,7 @@ export component DesignViewport inherits Rectangle {
         width: root.width;
         height: 4px;
 
-        ProgressIndicator {
+        ProgressBar {
             indeterminate: true;
         }
     }

@@ -219,6 +219,7 @@ fn refresh_viewport(
             yaw: ctx.yaw,
             pitch: ctx.pitch,
             distance: ctx.distance,
+            pan: ctx.camera_pan,
         },
         size,
         view_mode,

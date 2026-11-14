@@ -57,6 +57,8 @@ pub struct WarningRow {
     /// The tier to select for "Show" (a position in the design's tier list), if the
     /// finding is about one.
     pub tier: Option<usize>,
+    /// A short heading for the finding's card ("Facet too small to polish").
+    pub title: String,
     /// One plain sentence.
     pub text: String,
     /// `1` check, `2` problem.
@@ -169,9 +171,34 @@ pub(super) struct CachedChecks {
     n_d: f64,
 }
 
+/// The short heading of a finding's card, by what it is about.
+const fn reason_title(kind: verdict::ReasonKind) -> &'static str {
+    use verdict::ReasonKind;
+    match kind {
+        ReasonKind::DoesNotSolve => "The design does not solve",
+        ReasonKind::NotClosed => "The facets do not close the stone",
+        ReasonKind::Vanished => "Facets cut away by later tiers",
+        ReasonKind::Undersized => "Facets too small to polish",
+        ReasonKind::OffGear => "Index between gear teeth",
+        ReasonKind::OutOfOrder => "Meets a tier cut later",
+        ReasonKind::NoMeetPoint => "No meet point to cut to",
+        ReasonKind::GirdleNotLevel => "The girdle is not level",
+        ReasonKind::NameNotSafe => "A meet name will not save",
+        ReasonKind::Concave => "A tool needs a look",
+        ReasonKind::Windowing => "Light leaks out",
+        ReasonKind::MissingTable => "No table",
+        ReasonKind::Proportion => "A proportion is unusual",
+        ReasonKind::OpticalWindowing => "Much of the stone windows",
+        ReasonKind::OpticalExtinction => "Much of the light is lost",
+        ReasonKind::OpticalBrilliance => "Little light returns",
+        ReasonKind::CrystalAxis => "Crystal axis",
+    }
+}
+
 fn warning_row(reason: &Reason) -> WarningRow {
     WarningRow {
         tier: reason.tier,
+        title: reason_title(reason.kind).to_owned(),
         text: reason.text.clone(),
         level: reason.level.code(),
         fix_label: reason.fix.as_ref().map(|fix| fix.label().to_owned()),
@@ -645,5 +672,87 @@ pub(super) mod test_support {
         let Computed { reasons, n_d, .. } = compute(design, solved, &custom, &[]);
         let index = reasons.iter().position(|reason| reason.fix.is_some())?;
         request_from(design, &reasons, n_d, index).ok()
+    }
+}
+
+#[cfg(test)]
+mod reason_title_tests {
+    use std::collections::HashSet;
+
+    use pleochroma_editor::verdict::{Level, Reason, ReasonKind};
+
+    use super::{reason_title, warning_row};
+
+    /// Every kind of finding. The `match` fails to compile when a kind is added without a
+    /// line here, so the list cannot fall behind.
+    const KINDS: [ReasonKind; 17] = [
+        ReasonKind::DoesNotSolve,
+        ReasonKind::NotClosed,
+        ReasonKind::Vanished,
+        ReasonKind::Undersized,
+        ReasonKind::OffGear,
+        ReasonKind::OutOfOrder,
+        ReasonKind::NoMeetPoint,
+        ReasonKind::GirdleNotLevel,
+        ReasonKind::NameNotSafe,
+        ReasonKind::Concave,
+        ReasonKind::Windowing,
+        ReasonKind::MissingTable,
+        ReasonKind::Proportion,
+        ReasonKind::OpticalWindowing,
+        ReasonKind::OpticalExtinction,
+        ReasonKind::OpticalBrilliance,
+        ReasonKind::CrystalAxis,
+    ];
+
+    const fn _every_kind_is_listed(kind: ReasonKind) {
+        match kind {
+            ReasonKind::DoesNotSolve
+            | ReasonKind::NotClosed
+            | ReasonKind::Vanished
+            | ReasonKind::Undersized
+            | ReasonKind::OffGear
+            | ReasonKind::OutOfOrder
+            | ReasonKind::NoMeetPoint
+            | ReasonKind::GirdleNotLevel
+            | ReasonKind::NameNotSafe
+            | ReasonKind::Concave
+            | ReasonKind::Windowing
+            | ReasonKind::MissingTable
+            | ReasonKind::Proportion
+            | ReasonKind::OpticalWindowing
+            | ReasonKind::OpticalExtinction
+            | ReasonKind::OpticalBrilliance
+            | ReasonKind::CrystalAxis => {}
+        }
+    }
+
+    #[test]
+    fn every_kind_has_a_non_empty_distinct_title() {
+        let mut seen = HashSet::new();
+        for kind in KINDS {
+            let title = reason_title(kind);
+            assert!(!title.trim().is_empty(), "{kind:?} has an empty title");
+            assert!(seen.insert(title), "{kind:?} repeats the title {title:?}");
+        }
+        assert_eq!(seen.len(), KINDS.len());
+    }
+
+    #[test]
+    fn a_warning_row_takes_its_title_from_the_kind() {
+        for kind in KINDS {
+            let reason = Reason {
+                kind,
+                level: Level::Check,
+                text: "A sentence.".to_owned(),
+                tier: None,
+                fix: None,
+                confirm: None,
+            };
+            let row = warning_row(&reason);
+            assert_eq!(row.title, reason_title(kind), "{kind:?}");
+            assert!(!row.title.is_empty(), "{kind:?}");
+            assert_eq!(row.text, "A sentence.");
+        }
     }
 }

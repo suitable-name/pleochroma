@@ -286,6 +286,14 @@ impl Film<'_> {
     /// view and held, so the picture the text describes is on screen. Nothing is clicked: a
     /// click on the chart would set an angle.
     pub(super) fn film_tune_show_chart(&mut self) -> Result<(), String> {
+        // The sweep chart is folded until "Show sweep" (or Jump to Best) opens it.
+        if self
+            .inspector_form_control("Tune Metric Curves", uiprobe::AccessibleRole::Image)?
+            .is_none()
+        {
+            self.press_label("Show sweep")?;
+            pump(150);
+        }
         self.inspector_form_control("Tune Metric Curves", uiprobe::AccessibleRole::Image)?
             .ok_or("the Tune chart is not on screen (the mini sweep is drawn in Advanced only)")?;
         self.hold(pacing::RESULT_HOLD)

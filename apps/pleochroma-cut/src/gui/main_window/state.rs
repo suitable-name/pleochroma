@@ -4,7 +4,7 @@
 use super::resolve_db_path;
 use crate::{
     MainWindow, RemoteWorkerModel, SolidPreviewModel, TiltModel, ViewportModel,
-    bridge::render_thread::{RenderContext, spawn_render_thread},
+    bridge::render_thread::{GPU_PREPARING_STATUS, RenderContext, spawn_render_thread},
     gui::{
         custom_material_startup::initial_custom_materials_and_specific_gravity,
         editor_layout,
@@ -339,6 +339,48 @@ fn same_graph_bits(a: &TiltGraphs, b: &TiltGraphs) -> bool {
     bits_equal(&a.0, &b.0) && bits_equal(&a.1, &b.1) && bits_equal(&a.2, &b.2)
 }
 
+/// Sets the three tilt graphs and their curve paths on `TiltModel`, only when they differ
+/// (bitwise) from `last_graphs`. Each set rebuilds three `VecModel`s and three path strings,
+/// and the suspended-tab tick and every displayed frame carry the same graphs again.
+fn push_tilt_graphs(ui: &MainWindow, last_graphs: &Mutex<Option<TiltGraphs>>, graphs: TiltGraphs) {
+    let changed = {
+        let mut last = last_graphs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let changed = last
+            .as_ref()
+            .is_none_or(|previous| !same_graph_bits(previous, &graphs));
+        if changed {
+            *last = Some(graphs);
+        }
+        changed
+    };
+    if !changed {
+        return;
+    }
+    let (graph_brilliance, graph_extinction, graph_windowing) = graphs;
+    ui.global::<TiltModel>()
+        .set_graph_brilliance(slint::ModelRc::new(slint::VecModel::from(
+            graph_brilliance.to_vec(),
+        )));
+    ui.global::<TiltModel>()
+        .set_graph_extinction(slint::ModelRc::new(slint::VecModel::from(
+            graph_extinction.to_vec(),
+        )));
+    ui.global::<TiltModel>()
+        .set_graph_windowing(slint::ModelRc::new(slint::VecModel::from(
+            graph_windowing.to_vec(),
+        )));
+    // Tilt-curve `Path::commands` strings for the performance graph dialog's line chart (see
+    // `curve_path::tilt_curve_path`'s doc comment).
+    ui.global::<TiltModel>()
+        .set_graph_brilliance_path(tilt_curve_path(&graph_brilliance).into());
+    ui.global::<TiltModel>()
+        .set_graph_extinction_path(tilt_curve_path(&graph_extinction).into());
+    ui.global::<TiltModel>()
+        .set_graph_windowing_path(tilt_curve_path(&graph_windowing).into());
+}
+
 /// Spawns the background spectral ray tracer and the UI-thread closures that receive its
 /// frames, metrics and status texts.
 pub(super) fn spawn_viewport_render_thread(
@@ -347,6 +389,9 @@ pub(super) fn spawn_viewport_render_thread(
     solid: &SolidView,
 ) {
     crate::bridge::optical_overlay::setup(ui, render_ctx);
+    // The GPU kernels compile in the background from now on, Ray-Traced first; the viewport
+    // renders on the backends that build warms.
+    crate::bridge::shader_cache::start(ui, render_ctx);
     // Spawn Background Multi-Threaded Physically Based Spectral Raytracer
     let ui_weak_render = ui.as_weak();
     let render_ctx_frame_push = render_ctx.clone();
@@ -367,6 +412,13 @@ pub(super) fn spawn_viewport_render_thread(
             crate::bridge::optical_overlay::displayed(
                 ui,
                 scene_generation,
+                img.width(),
+                img.height(),
+            );
+            // The view's background takes the border color of the frame, so no bars show.
+            crate::gui::render::backdrop_color::push_backdrop(
+                ui,
+                img.as_bytes(),
                 img.width(),
                 img.height(),
             );
@@ -409,52 +461,25 @@ pub(super) fn spawn_viewport_render_thread(
             ui.global::<ViewportModel>().set_windowing_pct(windowing);
             ui.global::<ViewportModel>().set_extinction_pct(extinction);
             crate::gui::render::crystal_axis_ui::push_doubling(ui, doubling_arcmin);
-            // The three graphs rebuild three `VecModel`s and three path strings, so they are
-            // set only when they differ (bitwise) from what was last set: the
-            // suspended-tab tick and every displayed frame carry the same graphs again.
-            let graphs = (graph_brilliance, graph_extinction, graph_windowing);
-            let graphs_changed = {
-                let mut last = last_graphs
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let changed = last
-                    .as_ref()
-                    .is_none_or(|previous| !same_graph_bits(previous, &graphs));
-                if changed {
-                    *last = Some(graphs);
-                }
-                changed
-            };
-            if graphs_changed {
-                ui.global::<TiltModel>()
-                    .set_graph_brilliance(slint::ModelRc::new(slint::VecModel::from(
-                        graph_brilliance.to_vec(),
-                    )));
-                ui.global::<TiltModel>()
-                    .set_graph_extinction(slint::ModelRc::new(slint::VecModel::from(
-                        graph_extinction.to_vec(),
-                    )));
-                ui.global::<TiltModel>()
-                    .set_graph_windowing(slint::ModelRc::new(slint::VecModel::from(
-                        graph_windowing.to_vec(),
-                    )));
-                // Tilt-curve `Path::commands` strings for the performance graph dialog's
-                // line chart -- derived here rather than threading three more arguments
-                // through this closure (see `curve_path::tilt_curve_path`'s doc comment).
-                ui.global::<TiltModel>()
-                    .set_graph_brilliance_path(tilt_curve_path(&graph_brilliance).into());
-                ui.global::<TiltModel>()
-                    .set_graph_extinction_path(tilt_curve_path(&graph_extinction).into());
-                ui.global::<TiltModel>()
-                    .set_graph_windowing_path(tilt_curve_path(&graph_windowing).into());
-            }
+            push_tilt_graphs(
+                ui,
+                &last_graphs,
+                (graph_brilliance, graph_extinction, graph_windowing),
+            );
             ui.global::<TiltModel>().set_cam_pitch_deg(cam_pitch_deg);
         },
         // Pushes `ViewportGpu`'s self-healing status text
         // (empty while healthy) to `ViewportModel.gpu_status_text` -- see
-        // `spawn_render_thread`'s own `update_gpu_status` doc comment.
+        // `spawn_render_thread`'s own `update_gpu_status` doc comment. Preparing the GPU
+        // renderer is no fault, so it stays out of the graphics-status banner; the render stage
+        // says the trace is being prepared.
         |ui: &MainWindow, text: slint::SharedString| {
-            ui.global::<ViewportModel>().set_gpu_status_text(text);
+            let shown = if text.as_str() == GPU_PREPARING_STATUS {
+                slint::SharedString::new()
+            } else {
+                text
+            };
+            ui.global::<ViewportModel>().set_gpu_status_text(shown);
         },
         // Pushes `RenderContext::material_unresolved`'s cutter-facing reason (empty
         // once resolved) to `ViewportModel.trace_refusal`.

@@ -27,7 +27,7 @@ use crate::{
         },
     },
 };
-use pleochroma::optics::materials::GemMaterial;
+use pleochroma::optics::materials::{CrystalSystem, GemMaterial, OpticalCharacter};
 use pleochroma_cut_core::{Design, TierFrosting, critical_angle_deg};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::sync::{Arc, Mutex};
@@ -91,6 +91,47 @@ fn body_color_readout(design: &Design, custom: &[GemMaterial], stone_width_mm: f
         })
 }
 
+/// The Stone tab's identity card lines: the crystal family of the design's material
+/// (`Trigonal · uniaxial (-) · built-in`) and its dispersion `n_F - n_C` (`0.018`). Both are
+/// empty while the design names no known material.
+fn material_identity(design: &Design, custom: &[GemMaterial]) -> (String, String) {
+    let Some(name) = design.material.name.as_deref() else {
+        return (String::new(), String::new());
+    };
+    let custom_hit = custom.iter().find(|m| m.name.eq_ignore_ascii_case(name));
+    let found = custom_hit.or_else(|| {
+        GemMaterial::built_in()
+            .iter()
+            .find(|m| m.name.eq_ignore_ascii_case(name))
+    });
+    let Some(material) = found else {
+        return (String::new(), String::new());
+    };
+    let system = match material.crystal_system {
+        CrystalSystem::Cubic => "Cubic",
+        CrystalSystem::Tetragonal => "Tetragonal",
+        CrystalSystem::Hexagonal => "Hexagonal",
+        CrystalSystem::Trigonal => "Trigonal",
+        CrystalSystem::Orthorhombic => "Orthorhombic",
+        CrystalSystem::Monoclinic => "Monoclinic",
+        CrystalSystem::Triclinic => "Triclinic",
+    };
+    let character = match material.optical_character {
+        OpticalCharacter::Isotropic => "isotropic",
+        OpticalCharacter::UniaxialPositive => "uniaxial (+)",
+        OpticalCharacter::UniaxialNegative => "uniaxial (-)",
+        OpticalCharacter::BiaxialPositive => "biaxial (+)",
+        OpticalCharacter::BiaxialNegative => "biaxial (-)",
+    };
+    let origin = if custom_hit.is_some() {
+        "custom"
+    } else {
+        "built-in"
+    };
+    let family = format!("{system} \u{b7} {character} \u{b7} {origin}");
+    (family, format!("{:.3}", material.dispersion.delta_f_c()))
+}
+
 /// Whether the design's material is a custom material whose color is a physics recipe -- the
 /// explicit `RenderContext::custom_material_physics` list, never inferred from the bands.
 fn is_physics_material(design: &Design, ctx: &RenderContext) -> bool {
@@ -152,6 +193,18 @@ fn push_body_color_fields(
             .iter()
             .map(|item| {
                 item.swatch_rgb().map_or_else(
+                    || slint::Color::from_argb_u8(0, 0, 0, 0),
+                    |[r, g, b]| slint::Color::from_rgb_u8(r, g, b),
+                )
+            })
+            .collect::<Vec<_>>(),
+    )));
+    model.set_body_color_swatches_across(ModelRc::new(VecModel::from(
+        shown
+            .across
+            .iter()
+            .map(|rgb| {
+                rgb.map_or_else(
                     || slint::Color::from_argb_u8(0, 0, 0, 0),
                     |[r, g, b]| slint::Color::from_rgb_u8(r, g, b),
                 )
@@ -229,6 +282,11 @@ pub(super) fn refresh_design_settings(
         let n_d = design.effective_refractive_index_with(&ctx.custom_materials);
         ui.global::<EditorModel>()
             .set_ri_source_text(ri_source_text(&design.material, &ctx.custom_materials).into());
+        let (family, dispersion) = material_identity(design, &ctx.custom_materials);
+        ui.global::<EditorModel>()
+            .set_material_family_text(family.into());
+        ui.global::<EditorModel>()
+            .set_material_dispersion_text(dispersion.into());
         // Custom materials can change any time, independently of `design` -- this
         // option LIST is always refreshed; only the in-out `*_index`/`*_text`
         // selections below are gated on `delta`.

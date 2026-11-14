@@ -72,7 +72,7 @@ pub fn add_tier(ui: &MainWindow) {
     editor.set_tier_table_collapsed(false);
 }
 
-/// Shows inspector tab `tab` (0 Tier, 1 Preform, 2 Optimize, 3 Schedule, 4 History), expanded.
+/// Shows inspector tab `tab` (0 Tier, 1 Preform, 2 Optimize, 4 History; 3 was the Schedule tab, now the Cutting Instructions page), expanded.
 pub fn show_inspector_tab(ui: &MainWindow, tab: i32) {
     show_edit_view(ui);
     let editor = ui.global::<EditorModel>();

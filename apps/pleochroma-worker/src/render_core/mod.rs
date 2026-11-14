@@ -304,7 +304,8 @@ pub fn trace_samples(
     }
 
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     // The studio rig, or the HDR map the request path resolved -- see
     // `crate::assets::resolved_hdr_map`.
     let cancel = &AtomicBool::new(false);
@@ -451,7 +452,8 @@ pub fn trace_samples_with_gpu_into(
     }
 
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     // The studio rig, or the HDR map the request path resolved -- see
     // `crate::assets::resolved_hdr_map`.
     let hdr_map = crate::assets::resolved_hdr_map(scene);
@@ -740,6 +742,7 @@ mod tests {
             head_shadow_deg: 16.0,
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         }
     }
 

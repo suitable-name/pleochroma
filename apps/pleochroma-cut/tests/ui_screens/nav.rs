@@ -89,7 +89,7 @@ impl Sc<'_, '_> {
         Ok(design)
     }
 
-    /// Shows catalogue tab `tab` (0 3D Spectral Preview, 1 Cutting Instructions, 2 Files).
+    /// Shows catalogue tab `tab` (0 the 3D tab, whose places are Live Render and Edit, 1 Cutting Instructions, 2 Files).
     pub fn show_tab(&self, tab: i32) {
         let ui = self.ui();
         ui.set_active_tab(tab);

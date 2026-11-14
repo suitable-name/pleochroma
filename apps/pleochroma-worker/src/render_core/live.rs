@@ -178,7 +178,8 @@ pub fn trace_live_pass_cpu_with(
     let _permits = PermitGuard(num_threads);
 
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let hdr_map = crate::assets::resolved_hdr_map(scene);
     let environment = crate::assets::environment_for(scene, hdr_map.as_deref(), tray);
     let stone = super::stone_geometry(scene);
@@ -259,7 +260,8 @@ pub fn trace_live_pass(
     super::note_tray_route(scene, gpu);
     if super::scene_uses_gpu(scene, gpu) {
         let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-            .with_roll(scene.camera_roll);
+            .with_roll(scene.camera_roll)
+            .with_pan(scene.camera_pan);
         let hdr_map = crate::assets::resolved_hdr_map(scene);
         let environment = crate::assets::environment_for(scene, hdr_map.as_deref(), tray);
         let facet_finishes = resolve_facet_finishes(scene);
@@ -310,7 +312,8 @@ pub fn reference_live_pass(
 ) -> Vec<(Vec3, Vec3)> {
     use pleochroma::renderer::{cpu_frame::trace_live_tiles_surface, frame_scene::FrameScene};
     let camera = Camera::new(scene.yaw, scene.pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
     let hdr_map = crate::assets::resolved_hdr_map(scene);
     let environment = crate::assets::environment_source(scene, hdr_map.as_deref());
     let finishes = resolve_facet_finishes(scene);

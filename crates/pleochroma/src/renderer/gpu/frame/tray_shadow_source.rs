@@ -46,7 +46,7 @@ const MISS_ANCHOR: &str = "var mis_weight: f32 = 1.0;";
 const GENERIC_EXIT_ANCHOR: &str = "if (is_exit_event && original_stokes_k.x > 0.0) {";
 
 /// The staging line of the uniaxial internal exit's split (once in the shipped megakernel): Rule
-/// M is routed in front of it, in the mismatch branch of `bounce_arm_uni_internal_core`.
+/// M is routed in front of it, in the mismatch branch of `bounce_arm_uni_internal_branches`.
 const UNIAXIAL_EXIT_ANCHOR: &str = "if (original_stokes_i > 0.0) {";
 
 /// The line break that ends the line holding `anchor` in `text`: a CRLF when the byte before

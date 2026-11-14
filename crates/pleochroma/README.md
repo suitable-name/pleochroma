@@ -321,6 +321,12 @@ CPU-versus-GPU equivalence checking itself lives in `examples/gpu_equivalence_ha
 (above), which `cargo test` never runs; its `--json` option records a run (see
 [`docs/gpu.md`](docs/gpu.md)).
 
+`examples/ew_kernel_probe.rs` builds every event-wavefront kernel of the three pass classes the
+phone and the browser trace with, then kernels with a part edited (`VARIANTS`) and synthetic
+shaders that grow one resource at a time, and prints which ones the device's driver builds. A
+rejected pipeline loses the device, so the probe takes a fresh one after each rejection; it
+dispatches nothing. Its doc comment has the commands for a run on an Android phone through `adb`.
+
 `examples/meet_solver_validation/` is corpus-scale validation tooling for
 `geometry::meet_solver` — the module that derives a facet's mast (depth)
 distance from its angle, index position, gear, and meet constraints alone, the

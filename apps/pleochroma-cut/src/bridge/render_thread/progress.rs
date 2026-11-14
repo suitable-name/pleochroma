@@ -1,7 +1,7 @@
 //! Sample progress and a conservative time estimate for the live image.
 
 use crate::{MainWindow, ViewportModel};
-use slint::ComponentHandle;
+use slint::{ComponentHandle, SharedString};
 use std::{
     cell::{Cell, RefCell},
     time::{Duration, Instant},
@@ -12,6 +12,20 @@ thread_local! {
     /// An orbit or light drag holds the mouse button: every move is a new scene, so the
     /// bar would be cleared and shown again per move. It stays hidden until the release.
     static DRAG_HELD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The stage while the first samples of a scene are being prepared.
+pub const PREPARING_TRACE: &str = "Preparing trace";
+
+/// `stage` as shown: [`PREPARING_TRACE`] names the startup shader cache build's step while that
+/// build runs ([`crate::bridge::shader_cache::waiting_stage`]).
+fn shown_stage(stage: &str) -> SharedString {
+    if stage == PREPARING_TRACE
+        && let Some(text) = crate::bridge::shader_cache::waiting_stage()
+    {
+        return text.into();
+    }
+    stage.into()
 }
 
 /// Records the start (`held`) or the end of an orbit or light drag.
@@ -136,7 +150,11 @@ pub fn update_progress(
     model.set_render_progress_indeterminate(completed == 0 && !finished);
     model.set_render_samples_done(i32::try_from(completed).unwrap_or(i32::MAX));
     model.set_render_samples_target(i32::try_from(target).unwrap_or(i32::MAX));
-    model.set_render_progress_stage(if finished { "Complete" } else { stage }.into());
+    model.set_render_progress_stage(if finished {
+        "Complete".into()
+    } else {
+        shown_stage(stage)
+    });
     model.set_render_eta_text(eta.into());
 }
 
@@ -180,11 +198,11 @@ pub fn sync_availability(
         {
             "Complete"
         } else if model.get_render_samples_done() == 0 {
-            "Preparing trace"
+            PREPARING_TRACE
         } else {
             "Rendering"
         };
-        model.set_render_progress_stage(stage.into());
+        model.set_render_progress_stage(shown_stage(stage));
     }
 }
 

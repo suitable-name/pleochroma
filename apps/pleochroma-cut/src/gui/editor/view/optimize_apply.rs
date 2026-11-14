@@ -271,6 +271,7 @@ fn draw_ghost(ui: &MainWindow, pending: &PendingGhost, solved: &[SolvedTier]) {
         yaw: ctx.yaw,
         pitch: ctx.pitch,
         distance: ctx.distance,
+        pan: ctx.camera_pan,
     };
     let design_gear = ctx.design_gear;
     let view_mode = crate::gui::render::camera_lighting::view_mode_index(

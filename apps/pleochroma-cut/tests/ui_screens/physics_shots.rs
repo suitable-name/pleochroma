@@ -90,7 +90,13 @@ fn stone_group(
     sc.select_design(STUDIO)?;
     sc.choose_material(material)?;
     sc.show_live_view();
-    sc.ui().global::<ParametersModel>().invoke_show_tab(0);
+    // The Stone tab's folding cards (Crystal Axis, Girdle & Edges, Clarity, Play-of-Color) are read
+    // when the tab mounts: open them all, then mount the tab again through another one.
+    let dock = sc.ui().global::<ParametersModel>();
+    dock.set_stone_folds(15);
+    dock.invoke_show_tab(1);
+    pump(300);
+    dock.invoke_show_tab(0);
     pump(1000);
     prepare(sc)?;
     pump(1000);

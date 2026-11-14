@@ -1,5 +1,7 @@
 use super::{
-    test_support::{curves, hdr_scene, still_job, turned_hdr_still_job, video_job},
+    test_support::{
+        curves, hdr_scene, panned_still_job, still_job, turned_hdr_still_job, video_job,
+    },
     *,
 };
 #[cfg(beam_tests)]
@@ -851,6 +853,33 @@ fn a_turned_hdr_job_requires_format_six() {
         format_for(&job),
         5,
         "unturned, the zones' format shows again"
+    );
+}
+
+/// A camera pan needs format 7 whatever else the job holds, since an older reader would render
+/// the stone centred: it wins over a turned map's format 6, and a file that still says an older
+/// format is refused.
+#[test]
+fn a_panned_job_requires_format_seven() {
+    let mut job = panned_still_job();
+    assert_eq!(format_for(&job), 7);
+    assert_eq!(job.format, 7);
+    assert_eq!(job.validate(), Ok(()));
+    job.format = 6;
+    assert!(message(&job).contains("format 6"));
+
+    let mut turned = turned_hdr_still_job();
+    turned.scene.camera_pan = [0.1, 0.0];
+    assert_eq!(
+        format_for(&turned),
+        7,
+        "the pan's format wins over the turned map"
+    );
+    turned.scene.camera_pan = [0.0, 0.0];
+    assert_eq!(
+        format_for(&turned),
+        6,
+        "centred, the map's format shows again"
     );
 }
 

@@ -14,16 +14,16 @@ pub const MAX_RECENT: usize = 10;
 /// (`DEFAULT_LIGHTING_RIG` in `apps/pleochroma-cut`).
 pub const DEFAULT_LIGHTING_RIG: &str = "Light tent + black cards";
 
-/// Which color theme the app follows.
+/// Which color theme the app uses. The app is dark either way. A stored `System` or `Light`
+/// (the choices before the desktop-look redesign) loads as [`ThemeChoice::Dark`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ThemeChoice {
-    /// Follow the system's light or dark setting.
+    /// The desktop's dark palette.
     #[default]
-    System,
-    /// Always dark.
+    #[serde(alias = "System", alias = "Light")]
     Dark,
-    /// Always light.
-    Light,
+    /// The desktop's high-contrast palette.
+    HighContrast,
 }
 
 /// How hard the renderer works on a picture.
@@ -329,7 +329,7 @@ pub struct MobileSettings {
 impl Default for MobileSettings {
     fn default() -> Self {
         Self {
-            theme: ThemeChoice::System,
+            theme: ThemeChoice::Dark,
             large_handles: true,
             snap_to_gear: true,
             auto_solve_budget_ms: 300,

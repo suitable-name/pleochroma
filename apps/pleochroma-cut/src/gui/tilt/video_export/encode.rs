@@ -66,6 +66,7 @@ pub fn ffmpeg_command_line(digits: usize, fps: u32, out_name: &str) -> String {
 /// rename fails.
 pub fn mux_mp4(frame_dir: &Path, digits: usize, fps: u32, out_path: &Path) -> Result<(), String> {
     let partial = out_path.with_extension("mp4.partial");
+    let partial_arg = ffmpeg_output_arg(&partial)?;
     let pattern = format!("frame_%0{digits}d.png");
     // `.output()` with stderr piped keeps ffmpeg's own diagnostic, the actual reason a mux
     // failed (see `last_stderr_line`).
@@ -79,7 +80,7 @@ pub fn mux_mp4(frame_dir: &Path, digits: usize, fps: u32, out_path: &Path) -> Re
         .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18"])
         // The `.partial` name has no extension ffmpeg can read a container from.
         .args(["-f", "mp4"])
-        .arg(&partial)
+        .arg(&partial_arg)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -95,6 +96,17 @@ pub fn mux_mp4(frame_dir: &Path, digits: usize, fps: u32, out_path: &Path) -> Re
     }
     std::fs::rename(&partial, out_path)
         .map_err(|e| format!("Failed to finalize {}: {e}", out_path.display()))
+}
+
+/// `path` as ffmpeg must be given it: absolute. ffmpeg runs inside the frame folder (its input
+/// pattern is a bare file name), so a relative output path would be read a second time from
+/// inside that folder.
+///
+/// # Errors
+///
+/// The reason the current directory could not be read for a relative `path`.
+fn ffmpeg_output_arg(path: &Path) -> Result<PathBuf, String> {
+    std::path::absolute(path).map_err(|e| format!("Failed to resolve {}: {e}", path.display()))
 }
 
 /// The last non-empty line of ffmpeg's captured stderr, formatted as `" -- <line>"` (an
@@ -238,6 +250,23 @@ mod tests {
         assert!(result.is_err());
         assert!(!out.exists());
         assert!(!out.with_extension("mp4.partial").exists());
+    }
+
+    /// A relative output path reaches ffmpeg as the same file seen from the current directory,
+    /// not from inside the frame folder ffmpeg runs in; an absolute one is passed unchanged.
+    #[test]
+    fn ffmpeg_gets_the_output_as_an_absolute_path() {
+        let relative = Path::new("work").join("video").join("clip.mp4.partial");
+        let resolved = ffmpeg_output_arg(&relative).expect("resolves");
+        assert!(resolved.is_absolute());
+        assert_eq!(
+            resolved,
+            std::env::current_dir()
+                .expect("current dir")
+                .join(&relative)
+        );
+        let absolute = std::env::temp_dir().join("clip.mp4.partial");
+        assert_eq!(ffmpeg_output_arg(&absolute).expect("resolves"), absolute);
     }
 
     #[test]

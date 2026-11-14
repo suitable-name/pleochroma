@@ -57,7 +57,7 @@ fn recent(title: &str, kind: RecentKind, at: i64) -> RecentItem {
 #[test]
 fn defaults_match_the_brief() {
     let settings = MobileSettings::default();
-    assert_eq!(settings.theme, ThemeChoice::System);
+    assert_eq!(settings.theme, ThemeChoice::Dark);
     assert!(settings.large_handles && settings.snap_to_gear);
     assert_eq!(settings.auto_solve_budget_ms, 300);
     assert_eq!(settings.material_name, "Diamond");
@@ -96,7 +96,7 @@ fn a_future_image_engine_keeps_the_rest_of_phone_settings() {
 #[test]
 fn toml_round_trip_of_a_changed_value() {
     let mut settings = MobileSettings {
-        theme: ThemeChoice::Dark,
+        theme: ThemeChoice::HighContrast,
         battery_saver: true,
         last_destination: Destination::Cut,
         ..MobileSettings::default()
@@ -176,8 +176,26 @@ fn unknown_keys_are_ignored() {
     )
     .expect("write");
     let (_store, settings) = SettingsStore::open(&dirs);
-    assert_eq!(settings.theme, ThemeChoice::Light);
+    assert_eq!(settings.theme, ThemeChoice::Dark);
     assert_eq!(settings.render.bounces, 12);
+}
+
+#[test]
+fn stored_system_and_light_themes_migrate_to_dark() {
+    for stored in ["System", "Light", "Dark"] {
+        let settings: MobileSettings = toml::from_str(&format!(
+            "theme = \"{stored}\"
+"
+        ))
+        .expect("parse");
+        assert_eq!(settings.theme, ThemeChoice::Dark, "{stored}");
+    }
+    let settings: MobileSettings = toml::from_str(
+        "theme = \"HighContrast\"
+",
+    )
+    .expect("parse");
+    assert_eq!(settings.theme, ThemeChoice::HighContrast);
 }
 
 #[test]
@@ -199,7 +217,7 @@ fn flush_writes_immediately_and_reloads() {
     let dirs = temp.dirs();
     let (store, mut settings) = SettingsStore::open(&dirs);
     assert_eq!(store.path(), temp.settings_path());
-    settings.theme = ThemeChoice::Dark;
+    settings.theme = ThemeChoice::HighContrast;
     settings.render.bounces = 5;
     store.save(&settings);
     store.flush();
@@ -314,7 +332,7 @@ fn clear_recent_empties_the_list_and_says_how_many_it_held() {
 #[test]
 fn clearing_the_recent_items_keeps_every_other_setting() {
     let mut settings = three_recents();
-    settings.theme = ThemeChoice::Dark;
+    settings.theme = ThemeChoice::HighContrast;
     settings.remote.address = "192.168.1.5:7000".to_owned();
     let expected = MobileSettings {
         recent: Vec::new(),

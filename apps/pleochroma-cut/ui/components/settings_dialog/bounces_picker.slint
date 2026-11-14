@@ -1,45 +1,58 @@
 import { Theme } from "../../theme.slint";
 import { SettingsModel } from "../../models/settings.slint";
-import { SegmentPill } from "../pill_button.slint";
-import { SettingLabel } from "setting_label.slint";
+import { KitSegment, KitSegmentBar } from "../kit/kit.slint";
+import { KitRowName } from "../kit/r2r.slint";
 
-// Ray Bounces: segmented pill selector.
+// Ray Bounces: a row of the Live View Details card.
 //
 // The ladder is owned by Rust (`settings::model::BOUNCE_LADDER`, published as
 // `SettingsModel.bounce_ladder`); this file keeps no copy. The rungs come from
 // `crates/pleochroma/examples/bounce_cost.rs`: cost is nearly flat in the cap because most light
-// paths are short, and nothing above 128 changes the picture. 12 is the default.
+// paths are short, and nothing above 128 changes the picture. 12 is the default. Picking one makes
+// the quality preset Custom.
 //
-// Advanced: Simple mode hides it (`render_output_tab.slint`). The pill index is also in
+// Advanced: Simple mode hides it (`render_output_tab.slint`). The index is also in
 // `gui::render::advanced_in_use`, which says when the hidden pick is off its default.
 export component BouncesPicker inherits VerticalLayout {
-    spacing: 6px;
-    SettingLabel {
-        text: "Max Ray Bounces (Dispersion Depth)";
-        hint: "Max Ray Bounces: the most times one light path may bounce inside the stone before it is dropped. A higher cap follows long, faint paths and shows more color play. 12 is a good middle.";
-    }
-
+    spacing: 4px;
     HorizontalLayout {
-        spacing: 4px;
-
-        // 12 Bounces is the default; the last rung is the ceiling.
-        for cap[idx] in SettingsModel.bounce_ladder: SegmentPill {
-            text: "" + cap;
-            hint: "Stop a light path after " + cap + " bounces.";
-            selected: SettingsModel.bounce_index == idx;
-            picked => {
-                SettingsModel.bounce_index = idx;
-                SettingsModel.bounces_changed(cap);
+        height: 32px;
+        spacing: 10px;
+        KitRowName {
+            text: "Ray bounces";
+            full: "Max Ray Bounces (Dispersion Depth)";
+            hint: "Max Ray Bounces: the most times one light path may bounce inside the stone before it is dropped.\nA higher cap follows long, faint paths and shows more color play. 12 is a good middle.";
+        }
+        KitSegmentBar {
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+                for cap[idx] in SettingsModel.bounce_ladder: Rectangle {
+                    horizontal-stretch: 1;
+                    KitSegment {
+                        x: 0px;
+                        width: parent.width;
+                        text: "" + cap;
+                        hint: "Stop a light path after " + cap + " bounces.";
+                        on: SettingsModel.bounce_index == idx;
+                        picked => {
+                            SettingsModel.bounce_index = idx;
+                            SettingsModel.quality_preset_index = 3;
+                            SettingsModel.bounces_changed(cap);
+                        }
+                    }
+                }
             }
         }
     }
 
-    // Flat cost holds on CPU, but GPU threads run in lockstep, so the few
-    // long paths in the tail stall the whole workgroup at this rung range.
+    // Flat cost holds on CPU, but GPU threads run in lockstep, so the few long paths in the tail
+    // stall the whole workgroup at this rung range.
     if SettingsModel.bounce_index >= 4: Text {
-        text: "Modest cost on CPU, but noticeably steeper on GPU -- long paths stall the whole workgroup there since threads run in lockstep.";
+        text: "Steeper on GPU: long paths stall the whole workgroup there.";
         font-size: 11px;
         color: Theme.text-muted;
-        wrap: word-wrap;
+        overflow: elide;
     }
 }

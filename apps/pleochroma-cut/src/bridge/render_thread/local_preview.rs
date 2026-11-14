@@ -98,12 +98,18 @@ impl PreviewState {
             self.published =
                 after_final == AfterFinal::Keep && self.previous_phase == Some(RenderPhase::Final);
         }
-        let phase = if remote_active || matches!(target, LiveComputeTarget::RemoteOnly) {
+        // A live epoch keeps its configured dimensions and sample ranges, so it forces the
+        // final phase. A drag releases the epoch and is previewed under every target: forcing
+        // Remote Only to the final phase while moving would restart a full-quality frame on
+        // every pose change, and none would finish before the button is released. A settled
+        // Remote Only view goes straight to the final phase, which the remote epoch takes over.
+        let phase = if remote_active {
             RenderPhase::Final
         } else if moving {
             RenderPhase::Moving
-        } else if self.published
-            && (display_ready || self.previous_phase == Some(RenderPhase::Final))
+        } else if matches!(target, LiveComputeTarget::RemoteOnly)
+            || (self.published
+                && (display_ready || self.previous_phase == Some(RenderPhase::Final)))
         {
             RenderPhase::Final
         } else {
@@ -272,6 +278,31 @@ mod tests {
         assert_eq!(
             state.select(2, false, false, LiveComputeTarget::RemoteOnly, true),
             (RenderPhase::Final, true),
+        );
+    }
+
+    /// Remote Only previews a drag like every other target. Only a live epoch forces the final
+    /// phase while moving; a settled Remote Only view goes straight to the final phase.
+    #[test]
+    fn remote_only_previews_a_drag_and_only_a_live_epoch_forces_final() {
+        let mut state = PreviewState::default();
+        assert_eq!(
+            state
+                .select(4, true, false, LiveComputeTarget::RemoteOnly, true)
+                .0,
+            RenderPhase::Moving
+        );
+        assert_eq!(
+            state
+                .select(4, true, true, LiveComputeTarget::RemoteOnly, true)
+                .0,
+            RenderPhase::Final
+        );
+        assert_eq!(
+            state
+                .select(4, false, false, LiveComputeTarget::RemoteOnly, true)
+                .0,
+            RenderPhase::Final
         );
     }
 

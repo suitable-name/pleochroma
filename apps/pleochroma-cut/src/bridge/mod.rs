@@ -9,5 +9,7 @@ pub mod remote;
 pub mod render_effects;
 pub mod render_thread;
 pub mod sample_cursor;
+/// The GPU shader cache, built in the background at startup.
+pub mod shader_cache;
 
 pub mod optical_overlay;

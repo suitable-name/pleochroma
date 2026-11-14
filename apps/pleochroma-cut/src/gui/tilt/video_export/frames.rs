@@ -338,6 +338,25 @@ pub fn axis_roll(axes: &[usize], axis_index: usize) -> f32 {
     (azimuth(first) - azimuth(axis_index)).to_radians()
 }
 
+/// `pan` for a picture turned by `turn` more radians of roll ("Turn Stone 90°") with the eye
+/// kept where it was, so the turned picture is the same view turned and the stone turns with
+/// it: `[x cos + y sin, y cos - x sin]`. `Camera::with_roll` turns the image basis
+/// (`right' = right cos + up sin`, `up' = up cos - right sin`), and the eye offset
+/// `right * x + up * y` that `Camera::with_pan` applies must not change. No turn keeps the pan
+/// bit for bit. The axis roll ([`axis_roll`]) leaves the pan alone: it lines each axis's
+/// picture axes up with the first axis's, where the same pan is the same eye.
+#[must_use]
+pub fn turned_pan(pan: [f32; 2], turn: f32) -> [f32; 2] {
+    if turn == 0.0 {
+        return pan;
+    }
+    let (sin, cos) = turn.sin_cos();
+    [
+        pan[0].mul_add(cos, pan[1] * sin),
+        pan[1].mul_add(cos, -(pan[0] * sin)),
+    ]
+}
+
 /// Draws the optical diagnostics (and their caption) over frame `(index, total)`'s `rgba`,
 /// when the scene asks for them. They fill the second half of the frame's progress.
 fn overlay_diagnostics(
@@ -538,7 +557,9 @@ pub fn render_frames_tapped(
         local_compute,
     };
     // Only the image roll changes from axis to axis (`axis_roll`); one copy of the scene
-    // for the whole video carries it.
+    // for the whole video carries it. The pan stays: the axis roll brings every axis's picture
+    // axes onto the first axis's, so the same pan keeps the stone on the same spot of every
+    // frame and the joints between axes do not jump.
     let mut scene = request.scene.clone();
     scene.stone_shadow = false;
     // Like the stone shadow, the tray reflection is left out of the tilt frames.
@@ -885,6 +906,57 @@ mod tests {
             assert!(camera.up.distance(first.up) < 1e-5, "axis {axis}");
         }
         assert_eq!(axis_roll(&[2], 2), 0.0, "one axis is never rolled");
+    }
+
+    /// The turned pan keeps the eye of the unturned camera, so the turned picture is the same
+    /// view turned; no turn keeps the pan exactly, a quarter turn maps `[x, y]` to `[y, -x]`,
+    /// and two turns add up.
+    #[test]
+    fn a_turned_pan_keeps_the_eye_where_it_was() {
+        use pleochroma::optics::raytracer::Camera;
+        let pan = [0.4_f32, -0.25];
+        assert_eq!(
+            turned_pan(pan, 0.0).map(f32::to_bits),
+            pan.map(f32::to_bits)
+        );
+        let quarter = turned_pan(pan, std::f32::consts::FRAC_PI_2);
+        assert!((quarter[0] - pan[1]).abs() < 1e-6, "{quarter:?}");
+        assert!((quarter[1] + pan[0]).abs() < 1e-6, "{quarter:?}");
+        let twice = turned_pan(turned_pan(pan, 0.3), 0.5);
+        let once = turned_pan(pan, 0.8);
+        assert!((twice[0] - once[0]).abs() < 1e-6 && (twice[1] - once[1]).abs() < 1e-6);
+        let eye = |roll: f32, pan: [f32; 2]| {
+            Camera::new(0.7, 0.4, 2.4, 40.0)
+                .with_roll(roll)
+                .with_pan(pan)
+                .origin
+        };
+        for (base, turn) in [(0.0_f32, std::f32::consts::FRAC_PI_2), (0.6, -1.1)] {
+            let before = eye(base, pan);
+            let after = eye(base + turn, turned_pan(pan, turn));
+            assert!(before.distance(after) < 1e-5, "{before:?} vs {after:?}");
+        }
+    }
+
+    /// With the pan unchanged, the face-up eye of every axis of a multi-axis video is the first
+    /// axis's: the axis roll lines the picture axes up, so a panned stone does not jump at a
+    /// joint.
+    #[test]
+    fn a_panned_multi_axis_video_keeps_the_face_up_eye_on_every_axis() {
+        use pleochroma::optics::raytracer::Camera;
+        let axes = [1, 3, 0, 2];
+        let pan = [0.5_f32, -0.3];
+        let face_up = |axis: usize| {
+            let (yaw, pitch) = tilt_hover_preview::camera_pose_for_axis_tilt(axis, 0.0);
+            Camera::new(yaw, pitch, 2.4, 40.0)
+                .with_roll(axis_roll(&axes, axis))
+                .with_pan(pan)
+        };
+        let first = face_up(axes[0]);
+        for axis in axes {
+            let eye = face_up(axis).origin;
+            assert!(eye.distance(first.origin) < 2e-5, "axis {axis}: {eye:?}");
+        }
     }
 
     /// Two axes rock through face-up: `0, 2, 0, -2, 0` for the first axis and `2, 0, -2, 0`

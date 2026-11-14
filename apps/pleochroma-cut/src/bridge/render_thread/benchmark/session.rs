@@ -137,7 +137,8 @@ impl Session {
                     self.defaults.distance,
                     DEFAULT_FOV_DEG,
                 )
-                .with_roll(self.defaults.camera_roll);
+                .with_roll(self.defaults.camera_roll)
+                .with_pan(self.defaults.camera_pan);
                 let frame = self.frame(scene, material, &camera, (1, 0), config.max_bounces);
                 let (hits, elapsed) = measure(id, passes.len(), "visibility_diagnostic", || {
                     diagnostic_hit_pixels(&frame, &AtomicBool::new(false))
@@ -156,7 +157,7 @@ impl Session {
         Ok(json!({
             "scene": scene.label, "plane_count": scene.planes.len(), "tool_count": scene.tools.len(),
             "planes_fnv1a64": checksum(bytemuck::cast_slice(&scene.planes)),
-            "pose": { "yaw_radians": self.defaults.yaw, "pitch_radians": self.defaults.pitch, "roll_radians": self.defaults.camera_roll, "distance": self.defaults.distance, "fov_degrees": DEFAULT_FOV_DEG },
+            "pose": { "yaw_radians": self.defaults.yaw, "pitch_radians": self.defaults.pitch, "roll_radians": self.defaults.camera_roll, "pan_half_heights": self.defaults.camera_pan, "distance": self.defaults.distance, "fov_degrees": DEFAULT_FOV_DEG },
             "lighting": { "preset": format!("{:?}", self.defaults.lighting_preset), "yaw_radians": self.defaults.light_yaw, "pitch_radians": self.defaults.light_pitch, "exposure": self.defaults.exposure, "surface_glare": self.defaults.surface_glare, "head_shadow_degrees": self.defaults.head_shadow_deg },
             "target_samples": target, "samples_committed": self.samples,
             "visible_hit_pixels": visible_hit_pixels, "visibility_diagnostic_ms": visibility_diagnostic_ms,
@@ -211,7 +212,8 @@ impl Session {
             self.defaults.distance,
             DEFAULT_FOV_DEG,
         )
-        .with_roll(self.defaults.camera_roll);
+        .with_roll(self.defaults.camera_roll)
+        .with_pan(self.defaults.camera_pan);
         let sample_offset = index + if case.engine.is_ray() { 0 } else { config.seed };
         let frame = self.frame(
             scene,

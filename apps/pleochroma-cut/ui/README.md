@@ -53,6 +53,7 @@ window's own handle.
 | `RetargetModel` | `models/retarget.slint` | The "Retarget for material" dialog |
 | `RoughPlanModel` | `models/rough_plan.slint` | The Rough Planner window (Library > Plan Rough...): inputs, results, saved plans |
 | `SettingsModel` | `models/settings.slint` | The render-quality settings: Live Compute, Local Compute, preview size and the other Render & Output controls the Parameters panel shows |
+| `ShaderCacheModel` | `models/shader_cache.slint` | The startup build of the GPU shader cache: the card at the bottom right with a bar for Ray-Traced and Path-Traced, and its Hide. Rust: `bridge::shader_cache` |
 | `ShortcutsModel` | `models/shortcuts.slint` | The keyboard-shortcuts overlay |
 | `SliderModel` | `models/sliders.slint` | The sliders beside the Tier form's Angle field and the Preform tab's number fields; ranges, steps and presets come from Rust through pure callbacks |
 | `SolidPreviewModel` | `models/solid_preview.slint` | The Edit tab's solid-inspection viewport |

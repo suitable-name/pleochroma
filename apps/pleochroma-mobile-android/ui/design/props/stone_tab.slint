@@ -1,100 +1,205 @@
-// The Stone tab: the design's material, refractive index, body color, stone width and the
-// four material effects (inclusion haze, frosted girdle, edge rounding, crystal axis).
+// The Stone tab: the design's material (a card with its facts), the body color, the stone
+// width and the four material effects (inclusion haze, frosted girdle, edge rounding,
+// crystal axis) in folding cards.
 //
 // The tab fills its parent (the sheet or side pane of the Design page) and switches its
 // own sub-pages: 0 the settings, 1 the material picker (with a search field), 2 the
 // body-color picker, 3 the custom-material form. Rust owns the page
-// (`PropsModel.stone-page`, changed through `PropsModel.open-page`).
+// (`PropsModel.stone-page`, changed through `PropsModel.open-page`); the sheet leaving full
+// height (the Back key, a drag down) takes a sub-page back to the settings.
+//
+// The material card shows the swatch, the name, the family line and four fact chips, with
+// "Change Material"; its "..." button unfolds RI Override and New Custom Material. The body
+// color is a row that opens the Body Color page (pick only, no editor on the phone).
 //
 // Every value is a design edit and can be undone; the sliders apply when released.
-import { LineEdit, ListView } from "std-widgets.slint";
+import { ListView } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { Icons } from "../../icons.slint";
+import { Shell } from "../../models.slint";
 import { Icon } from "../../shell/icon.slint";
+import { IconButton } from "../../shell/icon_button.slint";
 import { TopBar } from "../../shell/top_bar.slint";
 import { PageScroll } from "../../shell/page_scroll.slint";
 import { ListRow } from "../../shell/list_row.slint";
 import { Toggle } from "../../shell/toggle.slint";
+import { TextField } from "../../shell/inputs.slint";
 import { Chip } from "../../shell/chips.slint";
-import { PrimaryButton, TextButton } from "../../shell/buttons.slint";
+import { PrimaryButton, TonalButton, TextButton } from "../../shell/buttons.slint";
 import { InfoButton } from "../../shell/info.slint";
 import { MaterialItem, PropsModel } from "props_model.slint";
-import { SectionHeader, SettingBlock, NumberField, SliderBlock, PickerRow } from "props_parts.slint";
+import { SectionHeader, SettingBlock, NumberField, SliderBlock, PickerRow, Card, FoldCard, Swatch, FactChip } from "props_parts.slint";
 import { NumberSheet } from "number_sheet.slint";
 import { RenderModel } from "../render/render_model.slint";
 
+// The material card: identity on top, "Change Material", and the "..." menu below.
+component MaterialCard inherits Card {
+    inner-padding: 0px;
+
+    VerticalLayout {
+        padding: Theme.space-lg;
+        padding-right: Theme.space-xs;
+        padding-bottom: Theme.space-md;
+        spacing: Theme.space-md;
+
+        HorizontalLayout {
+            spacing: Theme.space-md;
+
+            Swatch {
+                y: 0px;
+                size: 52px;
+                tone: PropsModel.body-swatch;
+                known: PropsModel.body-swatch-known;
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                horizontal-stretch: 1;
+
+                Text {
+                    text: PropsModel.material-title;
+                    color: Theme.on-surface;
+                    font-size: Theme.text-title-large;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+
+                Text {
+                    text: PropsModel.material-family != "" ? PropsModel.material-family : PropsModel.material-detail;
+                    color: Theme.on-surface-variant;
+                    font-size: Theme.text-body;
+                    wrap: word-wrap;
+                }
+            }
+
+            IconButton {
+                y: 0px;
+                icon: Icons.overflow;
+                label: "Material Options";
+                selected: PropsModel.fold-material-menu;
+                clicked => {
+                    PropsModel.fold-material-menu = !PropsModel.fold-material-menu;
+                }
+            }
+        }
+
+        // The facts as a grid of two columns.
+        if PropsModel.material-chips.length > 0: Rectangle {
+            property <length> cell: (self.width - Theme.space-sm - Theme.space-md) / 2;
+
+            height: Math.ceil(PropsModel.material-chips.length / 2) * 32px + (Math.ceil(PropsModel.material-chips.length / 2) - 1) * Theme.space-sm;
+
+            for chip[index] in PropsModel.material-chips: FactChip {
+                x: Math.mod(index, 2) * (parent.cell + Theme.space-sm);
+                y: Math.floor(index / 2) * (32px + Theme.space-sm);
+                width: parent.cell;
+                text: chip;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: start;
+
+            TonalButton {
+                text: "Change Material";
+                clicked => {
+                    PropsModel.open-page(1);
+                }
+            }
+        }
+    }
+
+    // The "..." menu: the things that are not the everyday change of the material.
+    if PropsModel.fold-material-menu: VerticalLayout {
+        padding-bottom: Theme.space-sm;
+
+        Rectangle {
+            height: 1px;
+            background: Theme.outline-variant;
+        }
+
+        SettingBlock {
+            title: "RI Override";
+            info-body: "Refractive index (RI): how strongly the stone bends light. Leave this blank to use the material's own value, or type your own (above 1, for example 1.76). It moves the critical angle. Changing it is one step you can undo.";
+
+            NumberField {
+                key: "stone-ri";
+                caption: "RI Override";
+                text <=> PropsModel.ri-text;
+                placeholder: "auto";
+                committed(value) => {
+                    PropsModel.field-committed("ri", value);
+                }
+            }
+
+            if PropsModel.effective-ri != "": Text {
+                text: PropsModel.effective-ri;
+                color: Theme.on-surface-variant;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
+            }
+        }
+
+        ListRow {
+            icon: Icons.add;
+            title: "New Custom Material";
+            supporting: "Your own refractive index, dispersion and color";
+            clicked => {
+                PropsModel.open-page(3);
+            }
+        }
+    }
+}
+
 // The settings page.
 component StoneSettings inherits PageScroll {
-    if RenderModel.engine == 1: Text {
-        text: "Ray-Traced tints by the material's spectrum in 10 nm bands. Inclusion haze and edge rounding are not shown; crystal-axis settings affect only its absorption, not double images. Use Path-Traced for those effects.";
-        wrap: word-wrap;
-        color: Theme.on-surface-variant;
-        font-size: Theme.text-label;
+    if RenderModel.engine == 1: HorizontalLayout {
+        padding-left: Theme.space-lg;
+        padding-right: Theme.space-lg;
+        padding-top: Theme.space-xs;
+
+        Text {
+            text: "Ray-Traced tints by the material's spectrum in 10 nm bands. Inclusion haze and edge rounding are not shown; crystal-axis settings affect only its absorption, not double images. Use Path-Traced for those effects.";
+            wrap: word-wrap;
+            color: Theme.on-surface-variant;
+            font-size: Theme.text-label;
+        }
     }
+
     SectionHeader {
         text: "Material";
     }
 
-    ListRow {
-        title: PropsModel.material-title;
-        supporting: PropsModel.material-detail;
-        clicked => {
-            PropsModel.open-page(1);
-        }
+    MaterialCard { }
 
-        Icon {
-            source: Icons.chevron-right;
-            tint: Theme.on-surface-variant;
-        }
-    }
+    // The body color: a row that opens the Body Color page, with the current color's swatch.
+    Card {
+        inner-padding: 0px;
 
-    ListRow {
-        icon: Icons.add;
-        title: "New Custom Material";
-        supporting: "Your own refractive index, dispersion and color";
-        clicked => {
-            PropsModel.open-page(3);
-        }
-    }
-
-    SettingBlock {
-        title: "RI Override";
-        info-body: "Refractive index (RI): how strongly the stone bends light. Leave this blank to use the material's own value, or type your own (above 1, for example 1.76). It moves the critical angle. Changing it is one step you can undo.";
-
-        NumberField {
-            key: "stone-ri";
-            caption: "RI Override";
-            text <=> PropsModel.ri-text;
-            placeholder: "auto";
-            committed(value) => {
-                PropsModel.field-committed("ri", value);
+        ListRow {
+            title: "Body Color";
+            supporting: PropsModel.color-label;
+            enabled: PropsModel.color-enabled;
+            clicked => {
+                PropsModel.open-page(2);
             }
-        }
 
-        if PropsModel.effective-ri != "": Text {
-            text: PropsModel.effective-ri;
-            color: Theme.on-surface-variant;
-            font-size: Theme.text-body;
-            wrap: word-wrap;
-        }
-    }
+            Swatch {
+                size: 28px;
+                tone: PropsModel.body-swatch;
+                known: PropsModel.body-swatch-known;
+            }
 
-    ListRow {
-        title: "Body Color";
-        supporting: PropsModel.color-label;
-        enabled: PropsModel.color-enabled;
-        clicked => {
-            PropsModel.open-page(2);
-        }
+            InfoButton {
+                info-title: "Body Color";
+                info-body: "Show this design in a different color of the same material, for example a yellow instead of a blue sapphire, without making a custom material. A named color of the material keeps its color shading by direction (pleochroism); the generic colors, offered for single-color materials only, do not. A color made on the desktop or in the browser shows under its own name, or as Custom Color, and stays as saved; it cannot be edited here. The color depends on the size of the stone. Changing it is one step you can undo.";
+            }
 
-        InfoButton {
-            info-title: "Body Color";
-            info-body: "Show this design in a different color of the same material, for example a yellow instead of a blue sapphire, without making a custom material. A named color of the material keeps its color shading by direction (pleochroism); the generic colors, offered for single-color materials only, do not. A color made on the desktop or in the browser shows under its own name, or as Custom Color, and stays as saved; it cannot be edited here. The color depends on the size of the stone. Changing it is one step you can undo.";
-        }
-
-        Icon {
-            source: Icons.chevron-right;
-            tint: Theme.on-surface-variant;
+            Icon {
+                source: Icons.chevron-right;
+                tint: Theme.on-surface-variant;
+            }
         }
     }
 
@@ -102,18 +207,43 @@ component StoneSettings inherits PageScroll {
         text: "Size";
     }
 
-    SettingBlock {
-        title: "Stone Width";
-        info-body: "The width of the stone across the girdle in millimetres. A bigger stone is physically deeper in color (twice the width, twice the optical density); the built-in colors are tuned for about 7 mm. It is saved in the design, you can undo it, and it is the same value as the Girdle Diameter on the Checks tab. Use Clear Value to leave it unset.";
+    // One row: the label, its info button and the tap-to-edit width.
+    VerticalLayout {
+        padding-left: Theme.space-lg;
+        padding-right: Theme.space-lg;
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-xs;
+        spacing: Theme.space-xs;
 
-        NumberField {
-            key: "stone-width";
-            caption: "Stone Width";
-            text <=> PropsModel.width-text;
-            placeholder: "not set";
-            unit: "mm";
-            committed(value) => {
-                PropsModel.field-committed("width", value);
+        HorizontalLayout {
+            spacing: Theme.space-sm;
+
+            Text {
+                text: "Stone Width";
+                color: Theme.on-surface;
+                font-size: Theme.text-body-large;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+
+            InfoButton {
+                info-title: "Stone Width";
+                info-body: "The width of the stone across the girdle in millimetres. A bigger stone is physically deeper in color (twice the width, twice the optical density); the built-in colors are tuned for about 7 mm. It is saved in the design, you can undo it, and it is the same value as the Girdle Diameter on the Checks tab. Use Clear Value to leave it unset.";
+            }
+
+            NumberField {
+                min-width: 140px;
+                max-width: 160px;
+                horizontal-stretch: 0;
+                key: "stone-width";
+                caption: "Stone Width";
+                text <=> PropsModel.width-text;
+                placeholder: "not set";
+                unit: "mm";
+                committed(value) => {
+                    PropsModel.field-committed("width", value);
+                }
             }
         }
 
@@ -129,175 +259,194 @@ component StoneSettings inherits PageScroll {
         text: "Material Effects";
     }
 
-    SliderBlock {
-        title: "Inclusion Haze";
-        value-text: PropsModel.haze <= 0 ? "Off" : Math.round(2 * PropsModel.haze * PropsModel.haze * 100.0) / 100.0 + "";
-        info-body: "Inclusion Haze: a milky veil inside the stone, from 0 (clean) to 2 (milky), as tiny inclusions scatter the light. The slider is finer at the clean end: a quarter of the way is a light silk. Saved in the design.";
-        value <=> PropsModel.haze;
-        minimum: 0;
-        maximum: 1;
-        step: 0.01;
-        released => {
-            PropsModel.effects-released();
-        }
-    }
+    FoldCard {
+        title: "Clarity";
+        summary: PropsModel.haze <= 0 ? "No haze" : "Haze " + Math.round(2 * PropsModel.haze * PropsModel.haze * 100.0) / 100.0;
+        open <=> PropsModel.fold-clarity;
 
-    ListRow {
-        title: "Frosted Girdle";
-        supporting: "Ground (matt) instead of polished";
-        clicked => {
-            PropsModel.frosted = !PropsModel.frosted;
-            PropsModel.effects-released();
-        }
-
-        InfoButton {
-            info-title: "Frosted Girdle";
-            info-body: "Frosted Girdle: draw the girdle band ground (matt) instead of polished. Saved in the design.";
-        }
-
-        Toggle {
-            checked: PropsModel.frosted;
-            toggled(value) => {
-                PropsModel.frosted = value;
+        SliderBlock {
+            title: "Inclusion Haze";
+            value-text: PropsModel.haze <= 0 ? "Off" : Math.round(2 * PropsModel.haze * PropsModel.haze * 100.0) / 100.0 + "";
+            info-body: "Inclusion Haze: a milky veil inside the stone, from 0 (clean) to 2 (milky), as tiny inclusions scatter the light. The slider is finer at the clean end: a quarter of the way is a light silk. Saved in the design.";
+            value <=> PropsModel.haze;
+            minimum: 0;
+            maximum: 1;
+            step: 0.01;
+            released => {
                 PropsModel.effects-released();
             }
         }
     }
 
-    SliderBlock {
-        title: "Edge Rounding";
-        value-text: PropsModel.rounding <= 0 ? "Off" : Math.round(PropsModel.rounding * 1000.0) / 1000.0 + "";
-        info-body: "Edge Rounding: soften the edges between facets from perfectly sharp toward a faint rounded glint, as on a real polished stone. Saved in the design.";
-        value <=> PropsModel.rounding;
-        minimum: 0;
-        maximum: 0.03;
-        step: 0.001;
-        released => {
-            PropsModel.effects-released();
+    FoldCard {
+        title: "Girdle & Edges";
+        summary: (PropsModel.frosted ? "Frosted" : "Polished") + " \u{b7} " + (PropsModel.rounding <= 0 ? "sharp" : "rounded");
+        open <=> PropsModel.fold-edges;
+
+        ListRow {
+            title: "Frosted Girdle";
+            supporting: "Ground (matt) instead of polished";
+            clicked => {
+                PropsModel.frosted = !PropsModel.frosted;
+                PropsModel.effects-released();
+            }
+
+            InfoButton {
+                info-title: "Frosted Girdle";
+                info-body: "Frosted Girdle: draw the girdle band ground (matt) instead of polished. Saved in the design.";
+            }
+
+            Toggle {
+                checked: PropsModel.frosted;
+                toggled(value) => {
+                    PropsModel.frosted = value;
+                    PropsModel.effects-released();
+                }
+            }
+        }
+
+        SliderBlock {
+            title: "Edge Rounding";
+            value-text: PropsModel.rounding <= 0 ? "Off" : Math.round(PropsModel.rounding * 1000.0) / 1000.0 + "";
+            info-body: "Edge Rounding: soften the edges between facets from perfectly sharp toward a faint rounded glint, as on a real polished stone. Saved in the design.";
+            value <=> PropsModel.rounding;
+            minimum: 0;
+            maximum: 0.03;
+            step: 0.001;
+            released => {
+                PropsModel.effects-released();
+            }
         }
     }
 
-    ListRow {
-        title: "Crystal Axis";
-        supporting: PropsModel.axis-available ? (PropsModel.axis-on ? "Set for this stone" : (PropsModel.axis-material-default ? "As material (the material's own default)" : "As material")) : "Not used: this material has no crystal axis";
-        enabled: PropsModel.axis-available;
-        clicked => {
-            PropsModel.axis-on = !PropsModel.axis-on;
-            PropsModel.effects-released();
-        }
+    FoldCard {
+        title: "Axis Orientation";
+        summary: PropsModel.axis-available ? (PropsModel.axis-on ? "Set for this stone" : "As material") : "Not used";
+        open <=> PropsModel.fold-axis;
 
-        InfoButton {
-            info-title: "Crystal Axis Orientation";
-            info-body: "As Material uses the axis the material has. Set for This Stone: tilt 0 to 90 degrees from the table normal, azimuth 0 to 360 degrees around it. Tilt is how far the crystal axis leans away from straight up through the table; azimuth is the direction it leans toward, and has no effect while the tilt is 0. The presets set both for you, and a material with strong color changes offers presets named by the color you see looking down through the table. A two-axis material also has a Second Axis, the turn of its other principal direction about the first. Saved in the design.";
-        }
-
-        Toggle {
-            checked: PropsModel.axis-on;
+        ListRow {
+            title: "Crystal Axis";
+            supporting: PropsModel.axis-available ? (PropsModel.axis-on ? "Set for this stone" : (PropsModel.axis-material-default ? "As material (the material's own default)" : "As material")) : "Not used: this material has no crystal axis";
             enabled: PropsModel.axis-available;
-            toggled(value) => {
-                PropsModel.axis-on = value;
+            clicked => {
+                PropsModel.axis-on = !PropsModel.axis-on;
                 PropsModel.effects-released();
             }
+
+            InfoButton {
+                info-title: "Crystal Axis Orientation";
+                info-body: "As Material uses the axis the material has. Set for This Stone: tilt 0 to 90 degrees from the table normal, azimuth 0 to 360 degrees around it. Tilt is how far the crystal axis leans away from straight up through the table; azimuth is the direction it leans toward, and has no effect while the tilt is 0. The presets set both for you, and a material with strong color changes offers presets named by the color you see looking down through the table. A two-axis material also has a Second Axis, the turn of its other principal direction about the first. Saved in the design.";
+            }
+
+            Toggle {
+                checked: PropsModel.axis-on;
+                enabled: PropsModel.axis-available;
+                toggled(value) => {
+                    PropsModel.axis-on = value;
+                    PropsModel.effects-released();
+                }
+            }
         }
-    }
 
-    if PropsModel.axis-available && PropsModel.axis-presets.length > 0: Flickable {
-        height: Theme.touch;
-        content-width: axis-chips.preferred-width;
+        if PropsModel.axis-available && PropsModel.axis-presets.length > 0: Flickable {
+            horizontal-stretch: 1;
+            height: Theme.touch;
+            content-width: axis-chips.preferred-width;
 
-        axis-chips := HorizontalLayout {
-            x: 0px;
-            y: 0px;
-            width: self.preferred-width;
-            height: parent.height;
+            axis-chips := HorizontalLayout {
+                x: 0px;
+                y: 0px;
+                width: self.preferred-width;
+                height: parent.height;
+                padding-left: Theme.space-lg;
+                padding-right: Theme.space-lg;
+                spacing: Theme.space-xs;
+
+                Chip {
+                    text: "As Material";
+                    selected: !PropsModel.axis-on;
+                    clicked => {
+                        PropsModel.axis-as-material();
+                    }
+                }
+
+                for name[index] in PropsModel.axis-presets: Chip {
+                    text: name;
+                    clicked => {
+                        PropsModel.axis-preset-picked(index);
+                    }
+                }
+            }
+        }
+
+        if PropsModel.axis-available && PropsModel.axis-summary != "": HorizontalLayout {
             padding-left: Theme.space-lg;
             padding-right: Theme.space-lg;
-            spacing: Theme.space-xs;
 
-            Chip {
-                text: "As Material";
-                selected: !PropsModel.axis-on;
-                clicked => {
-                    PropsModel.axis-as-material();
-                }
-            }
-
-            for name[index] in PropsModel.axis-presets: Chip {
-                text: name;
-                clicked => {
-                    PropsModel.axis-preset-picked(index);
-                }
+            Text {
+                text: PropsModel.axis-summary;
+                color: Theme.on-surface-variant;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
             }
         }
-    }
 
-    if PropsModel.axis-available && PropsModel.axis-summary != "": HorizontalLayout {
-        padding-left: Theme.space-lg;
-        padding-right: Theme.space-lg;
-
-        Text {
-            text: PropsModel.axis-summary;
-            color: Theme.on-surface-variant;
-            font-size: Theme.text-body;
-            wrap: word-wrap;
-        }
-    }
-
-    if PropsModel.axis-on && PropsModel.axis-available: SliderBlock {
-        title: "Axis Tilt";
-        value-text: Math.round(PropsModel.axis-tilt) + "°";
-        value <=> PropsModel.axis-tilt;
-        minimum: 0;
-        maximum: 90;
-        step: 1;
-        released => {
-            PropsModel.effects-released();
-        }
-    }
-
-    if PropsModel.axis-on && PropsModel.axis-available: SliderBlock {
-        title: "Axis Azimuth";
-        value-text: Math.round(PropsModel.axis-azimuth) + "°";
-        value <=> PropsModel.axis-azimuth;
-        minimum: 0;
-        maximum: 360;
-        step: 1;
-        released => {
-            PropsModel.effects-released();
-        }
-    }
-
-    if PropsModel.axis-on && PropsModel.axis-available && PropsModel.axis-biaxial: ListRow {
-        title: "Second Axis";
-        supporting: PropsModel.axis-second-on ? "Turned " + Math.round(PropsModel.axis-second) + "° about the crystal axis" : "Not set: the color across the first axis is approximate";
-        clicked => {
-            PropsModel.axis-second-on = !PropsModel.axis-second-on;
-            PropsModel.effects-released();
-        }
-
-        InfoButton {
-            info-title: "Second Axis";
-            info-body: "A two-axis crystal has three principal directions. The crystal axis fixes one; the Second Axis turns the other two about it, from 0 to 180 degrees. It decides which colors show looking down through the table. Off leaves the material's own choice. Saved in the design.";
-        }
-
-        Toggle {
-            checked: PropsModel.axis-second-on;
-            toggled(value) => {
-                PropsModel.axis-second-on = value;
+        if PropsModel.axis-on && PropsModel.axis-available: SliderBlock {
+            title: "Axis Tilt";
+            value-text: Math.round(PropsModel.axis-tilt) + "°";
+            value <=> PropsModel.axis-tilt;
+            minimum: 0;
+            maximum: 90;
+            step: 1;
+            released => {
                 PropsModel.effects-released();
             }
         }
-    }
 
-    if PropsModel.axis-on && PropsModel.axis-available && PropsModel.axis-biaxial && PropsModel.axis-second-on: SliderBlock {
-        title: "Second Axis Turn";
-        value-text: Math.round(PropsModel.axis-second) + "°";
-        value <=> PropsModel.axis-second;
-        minimum: 0;
-        maximum: 180;
-        step: 1;
-        released => {
-            PropsModel.effects-released();
+        if PropsModel.axis-on && PropsModel.axis-available: SliderBlock {
+            title: "Axis Azimuth";
+            value-text: Math.round(PropsModel.axis-azimuth) + "°";
+            value <=> PropsModel.axis-azimuth;
+            minimum: 0;
+            maximum: 360;
+            step: 1;
+            released => {
+                PropsModel.effects-released();
+            }
+        }
+
+        if PropsModel.axis-on && PropsModel.axis-available && PropsModel.axis-biaxial: ListRow {
+            title: "Second Axis";
+            supporting: PropsModel.axis-second-on ? "Turned " + Math.round(PropsModel.axis-second) + "° about the crystal axis" : "Not set: the color across the first axis is approximate";
+            clicked => {
+                PropsModel.axis-second-on = !PropsModel.axis-second-on;
+                PropsModel.effects-released();
+            }
+
+            InfoButton {
+                info-title: "Second Axis";
+                info-body: "A two-axis crystal has three principal directions. The crystal axis fixes one; the Second Axis turns the other two about it, from 0 to 180 degrees. It decides which colors show looking down through the table. Off leaves the material's own choice. Saved in the design.";
+            }
+
+            Toggle {
+                checked: PropsModel.axis-second-on;
+                toggled(value) => {
+                    PropsModel.axis-second-on = value;
+                    PropsModel.effects-released();
+                }
+            }
+        }
+
+        if PropsModel.axis-on && PropsModel.axis-available && PropsModel.axis-biaxial && PropsModel.axis-second-on: SliderBlock {
+            title: "Second Axis Turn";
+            value-text: Math.round(PropsModel.axis-second) + "°";
+            value <=> PropsModel.axis-second;
+            minimum: 0;
+            maximum: 180;
+            step: 1;
+            released => {
+                PropsModel.effects-released();
+            }
         }
     }
 
@@ -329,10 +478,11 @@ component PickerPage inherits Rectangle {
             padding-right: Theme.space-lg;
             padding-bottom: Theme.space-sm;
 
-            LineEdit {
+            TextField {
                 text <=> PropsModel.material-query;
                 placeholder-text: "Search Materials";
-                accessible-label: "Search Materials";
+                label: "Search Materials";
+                horizontal-stretch: 1;
 
                 edited(value) => {
                     PropsModel.material-query-changed(value);
@@ -371,10 +521,10 @@ component CustomForm inherits Rectangle {
             SettingBlock {
                 title: "Name";
 
-                LineEdit {
+                TextField {
                     text <=> PropsModel.custom-name;
                     placeholder-text: "Material name";
-                    accessible-label: "Material name";
+                    label: "Material name";
                 }
             }
 
@@ -431,6 +581,7 @@ component CustomForm inherits Rectangle {
                 title: "Color";
 
                 Flickable {
+                    horizontal-stretch: 1;
                     height: Theme.touch;
                     content-width: chips.preferred-width;
 
@@ -488,6 +639,16 @@ component CustomForm inherits Rectangle {
 }
 
 export component StoneTab inherits Rectangle {
+    // The sheet leaving full height (the Back key, a drag down) takes a sub-page back to the
+    // settings. (Opening a sub-page raises the sheet first, so this does not fire then.)
+    property <int> detent-watch: Shell.sheet-detent;
+
+    changed detent-watch => {
+        if (Shell.sheet-detent < 2 && PropsModel.stone-page != 0) {
+            PropsModel.open-page(0);
+        }
+    }
+
     if PropsModel.stone-page == 0: StoneSettings { }
 
     if PropsModel.stone-page == 1: PickerPage {

@@ -188,6 +188,7 @@ fn setup_save_lighting_preset_callback(
                 camera_yaw: None,
                 camera_pitch: None,
                 camera_roll: None,
+                camera_pan: None,
                 env_map_path: fields.env_map_path,
                 export_usable: false,
                 surface_glare: fields.surface_glare,
@@ -216,9 +217,9 @@ fn setup_save_lighting_preset_callback(
 }
 
 /// The "Save as preset" viewport save: captures the full view, the lighting fields of
-/// [`setup_save_lighting_preset_callback`] plus the camera yaw, pitch and roll as `Some(..)`,
-/// so applying the preset restores the exact shot. A camera pose is part of a preset only
-/// here; see `settings::model::LightingPreset`.
+/// [`setup_save_lighting_preset_callback`] plus the camera yaw, pitch, roll and pan as
+/// `Some(..)`, so applying the preset restores the exact shot. A camera pose is part of a
+/// preset only here; see `settings::model::LightingPreset`.
 fn setup_save_view_preset_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -230,9 +231,9 @@ fn setup_save_view_preset_callback(
     ui.global::<ViewportModel>()
         .on_save_view_preset(move |name: SharedString| {
             let fields = read_common_view_fields(&render_ctx_save, &settings_store_save);
-            let (camera_yaw, camera_pitch, camera_roll) = {
+            let (camera_yaw, camera_pitch, camera_roll, camera_pan) = {
                 let ctx = RenderContext::lock(&render_ctx_save);
-                (ctx.yaw, ctx.pitch, ctx.camera_roll)
+                (ctx.yaw, ctx.pitch, ctx.camera_roll, ctx.camera_pan)
             };
             let preset = SavedLightingPreset {
                 name: name.to_string(),
@@ -245,6 +246,7 @@ fn setup_save_view_preset_callback(
                 camera_yaw: Some(camera_yaw),
                 camera_pitch: Some(camera_pitch),
                 camera_roll: Some(camera_roll),
+                camera_pan: Some(camera_pan),
                 env_map_path: fields.env_map_path,
                 export_usable: false,
                 surface_glare: fields.surface_glare,
@@ -397,13 +399,16 @@ fn setup_apply_lighting_preset_callback(
         });
 }
 
-/// Sets the camera pose when `values` carries one (a pose without a roll gets zero roll);
-/// otherwise the current pose is kept.
+/// Sets the camera pose when `values` carries one (a pose without a roll gets zero roll, one
+/// without a pan centres the stone); otherwise the current pose, pan included, is kept.
 const fn apply_camera_pose(ctx: &mut RenderContext, values: &LightingValues) {
     if let Some((yaw, pitch, roll)) = values.camera_pose() {
         ctx.yaw = yaw;
         ctx.pitch = pitch.clamp(-1.48, 1.48);
         ctx.camera_roll = roll;
+    }
+    if let Some(pan) = values.pose_pan() {
+        ctx.camera_pan = pan;
     }
 }
 
@@ -485,6 +490,9 @@ fn persist_preset_values(
         s.settings.camera_yaw = yaw;
         s.settings.camera_pitch = pitch.clamp(-1.48, 1.48);
         s.settings.camera_roll = roll;
+    }
+    if let Some(pan) = values.pose_pan() {
+        s.settings.camera_pan = pan;
     }
     match (env_map_result, preset.env_map_path.as_ref()) {
         (Some(Ok(_)), Some(path)) => s.settings.env_map_path.clone_from(path),
@@ -661,6 +669,52 @@ mod tests {
         ctx.camera_roll = 0.75;
         apply_camera_pose(&mut ctx, &values);
         assert_eq!(ctx.camera_roll, 0.75, "lighting-only preserves the camera");
+    }
+
+    #[test]
+    fn saved_camera_pan_applies_and_older_saved_views_centre_the_stone() {
+        let mut ctx = RenderContext {
+            camera_pan: [0.5, 0.5],
+            ..Default::default()
+        };
+        let mut values = LightingValues {
+            camera_yaw: Some(0.6),
+            camera_pitch: Some(0.45),
+            camera_pan: Some([-0.3, 0.2]),
+            ..Default::default()
+        };
+        apply_camera_pose(&mut ctx, &values);
+        assert_eq!(ctx.camera_pan, [-0.3, 0.2]);
+        values.camera_pan = None;
+        apply_camera_pose(&mut ctx, &values);
+        assert_eq!(ctx.camera_pan, [0.0, 0.0], "an older view is centred");
+        values.camera_yaw = None;
+        ctx.camera_pan = [0.5, 0.5];
+        apply_camera_pose(&mut ctx, &values);
+        assert_eq!(
+            ctx.camera_pan,
+            [0.5, 0.5],
+            "lighting-only preserves the camera"
+        );
+    }
+
+    /// The applied view's pan is what the settings file reopens with; a lighting-only apply
+    /// leaves the file's pan alone.
+    #[test]
+    fn applying_a_saved_view_persists_its_pan() {
+        let mut file = crate::settings::SettingsFile::default();
+        file.settings.camera_pan = [0.5, 0.5];
+        let preset = crate::settings::model::built_in_presets().remove(0);
+        super::persist_preset_values(&mut file, &preset.values(), &preset, None);
+        assert_eq!(file.settings.camera_pan, [0.5, 0.5]);
+        let view = LightingValues {
+            camera_yaw: Some(0.6),
+            camera_pitch: Some(0.45),
+            camera_pan: Some([-0.3, 0.2]),
+            ..Default::default()
+        };
+        super::persist_preset_values(&mut file, &view, &preset, None);
+        assert_eq!(file.settings.camera_pan, [-0.3, 0.2]);
     }
 
     #[test]

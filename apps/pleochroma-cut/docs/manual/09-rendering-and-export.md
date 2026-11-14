@@ -17,7 +17,7 @@ Off, 4×, 8× or 16×. The first tap is visible before the remaining taps finish
 is used for Ray-Traced.
 
 The export dialog has its own **Renderer** choice. Ray-Traced exports use AA taps and
-Fire in place of the Path-Traced sample count. Local CPU, supported GPU and protocol-42
+Fire in place of the Path-Traced sample count. Local CPU, supported GPU and protocol-43
 remote computation honor that choice; the engine and options are frozen in queued jobs.
 Changing engines starts a new accumulation, so spectral samples never mix with AA taps.
 
@@ -94,7 +94,7 @@ says "Tray reflection is traced on the CPU on this graphics card."; Ray-Traced G
 always shows it. Tilt views and tilt videos
 do not show the reflection ("Tilt views don't show the tray reflection."). A still with the
 reflection on is saved as a format 4 render job (format 5 when the stone has color zones, format 6 with a
-turned HDR map; Chapter 23).
+turned HDR map, format 7 with the stone moved within the picture; Chapter 23).
 
 ### Output Location
 
@@ -447,19 +447,24 @@ tilt curves and their hover pictures, and every render done by a remote worker f
 export all draw the whole design, even while the slider is on an earlier step. The live
 picture, including the part a remote worker traces for it, keeps following the slider.
 
+An export draws the stone from the live view's camera, framing included: a stone you moved
+within the picture (Chapter 2) keeps its place there, in the tilt video and in a queued job
+too. A picture of another shape keeps the stone's distance from the centre, measured in
+picture heights, so in a narrower picture a stone moved far to one side can reach the edge.
+
 ## The Stone's Color in a Render
 
 You can show a stone in another color without making a custom material. The design's own
-color is set in the **Stone** tab's **Body Color** (Chapter 6): **Material Default** (the
-material's own color), the color variants of the material and your own saved variants
+color is set in the **Stone** tab's **COLOR** tiles, announced as Body Color (Chapter 6): **Default** (the
+material's own color, Material Default), the color variants of the material and your own saved variants
 (Chapter 6, "Color Variants and Pleochroism"), nine ready-made colors (Clear, Blue, Red,
 Green, Violet, Yellow, Pink, Teal and Amber) for a material that has one color in every
-direction, and **Custom...**, which opens the color editor (Chapter 6, Body Color) so you
+direction, and the **Custom** tile, which opens the color editor (Chapter 6, Color) so you
 can choose any color, one for each direction of a birefringent crystal. That is always the
 design's own color: one undo step, and the design counts as changed.
 
-The **Color** control in the Live Render toolbar, next to Render Material, offers the same
-list. For the design open in the editor, a pick becomes the design's own color; the control
+The **Color** control (a pill with a color dot, in the Stone tab; it is no longer in the Live
+Render toolbar) offers the same list. For the design open in the editor, a pick becomes the design's own color; the control
 then shows the variant's own name and swatch ("Rubellite", "Custom Color") instead of
 "Material Default". A pleochroic material lists no generic presets there either, and a stone
 with an old single color on such a material shows a **Legacy** row with the note "Legacy Color:
@@ -493,8 +498,8 @@ A few details:
   and a variant or a per-direction Custom Color keeps the material's pleochroism, one color
   for each direction of the crystal. Only a one-color material (and an old single color, shown
   as "Legacy Color: No Pleochroism" on a pleochroic material) absorbs evenly in every direction.
-- A custom color shows in the Body Color box as **Custom**, and choosing **Material
-  Default** puts the material's own color back. Undo brings the custom color back.
+- A custom color shows as the **Custom** tile of the Stone tab's COLOR section, and choosing the **Default** tile (Material
+  Default) puts the material's own color back. Undo brings the custom color back.
 
 ## Stone Effects and Width in a Render
 

@@ -55,9 +55,9 @@ fn add_a_tier() -> Guide {
             "Click Girdle Facet Preset (90\u{b0}, scale = 1).",
             "Name: G1",
             "Indices: 0, 12, 24, 36, 48, 60, 72, 84",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ])
-        .check("a G1 row in the tier table, with G1 in the CODE column.")
+        .check("a G1 row in the tier list, with G1 in the CODE column.")
         .why("The preset sets Angle to 90 and Meets to Exact Scale Value 1, the one pair that makes a real girdle. A 0 degree tier would be a second table.")
         .goal(
             Goal::tier("G1", 90.0)
@@ -76,10 +76,10 @@ fn add_a_tier() -> Guide {
         .actions([
             "Click + Add Tier.",
             "Angle (deg): 41",
-            "Meets: Named Facet(s), Facet Names: G1",
+            "Meets: Named Facet(s) (Facets segment), Facet Names: G1",
             "Name: P1",
             "Indices: 0, 12, 24, 36, 48, 60, 72, 84",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ])
         .check("a P1 row with P1 in the CODE column and meets G1 in the Meets column.")
         .why("Named Facet(s) closes the pavilion against the girdle: the solver finds its depth for you. To solve, though, the pavilion and the crown still need one tier each with an exact scale value, as the girdle has.")
@@ -100,10 +100,10 @@ fn add_a_tier() -> Guide {
         .actions([
             "Click + Add Tier.",
             "Angle (deg): 34.5",
-            "Meets: Named Facet(s), Facet Names: G1",
+            "Meets: Named Facet(s) (Facets segment), Facet Names: G1",
             "Name: C1",
             "Indices: 0, 12, 24, 36, 48, 60, 72, 84",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ])
         .check("a C1 row with C1 in the CODE column.")
         .why("Leave Name blank and the tier is named from its angle (C1, P1, G1), but a name you chose yourself is easier to find in a Meets list.")
@@ -122,7 +122,7 @@ fn add_a_tier() -> Guide {
             "A girdle, a pavilion and a crown: the frame of a round brilliant.",
         )
         .actions([
-            "Add Tier writes a new row; Save Tier, shown when you pick a row, changes that row.",
+            "Add This Tier writes a new row; when you pick an existing row, a change applies as you press Enter or leave the field.",
             "Press Ctrl+Z to undo a tier you did not mean to add.",
             "Continue with Edit a tier, Index Shorthands and Quick Add.",
         ])
@@ -141,15 +141,14 @@ fn edit_a_tier() -> Guide {
     .step(
         GuideStep::new(
             "Change an angle",
-            "Picking a row loads its tier into the Tier tab. Save Tier writes your changes back to that same row.",
+            "Picking a row loads its tier into the Tier tab. A change applies to that same row when you press Enter or leave the field; there is no Save button.",
         )
         .actions([
-            "Click the Pavilion Main row in the tier table.",
-            "In the Tier tab, change Angle (deg) to 41.",
-            "Click Save Tier.",
+            "Click the Pavilion Main row in the tier list.",
+            "In the Tier tab, change Angle (deg) to 41 and press Enter.",
         ])
-        .check("the Pavilion Main row shows 41.00 in the ANGLE column.")
-        .why("The top of the form says Edit Tier with the row number, so you know which row Save Tier will change. It never adds a new row.")
+        .check("the Pavilion Main row shows 41.00 as its angle.")
+        .why("The top of the form says Tier # with the row number, so you know which row the change goes to. It never adds a new row.")
         .goal(Goal::tier("Pavilion Main", -41.0), "Pavilion Main at 41.0")
         .highlight("inspector_tier")
         .allow(FORM),
@@ -160,8 +159,7 @@ fn edit_a_tier() -> Guide {
             "The name is what other tiers use to meet this one, so choose one you can type.",
         )
         .actions([
-            "With the row still selected, change Name to P1.",
-            "Click Save Tier.",
+            "With the row still selected, change Name to P1 and press Enter.",
         ])
         .check("the row is now called P1.")
         .why("A tier that other tiers meet by name keeps working: they follow the new name in the same Undo step.")
@@ -175,9 +173,8 @@ fn edit_a_tier() -> Guide {
             "Meets decides how the depth is found. The teaching design pins every depth by hand; a named facet lets the solver find it.",
         )
         .actions([
-            "Set Meets to Named Facet(s).",
-            "Facet Names: Girdle",
-            "Click Save Tier.",
+            "Set Meets to Named Facet(s) (Facets segment).",
+            "Facet Names: Girdle, then press Enter.",
         ])
         .check("P1's Meets column reads meets Girdle, and the status strip says: Pavilion has no anchor: add a tier with an exact scale value.")
         .why("Exact Scale Value states the depth outright. Named Facet(s) closes this tier against the facets you name. P1 is the only tier of the pavilion, so with its scale value gone the pavilion has nothing exact to hang its depths on, and the solver says so. That message is expected here: the next step undoes the change.")
@@ -205,12 +202,12 @@ fn edit_a_tier() -> Guide {
     )
     .step(
         GuideStep::new(
-            "Save, Add and Undo",
-            "Save Tier changes the row you picked. + Add Tier starts a new row.",
+            "Edit, Add and Undo",
+            "Editing a field changes the row you picked. + Add Tier starts a new row, which only appears when you click Add This Tier.",
         )
         .actions([
-            "Click + Add Tier to start a new tier; the form title then says Add Tier.",
-            "If the form holds unsaved changes when you pick another row, it asks whether to keep the draft.",
+            "Click + Add Tier to start a new tier; the form then offers Add This Tier.",
+            "If the form holds changes you have not applied when you pick another row, it asks whether to keep the draft.",
         ])
         .why("Every control is unlocked again."),
     )
@@ -247,7 +244,7 @@ fn index_shorthands() -> Guide {
             "Click Girdle Facet Preset (90\u{b0}, scale = 1).",
             "Name: G1",
             "Indices: 0:12:96",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ])
         .check("G1's Indices column lists 0, 12, 24, 36, 48, 60, 72, 84.")
         .why("0:12:96 is 0, 12, 24 and so on up to 84; 96 itself is left out.")
@@ -266,10 +263,10 @@ fn index_shorthands() -> Guide {
         .actions([
             "Click + Add Tier.",
             "Angle (deg): 41",
-            "Meets: Named Facet(s), Facet Names: G1",
+            "Meets: Named Facet(s) (Facets segment), Facet Names: G1",
             "Name: P1",
             "Indices: 12 x8",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ])
         .check("P1 lists the same eight positions as G1.")
         .why("12 x8 starts at 12 and repeats 8 times, 96 / 8 = 12 teeth apart: 12, 24 and so on up to 84, then 96, which is 0.")
@@ -290,10 +287,10 @@ fn index_shorthands() -> Guide {
         .actions([
             "Click + Add Tier.",
             "Angle (deg): 34.5",
-            "Meets: Named Facet(s), Facet Names: G1",
+            "Meets: Named Facet(s) (Facets segment), Facet Names: G1",
             "Name: C1",
             "Indices: 6 x8",
-            "Click Add Tier.",
+            "Click Add This Tier.",
         ])
         .check("C1 lists 6, 18, 30, 42, 54, 66, 78, 90.")
         .why("6 x8 puts the facets half way between the 12-tooth steps. Use it for star and break rings.")
@@ -315,7 +312,7 @@ fn index_shorthands() -> Guide {
             "For example, 0:24:96 6 x4 lists 0, 24, 48, 72 and 6, 30, 54, 78.",
             "A position off the gear, or one listed twice, is refused with the reason under the field.",
         ])
-        .why("The tier form never changes a design until Add Tier or Save Tier succeeds."),
+        .why("The tier form never changes a design until Add This Tier or an applied edit succeeds."),
     )
 }
 
@@ -444,16 +441,16 @@ fn quick_add() -> Guide {
     Guide::new(
         "tiers-quick-add",
         "Quick Add",
-        "Add a girdle, a table and a culet with one click each from the Quick Add buttons.",
+        "Add a girdle, a table and a culet with one click each from the QUICK ADD part of the Add Tier menu.",
         GuideCategory::Tiers,
     )
     .starting(StartingState::NewEmpty)
     .step(
         GuideStep::new(
             "Quick add a girdle",
-            "The Quick Add buttons under the tier table's toolbar add a common first tier with one click.",
+            "The QUICK ADD part of the Add Tier menu (the arrow beside + Add Tier, above the tier list) adds a common first tier with one click.",
         )
-        .actions(["Click Girdle next to Quick Add."])
+        .actions(["Open the Add Tier menu, then click Girdle under QUICK ADD."])
         .check("a Girdle row with G1 in the CODE column, pinned to scale 1.")
         .why("Quick Add pins the tier to an exact scale value, so the design has something to solve from. 90 degrees is a girdle.")
         .goal(
@@ -468,7 +465,7 @@ fn quick_add() -> Guide {
             "Quick add a table",
             "The table is the flat facet on top of the crown.",
         )
-        .actions(["Click Table next to Quick Add."])
+        .actions(["Open the Add Tier menu, then click Table under QUICK ADD."])
         .check("a Table row at 0.00, pinned to scale 0.32.")
         .why("A table is a crown facet at 0 degrees. Change its scale value in the Tier tab when you know the size you want.")
         .goal(
@@ -483,7 +480,7 @@ fn quick_add() -> Guide {
             "Quick add a culet",
             "The culet is the small flat facet at the bottom of the pavilion.",
         )
-        .actions(["Click Culet next to Quick Add."])
+        .actions(["Open the Add Tier menu, then click Culet under QUICK ADD."])
         .check("a Culet row with Culet in the CODE column, pinned to scale 0.88.")
         .why("The culet is also 0 degrees, but it belongs to the pavilion and not the crown: the table's code is T, the culet's is Culet, and the minus sign on its zero angle puts it on the pavilion side.")
         .goal(

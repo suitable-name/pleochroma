@@ -1,21 +1,24 @@
-// One row of the tier list. Medium and expanded windows get a 64 px one-line row
+// One row of the tier list, in true cutting order:
 //
-//   [code] [ 41.00° ] name                [badge]  [⋯]
-//                     indices  mast       [badge]
+//   PAVILION                                 (a small header where the group changes)
+//   ▌ P1     [ 41.00° ]  Pavilion Main                   [⋯]
+//     #1     [Safe +7.6°] 0, 12, 24, 36, 48, 60, 72, 84
+//   ⚠ Culet facet only 0.8 % of the stone's width        (a check, in words, when there is one)
 //
-// and a compact window (a phone) a 56 px two-line row, so the full name and the indices
-// are not truncated:
+// - the stripe on the left is the group's color, and the header names the group, so the
+//   group is never carried by color alone;
+// - the angle is the big, tappable field (primary text color, cyan on the selected row; amber
+//   is kept for warnings);
+// - the name is one line, then the COMPLETE index list, wrapping, never cut short;
+// - the light margin ("Safe +7.6°") stays as a chip under the angle;
+// - a check (the solve note, a manufacturability finding) is a line in words under the row with
+//   a warning icon.
 //
-//   [code] [ 41.00° ] name                        [⋯]
-//                     indices        [badge]
-//
-// The phone row leaves the mast out, because a bare number is unreadable there. Badges
-// lead with a word, for example "Safe +7.6°".
-//
-// Tapping the body selects (a second tap on the selected row opens the tier sheet);
-// tapping the angle opens the angle sheet; the overflow button opens the tier sheet; a
-// long press starts Select mode. In Select mode the code gives way to a check box and a
-// tap toggles the row.
+// Tapping the body selects (a second tap on the selected row opens the tier sheet); tapping
+// the angle opens the angle sheet; the overflow button opens the tier sheet; a long press
+// starts Select mode. In Select mode the code gives way to a check box and a tap toggles the
+// row.
+import { PleoPalette } from "../../../../../ui-shared/palette.slint";
 import { Theme } from "../../theme.slint";
 import { Icons } from "../../icons.slint";
 import { Shell } from "../../models.slint";
@@ -23,6 +26,14 @@ import { Icon } from "../../shell/icon.slint";
 import { IconButton } from "../../shell/icon_button.slint";
 import { StateLayer } from "../../shell/state_layer.slint";
 import { TierRowData } from "tiers_model.slint";
+import { TierIcons } from "tier_icons.slint";
+
+// The stripe and header color of a group.
+global GroupStyle {
+    pure public function color(block: string) -> color {
+        return block == "Pavilion" ? PleoPalette.accent-purple : (block == "Crown" ? PleoPalette.primary : PleoPalette.text-secondary);
+    }
+}
 
 // A short colored mark. Level: 0 good, 1 check, 2 problem, 3 info.
 component Pill inherits Rectangle {
@@ -31,8 +42,8 @@ component Pill inherits Rectangle {
     // The width the label needs, for a pill that sizes to its label.
     out property <length> natural-width: label.preferred-width + 12px;
 
-    height: 20px;
-    border-radius: 10px;
+    height: 22px;
+    border-radius: 11px;
     background: root.level <= 2 ? Theme.verdict-container(root.level) : Theme.secondary-container;
     accessible-role: AccessibleRole.text;
     accessible-label: root.text;
@@ -43,43 +54,58 @@ component Pill inherits Rectangle {
         text: root.text;
         color: root.level <= 2 ? Theme.verdict-content(root.level) : Theme.on-secondary-container;
         font-size: Theme.text-label;
-        font-weight: 500;
+        font-weight: 600;
         overflow: elide;
         vertical-alignment: center;
         horizontal-alignment: center;
     }
 }
 
-// The code, or a check box in Select mode.
+// The code over the step number, or a check box over the step number in Select mode.
 component CodeCell inherits Rectangle {
     in property <TierRowData> data;
     in property <bool> select-mode: false;
+    in property <int> step: 1;
 
-    width: Shell.window-class == 0 ? 36px : 44px;
+    width: Theme.base-font * 3.3;
 
-    if root.select-mode: Rectangle {
-        width: 24px;
-        height: 24px;
-        border-radius: 6px;
-        border-width: 2px;
-        border-color: root.data.multi ? Theme.primary : Theme.outline;
-        background: root.data.multi ? Theme.primary : transparent;
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
 
-        if root.data.multi: Icon {
-            source: Icons.check;
-            tint: Theme.on-primary;
-            glyph: 18px;
+        if root.select-mode: Rectangle {
+            height: 24px;
+
+            Rectangle {
+                x: 0px;
+                width: 24px;
+                height: 24px;
+                border-radius: 6px;
+                border-width: 2px;
+                border-color: root.data.multi ? Theme.primary : Theme.outline;
+                background: root.data.multi ? Theme.primary : transparent;
+
+                if root.data.multi: Icon {
+                    source: Icons.check;
+                    tint: Theme.on-primary;
+                    glyph: 18px;
+                }
+            }
         }
-    }
 
-    if !root.select-mode: Text {
-        text: root.data.code;
-        color: Theme.on-surface-variant;
-        font-size: Theme.text-label-large;
-        font-weight: 700;
-        overflow: elide;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+        if !root.select-mode: Text {
+            text: root.data.code;
+            color: Theme.on-surface;
+            font-size: Theme.text-body-large;
+            font-weight: 700;
+            overflow: elide;
+        }
+
+        Text {
+            text: "#" + root.step;
+            color: Theme.text-secondary;
+            font-size: Theme.text-label;
+        }
     }
 }
 
@@ -88,20 +114,19 @@ component AngleCell inherits Rectangle {
     in property <TierRowData> data;
     callback tapped();
 
-    width: Shell.window-class == 0 ? 84px : 92px;
+    height: Theme.touch;
 
     Rectangle {
-        height: Shell.window-class == 0 ? 44px : 48px;
         border-radius: Theme.radius-md;
-        background: Theme.surface-high;
+        background: Theme.surface;
         border-width: 1px;
-        border-color: root.data.concave ? transparent : Theme.outline-variant;
+        border-color: root.data.selected ? Theme.accent : Theme.outline-variant;
 
         Text {
             text: root.data.angle;
-            color: root.data.concave ? Theme.on-surface-variant : Theme.primary;
+            color: root.data.concave ? Theme.on-surface-variant : (root.data.selected ? Theme.accent : Theme.on-surface);
             font-size: Theme.text-title-large;
-            font-weight: 500;
+            font-weight: 600;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -115,23 +140,13 @@ component AngleCell inherits Rectangle {
     }
 }
 
-// A pill that sizes to its label (at most 112 px), vertically centered in its line.
-component FitPill inherits Rectangle {
-    in property <string> text;
-    in property <int> level: 3;
-
-    width: min(pill.natural-width, 112px);
-
-    pill := Pill {
-        y: (parent.height - self.height) / 2;
-        text: root.text;
-        level: root.level;
-    }
-}
-
 export component TierRowItem inherits Rectangle {
     in property <TierRowData> data;
     in property <bool> select-mode: false;
+    // The block of the row above ("" for the first row): a header shows where it differs.
+    in property <string> prev-block: "";
+    // The row's place in the cutting order, counted from 1.
+    in property <int> step: 1;
     callback tapped();
     callback long-pressed();
     callback angle-tapped();
@@ -140,13 +155,13 @@ export component TierRowItem inherits Rectangle {
     // A press that has not moved or ended yet; the timer turns it into a long press.
     property <bool> armed: false;
     property <bool> fired: false;
-    property <bool> compact: Shell.window-class == 0;
+    property <bool> header: root.data.block != root.prev-block && root.data.block != "";
+    property <color> stripe: GroupStyle.color(root.data.block);
 
-    height: root.compact ? 56px : 64px;
-    background: root.data.multi ? Theme.primary-container : (root.data.selected ? Theme.secondary-container : transparent);
-    opacity: 1.0;
+    height: content.preferred-height;
     accessible-role: AccessibleRole.button;
     accessible-label: root.data.code + ", " + root.data.angle + ", " + root.data.name;
+    accessible-description: root.data.block + ", step " + root.step + ", " + (root.data.concave ? root.data.summary : root.data.indices) + (root.data.margin != "" ? ", " + root.data.margin : "") + (root.data.check != "" ? ", " + root.data.check : "");
     accessible-checkable: true;
     accessible-checked: root.data.selected || root.data.multi;
     accessible-action-default => {
@@ -163,179 +178,199 @@ export component TierRowItem inherits Rectangle {
         }
     }
 
-    StateLayer {
-        pressed: body-touch.pressed;
-        hovered: body-touch.has-hover;
-    }
+    content := VerticalLayout {
+        // The group header, where the group changes.
+        if root.header: Rectangle {
+            height: Theme.touch * 0.7;
 
-    body-touch := TouchArea {
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.left) {
-                if (event.kind == PointerEventKind.down) {
-                    root.armed = true;
+            Rectangle {
+                x: Theme.space-sm;
+                y: (parent.height - self.height) / 2 + Theme.space-xs;
+                width: 4px;
+                height: Theme.text-label-large;
+                border-radius: 2px;
+                background: root.stripe;
+            }
+
+            Text {
+                x: Theme.space-sm + 4px + Theme.space-sm;
+                y: Theme.space-xs;
+                height: parent.height - Theme.space-xs;
+                text: root.data.block;
+                color: Theme.text-secondary;
+                font-size: Theme.text-label-large;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+
+        row := Rectangle {
+            height: lines.preferred-height;
+            background: root.data.multi ? Theme.primary-container : (root.data.selected ? Theme.accent-surface : transparent);
+
+            StateLayer {
+                pressed: body-touch.pressed;
+                hovered: body-touch.has-hover;
+            }
+
+            body-touch := TouchArea {
+                pointer-event(event) => {
+                    if (event.button == PointerEventButton.left) {
+                        if (event.kind == PointerEventKind.down) {
+                            root.armed = true;
+                            root.fired = false;
+                        } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                            root.armed = false;
+                        }
+                    }
+                }
+
+                moved => {
+                    if (self.mouse-x - self.pressed-x > 12px || self.pressed-x - self.mouse-x > 12px || self.mouse-y - self.pressed-y > 12px || self.pressed-y - self.mouse-y > 12px) {
+                        root.armed = false;
+                    }
+                }
+
+                clicked => {
+                    if (!root.fired) {
+                        root.tapped();
+                    }
                     root.fired = false;
-                } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
-                    root.armed = false;
                 }
             }
-        }
 
-        moved => {
-            if (self.mouse-x - self.pressed-x > 12px || self.pressed-x - self.mouse-x > 12px || self.mouse-y - self.pressed-y > 12px || self.pressed-y - self.mouse-y > 12px) {
-                root.armed = false;
-            }
-        }
-
-        clicked => {
-            if (!root.fired) {
-                root.tapped();
-            }
-            root.fired = false;
-        }
-    }
-
-    // The compact row: two lines of text between the angle and the overflow button.
-    if root.compact: HorizontalLayout {
-        padding-left: Theme.space-sm;
-        padding-right: Theme.space-xs;
-        spacing: Theme.space-sm;
-
-        CodeCell {
-            data: root.data;
-            select-mode: root.select-mode;
-        }
-
-        AngleCell {
-            data: root.data;
-            tapped => {
-                root.angle-tapped();
-            }
-        }
-
-        VerticalLayout {
-            alignment: center;
-            horizontal-stretch: 1;
-
-            Text {
-                text: root.data.name;
-                color: Theme.on-surface;
-                font-size: Theme.text-body-large;
-                overflow: elide;
+            // The group's stripe.
+            Rectangle {
+                x: Theme.space-sm;
+                y: Theme.space-sm;
+                width: 4px;
+                height: parent.height - 2 * Theme.space-sm;
+                border-radius: 2px;
+                background: root.stripe;
             }
 
-            HorizontalLayout {
-                spacing: Theme.space-xs;
+            lines := VerticalLayout {
+                padding-top: Theme.space-sm;
+                padding-bottom: Theme.space-sm;
+                spacing: 0px;
 
-                Text {
-                    text: root.data.concave ? root.data.summary : root.data.indices;
-                    color: Theme.on-surface-variant;
-                    font-size: Theme.text-label;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    horizontal-stretch: 1;
+                HorizontalLayout {
+                    padding-left: Theme.space-sm + 4px + Theme.space-sm;
+                    padding-right: Theme.space-xs;
+                    spacing: Theme.space-sm;
+
+                    CodeCell {
+                        data: root.data;
+                        select-mode: root.select-mode;
+                        step: root.step;
+                    }
+
+                    VerticalLayout {
+                        width: Theme.base-font * 6.6;
+                        alignment: start;
+                        spacing: Theme.space-xs;
+
+                        AngleCell {
+                            data: root.data;
+                            tapped => {
+                                root.angle-tapped();
+                            }
+                        }
+
+                        if root.data.margin != "": HorizontalLayout {
+                            alignment: center;
+
+                            Pill {
+                                text: root.data.margin;
+                                level: root.data.margin-level;
+                                width: min(self.natural-width, Theme.base-font * 6.6);
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: start;
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+
+                        Text {
+                            text: root.data.name;
+                            color: Theme.on-surface;
+                            font-size: Theme.text-body-large;
+                            font-weight: 600;
+                            wrap: word-wrap;
+                        }
+
+                        Text {
+                            text: root.data.concave ? root.data.summary : root.data.indices;
+                            color: Theme.text-secondary;
+                            font-size: Theme.text-body;
+                            wrap: word-wrap;
+                        }
+
+                        if Shell.window-class != 0 && root.data.mast != "": Text {
+                            text: "Mast " + root.data.mast;
+                            color: Theme.text-secondary;
+                            font-size: Theme.text-label;
+                            opacity: root.data.stale ? 0.6 : 1.0;
+                        }
+                    }
+
+                    Rectangle {
+                        width: Theme.touch;
+                        height: Theme.touch;
+
+                        if !root.data.concave: IconButton {
+                            icon: Icons.overflow;
+                            label: "Tier Options";
+                            clicked => {
+                                root.more-tapped();
+                            }
+                        }
+                    }
                 }
 
-                if root.data.pill-a != "": FitPill {
-                    text: root.data.pill-a;
-                    level: root.data.pill-a-level;
+                // A check, in words. Always laid out (a layout under an `if` does not hand a
+                // wrapped line's height up), and collapsed to nothing when there is none.
+                HorizontalLayout {
+                    visible: root.data.check != "";
+                    height: root.data.check != "" ? self.preferred-height : 0px;
+                    padding-top: Theme.space-xs;
+                    padding-left: Theme.space-sm + 4px + Theme.space-sm + Theme.space-xs;
+                    padding-right: Theme.space-lg;
+                    spacing: Theme.space-sm;
+
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        y: 1px;
+
+                        Icon {
+                            source: TierIcons.warning;
+                            tint: root.data.check-level == 2 ? Theme.error : Theme.warning;
+                            glyph: 20px;
+                        }
+                    }
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: start;
+
+                        Text {
+                            text: root.data.check;
+                            color: root.data.check-level == 2 ? Theme.error : Theme.warning;
+                            font-size: Theme.text-body;
+                            wrap: word-wrap;
+                        }
+                    }
                 }
             }
-        }
 
-        Rectangle {
-            width: Theme.touch;
-
-            if !root.data.concave: IconButton {
-                icon: Icons.overflow;
-                label: "Tier Options";
-                clicked => {
-                    root.more-tapped();
-                }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.outline-variant;
             }
         }
-    }
-
-    // The one-line row of the larger windows.
-    if !root.compact: HorizontalLayout {
-        padding-left: Theme.space-sm;
-        padding-right: Theme.space-xs;
-        spacing: Theme.space-sm;
-
-        CodeCell {
-            data: root.data;
-            select-mode: root.select-mode;
-        }
-
-        AngleCell {
-            data: root.data;
-            tapped => {
-                root.angle-tapped();
-            }
-        }
-
-        VerticalLayout {
-            alignment: center;
-            horizontal-stretch: 1;
-
-            Text {
-                text: root.data.name;
-                color: Theme.on-surface;
-                font-size: Theme.text-body-large;
-                overflow: elide;
-            }
-
-            HorizontalLayout {
-                spacing: Theme.space-sm;
-
-                Text {
-                    text: root.data.concave ? root.data.summary : root.data.indices;
-                    color: Theme.on-surface-variant;
-                    font-size: Theme.text-label;
-                    overflow: elide;
-                    horizontal-stretch: 1;
-                }
-
-                Text {
-                    text: root.data.mast;
-                    color: Theme.on-surface-variant;
-                    font-size: Theme.text-label;
-                    opacity: root.data.stale ? 0.5 : 1.0;
-                }
-            }
-        }
-
-        VerticalLayout {
-            width: 112px;
-            alignment: center;
-            spacing: 2px;
-
-            if root.data.pill-a != "": Pill {
-                text: root.data.pill-a;
-                level: root.data.pill-a-level;
-            }
-
-            if root.data.pill-b != "": Pill {
-                text: root.data.pill-b;
-                level: root.data.pill-b-level;
-            }
-        }
-
-        Rectangle {
-            width: Theme.touch;
-
-            if !root.data.concave: IconButton {
-                icon: Icons.overflow;
-                label: "Tier Options";
-                clicked => {
-                    root.more-tapped();
-                }
-            }
-        }
-    }
-
-    Rectangle {
-        y: parent.height - 1px;
-        height: 1px;
-        background: Theme.outline-variant;
     }
 }

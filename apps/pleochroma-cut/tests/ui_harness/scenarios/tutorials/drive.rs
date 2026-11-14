@@ -480,7 +480,8 @@ fn open_variants_view(ctx: &mut Ctx<'_>, stats: &mut RunStats) {
     // inspector shows it, so the pill may need a frame or two to appear.
     let mut found = false;
     let _ = wait_real(ROUTE_SETTLE, || {
-        found = press_label(ctx, "Variants", "HistoryViewPill");
+        // The History views are the segments (`KitSegment`) of one segment bar.
+        found = press_label(ctx, "Variants", "KitSegment");
         found
     });
     let pressed = found && wait_real(ROUTE_SETTLE, || variants.get_view() == 1);

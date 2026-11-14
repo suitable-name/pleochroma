@@ -164,6 +164,8 @@ pub(super) struct DenoiseGenerationJob {
     pub(super) guides: GuideBuffers,
     pub(super) yaw: f32,
     pub(super) camera_roll: f32,
+    /// The pan of the image (part of `guides`' key).
+    pub(super) camera_pan: [f32; 2],
     pub(super) pitch: f32,
     pub(super) distance: f32,
     pub(super) planes: Vec<GpuFacetPlane>,
@@ -206,6 +208,7 @@ pub(super) fn spawn_denoise_generation(
             PoseAndGeometry {
                 yaw: job.yaw,
                 camera_roll: job.camera_roll,
+                camera_pan: job.camera_pan,
                 pitch: job.pitch,
                 distance: job.distance,
                 planes: &job.planes,

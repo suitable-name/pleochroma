@@ -143,23 +143,26 @@ the same material as a read-only chip with an **Edit in Stone Tab** link) holds:
   custom material of your own yet.
 - **RI Override** -- blank uses the selected material's own refractive
   index; typing a number (greater than 1.0) overrides it.
-- **Effective RI** / **Critical Angle** -- read-only. Effective RI resolves
+- The **RI** and **Critical** chips on the identity card -- read-only (announced as
+  Effective Refractive Index and Critical Angle). The effective RI resolves
   in this order: your typed override, else the selected material's own real
   RI (built-in **or custom catalogue material**), else the schedule's
   legacy recorded value. Critical Angle is `arcsin(1 / effective RI)` in
   degrees.
-- **Body Color** -- the design's own color. The box lists, in this order:
+- **Color** (the COLOR section, announced as **Body Color**) -- the design's own color,
+  shown as a grid of tiles, five to a row, with the chosen entry's name and description
+  under them. The tiles are, in this order:
   *Material Default* (the material's own color), the **color variants** the
   program ships for the material (Rubellite, Verdelite and Indicolite for a
   tourmaline, Pink and Yellow for a sapphire), **your own saved variants** for this material, the nine generic
   presets (Clear, Blue, Red and so on) **only when the material has one color in
   every direction** (Diamond, Spinel, the garnets, glass, a custom material that
-  is not birefringent), and a final **Custom...** entry. A swatch beside the box
-  shows the face-up color of the entry, and the line under it names the color
+  is not birefringent), and a final **Custom** tile (its entry name is Custom...). Each tile
+  shows the face-up color of the entry (a stone with two body colors shows split tiles), and the line under the grid names the color
   of each direction for a pleochroic entry ("Along the Axis: Blue / Across the
   Axis: Green"). The variants and what they mean are the subject of "Color
-  Variants and Pleochroism" below. Choosing **Custom...** opens the color
-  editor under the box with three sliders: **Tone** (how light or dark, 0 black
+  Variants and Pleochroism" below. Choosing **Custom** opens the color
+  editor under the tiles with three sliders: **Tone** (how light or dark, 0 black
   to 100 white), **Saturation** (how rich, 0 grey) and **Hue** (the basic color
   in degrees around the color wheel). For a stone whose crystal shows a
   different color in different directions, the editor has one such color for each
@@ -192,7 +195,7 @@ the same material as a read-only chip with an **Edit in Stone Tab** link) holds:
   The same editor opens from two more places: **Pick...** in the Gem Material
   Editor (Fantasy color; Save keeps the color in the material) and **Custom
   Color...** in the color control of **Preview Color** (while previewing) and of a
-  library row. Those two change only the view; the Stone tab's Body Color is
+  library row. Those two change only the view; the Stone tab's Color section is
   the one that changes the design (one undo step).
 
 ### Color Variants and Pleochroism
@@ -221,7 +224,7 @@ needs. The direction rows are seeded from the stone's current color, so a small
 change of hue keeps the stone's dichroism. Which direction you see face-up
 depends on the stone's Crystal Axis (Chapter 25).
 
-**The list.** The Stone tab's **Body Color** box and the Live Render **Color**
+**The list.** The Stone tab's **Color** tiles and the Live Render **Color**
 list (Chapter 9) offer the same entries, in this order:
 
 1. **Material Default**, the material's own color.
@@ -293,9 +296,9 @@ color) that is closest to the old color face-up. Nothing changes until you press
 material as its color too (**From variant** on the zone's card), and a stone with zones takes no body color: its
 color is its zones.
 
-**The Live Render toolbar.** The Color control next to Render Material offers
-the same list for the open design and shows the variant's own name and swatch
-(Chapter 9).
+**The Color control.** The Color control, a pill with a color dot that sits in the Stone tab
+(for a library row and while previewing another material), offers the same list and shows
+the variant's own name and swatch (Chapter 9). It is no longer in the Live Render toolbar.
 
 **Simple and Advanced.** The Simple interface (Chapter 17) leaves out the Stone tab's
 RI Override (which shows its own "Some advanced settings are in use" note when it holds
@@ -309,7 +312,7 @@ panel's header opens this section.
 
 **Export agrees with the on-screen figure.** Export Edited .asc, Save,
 and the cutting-sheet export all resolve the design's Material the
-same catalogue-aware way the Effective RI chip does -- so a custom
+same catalogue-aware way the RI chip does -- so a custom
 material's own refractive index reaches the exported `I` line and matches
 what you see on screen, with no separate "which RI did the export actually
 use" question.
@@ -334,7 +337,7 @@ recorded fact:
 > **Sapphire? (from RI 1.76)** — with a **Set Material** button next to it.
 
 You'll see this badge in three places, always the same wording: the Stone
-tab (under the Material combo), the inspector's Yield tab
+tab (under the Material combo), the inspector's Preform tab
 (next to the Eff. RI line), and the catalogue detail card for a design with
 no material name of its own. The printed cutting sheet's header shows the
 same guess text in its "Material" row for an unnamed design, so a printed
@@ -377,8 +380,8 @@ all to estimate against, shows a plain dash.
 
 The same color-coded bar appears live in the inspector's Tier tab, next
 to the Angle field itself, updating as you type -- so a pavilion angle you
-are about to save shows red, with its margin and a one-line reason,
-*before* you leave the field or click Save Tier.
+are about to apply shows red, with its margin and a one-line reason,
+*before* you leave the field or press Enter.
 
 ## Preview As...: Looking at Another Material
 
@@ -723,7 +726,7 @@ column is what you would watch either way:
    tier that turns red windows at the new RI.
 4. On the inspector's Tier tab (Chapter 4), select each red or amber
    pavilion tier in turn and edit its **Angle (deg)** field so the MARGIN
-   column reads green again, then **Save Tier**.
+   column reads green again, then press Enter.
 5. Click **Solve** (Chapter 5) and check the status strip still reads
    "Closed solid."
 6. The Live Render viewport already shows your

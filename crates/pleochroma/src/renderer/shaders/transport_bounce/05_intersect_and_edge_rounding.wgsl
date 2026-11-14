@@ -90,6 +90,12 @@ fn intersect_ray_tools(
 }
 
 fn intersect_ray(origin: vec3<f32>, dir: vec3<f32>) -> HitInfo {
+    return intersect_ray_via(origin, dir, true);
+}
+
+// `intersect_ray` reading the planes through `plane_at` (`via_shared`: the kernel filled
+// `planes_shared`) or straight from the `planes` binding. Both hold the same values.
+fn intersect_ray_via(origin: vec3<f32>, dir: vec3<f32>, via_shared: bool) -> HitInfo {
     var t_near: f32 = -1e30;
     var t_far: f32 = 1e30;
     var near_normal = vec3<f32>(0.0, 0.0, 0.0);
@@ -100,7 +106,12 @@ fn intersect_ray(origin: vec3<f32>, dir: vec3<f32>) -> HitInfo {
     // The real planes only: with tools, `planes` also holds their records.
     let num_planes = scene_plane_count();
     for (var i: u32 = 0u; i < num_planes; i = i + 1u) {
-        let p = plane_at(i, num_planes);
+        var p: FacetPlane;
+        if (via_shared) {
+            p = plane_at(i, num_planes);
+        } else {
+            p = planes[i];
+        }
         let n = p.normal;
         let denom = dot(n, dir);
         let side = p.d + dot(n, origin);
@@ -165,7 +176,9 @@ fn intersect_ray(origin: vec3<f32>, dir: vec3<f32>) -> HitInfo {
 // Exit-event split of one channel: optics::raytracer::refraction::try_split_exit_channel.
 // Reads the `planes` binding, `params` and `material`, so it stays in the megakernel rather
 // than the shared `transport_physics.wgsl` prelude. `split_radiance` is a pointer to the
-// caller's local array, like `stokes` and `path_pdf`.
+// caller's local array, like `stokes` and `path_pdf`. The re-entry probe reads the planes from
+// the binding, not `planes_shared`: `ew_split_resolve` keeps no shared copy, because the Adreno
+// 740 driver does not link it with one.
 
 fn try_split_exit_channel(
     split_radiance: ptr<function, array<f32, 8>>,
@@ -186,7 +199,7 @@ fn try_split_exit_channel(
     // Exit collection runs only for a stone without tools, on every engine, so a collected leaf
     // cannot re-enter the stone and skips the probe.
     if (!collect_on) {
-        let probe = intersect_ray(hit_point + dir_k * 1e-4, dir_k);
+        let probe = intersect_ray_via(hit_point + dir_k * 1e-4, dir_k, false);
         if (probe.hit) {
             // Bounded re-entry: decline to trace further (a pure energy-loss truncation).
             return;

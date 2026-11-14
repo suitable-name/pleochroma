@@ -1,16 +1,19 @@
 //! The Stone tab: its pages (settings, material picker, color picker, custom-material
 //! form), the picks, the effect sliders and the custom-material form.
 
+use std::cell::RefCell;
+
+use pleochroma_cut_core::MaterialSelection;
 use pleochroma_mobile_core::{
     app_state::AppState,
     design_props::{
         ColorRow, CustomMaterialInput, MaterialRow, add_custom_material, apply_axis_preset,
-        axis_preset_rows, body_color_names, color_rows, material_rows, select_material,
-        set_color_entry, set_crystal_axis, set_edge_rounding, set_frosted_girdle,
+        axis_preset_rows, body_color_names, body_color_swatch, color_rows, material_rows,
+        select_material, set_color_entry, set_crystal_axis, set_edge_rounding, set_frosted_girdle,
         set_inclusion_haze, set_second_axis, stone_view, use_material_axis,
     },
 };
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::{Pushed, bind0, bind1, finish, string_model, with_pushed};
 use crate::{AppWindow, MaterialItem, PropsModel, Shell, design::Shared, push::toast};
@@ -116,6 +119,19 @@ pub(super) fn push(props: &PropsModel, state: &AppState, pushed: &mut Pushed) {
     );
     props.set_material_title(view.material_title.as_str().into());
     props.set_material_detail(view.material_detail.as_str().into());
+    props.set_material_family(view.identity.family.as_str().into());
+    props.set_material_chips(string_model(
+        [
+            &view.identity.ri,
+            &view.identity.critical,
+            &view.identity.dispersion,
+            &view.identity.specific_gravity,
+        ]
+        .into_iter()
+        .filter(|chip| !chip.is_empty())
+        .cloned(),
+    ));
+    push_body_swatch(props, state);
     props.set_effective_ri(view.effective_ri_text.as_str().into());
     props.set_color_label(view.color_label.as_str().into());
     props.set_color_enabled(view.color_enabled);
@@ -162,6 +178,40 @@ pub(super) fn push(props: &PropsModel, state: &AppState, pushed: &mut Pushed) {
     pushed.stone = Some(view);
     push_axis_presets(props, state, pushed);
     push_pickers(props, state, pushed);
+}
+
+/// A cached body swatch: the selection it was worked out for, the custom-material count at that
+/// time, and the resulting face-up color (`None` when the color is unknown).
+type BodySwatchEntry = (MaterialSelection, usize, Option<[u8; 3]>);
+
+thread_local! {
+    /// The design's body-color selection and the swatch worked out for it. The swatch needs the
+    /// color picker's list (a spectrum per row), so it is rebuilt only when the selection moves.
+    static BODY_SWATCH: RefCell<Option<BodySwatchEntry>> = const { RefCell::new(None) };
+}
+
+/// Pushes the face-up color of the design's body color (the material card's swatch and the
+/// Body Color row's). Without a known color the swatch is transparent and
+/// `body-swatch-known` is false.
+fn push_body_swatch(props: &PropsModel, state: &AppState) {
+    let selection = &state.session.design.material;
+    let customs = state.props.custom_materials.len();
+    let rgb = BODY_SWATCH.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((key, count, rgb)) = cache.as_ref()
+            && key == selection
+            && *count == customs
+        {
+            return *rgb;
+        }
+        let rgb = body_color_swatch(state);
+        *cache = Some((selection.clone(), customs, rgb));
+        rgb
+    });
+    props.set_body_swatch_known(rgb.is_some());
+    props.set_body_swatch(rgb.map_or(Color::from_argb_u8(0, 0, 0, 0), |[r, g, b]| {
+        Color::from_rgb_u8(r, g, b)
+    }));
 }
 
 /// Builds the Crystal Axis preset buttons when the material they depend on changed: the

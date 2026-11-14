@@ -1,11 +1,24 @@
-// One 64 px row of the instruction list, and the section header above its first row.
+// One row of the instruction list, and the group header above its first row. Same visual
+// language as the Design tab's tier rows (`design/tiers/tier_row.slint`):
 //
-//   [code] [ 41.00° ] name                      [check]  [>]
-//                     96-08-16
+//   PAVILION                                       (a header where the group changes)
+//   ▌ P1     [ 41.00° ]  Pavilion Main            [check] [>]
+//     #1
+//     [96] [08] [16] [24] ...                       (the COMPLETE index list, wrapping)
 //
-// A done row is dimmed and carries a check. On a phone a tap opens Cutting Mode at the
-// row's step; on a wider window a tap selects the row (the diagram highlights its tier)
-// and the trailing arrow opens Cutting Mode.
+// - the stripe is the group's color, and the header names the group, so the group is never
+//   carried by color alone;
+// - the angle is cyan (amber is for warnings only);
+// - every index is a chip and every chip is shown: the chips wrap onto further lines, a list
+//   is never cut short or summarised;
+// - a done row recedes (secondary text, a check) without dimming its text below contrast;
+// - the trailing arrow (48 px, "Start Cutting at <code>") starts cutting at the row on every
+//   window class; on a phone a tap on the row does the same, on a wider window a tap selects
+//   the row (the diagram highlights its tier).
+//
+// The row's height is computed from its width (chips per line), not read back from a layout,
+// so wrapping never loops.
+import { PleoPalette } from "../../../../ui-shared/palette.slint";
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Icon } from "../shell/icon.slint";
@@ -13,23 +26,59 @@ import { IconButton } from "../shell/icon_button.slint";
 import { StateLayer } from "../shell/state_layer.slint";
 import { CutRowData } from "cut_model.slint";
 
+// The stripe and header color of a group (as the tier rows).
+global GroupStyle {
+    pure public function color(block: string) -> color {
+        return block == "Pavilion" ? PleoPalette.accent-purple : (block == "Crown" ? PleoPalette.primary : PleoPalette.text-secondary);
+    }
+}
+
 export component SectionHeader inherits Rectangle {
     in property <string> text;
 
-    height: 40px;
+    height: Theme.touch * 0.7 + Theme.space-xs;
     accessible-role: AccessibleRole.text;
     accessible-label: root.text;
 
+    Rectangle {
+        x: Theme.space-sm;
+        y: (parent.height - self.height) / 2 + Theme.space-xs;
+        width: 4px;
+        height: Theme.text-label-large;
+        border-radius: 2px;
+        background: GroupStyle.color(root.text);
+    }
+
     Text {
-        x: Theme.space-lg;
-        width: parent.width - 2 * Theme.space-lg;
-        height: parent.height;
+        x: Theme.space-sm + 4px + Theme.space-sm;
+        y: Theme.space-xs;
+        width: parent.width - self.x - Theme.space-lg;
+        height: parent.height - Theme.space-xs;
         text: root.text;
-        color: Theme.primary;
+        color: Theme.text-secondary;
         font-size: Theme.text-label-large;
-        font-weight: 600;
-        vertical-alignment: bottom;
+        font-weight: 700;
+        vertical-alignment: center;
         overflow: elide;
+    }
+}
+
+// One index position.
+component Chip inherits Rectangle {
+    in property <string> text;
+
+    border-radius: Theme.radius-sm;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.outline-variant;
+
+    Text {
+        text: root.text;
+        color: Theme.on-surface;
+        font-size: Theme.text-label;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
     }
 }
 
@@ -41,12 +90,30 @@ export component CutRowItem inherits Rectangle {
     callback tapped();
     callback open();
 
-    height: 64px;
-    background: root.selected ? Theme.secondary-container : transparent;
-    // A done row recedes.
-    opacity: root.data.done ? 0.6 : 1.0;
+    // The geometry. Left edge of the content: stripe, gap.
+    property <length> left: Theme.space-sm + 4px + Theme.space-sm;
+    property <length> code-width: Theme.base-font * 3.3;
+    property <length> angle-width: Theme.base-font * 6.6;
+    property <length> line-height: Theme.touch;
+    property <length> controls-width: 28px + Theme.touch + Theme.space-xs;
+    property <color> stripe: GroupStyle.color(root.data.section);
+    property <color> ink: root.data.done ? Theme.text-secondary : Theme.on-surface;
+
+    // Chips: equal width (the longest chip's), as many per line as fit.
+    property <length> chip-gap: Theme.space-xs + 2px;
+    property <length> chip-height: Theme.text-label + 14px;
+    property <length> chip-width: max(root.data.chip-chars, 2) * Theme.text-label * 0.62 + 16px;
+    property <length> chips-room: root.width - root.left - Theme.space-md;
+    property <int> chips-per-line: max(1, Math.floor((root.chips-room + root.chip-gap) / (root.chip-width + root.chip-gap)));
+    property <int> chip-lines: max(1, Math.ceil(root.data.index-chips.length * 1.0 / root.chips-per-line));
+    property <length> chips-top: Theme.space-sm + root.line-height + Theme.space-sm;
+    property <length> chips-height: root.chip-lines * root.chip-height + (root.chip-lines - 1) * root.chip-gap;
+    property <length> changed-height: root.data.changed ? Theme.text-label * 1.4 + Theme.space-xs : 0px;
+
+    height: root.chips-top + root.chips-height + root.changed-height + Theme.space-md;
+    background: root.selected ? Theme.accent-surface : transparent;
     accessible-role: AccessibleRole.button;
-    accessible-label: root.data.code + ", " + root.data.angle + ", " + root.data.index-text + ", " + root.data.name + (root.data.done ? ", done" : "");
+    accessible-label: root.data.code + ", " + root.data.angle + ", " + root.data.index-text + ", " + root.data.name + (root.data.done ? ", done" : "") + (root.data.changed ? ", changed since marked" : "");
     accessible-action-default => {
         root.tapped();
     }
@@ -62,86 +129,120 @@ export component CutRowItem inherits Rectangle {
         }
     }
 
-    HorizontalLayout {
-        padding-left: Theme.space-sm;
-        padding-right: Theme.space-xs;
-        spacing: Theme.space-sm;
+    // The group's stripe.
+    Rectangle {
+        x: Theme.space-sm;
+        y: Theme.space-sm;
+        width: 4px;
+        height: parent.height - 2 * Theme.space-sm;
+        border-radius: 2px;
+        background: root.stripe;
+    }
 
-        // The code.
-        Rectangle {
-            width: 44px;
+    // The code over the step number.
+    VerticalLayout {
+        x: root.left;
+        y: Theme.space-sm;
+        width: root.code-width;
+        height: root.line-height;
+        alignment: center;
+        spacing: 2px;
 
-            Text {
-                text: root.data.code;
-                color: Theme.on-surface-variant;
-                font-size: Theme.text-label-large;
-                font-weight: 700;
-                overflow: elide;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+        Text {
+            text: root.data.code;
+            color: root.ink;
+            font-size: Theme.text-body-large;
+            font-weight: 700;
+            overflow: elide;
         }
 
-        // The angle: the big number.
-        Rectangle {
-            width: 92px;
-
-            Rectangle {
-                height: 48px;
-                border-radius: Theme.radius-md;
-                background: Theme.surface-high;
-                border-width: 1px;
-                border-color: Theme.outline-variant;
-
-                Text {
-                    text: root.data.angle;
-                    color: Theme.primary;
-                    font-size: Theme.text-title-large;
-                    font-weight: 500;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
+        Text {
+            text: "#" + (root.data.step + 1);
+            color: Theme.text-secondary;
+            font-size: Theme.text-label;
         }
+    }
 
-        VerticalLayout {
-            alignment: center;
-            horizontal-stretch: 1;
+    // The angle: the big number.
+    Rectangle {
+        x: root.left + root.code-width + Theme.space-sm;
+        y: Theme.space-sm;
+        width: root.angle-width;
+        height: root.line-height;
+        border-radius: Theme.radius-md;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: root.selected ? Theme.accent : Theme.outline-variant;
 
-            Text {
-                text: root.data.name;
-                color: Theme.on-surface;
-                font-size: Theme.text-body-large;
-                overflow: elide;
-            }
-
-            Text {
-                text: root.data.changed ? root.data.index-text + "  \u{2022}  Changed since marked" : root.data.index-text;
-                color: root.data.changed ? Theme.error : Theme.on-surface-variant;
-                font-size: Theme.text-label;
-                overflow: elide;
-            }
+        Text {
+            text: root.data.angle;
+            color: root.data.done ? Theme.text-secondary : Theme.accent;
+            font-size: Theme.text-title-large;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
+    }
 
-        // The done check.
-        Rectangle {
-            width: 28px;
+    // The name, up to two lines.
+    Text {
+        x: root.left + root.code-width + Theme.space-sm + root.angle-width + Theme.space-sm;
+        y: Theme.space-sm;
+        width: root.width - self.x - root.controls-width;
+        height: root.line-height;
+        text: root.data.name;
+        color: root.ink;
+        font-size: Theme.text-body-large;
+        font-weight: 600;
+        wrap: word-wrap;
+        overflow: elide;
+        vertical-alignment: center;
+    }
 
-            if root.data.done: Icon {
-                source: Icons.check;
-                tint: Theme.primary;
-                glyph: 24px;
-            }
+    // The done check.
+    Rectangle {
+        x: root.width - Theme.space-xs - Theme.touch - 28px;
+        y: Theme.space-sm;
+        width: 28px;
+        height: root.line-height;
+
+        if root.data.done: Icon {
+            source: Icons.check;
+            tint: Theme.success;
+            glyph: 24px;
         }
+    }
 
-        if root.wide: IconButton {
-            icon: Icons.chevron-right;
-            label: "Start Cutting at " + root.data.code;
-            tint: Theme.on-surface;
-            clicked => {
-                root.open();
-            }
+    // Start cutting at this step.
+    IconButton {
+        x: root.width - Theme.space-xs - Theme.touch;
+        y: Theme.space-sm;
+        icon: Icons.chevron-right;
+        label: "Start Cutting at " + root.data.code;
+        tint: Theme.on-surface;
+        clicked => {
+            root.open();
         }
+    }
+
+    // Every index of the step, wrapping.
+    for chip[i] in root.data.index-chips: Chip {
+        x: root.left + Math.mod(i, root.chips-per-line) * (root.chip-width + root.chip-gap);
+        y: root.chips-top + Math.floor(i * 1.0 / root.chips-per-line) * (root.chip-height + root.chip-gap);
+        width: root.chip-width;
+        height: root.chip-height;
+        text: chip;
+    }
+
+    if root.data.changed: Text {
+        x: root.left;
+        y: root.chips-top + root.chips-height + Theme.space-xs;
+        width: root.width - root.left - Theme.space-md;
+        text: "Changed since marked";
+        color: Theme.error;
+        font-size: Theme.text-label;
+        font-weight: 600;
+        overflow: elide;
     }
 
     Rectangle {

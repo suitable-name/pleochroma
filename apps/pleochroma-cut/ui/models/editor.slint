@@ -105,6 +105,11 @@ export global EditorModel {
     // suggestion: load the tier's own kind.
     in-out property <int> suggested_constraint_kind: -1;
 
+    // --- R3B ---
+    // Set by the tier list's "Add Tier" menu (Girdle Facet Preset); the Tier form fills in a girdle
+    // facet (90 degrees, exact scale value 1) when it sees it, then clears it.
+    in-out property <bool> girdle_preset_pending: false;
+
     // One-time explainer card shown when a design's solve first fails with
     // `MissingAnchor`. The dismiss callback argument is the "Don't show again"
     // checkbox state, which persists the suppression via `AppSettings`.
@@ -158,6 +163,13 @@ export global EditorModel {
     // the "Eff. RI" chip.
     in property <string> ri_source_text: "";
     in property <string> critical_angle_text: "";
+    // --- R2S ---
+    // The Stone tab's identity card: the material's crystal family ("Trigonal · uniaxial (-) ·
+    // built-in") and its dispersion n_F - n_C ("0.018"). Both "" while the design names no known
+    // material (`gui::editor::view::inspector::material_identity`).
+    in property <string> material_family_text: "";
+    in property <string> material_dispersion_text: "";
+    // --- end R2S ---
     // The design's color combo: "Material Default" (the material's own color), the material's
     // color variants, the nine generic presets (only for a material that looks the same in every
     // direction), then the last entry "Custom..." (the color editor). A keyed list pushed from
@@ -170,6 +182,10 @@ export global EditorModel {
     // (for a stone with two or three colors the color of each direction). Parallel to
     // `body_color_options`; the Stone tab shows the selected row's.
     in property <[color]> body_color_swatches: [];
+    // The second half of each row's tile: the color across the crystal axis of a pleochroic entry,
+    // else the same color as `body_color_swatches`. Parallel to it; a tile with no entry here
+    // (a list not pushed yet) shows one color.
+    in property <[color]> body_color_swatches_across: [];
     in property <[string]> body_color_tips: [];
     // The design keeps a single legacy color on a material whose own color depends on the
     // direction (an old file): it renders as saved, and the Stone tab says so and offers Convert.

@@ -96,7 +96,9 @@ fn frame_geometry(cached: &CachedMesh, camera: CameraPose, size: (u32, u32)) -> 
 
 /// The raster camera shared by the solid image, pick buffer and combined edges.
 fn camera_for_pose(pose: CameraPose) -> Camera {
-    Camera::new(pose.yaw, pose.pitch, pose.distance, DEFAULT_FOV_DEG).with_roll(pose.roll)
+    Camera::new(pose.yaw, pose.pitch, pose.distance, DEFAULT_FOV_DEG)
+        .with_roll(pose.roll)
+        .with_pan(pose.pan)
 }
 
 /// View mode 3's diagram-building step: the diagram (three-panel, or the enlarged

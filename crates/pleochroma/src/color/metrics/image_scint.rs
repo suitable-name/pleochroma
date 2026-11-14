@@ -17,6 +17,7 @@ use super::{
     },
 };
 use crate::optics::raytracer::{Camera, DEFAULT_FOV_DEG};
+use glam::Vec3;
 
 /// Number of yaw poses of the temporal term (the grid's own offsets).
 const POSES: u8 = 5;
@@ -26,23 +27,58 @@ const BASE_POSE: usize = 2;
 /// picture into tiles traces this many extra rows on each side of a tile.
 pub const SCINTILLATION_WINDOW_RADIUS: usize = 2;
 
-/// The five offset cameras of the temporal term for the orbit pose `[yaw, pitch, distance]`.
+/// The five offset cameras of the temporal term for the request `camera`, whose orbit pose
+/// is `[yaw, pitch, distance]`.
 ///
-/// Each one is `Camera::new(yaw + offset, pitch, distance, ..)` with the very yaw
-/// expression the grid's `TemporalPoseContext` uses, so pose `i` of the image domain is pose
-/// `i` of the grid. The field of view is the request camera's own (`fov_tan`), so the base
+/// A camera that is exactly the pose's orbit camera gets `Camera::new(yaw + offset, pitch,
+/// distance, ..)`, the very yaw expression the grid's `TemporalPoseContext` uses, so pose `i`
+/// of the image domain is pose `i` of the grid. A rolled or panned camera is turned about the
+/// vertical axis instead ([`turned_about_vertical`]), so every offset pose keeps the map's
+/// roll and framing. Either way the field of view is the request camera's own, and the base
 /// pose reproduces the map's rays exactly.
-pub(super) fn temporal_cameras(pose: [f32; 3], fov_tan: f32) -> [Camera; 5] {
+pub(super) fn temporal_cameras(pose: [f32; 3], camera: &Camera) -> [Camera; 5] {
+    let orbit = Camera::new(pose[0], pose[1], pose[2], DEFAULT_FOV_DEG);
+    let plain =
+        camera.origin == orbit.origin && camera.right == orbit.right && camera.up == orbit.up;
     SCINT_TEMPORAL_YAW_OFFSETS_DEG.map(|offset_deg| {
-        let mut camera = Camera::new(
-            pose[0] + offset_deg.to_radians(),
-            pose[1],
-            pose[2],
-            DEFAULT_FOV_DEG,
-        );
-        camera.fov_tan = fov_tan;
-        camera
+        let mut offset = if plain {
+            Camera::new(
+                pose[0] + offset_deg.to_radians(),
+                pose[1],
+                pose[2],
+                DEFAULT_FOV_DEG,
+            )
+        } else {
+            turned_about_vertical(camera, offset_deg.to_radians())
+        };
+        offset.fov_tan = camera.fov_tan;
+        offset
     })
+}
+
+/// `camera` turned by `angle` radians about the vertical axis through the orbit centre, as a
+/// yaw step turns an orbit camera: eye and basis together, so its roll and pan come along. A
+/// zero angle returns the camera unchanged.
+fn turned_about_vertical(camera: &Camera, angle: f32) -> Camera {
+    let (sin, cos) = angle.sin_cos();
+    let turn = |v: Vec3| {
+        if angle == 0.0 {
+            v
+        } else {
+            Vec3::new(
+                v.x.mul_add(cos, v.z * sin),
+                v.y,
+                v.z.mul_add(cos, -(v.x * sin)),
+            )
+        }
+    };
+    Camera {
+        origin: turn(camera.origin),
+        forward: turn(camera.forward),
+        right: turn(camera.right),
+        up: turn(camera.up),
+        fov_tan: camera.fov_tan,
+    }
 }
 
 /// Everything the temporal term reads that is the same for every pixel of one evaluation.
@@ -81,7 +117,7 @@ impl<'a> TemporalSampler<'a> {
                 lighting: &prepared.lighting,
                 want_fire: false,
             },
-            cameras: temporal_cameras(pose, c.fov_tan),
+            cameras: temporal_cameras(pose, c),
             projection,
             origin,
             scale,

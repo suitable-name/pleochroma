@@ -1,0 +1,272 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon, KitIcons } from "icons.slint";
+import { KitInlineSlider, KitSwitchRow } from "panel.slint";
+
+// Parts of the Parameters panel's Stone tab, built on the kit: a one-line slider and a switch row
+// that carry a tooltip, a text chip (and a clickable one), a menu entry and a color tile.
+
+// A `KitInlineSlider` with a tooltip over the whole row. `label` is the slider's accessible name.
+export component StoneSlider inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value_text;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <bool> enabled: true;
+    in property <string> note;
+    in-out property <float> value <=> inner.value;
+    callback moved(float);
+
+    height: 30px;
+    inner := KitInlineSlider {
+        label: root.label;
+        value_text: root.value_text;
+        minimum: root.minimum;
+        maximum: root.maximum;
+        step: root.step;
+        enabled: root.enabled;
+        note: root.note;
+        moved(v) => { root.moved(v); }
+    }
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+}
+
+// A `KitSwitchRow` with a tooltip over the whole row.
+export component StoneSwitchRow inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <string> reason;
+    callback toggled();
+
+    height: 30px;
+    KitSwitchRow {
+        label: root.label;
+        on: root.on;
+        enabled: root.enabled;
+        reason: root.reason;
+        toggled => { root.toggled(); }
+    }
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+}
+
+// A read-only outlined chip: "RI 1.7620", "View only". `label` is the accessible name (the text
+// when empty).
+export component StoneChip inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <string> hint;
+    in property <color> ink: Theme.text-secondary;
+    in property <color> fill: Theme.bg-input;
+
+    height: 24px;
+    width: chip_text.preferred-width + 20px;
+    border-radius: 12px;
+    background: root.fill;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    chip_text := Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: root.ink;
+        vertical-alignment: center;
+    }
+}
+
+// A chip that is a button: it looks like `StoneChip` and opens something.
+export component StoneChipButton inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 24px;
+    width: chip_text.preferred-width + 20px;
+    border-radius: 12px;
+    background: root.active || chip_touch.has-hover ? Theme.accent-cyan-surface : Theme.bg-input;
+    border-width: chip_fs.has-focus ? 2px : 1px;
+    border-color: chip_fs.has-focus ? Theme.accent-cyan-hover : (root.active ? Theme.accent-cyan : Theme.border-subtle);
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-action-default => { root.clicked(); }
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    chip_fs := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    chip_text := Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: root.active || chip_touch.has-hover ? Theme.accent-cyan : Theme.text-secondary;
+        vertical-alignment: center;
+    }
+    chip_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One entry of a small inline menu, drawn under the control that opened it.
+export component StoneMenuItem inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> on: false;
+    callback clicked();
+
+    height: 28px;
+    border-radius: 6px;
+    background: root.enabled && item_touch.has-hover ? Theme.bg-card-hover : (root.on ? Theme.accent-cyan-surface : transparent);
+    border-width: item_fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    item_fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        color: !root.enabled ? Theme.text-disabled : (root.on ? Theme.accent-cyan : Theme.text-primary);
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    item_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One body color: a swatch tile with its name under it. `custom` draws a plus instead of a swatch
+// (the entry that opens the color editor). `label` is the accessible name (the text when empty).
+export component StoneColorTile inherits Rectangle {
+    in property <color> swatch;
+    // The second color of a split tile (the color across the crystal axis), drawn when `split`.
+    in property <color> swatch2;
+    in property <bool> split: false;
+    in property <string> text;
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> on: false;
+    in property <bool> custom: false;
+    in property <bool> enabled: true;
+    callback picked();
+
+    horizontal-stretch: 1;
+    // Tiles in a row share its width whatever their names are.
+    preferred-width: 0px;
+    min-width: 0px;
+    height: 62px;
+    opacity: root.enabled ? 1.0 : 0.5;
+    accessible-role: AccessibleRole.radio-button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    tile_fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    VerticalLayout {
+        spacing: 4px;
+        Rectangle {
+            height: 42px;
+            border-radius: 10px;
+            background: root.custom || !root.enabled || tile_touch.has-hover ? Theme.bg-input : transparent;
+            border-width: root.on || tile_fs.has-focus ? 2px : 1px;
+            border-color: tile_fs.has-focus ? Theme.accent-cyan-hover : (root.on ? Theme.accent-cyan : Theme.border-medium);
+            if !root.custom: Rectangle {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                height: parent.height - 8px;
+                border-radius: 7px;
+                background: Theme.swatch-empty;
+                clip: true;
+                Rectangle { border-radius: 7px; background: root.swatch; }
+                // A pleochroic entry: the color across the axis fills the lower right half.
+                if root.split: Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-width: 10;
+                    viewbox-height: 10;
+                    commands: "M10 0 L10 10 L0 10 Z";
+                    fill: root.swatch2;
+                    stroke-width: 0px;
+                }
+                Rectangle { border-radius: 7px; border-width: 1px; border-color: Theme.chip-edge; }
+            }
+            if root.custom: KitIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                d: KitIcons.plus;
+                size: 18px;
+                ink: Theme.text-secondary;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: root.on ? 600 : 500;
+            color: root.on ? Theme.text-primary : Theme.text-muted;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+    tile_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}

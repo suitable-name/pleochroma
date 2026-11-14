@@ -1,6 +1,7 @@
 import { ScrollView, Slider } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { SettingLabel } from "../settings_dialog/setting_label.slint";
+import { KitIcon } from "../kit/kit.slint";
 
 // A tab's scroll area with a soft fade at each edge that has more content beyond it, so a control
 // cut by the edge reads as scrolled rather than broken. The fades draw over the content and take
@@ -104,6 +105,8 @@ export component FooterButton inherits Rectangle {
 export component TextLink inherits Rectangle {
     in property <string> text;
     in property <string> hint;
+    in property <length> size: 10px;
+    in property <color> ink: Theme.text-muted;
     callback clicked();
 
     width: link_text.preferred-width + 4px;
@@ -133,14 +136,86 @@ export component TextLink inherits Rectangle {
         x: 2px;
         y: 2px;
         text: root.text;
-        font-size: 10px;
-        color: link_touch.has-hover ? Theme.accent-cyan : Theme.text-muted;
+        font-size: root.size;
+        color: link_touch.has-hover ? Theme.accent-cyan : root.ink;
         vertical-alignment: center;
     }
 
     link_touch := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
+    }
+}
+
+// A quiet link with an optional icon (`icon` is a `KitIcons` path): the panel footer's "Reset This
+// Tab". Tab reaches it, Space or Enter presses it.
+export component QuietLink inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <string> icon;
+    callback clicked();
+
+    width: quiet_row.preferred-width;
+    height: 24px;
+    border-radius: 6px;
+    background: quiet_touch.has-hover ? Theme.bg-card-hover : transparent;
+    border-width: quiet_focus.has-focus ? 1px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-action-default => { root.clicked(); }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    quiet_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    quiet_row := HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 8px;
+        spacing: 6px;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 13px; ink: Theme.text-muted; }
+        }
+        Text {
+            text: root.text;
+            font-size: 11px;
+            color: quiet_touch.has-hover ? Theme.text-primary : Theme.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    quiet_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The tooltip of one tab of the panel's segment bar, laid over the bar (it draws nothing).
+export component TabHint inherits Rectangle {
+    in property <string> hint;
+    horizontal-stretch: 1;
+    Tooltip { text: @markdown("\{root.hint}"); }
+}
+
+// The cyan outline a tutorial step puts round a tab of the segment bar.
+export component TabRing inherits Rectangle {
+    in property <bool> highlighted: false;
+    horizontal-stretch: 1;
+    if root.highlighted: Rectangle {
+        border-width: 2px;
+        border-color: Theme.accent-cyan;
+        border-radius: 7px;
     }
 }
 

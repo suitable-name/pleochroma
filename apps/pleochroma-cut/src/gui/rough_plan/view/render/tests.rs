@@ -38,6 +38,7 @@ fn request(scene: &Arc<Scene>, options: RenderOptions) -> RenderRequest {
         scene: Arc::clone(scene),
         pose: CameraPose {
             roll: 0.0,
+            pan: [0.0, 0.0],
             yaw: 0.6,
             pitch: 0.45,
             distance: 3.0,

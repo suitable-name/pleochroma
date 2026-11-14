@@ -13,12 +13,19 @@ use crate::{
     EditorModel, LibraryModel, LightingPresetItem, MainWindow, RemoteWorkerModel, SettingsModel,
     SolidPreviewModel, ViewportModel,
     bridge::render_thread::{RenderContext, load_env_map, resolve_material},
-    gui::{remote::live_compute_target_index, render::sample_scale::count_to_exponent, show_toast},
+    gui::{
+        optics::offered_lighting::{
+            offered_from_label, rig_blurb, rig_group, rig_kind, rig_short_name,
+        },
+        remote::live_compute_target_index,
+        render::sample_scale::count_to_exponent,
+        show_toast,
+    },
     settings::{
         LightingPreset as SavedLightingPreset, LocalComputeTarget, LocalPreviewScale, SettingsFile,
         model::{
-            EXPOSURE_RANGE, PITCH_RANGE_RAD, clamp_head_shadow_deg, clamp_surface_glare,
-            percent_from_surface_glare,
+            EXPOSURE_RANGE, LightingValues, PITCH_RANGE_RAD, clamp_head_shadow_deg,
+            clamp_surface_glare, percent_from_surface_glare,
         },
     },
 };
@@ -138,8 +145,11 @@ pub(super) fn apply_loaded_settings(
     } else {
         match load_env_map(&s.env_map_path) {
             Ok(map) => {
+                let status = env_map_status_text(&map, &s.env_map_path);
+                ui.global::<ViewportModel>()
+                    .set_env_map_name(env_map_name_from_status(&status).into());
                 ui.global::<SettingsModel>()
-                    .set_env_map_status(env_map_status_text(&map, &s.env_map_path).into());
+                    .set_env_map_status(status.into());
                 ui.global::<SettingsModel>().set_env_map_loaded(true);
                 RenderContext::lock(render_ctx).env_map = Some(map);
             }
@@ -191,6 +201,8 @@ fn apply_loaded_render_context(
     ctx.yaw = s.camera_yaw;
     ctx.pitch = crate::gui::render::camera_lighting::wrap_pitch(s.camera_pitch);
     ctx.camera_roll = crate::gui::render::camera_lighting::wrap_pitch(s.camera_roll);
+    // Limited to what a renderer accepts; a damaged component centres the stone on that axis.
+    ctx.camera_pan = crate::settings::model::clamp_camera_pan(s.camera_pan);
     // Clamped with the live orbit camera's bounds. This runs once at startup, before any
     // design has changed the live bounding radius, so the default radius is the live value.
     let (min_distance, max_distance) = crate::gui::render::camera_lighting::orbit_distance_bounds(
@@ -267,6 +279,8 @@ fn apply_loaded_ui_mirrors(
         .set_preview_spp_val(s.preview_spp as f32);
     ui.global::<SettingsModel>()
         .set_bounce_index(bounces_index(s.max_bounces));
+    ui.global::<SettingsModel>()
+        .set_quality_preset_index(s.quality_preset_shown().index());
     // Clamped identically to `apply_loaded_render_context`'s own write into
     // `RenderContext` (same bounds the live handlers use) -- so a hand-edited or
     // stale out-of-range value shows the slider at the value ACTUALLY being traced,
@@ -356,6 +370,14 @@ fn apply_loaded_ui_mirrors(
                 .map(|preset| preset.model() == LightingModel::Studio)
                 .collect::<Vec<bool>>(),
         )));
+    // The rig picture kind, group, short name and blurb of every combo entry (parallel to
+    // `LightingPreset::ALL`): the viewport's rig menu and the Lighting tab's rig card and gallery.
+    push_lighting_rig_tables(ui);
+    // The two viewport hints the cutter has dealt with (shown once; never reset by a tab reset).
+    ui.global::<ViewportModel>()
+        .set_gestures_seen(s.gestures_seen);
+    ui.global::<ViewportModel>()
+        .set_figures_folded(s.figures_folded);
     // File > Open Recent (`MainWindow.recent_native_files`, a root property of `ui/app.slint`).
     // `gui::editor::native_io` keeps it current on every Save and Open through the same
     // `SettingsPersister` snapshot seeded from `s`, so the list on screen matches the list
@@ -454,6 +476,7 @@ pub(in crate::gui) fn apply_render_output_settings(
     crate::bridge::preview_render::set_thumbnail_backdrop_index(s.thumbnail_backdrop.index());
     settings.set_preview_spp_val(s.preview_spp as f32);
     settings.set_bounce_index(bounces_index(s.max_bounces));
+    settings.set_quality_preset_index(s.quality_preset_shown().index());
     settings.set_local_preview_scale_index(local_preview_scale_index(s.local_preview_scale));
     settings.set_live_compute_target_index(live_compute_target_index(s.live_compute_target));
     settings.set_local_compute_target_index(local_compute_target_index(s.local_compute_target));
@@ -466,6 +489,20 @@ pub(in crate::gui) fn apply_render_output_settings(
         &s.output.clone().sanitised(),
         s.tilt_video_compute_target,
     );
+}
+
+/// Pushes the live-view quality of `s` into the Render tab's controls: the Target Samples slider,
+/// the resolution and bounce lists, and the preset tile. Used after a preset is picked; the render
+/// context is the caller's.
+pub(in crate::gui) fn push_quality_controls(
+    ui: &MainWindow,
+    s: &crate::settings::model::AppSettings,
+) {
+    let settings = ui.global::<SettingsModel>();
+    settings.set_target_samples_exponent(count_to_exponent(s.target_samples) as f32);
+    settings.set_resolution_index(resolution_index(s.render_width, s.render_height));
+    settings.set_bounce_index(bounces_index(s.max_bounces));
+    settings.set_quality_preset_index(s.quality_preset_shown().index());
 }
 
 /// Index of the "Render Resolution" pill (640x480, 800x600, 1280x720, 1920x1080 at indices
@@ -564,8 +601,93 @@ pub(in crate::gui) fn refresh_lighting_preset_options(
             selected: false,
         })
         .collect();
-    ui.global::<ViewportModel>()
-        .set_lighting_presets(ModelRc::new(VecModel::from(items)));
+    let kinds: Vec<i32> = presets
+        .iter()
+        .map(|p| rig_kind(offered_from_label(&p.lighting_rig)))
+        .collect();
+    let design_index = crate::gui::render::design_lighting::design_values()
+        .map_or(-1, |values| design_preset_index(presets, &values));
+    let viewport = ui.global::<ViewportModel>();
+    viewport.set_lighting_presets(ModelRc::new(VecModel::from(items)));
+    viewport.set_lighting_preset_kinds(ModelRc::new(VecModel::from(kinds)));
+    viewport.set_design_lighting_preset(design_index);
+}
+
+/// Index into `presets` of the first saved lighting whose lighting fields equal `design`'s (the
+/// camera pose and the export flag are not compared), or -1 when none does or no design lighting
+/// is remembered. Feeds `ViewportModel.design_lighting_preset`.
+#[must_use]
+pub(in crate::gui) fn design_preset_index(
+    presets: &[SavedLightingPreset],
+    design: &LightingValues,
+) -> i32 {
+    presets
+        .iter()
+        .position(|p| same_lighting(design, &p.values()))
+        .and_then(|i| i32::try_from(i).ok())
+        .unwrap_or(-1)
+}
+
+/// Whether `a` and `b` set the same light: every lighting field equal (floats within a
+/// thousandth), the camera pose ignored.
+fn same_lighting(a: &LightingValues, b: &LightingValues) -> bool {
+    let close = |x: f32, y: f32| (x - y).abs() <= 1e-3;
+    a.lighting_rig == b.lighting_rig
+        && close(a.light_yaw_deg, b.light_yaw_deg)
+        && close(a.light_pitch_deg, b.light_pitch_deg)
+        && close(a.exposure, b.exposure)
+        && close(a.surface_glare, b.surface_glare)
+        && a.backdrop == b.backdrop
+        && close(a.head_shadow_deg, b.head_shadow_deg)
+        && a.stone_shadow == b.stone_shadow
+        && close(a.tray_reflection, b.tray_reflection)
+        && a.env_map_path == b.env_map_path
+        && close(a.env_map_yaw_deg, b.env_map_yaw_deg)
+        && a.env_map_follows_camera == b.env_map_follows_camera
+}
+
+/// Fills the four rig tables of `ViewportModel` (kind, group, short name, blurb), one entry per
+/// `LightingPreset::ALL`, in the same order as `lighting_options`.
+fn push_lighting_rig_tables(ui: &MainWindow) {
+    let viewport = ui.global::<ViewportModel>();
+    viewport.set_lighting_kinds(ModelRc::new(VecModel::from(
+        LightingPreset::ALL
+            .iter()
+            .map(|p| rig_kind(*p))
+            .collect::<Vec<i32>>(),
+    )));
+    viewport.set_lighting_groups(ModelRc::new(VecModel::from(
+        LightingPreset::ALL
+            .iter()
+            .map(|p| rig_group(*p))
+            .collect::<Vec<i32>>(),
+    )));
+    viewport.set_lighting_short_names(ModelRc::new(VecModel::from(
+        LightingPreset::ALL
+            .iter()
+            .map(|p| SharedString::from(rig_short_name(*p)))
+            .collect::<Vec<_>>(),
+    )));
+    viewport.set_lighting_blurbs(ModelRc::new(VecModel::from(
+        LightingPreset::ALL
+            .iter()
+            .map(|p| SharedString::from(rig_blurb(*p)))
+            .collect::<Vec<_>>(),
+    )));
+}
+
+/// The file name an HDR map's status line names ("Loaded: sky.hdr (4096x2048)" gives "sky.hdr"),
+/// or "" when no map is loaded. [`env_map_status_text`] writes the line; this is its inverse, so
+/// one `SettingsModel.env_map_status` handler covers every place that loads or clears a map.
+#[must_use]
+pub(in crate::gui) fn env_map_name_from_status(status: &str) -> String {
+    let Some(rest) = status.strip_prefix("Loaded: ") else {
+        return String::new();
+    };
+    // The size is the last parenthesis; a file name may hold parentheses of its own.
+    rest.rfind(" (")
+        .map_or(rest, |cut| &rest[..cut])
+        .to_string()
 }
 
 /// Inverse of `export_dialog.slint`'s colour space pill selector (sRGB, Display P3,
@@ -585,6 +707,33 @@ pub(in crate::gui) const fn color_space_from_index(index: i32) -> ColorSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_env_map_name_is_read_back_from_the_status_line() {
+        assert_eq!(
+            env_map_name_from_status("Loaded: sky.hdr (4096\u{d7}2048)"),
+            "sky.hdr"
+        );
+        assert_eq!(
+            env_map_name_from_status("Loaded: studio (v2).hdr (64\u{d7}32)"),
+            "studio (v2).hdr"
+        );
+        assert_eq!(env_map_name_from_status(""), "");
+        assert_eq!(env_map_name_from_status("something else"), "");
+    }
+
+    #[test]
+    fn the_design_preset_is_the_saved_lighting_with_equal_lighting_fields() {
+        let design = LightingValues::default();
+        let mut moved = design.clone();
+        moved.light_yaw_deg += 20.0;
+        let mut with_camera = design.clone();
+        with_camera.camera_yaw = Some(0.5);
+        with_camera.camera_pitch = Some(0.2);
+        assert!(same_lighting(&design, &with_camera));
+        assert!(!same_lighting(&design, &moved));
+        assert_eq!(design_preset_index(&[], &design), -1);
+    }
 
     #[test]
     fn bounces_index_round_trips_all_six_pill_values() {

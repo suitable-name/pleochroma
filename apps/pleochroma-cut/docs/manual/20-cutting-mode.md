@@ -8,7 +8,7 @@ from the lap: the tier, the angle, the indices to cut and what the stone looks l
 afterwards. You tick off what you have cut, and the program remembers where you got to,
 so you can stop for the day and come back to the same step.
 
-The cutting sheet of Chapter 11 and the Schedule tab of Chapter 3 hold the same
+The cutting sheet of Chapter 11 and the Cutting Instructions page of Chapter 3 hold the same
 numbers in one long list. Cutting mode is for the moment you are actually cutting and
 want one step at a time, the next one always in front of you.
 
@@ -43,9 +43,12 @@ locked.
 On a desktop window (1100 pixels wide or more) the page has a header, a body in two
 columns and a bar of buttons at the bottom. The header holds the design's name, the
 **Done** badge of a finished step, the help button and **Close**. Under it runs the
-**step strip**: the progress line ("4 of 12 steps done") and one small segment for each
-step, green when done, amber when changed since it was marked, grey when still to cut;
-the current step is outlined in cyan. Click a segment to jump to that step.
+**step strip**: the progress line ("4 of 12 steps done") and one named cell for each
+step (windowed to the steps around the current one when a design has more than 20),
+green when done, amber when changed since it was marked, grey when still to cut;
+the current step is outlined in cyan, and each cell carries a color stripe for the
+stage it belongs to (pavilion, girdle or crown). Click a cell to jump to that step.
+A **Cut To** card and a **Next preview** show where the stone stands and what comes next.
 
 ![Cutting Mode on the third step of a design.](../../../../assets/cutting_mode.png)
 
@@ -99,7 +102,8 @@ height; the index wheel stands beside it (below it in a narrower window):
   divisions only, so a gear with many teeth stays readable. In a small wheel
   the scale numbers thin out; the marked indices are always numbered.
 
-At the bottom are **Previous**, **Mark Step Done** and **Next** grouped in the middle,
+At the bottom are **Previous**, **Mark Step Done** (it reads like "P3 Done · Next",
+because it also goes on) and **Next** grouped in the middle,
 **Reset Progress** at the right, and the key reminder under them.
 
 In a window narrower than 1100 pixels the blocks are stacked in one column that
@@ -120,8 +124,9 @@ When you leave cutting mode the editor's viewport gets its own size back.
 Previous and Next only look. They do not mark anything, and you can go back to any
 step to read it again. The keys are also listed in Appendix B.
 
-The **Mark Step Done** button marks the step and stays on its page; press it again
-(it then reads **Mark Not Done**) to take the mark back. Space and D are for the
+The **Mark Step Done** button marks the step and goes on to the next one (it keeps its
+name "Mark Step Done" for screen readers); on a step that is already done it reads
+**Mark Not Done** and takes the mark back. Space and D do the same for the
 rhythm of cutting: they mark the step done and go on to the next one in one press. On
 a step that is already done they just go on, and they never take a mark back. On the
 last step they mark it and stay, because there is no step after it; the progress line

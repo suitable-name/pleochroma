@@ -1,126 +1,56 @@
-import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { SettingsModel } from "../../models/settings.slint";
-import { EditorModel } from "../../models/editor.slint";
-import { SettingLabel } from "setting_label.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { KitButton, KitIcons, KitIconButton, KitLabelRow } from "../kit/kit.slint";
 
-// One of the three buttons under the environment map's path field. `kind` 0 is a plain button,
-// 1 the main one (the dialog's cyan). Tab reaches it, Space or Enter presses it.
-component MapButton inherits Rectangle {
-    in property <string> text;
-    in property <string> hint;
-    in property <int> kind: 0;
-    in property <bool> enabled: true;
-    callback clicked();
-
-    height: 26px;
-    border-radius: Theme.radius-sm;
-    opacity: root.enabled ? 1.0 : 0.45;
-    background: root.kind == 1
-        ? (map_touch.has-hover && root.enabled ? Theme.accent-cyan-hover : Theme.accent-cyan)
-        : (map_touch.has-hover && root.enabled ? Theme.surface-raised : Theme.surface-sunken);
-    border-width: map_focus.has-focus ? 2px : (root.kind == 1 ? 0px : 1px);
-    border-color: map_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-dialog;
-
-    accessible-role: AccessibleRole.button;
-    accessible-label: root.text;
-    accessible-description: root.hint;
-    accessible-enabled: root.enabled;
-    accessible-action-default => {
-        if root.enabled {
-            root.clicked();
-        }
-    }
-
-    Tooltip { text: @markdown("\{root.hint}"); }
-
-    map_focus := FocusScope {
-        enabled: root.enabled;
-        key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return {
-                root.clicked();
-                return accept;
-            }
-            return reject;
-        }
-    }
-
-    Text {
-        text: root.text;
-        font-size: 11px;
-        font-weight: root.kind == 1 ? 700 : 600;
-        color: root.kind == 1 ? Theme.text-on-accent : Theme.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    map_touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
-        clicked => { root.clicked(); }
-    }
-}
-
-// Environment Map (HDR): loads a Radiance .hdr equirectangular panorama as the render's
-// environment in place of the analytic lighting rig (the rig list and the light direction in
-// the Lighting tab are superseded while a map is loaded; the exposure still scales the map).
+// The HDR map row of the Lighting tab's Surroundings: the file name ("None" without a map), a
+// "Choose..." button that opens the file picker and loads the pick in one step, and a clear button
+// while a map is loaded. A Radiance .hdr panorama lights the stone instead of the lighting rig
+// (the rig and the light direction are superseded; exposure still scales the map, and the Map
+// Rotation dial turns it). `SettingsModel.env_map_status` shows the loader's remark under the row.
 export component EnvironmentMapSection inherits VerticalLayout {
     spacing: 4px;
-    SettingLabel {
-        text: "HDR Environment Map";
-        hint: "HDR environment map: a Radiance .hdr panorama that lights the stone instead of the lighting rig. Very large maps fall back to the processor, which is slower.";
-    }
 
-    LineEdit {
-        placeholder-text: "C:\\path\\to\\studio.hdr";
-        accessible-label: "Environment Map File Path";
-        text <=> SettingsModel.env_map_path;
-        changed has-focus => { EditorModel.text_focus = self.has-focus; }
-        accepted => { SettingsModel.load_env_map(SettingsModel.env_map_path); }
-    }
-
-    HorizontalLayout {
-        spacing: 6px;
-
-        MapButton {
-            width: 76px;
-            text: "Browse...";
-            hint: "Pick a Radiance .hdr file on this computer.";
-            clicked => { SettingsModel.pick_hdr_file(SettingsModel.env_map_path); }
-        }
-
-        MapButton {
+    KitLabelRow {
+        label: "HDR map";
+        Text {
             horizontal-stretch: 1;
-            kind: 1;
-            text: "Load";
-            hint: SettingsModel.env_map_path != ""
-                ? "Load the file named above as the lighting."
-                : "Type or pick a file path first.";
-            enabled: SettingsModel.env_map_path != "";
-            clicked => { SettingsModel.load_env_map(SettingsModel.env_map_path); }
+            min-width: 0px;
+            text: SettingsModel.env_map_loaded
+                ? (ViewportModel.env_map_name != "" ? ViewportModel.env_map_name : "Loaded")
+                : "None";
+            font-size: 12px;
+            color: SettingsModel.env_map_loaded ? Theme.text-primary : Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "HDR Environment Map " + (SettingsModel.env_map_loaded ? ViewportModel.env_map_name : "None");
         }
-
-        if SettingsModel.env_map_loaded: MapButton {
-            width: 60px;
-            text: "Clear";
-            hint: "Unload the environment map and go back to the studio lights.";
-            clicked => { SettingsModel.clear_env_map(); }
+        if SettingsModel.env_map_loaded: VerticalLayout {
+            alignment: center;
+            KitIconButton {
+                d: KitIcons.close;
+                size: 28px;
+                icon_size: 14px;
+                label: "Clear";
+                hint: "Unload the environment map and go back to the studio lights.";
+                clicked => { ViewportModel.env_map_clear(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            KitButton {
+                text: "Choose…";
+                h: 28px;
+                hint: "Pick a Radiance .hdr panorama on this computer; it loads at once and lights the stone instead of the lighting rig. Very large maps fall back to the processor, which is slower.";
+                clicked => { ViewportModel.env_map_choose(); }
+            }
         }
     }
 
     if SettingsModel.env_map_status != "": Text {
         text: SettingsModel.env_map_status;
         font-size: 10px;
-        color: Theme.accent-emerald;
-        wrap: word-wrap;
-    }
-
-    // A loaded environment map replaces the lighting-rig controls above, which needs a
-    // visible explanation. The GPU renders HDR maps directly; only a map too large for
-    // the adapter's storage-buffer limit falls back to the slower CPU tracer.
-    if SettingsModel.env_map_loaded: Text {
-        text: "Replaces the lighting rig above, and the surface glare and head shadow below. The Map Orientation controls in the Lighting tab turn the map. Very large maps fall back to the CPU, which is slower.";
-        font-size: 11px;
         color: Theme.text-muted;
         wrap: word-wrap;
     }

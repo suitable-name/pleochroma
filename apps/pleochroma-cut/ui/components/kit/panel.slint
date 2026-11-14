@@ -1,0 +1,321 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon, KitIcons } from "icons.slint";
+import { KitSegmentBar, KitSegment } from "parts.slint";
+import { KitSlider } from "inputs.slint";
+
+// Panel parts shared by the Parameters panel and the viewports: section title, card, folding
+// card, one-line slider, switch, chip, fill-width segments and a labelled row.
+
+// A section title in small capitals (pass the text in capitals); the rest of the row is free for
+// an action.
+export component KitSection inherits HorizontalLayout {
+    in property <string> label;
+    height: 22px;
+    spacing: 6px;
+    Text {
+        text: root.label;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+    }
+    @children
+}
+
+// The raised surface the groups sit on.
+export component KitCard inherits Rectangle {
+    background: Theme.surface-raised;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+}
+
+// A card that folds: header (icon, name, one-line summary of its values, chevron) and, open, its
+// controls. `open` is set by a click on the header (which replaces a one-way binding).
+export component KitFoldCard inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> summary;
+    in-out property <bool> open: false;
+    callback toggled(bool);
+
+    background: Theme.surface-raised;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: root.open ? Theme.border-medium : Theme.border-subtle;
+    VerticalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-bottom: root.open ? 12px : 0px;
+        spacing: root.open ? 8px : 0px;
+        Rectangle {
+            height: 42px;
+            border-radius: 8px;
+            border-width: head_fs.has-focus ? 2px : 0px;
+            border-color: Theme.accent-cyan-hover;
+            accessible-role: AccessibleRole.button;
+            accessible-enabled: true;
+            accessible-label: root.label;
+            accessible-description: root.summary;
+            accessible-expandable: true;
+            accessible-expanded: root.open;
+            accessible-action-default => {
+                root.open = !root.open;
+                root.toggled(root.open);
+            }
+            head_fs := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        root.open = !root.open;
+                        root.toggled(root.open);
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    KitIcon { d: root.icon; size: 16px; ink: root.open ? Theme.accent-cyan : Theme.text-secondary; }
+                }
+                Text {
+                    text: root.label;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.summary;
+                    font-size: 11px;
+                    color: Theme.text-muted;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    KitIcon { d: root.open ? KitIcons.chevron-down : KitIcons.chevron-right; size: 14px; ink: Theme.text-muted; }
+                }
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.open = !root.open;
+                    root.toggled(root.open);
+                }
+            }
+        }
+        if root.open: Rectangle { height: 1px; background: Theme.border-subtle; }
+        // `@children` cannot sit under `if`: closed, the body has no height and is not visible.
+        Rectangle {
+            visible: root.open;
+            clip: true;
+            height: root.open ? body.preferred-height : 0px;
+            body := VerticalLayout {
+                spacing: 6px;
+                @children
+            }
+        }
+    }
+}
+
+// A quiet chip: a reason, a status, a stat.
+export component KitChip inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: Theme.text-muted;
+    in property <color> fill: Theme.bg-input;
+    height: 20px;
+    width: chip_text.preferred-width + 14px;
+    border-radius: 10px;
+    background: root.fill;
+    chip_text := Text {
+        x: 7px;
+        height: parent.height;
+        text: root.text;
+        font-size: 10px;
+        font-weight: 600;
+        color: root.ink;
+        vertical-alignment: center;
+    }
+}
+
+// A one-line slider: name (104 px), track, value (44 px). `note` is a reason chip, such as
+// "studio lights only". With the row off and a note set, the name and the chip show and the track
+// and value are left out; enabled, there is no chip.
+export component KitInlineSlider inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value_text;
+    in-out property <float> value: 0;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <bool> enabled: true;
+    in property <string> note;
+    callback moved(float);
+
+    height: 30px;
+    spacing: 10px;
+    Text {
+        width: 104px;
+        text: root.label;
+        font-size: 12px;
+        color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    // Not applicable, with a reason: the row says why instead of showing a dead track and value.
+    if !root.enabled && root.note != "": VerticalLayout {
+        alignment: center;
+        KitChip { text: root.note; }
+    }
+    if !root.enabled && root.note != "": Rectangle { horizontal-stretch: 1; }
+    if root.enabled || root.note == "": KitSlider {
+        horizontal-stretch: 1;
+        label: root.label;
+        minimum: root.minimum;
+        maximum: root.maximum;
+        step: root.step;
+        enabled: root.enabled;
+        value <=> root.value;
+        moved(v) => { root.moved(v); }
+    }
+    if root.enabled || root.note == "": Text {
+        width: 44px;
+        text: root.value_text;
+        font-size: 12px;
+        font-weight: 600;
+        color: root.enabled ? Theme.text-primary : Theme.text-disabled;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+    }
+}
+
+// A small switch. `label` is the accessible name. The caller flips `on` in `toggled`.
+export component KitSwitch inherits Rectangle {
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <string> label;
+    in property <string> hint;
+    callback toggled();
+
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: !root.enabled ? Theme.bg-input : (root.on ? Theme.accent-cyan : Theme.bg-elevated);
+    border-width: sw_fs.has-focus ? 2px : 1px;
+    border-color: sw_fs.has-focus ? Theme.accent-cyan-hover : (root.on && root.enabled ? Theme.accent-cyan : Theme.border-medium);
+    accessible-role: AccessibleRole.checkbox;
+    accessible-enabled: root.enabled;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.toggled();
+        }
+    }
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    sw_fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.toggled();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        x: root.on ? parent.width - self.width - 3px : 3px;
+        y: 3px;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: root.enabled ? Theme.text-on-accent : Theme.text-disabled;
+    }
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// A one-line switch row with an optional reason chip when it does not apply. The label is the
+// switch's accessible name.
+export component KitSwitchRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <string> reason;
+    callback toggled();
+
+    height: 30px;
+    spacing: 8px;
+    Text {
+        text: root.label;
+        font-size: 12px;
+        color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
+        vertical-alignment: center;
+    }
+    if root.reason != "": VerticalLayout {
+        alignment: center;
+        KitChip { text: root.reason; }
+    }
+    Rectangle { horizontal-stretch: 1; }
+    VerticalLayout {
+        alignment: center;
+        KitSwitch {
+            on: root.on;
+            enabled: root.enabled;
+            label: root.label;
+            hint: root.reason;
+            toggled => { root.toggled(); }
+        }
+    }
+}
+
+// A segmented control that fills its row: `labels`, `picked` the selected one. A Slint component
+// cannot hold a property and a callback of one name, so the callback is `selected(int)`.
+export component KitFillSegments inherits KitSegmentBar {
+    in property <[string]> labels;
+    in property <int> picked;
+    in property <bool> enabled: true;
+    callback selected(int);
+
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for name[i] in root.labels: Rectangle {
+            horizontal-stretch: 1;
+            KitSegment {
+                x: 0px;
+                width: parent.width;
+                text: name;
+                on: i == root.picked;
+                enabled: root.enabled;
+                picked => { root.selected(i); }
+            }
+        }
+    }
+}
+
+// A labelled control row: the name on the left, the control (`@children`) on the right.
+export component KitLabelRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <length> label_width: 104px;
+    height: 32px;
+    spacing: 10px;
+    Text {
+        width: root.label_width;
+        text: root.label;
+        font-size: 12px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+    }
+    @children
+}

@@ -1,4 +1,4 @@
-//! Camera orbit/zoom, light move/position/reset, and HDR environment-map load/clear
+//! Camera orbit/pan/zoom, light move/position/reset, and HDR environment-map load/clear
 //! callback wiring.
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
 };
 use pleochroma_solid::preview::{
     StoneGeometryBuf,
-    camera::{orbit_step, unroll_drag_delta},
+    camera::{orbit_step, pan_pose, unroll_drag_delta},
 };
 use slint::{ComponentHandle, SharedString};
 use std::{
@@ -114,6 +114,7 @@ pub fn resubmit_at_current_pose(
         yaw: ctx.yaw,
         pitch: ctx.pitch,
         distance: ctx.distance,
+        pan: ctx.camera_pan,
     };
     if on_live_tab {
         // The Live Render tab shows the committed design only: a Slice tier that is not
@@ -192,6 +193,43 @@ pub(in crate::gui) fn contained_request_size(
     }
 }
 
+/// The logical size of the picture a pan drag moves the stone across, so the stone follows the
+/// pointer and can reach the picture's edges (`pan_pose` measures in its half-heights).
+///
+/// A `traced` picture is the rectangle `image-fit: contain` draws the `render` resolution into
+/// (see [`contained_request_size`]); the solid raster fills the whole `viewport`, as does a
+/// traced picture before the render size is known.
+#[must_use]
+const fn pan_picture_size(traced: bool, viewport: (f32, f32), render: (u32, u32)) -> (f32, f32) {
+    if !traced || render.0 == 0 || render.1 == 0 {
+        return viewport;
+    }
+    let (render_width, render_height) = (render.0 as f32, render.1 as f32);
+    let scale = (viewport.0 / render_width).min(viewport.1 / render_height);
+    (render_width * scale, render_height * scale)
+}
+
+/// The logical size of the 3D viewport on screen and whether it shows a traced picture: the
+/// Live Render viewport on the Live Render tab, the Edit tab's Solid viewport otherwise (the
+/// two are never mounted together).
+fn shown_viewport(ui: &MainWindow) -> ((f32, f32), bool) {
+    let preview = ui.global::<SolidPreviewModel>();
+    if ui.get_render_view_tab() == 0 {
+        (
+            (
+                preview.get_live_viewport_width(),
+                preview.get_live_viewport_height(),
+            ),
+            LiveViewMode::from_raw(ui.global::<ViewportModel>().get_live_view_mode()).is_traced(),
+        )
+    } else {
+        (
+            (preview.get_viewport_width(), preview.get_viewport_height()),
+            EditViewMode::from_raw(preview.get_view_mode()).is_traced(),
+        )
+    }
+}
+
 // The camera math (orbit bounds, Fit distance, pitch wrap) is shared with the web app's
 // Solid view and lives in `pleochroma_solid::preview::camera`.
 pub use pleochroma_solid::preview::camera::{
@@ -234,6 +272,7 @@ pub(in crate::gui) fn resubmit_live_solid(
             yaw: ctx.yaw,
             pitch: ctx.pitch,
             distance: ctx.distance,
+            pan: ctx.camera_pan,
         },
         size,
         0,
@@ -405,9 +444,9 @@ fn remember_loaded_map(settings_store: &SettingsPersister, path: &str) -> bool {
 /// Fit keeps the current orbit angle and only recomputes `distance` (`fit_view::fit_distance`),
 /// so a cutter who has orbited to an awkward angle keeps that angle. Turn 90° adds a quarter
 /// turn to the yaw about the vertical axis (a face-up oval turns across the picture, Top
-/// included), keeping tilt and zoom. Every kind but Fit also clears the image-plane roll, so
-/// the drag directions are the usual ones. The others reset yaw to a canonical angle; distance
-/// and lighting stay untouched.
+/// included), keeping tilt, zoom and the pan. Every kind but Fit also clears the image-plane
+/// roll, so the drag directions are the usual ones. The others reset yaw to a canonical angle
+/// and centre the stone in the picture again (the pan); distance and lighting stay untouched.
 /// Both viewports' pose pills call this same callback.
 fn setup_set_view_callback(
     ui: &MainWindow,
@@ -444,16 +483,24 @@ fn setup_set_view_callback(
             ctx.yaw = yaw;
             ctx.pitch = pitch;
             ctx.camera_roll = 0.0;
+            ctx.camera_pan = [0.0, 0.0];
         }
         ctx.dirty = true;
         resubmit_at_current_pose(&ui, &ctx, &preview_state);
-        let (yaw, pitch, distance, roll) = (ctx.yaw, ctx.pitch, ctx.distance, ctx.camera_roll);
+        let (yaw, pitch, distance, roll, pan) = (
+            ctx.yaw,
+            ctx.pitch,
+            ctx.distance,
+            ctx.camera_roll,
+            ctx.camera_pan,
+        );
         drop(ctx);
         settings_store.update(|s| {
             s.settings.camera_yaw = yaw;
             s.settings.camera_pitch = pitch;
             s.settings.camera_distance = distance;
             s.settings.camera_roll = roll;
+            s.settings.camera_pan = pan;
         });
     });
 }
@@ -482,6 +529,7 @@ fn setup_orbit_callback(
                         pitch: ctx.pitch,
                         roll: ctx.camera_roll,
                         distance: ctx.distance,
+                        pan: ctx.camera_pan,
                     },
                     dx,
                     dy,
@@ -499,12 +547,63 @@ fn setup_orbit_callback(
         });
 }
 
-/// Wires up camera orbit/zoom, light move/position, and reset-camera callbacks. Each also
+/// Wires pan dragging (`ViewportModel.camera_pan`: the middle button, or Ctrl or Cmd with the
+/// left button) through [`pan_pose`]: the stone follows the pointer across the picture on
+/// screen ([`pan_picture_size`]) and stays in it.
+///
+/// Camera motion like an orbit step: the context is marked dirty, the solid raster is redrawn
+/// at the new pose and the pan is persisted. A step the clamp swallows (the stone already at
+/// the picture's edge) changes nothing, so the converged image stays.
+fn setup_pan_callback(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+    preview_state: &Arc<SolidPreviewState>,
+) {
+    let render_ctx = render_ctx.clone();
+    let settings_store = settings_store.clone();
+    let preview_state = Arc::clone(preview_state);
+    let ui_weak = ui.as_weak();
+    ui.global::<ViewportModel>()
+        .on_camera_pan(move |dx: f32, dy: f32| {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let (viewport, traced) = shown_viewport(&ui);
+            let pan = {
+                let mut ctx = RenderContext::lock(&render_ctx);
+                let (width, height) = pan_picture_size(traced, viewport, (ctx.width, ctx.height));
+                let pose = pan_pose(
+                    CameraPose {
+                        yaw: ctx.yaw,
+                        pitch: ctx.pitch,
+                        roll: ctx.camera_roll,
+                        distance: ctx.distance,
+                        pan: ctx.camera_pan,
+                    },
+                    dx,
+                    dy,
+                    width,
+                    height,
+                );
+                if pose.pan == ctx.camera_pan {
+                    return;
+                }
+                ctx.camera_pan = pose.pan;
+                ctx.dirty = true;
+                resubmit_at_current_pose(&ui, &ctx, &preview_state);
+                ctx.camera_pan
+            };
+            settings_store.update(|s| s.settings.camera_pan = pan);
+        });
+}
+
+/// Wires up camera orbit/pan/zoom, light move/position, and reset-camera callbacks. Each also
 /// feeds the debounced `settings_store` so camera pose and light position survive a restart.
 ///
 /// `preview_state` is the solid-inspection preview controller -- dragging or
 /// zooming the Live Render viewport also moves the Solid viewport's shared
-/// camera (yaw/pitch/distance), so both `on_camera_orbit`/`on_camera_zoom` below
+/// camera (yaw/pitch/distance/pan), so `on_camera_orbit`/`on_camera_pan`/`on_camera_zoom`
 /// re-issue the last solved plane set at the new pose (see
 /// `resubmit_at_current_pose`) while still holding `render_ctx`'s lock.
 pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
@@ -515,6 +614,7 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
     mesh_bounding_radius: &Arc<Mutex<f64>>,
 ) {
     setup_orbit_callback(ui, render_ctx, settings_store, preview_state);
+    setup_pan_callback(ui, render_ctx, settings_store, preview_state);
 
     let render_ctx_zoom = render_ctx.clone();
     let settings_store_zoom = settings_store.clone();
@@ -563,6 +663,7 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
             ctx.yaw = 0.60;
             ctx.pitch = 0.45;
             ctx.camera_roll = 0.0;
+            ctx.camera_pan = [0.0, 0.0];
             ctx.distance = 2.4;
             ctx.light_yaw = crate::settings::model::DEFAULT_LIGHT_YAW_DEG.to_radians();
             ctx.light_pitch = crate::settings::model::DEFAULT_LIGHT_PITCH_DEG.to_radians();
@@ -578,6 +679,7 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
             s.settings.camera_yaw = 0.60;
             s.settings.camera_pitch = 0.45;
             s.settings.camera_roll = 0.0;
+            s.settings.camera_pan = [0.0, 0.0];
             s.settings.camera_distance = 2.4;
             s.settings.light_yaw_deg = crate::settings::model::DEFAULT_LIGHT_YAW_DEG;
             s.settings.light_pitch_deg = crate::settings::model::DEFAULT_LIGHT_PITCH_DEG;
@@ -648,9 +750,9 @@ fn setup_reset_lighting_tab_callback(
     });
 }
 
-/// Mirrors `ViewportModel.camera_drag_begin`/`camera_drag_end` (both viewports' orbit and light
-/// drags) into `RenderContext::camera_drag_held`. Only the flag changes here: each move in
-/// `on_camera_orbit`/`on_light_move` still restarts the interactive preview.
+/// Mirrors `ViewportModel.camera_drag_begin`/`camera_drag_end` (both viewports' orbit, pan and
+/// light drags) into `RenderContext::camera_drag_held`. Only the flag changes here: each move in
+/// `on_camera_orbit`/`on_camera_pan`/`on_light_move` still restarts the interactive preview.
 pub(in crate::gui) fn setup_camera_drag_callbacks(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -671,6 +773,39 @@ pub(in crate::gui) fn setup_camera_drag_callbacks(
         if let Some(ui) = ui_weak_end.upgrade() {
             crate::bridge::render_thread::progress::set_camera_drag(&ui, false);
         }
+    });
+}
+
+/// Wires `SettingsModel.clear_env_map`: drops the loaded map and its saved path, and the studio
+/// rig comes back.
+fn wire_clear_env_map(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+) {
+    let render_ctx_clear = render_ctx.clone();
+    let settings_store_clear = settings_store.clone();
+    let ui_weak_clear = ui.as_weak();
+    ui.global::<SettingsModel>().on_clear_env_map(move || {
+        let Some(ui) = ui_weak_clear.upgrade() else {
+            return;
+        };
+        {
+            let mut ctx = RenderContext::lock(&render_ctx_clear);
+            ctx.env_map = None;
+            ctx.dirty = true;
+        }
+        settings_store_clear.update(|s| s.settings.env_map_path.clear());
+        ui.global::<SettingsModel>()
+            .set_env_map_status(String::new().into());
+        ui.global::<SettingsModel>().set_env_map_loaded(false);
+        // Clearing is a choice too: a decode still on its way must not bring a map back.
+        super::design_lighting::env_map_chosen();
+        show_toast(
+            &ui,
+            "Cleared HDR environment; back to the studio rig.",
+            "info",
+        );
     });
 }
 
@@ -730,30 +865,7 @@ pub(in crate::gui) fn setup_environment_map_callbacks(
             }
         });
 
-    let render_ctx_clear = render_ctx.clone();
-    let settings_store_clear = settings_store.clone();
-    let ui_weak_clear = ui.as_weak();
-    ui.global::<SettingsModel>().on_clear_env_map(move || {
-        let Some(ui) = ui_weak_clear.upgrade() else {
-            return;
-        };
-        {
-            let mut ctx = RenderContext::lock(&render_ctx_clear);
-            ctx.env_map = None;
-            ctx.dirty = true;
-        }
-        settings_store_clear.update(|s| s.settings.env_map_path.clear());
-        ui.global::<SettingsModel>()
-            .set_env_map_status(String::new().into());
-        ui.global::<SettingsModel>().set_env_map_loaded(false);
-        // Clearing is a choice too: a decode still on its way must not bring a map back.
-        super::design_lighting::env_map_chosen();
-        show_toast(
-            &ui,
-            "Cleared HDR environment; back to the studio rig.",
-            "info",
-        );
-    });
+    wire_clear_env_map(ui, render_ctx, settings_store);
 
     // Native file-open picker for `env_map_path` ("Browse..." in
     // the Parameters panel) -- fills the field, doesn't load anything itself;
@@ -770,31 +882,124 @@ pub(in crate::gui) fn setup_environment_map_callbacks(
     let ui_weak_pick_hdr = ui.as_weak();
     ui.global::<SettingsModel>()
         .on_pick_hdr_file(move |current: SharedString| {
-            use crate::gui::pickers::{PickerFilter, PickerKind, PickerRequest, pick};
+            use crate::gui::pickers::pick;
 
             let Some(ui) = ui_weak_pick_hdr.upgrade() else {
                 return;
             };
-            let starting_dir = crate::gui::starting_dir_from_picker_field(current.as_str());
-            let request = PickerRequest {
-                kind: PickerKind::OpenFile,
-                title: None,
-                filters: vec![PickerFilter {
-                    label: "Radiance HDR".to_string(),
-                    extensions: vec!["hdr".to_string()],
-                }],
-                default_file_name: None,
-                starting_dir,
-            };
-            pick(&ui, request, |ui, picked| {
+            pick(&ui, hdr_picker_request(current.as_str()), |ui, picked| {
                 if let Some(path) = picked {
                     ui.global::<SettingsModel>()
                         .set_env_map_path(path.display().to_string().into());
                 }
             });
         });
+
+    // The Lighting tab's "Choose...": the same picker, but the pick is loaded at once through
+    // `on_load_env_map` above (what Browse followed by Load does). Nothing happens on cancel.
+    let ui_weak_choose = ui.as_weak();
+    ui.global::<ViewportModel>().on_env_map_choose(move || {
+        use crate::gui::pickers::pick;
+
+        let Some(ui) = ui_weak_choose.upgrade() else {
+            return;
+        };
+        let current = ui.global::<SettingsModel>().get_env_map_path();
+        pick(&ui, hdr_picker_request(current.as_str()), |ui, picked| {
+            if let Some(path) = picked {
+                let path = SharedString::from(path.display().to_string());
+                let settings = ui.global::<SettingsModel>();
+                settings.set_env_map_path(path.clone());
+                settings.invoke_load_env_map(path);
+            }
+        });
+    });
+
+    // The Lighting tab's clear button: today's "Clear" (the studio rig comes back).
+    let ui_weak_unload = ui.as_weak();
+    ui.global::<ViewportModel>().on_env_map_clear(move || {
+        if let Some(ui) = ui_weak_unload.upgrade() {
+            ui.global::<SettingsModel>().invoke_clear_env_map();
+        }
+    });
+
+    // `ViewportModel.env_map_name` follows the status line, which every load, clear, reset,
+    // saved lighting and design lighting already writes.
+    let ui_weak_name = ui.as_weak();
+    ui.global::<SettingsModel>()
+        .on_env_map_status_changed(move |status: SharedString| {
+            if let Some(ui) = ui_weak_name.upgrade() {
+                ui.global::<ViewportModel>()
+                    .set_env_map_name(crate::gui::env_map_name_from_status(&status).into());
+            }
+        });
+}
+
+/// The file picker request for a Radiance `.hdr` map: the only format
+/// `EnvironmentMap::from_hdr_file` decodes. `current` is the path field's text, used to pick the
+/// folder the dialog opens in.
+fn hdr_picker_request(current: &str) -> crate::gui::pickers::PickerRequest {
+    use crate::gui::pickers::{PickerFilter, PickerKind, PickerRequest};
+
+    PickerRequest {
+        kind: PickerKind::OpenFile,
+        title: None,
+        filters: vec![PickerFilter {
+            label: "Radiance HDR".to_string(),
+            extensions: vec!["hdr".to_string()],
+        }],
+        default_file_name: None,
+        starting_dir: crate::gui::starting_dir_from_picker_field(current),
+    }
 }
 
 #[cfg(test)]
 #[path = "camera_lighting_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod pan_tests {
+    use super::pan_picture_size;
+    use pleochroma_solid::preview::camera::{RESET_POSE, pan_pose};
+
+    #[test]
+    fn the_solid_raster_pans_across_the_whole_viewport() {
+        assert_eq!(
+            pan_picture_size(false, (900.0, 700.0), (1920, 1080)),
+            (900.0, 700.0)
+        );
+    }
+
+    #[test]
+    fn a_traced_picture_pans_across_its_letterboxed_rectangle() {
+        // A 16:9 render fills a 900x700 viewport's width; a 4:3 one fills a 900x500
+        // viewport's height, as `image-fit: contain` draws them.
+        assert_eq!(
+            pan_picture_size(true, (900.0, 700.0), (1920, 1080)),
+            (900.0, 506.25)
+        );
+        let (width, height) = pan_picture_size(true, (900.0, 500.0), (640, 480));
+        assert!((width - 2000.0 / 3.0).abs() < 1e-3, "{width}");
+        assert!((height - 500.0).abs() < 1e-3, "{height}");
+    }
+
+    #[test]
+    fn an_unknown_render_size_pans_across_the_viewport() {
+        assert_eq!(
+            pan_picture_size(true, (900.0, 700.0), (0, 1080)),
+            (900.0, 700.0)
+        );
+        assert_eq!(
+            pan_picture_size(true, (900.0, 700.0), (1920, 0)),
+            (900.0, 700.0)
+        );
+    }
+
+    #[test]
+    fn the_stone_reaches_the_edges_of_the_traced_picture_and_no_further() {
+        let (width, height) = pan_picture_size(true, (900.0, 700.0), (1920, 1080));
+        let far = pan_pose(RESET_POSE, 10_000.0, -10_000.0, width, height);
+        assert!((far.pan[0] - 1920.0 / 1080.0).abs() < 1e-5, "{:?}", far.pan);
+        assert_eq!(far.pan[1], 1.0);
+    }
+}

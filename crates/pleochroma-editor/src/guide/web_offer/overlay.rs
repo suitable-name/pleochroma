@@ -325,6 +325,13 @@ fn overlays() -> &'static [GuideOverlay] {
     })
 }
 
+/// The wording that puts the browser's older controls back into lessons the desktop redesign
+/// reworded, built once. Applied after the lesson's own overlay.
+fn desktop_ui_reverts() -> &'static [GuideOverlay] {
+    static REVERTS: OnceLock<Vec<GuideOverlay>> = OnceLock::new();
+    REVERTS.get_or_init(super::data_desktop_ui::overlays)
+}
+
 /// The overlay of lesson `id`, if it has one.
 pub(super) fn overlay_for(id: &str) -> Option<&'static GuideOverlay> {
     overlays().iter().find(|overlay| overlay.guide == id)
@@ -355,6 +362,12 @@ pub fn web_adapt(guide: &Guide) -> (Guide, Vec<String>) {
     let mut unmatched = Vec::new();
     if let Some(overlay) = overlay_for(&guide.id) {
         apply_overlay(&mut view, overlay, &mut unmatched);
+    }
+    if let Some(revert) = desktop_ui_reverts()
+        .iter()
+        .find(|revert| revert.guide == guide.id)
+    {
+        apply_overlay(&mut view, revert, &mut unmatched);
     }
     for step in &mut view.steps {
         apply_platform_rules(step);

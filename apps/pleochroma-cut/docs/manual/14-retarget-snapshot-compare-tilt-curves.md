@@ -44,7 +44,7 @@ for you.
   hand work starts from the result ("Baseline: after Optimize 2 min ago"). The design as
   it was just before is kept as a trial, **Before Optimize** or **Before Retarget**
   (Chapter 18), one click away.
-- **By you**: **Set Baseline** on the command bar (Advanced interface), **Set as
+- **By you**: **Set Baseline** in the command bar's **Baseline** menu (Advanced interface), **Set as
   Baseline** on the strip and in the Tune view (both interfaces), **Set as Baseline**
   on a trial, or **Set Baseline** in the command palette. Each keeps the design as it is
   now, with its solved masts. Hover hint: "Keep the design as it is now as the Baseline,

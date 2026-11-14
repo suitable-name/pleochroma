@@ -1,0 +1,81 @@
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { CrystalAxisModel } from "../../models/crystal_axis.slint";
+import { RenderEffectsModel } from "../../models/render_effects.slint";
+import { KitFigure, KitFigures } from "../kit/kit.slint";
+
+// The five face-up figures (plus Axis and Doubling when the stone has them) on glass. A click
+// copies them. Open by default; folded to one line when `ViewportModel.figures_folded` says so,
+// and by itself on a narrow view (`narrow`, not remembered).
+//
+// The two states are two instances (`if`), so that `KitFigures` flipping its own `folded` never
+// leaves a stale binding behind when the view changes width.
+export component LiveFigures inherits Rectangle {
+    in property <bool> narrow: false;
+
+    // Mirrors `ViewportModel.figures_folded` (an `in` property: only `figures_folded_set` writes it).
+    property <bool> wide_folded: ViewportModel.figures_folded;
+    // A narrow view starts folded; the person may open it for now.
+    property <bool> narrow_open: false;
+    property <bool> axis_set: CrystalAxisModel.axis_angle_text != "";
+    property <bool> doubling_set: CrystalAxisModel.doubling_text != "";
+
+    pure function fig(name: string, value: string, part: float, ink: color, flag: bool) -> KitFigure {
+        return { name: name, value: value, delta: "", part: part, ink: ink, trend: 0, flag: flag };
+    }
+
+    property <KitFigure> bril: fig("Brilliance", Math.round(ViewportModel.brilliance_pct) + " %", ViewportModel.brilliance_pct / 100.0, Theme.accent-emerald, false);
+    property <KitFigure> fire: fig("Fire", Math.round(ViewportModel.fire_index * 100.0) / 100.0 + "", min(1.0, ViewportModel.fire_index), Theme.accent-cyan, false);
+    property <KitFigure> scint: fig("Scintillation", Math.round(ViewportModel.scintillation_pct) + " %", ViewportModel.scintillation_pct / 100.0, Theme.accent-purple, false);
+    property <KitFigure> wind: fig("Windowing", Math.round(ViewportModel.windowing_pct) + " %", ViewportModel.windowing_pct / 100.0, Theme.text-secondary, ViewportModel.windowing_pct > 10.0);
+    property <KitFigure> ext: fig("Extinction", Math.round(ViewportModel.extinction_pct) + " %", ViewportModel.extinction_pct / 100.0, Theme.accent-amber, ViewportModel.extinction_pct > 12.0);
+    property <KitFigure> axis: fig("Axis", CrystalAxisModel.axis_angle_text, 0.0, Theme.accent-purple, false);
+    property <KitFigure> doubling: fig("Doubling", CrystalAxisModel.doubling_text, 0.0, Theme.accent-emerald, false);
+
+    // Folded, the card shows its first three names on one line, so those are the short ones.
+    property <[KitFigure]> folded_list: [
+        fig("Bril", Math.round(ViewportModel.brilliance_pct) + "", 0.0, Theme.accent-emerald, false),
+        fig("Wind", Math.round(ViewportModel.windowing_pct) + "", 0.0, Theme.text-secondary, ViewportModel.windowing_pct > 10.0),
+        fig("Ext", Math.round(ViewportModel.extinction_pct) + "", 0.0, Theme.accent-amber, ViewportModel.extinction_pct > 12.0),
+        root.fire,
+        root.scint,
+    ];
+    property <[KitFigure]> open_list: root.axis_set
+        ? (root.doubling_set
+            ? [root.bril, root.fire, root.scint, root.wind, root.ext, root.axis, root.doubling]
+            : [root.bril, root.fire, root.scint, root.wind, root.ext, root.axis])
+        : (root.doubling_set
+            ? [root.bril, root.fire, root.scint, root.wind, root.ext, root.doubling]
+            : [root.bril, root.fire, root.scint, root.wind, root.ext]);
+
+    width: figures_lay.preferred-width;
+    height: figures_lay.preferred-height;
+
+    // What the five numbers mean (the card's own tooltip is its description).
+    Tooltip { text: @markdown("Click to copy these five numbers. **Brilliance**: the share of light returned to the eye. **Fire**: how much rainbow color the stone throws. **Scintillation**: sparkle as the light or stone moves. **Windowing**: the share of the face that looks see-through. **Extinction**: the share that looks dead dark. For a stone with a crystal axis, **Axis** is the angle between that axis and the table normal, and **Doubling** is how far apart, in arc-minutes, the two images of a birefringent stone fall. See the glossary.\{RenderEffectsModel.figures_note_suffix}"); }
+
+    figures_lay := HorizontalLayout {
+        alignment: start;
+        if root.narrow: KitFigures {
+            title: "FACE-UP";
+            figures: !root.narrow_open ? root.folded_list : root.open_list;
+            folded: !root.narrow_open;
+            show_bars: true;
+            show_deltas: false;
+            copy => { ViewportModel.copy_metrics(); }
+            fold_toggled(f) => { root.narrow_open = !f; }
+        }
+        if !root.narrow: KitFigures {
+            title: "FACE-UP";
+            figures: root.wide_folded ? root.folded_list : root.open_list;
+            folded: root.wide_folded;
+            show_bars: true;
+            show_deltas: false;
+            copy => { ViewportModel.copy_metrics(); }
+            fold_toggled(f) => {
+                root.wide_folded = f;
+                ViewportModel.figures_folded_set(f);
+            }
+        }
+    }
+}

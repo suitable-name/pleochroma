@@ -1,4 +1,4 @@
-// Arm 4: Uniaxial internal/exit bounce.
+// Arm 4: Uniaxial internal/exit bounce, both branches (the megakernel).
 fn bounce_arm_uni_internal_core(
     s: ptr<function, BounceRay>,
     h: ptr<function, BounceHit>,
@@ -6,6 +6,25 @@ fn bounce_arm_uni_internal_core(
     bounce: u32,
     seed0: u32,
     observer: vec3<f32>,
+) -> u32 {
+    return bounce_arm_uni_internal_branches(s, h, rc, bounce, seed0, observer, true, true);
+}
+
+// The uniaxial internal arm with only the branches the caller runs. The event wavefront runs the
+// reflect and the transmit branch as two kernels, because the Adreno 740 driver does not link the
+// whole arm. With `run_reflect` alone, a ray that draws the transmit branch returns `PHASE_PARK`
+// before anything is written, so the other kernel starts from the same ray; with `run_transmit`
+// alone the arm takes the transmit branch without the draw. Constant arguments leave one branch
+// in each kernel.
+fn bounce_arm_uni_internal_branches(
+    s: ptr<function, BounceRay>,
+    h: ptr<function, BounceHit>,
+    rc: RayConstants,
+    bounce: u32,
+    seed0: u32,
+    observer: vec3<f32>,
+    run_reflect: bool,
+    run_transmit: bool,
 ) -> u32 {
     let idx = bounce_arm_index(s, h, rc);
     let hit_point = (*h).hit_point;
@@ -20,28 +39,18 @@ fn bounce_arm_uni_internal_core(
     let phase_dir_this_check = (*h).phase_dir_this_check;
     let cos_i = idx.cos_i;
     let uframe = idx.uframe;
-    let n_o_hero = idx.n_o_hero;
-    let n_e_hero_solve = idx.n_e_raw_ch[0];
     let n_e_raw_ch = idx.n_e_raw_ch;
     let n_medium_ch = idx.n_medium_ch;
     let n1 = idx.n1;
     let n2 = idx.n2;
 
     // ---- INTERNAL: mirrors apply_uniaxial_internal_bounce ----
-    let sol_hero_i = internal_solve(n1, n_o_hero, n_e_hero_solve, c_axis, uframe, !(*s).is_extraordinary);
-    let flux_inc_hero_i = max(sol_hero_i.flux_inc, 1e-12);
-    let ro_pow_hero = cplx_norm_sqr(sol_hero_i.r_o) * sol_hero_i.flux_ro;
-    let re_pow_hero = cplx_norm_sqr(sol_hero_i.r_e) * sol_hero_i.flux_re;
-    let internal_r_branch = clamp((ro_pow_hero + re_pow_hero) / flux_inc_hero_i, R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
-    let internal_p_o_exact = ro_pow_hero / max(ro_pow_hero + re_pow_hero, 1e-12);
-    let internal_rng_bounce = f32(discrete_draw(seed0, bounce, FRESNEL_BRANCH_STREAM)) / 4294967295.0;
     // Exit collection: no draw. Each channel that can transmit stages its exit leaf (its
     // transmitted intensity along its refracted direction, undivided). The path takes the
     // reflection undivided too: `internal_r_div` is 1 under collection. `internal_producers`
     // masks the channels not totally reflected here. A leaf from the last iteration earns
     // nothing (`ExitCollect::credit`).
-    let internal_r_div = select(internal_r_branch, 1.0, collect_on);
-    let internal_leaf_on = collect_on && bounce + 1u < params.max_bounces;
+    let internal_leaf_on = run_reflect && collect_on && bounce + 1u < params.max_bounces;
     var internal_producers: u32 = 0u;
     if (internal_leaf_on) {
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
@@ -51,12 +60,52 @@ fn bounce_arm_uni_internal_core(
         }
     }
 
-    if (collect_on || internal_rng_bounce < internal_r_branch) {
-        for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
-            var sol = sol_hero_i;
-            if (k != 0u) {
-                sol = internal_solve(n_medium_ch[k], n_o_hoisted[k], n_e_raw_ch[k], c_axis, uframe, !(*s).is_extraordinary);
+    // One loop runs the reflect or the transmit branch, so the solver has one call site. Channel
+    // 0's solve is the hero's (inside the stone `n1 == n_medium_ch[0]`, `n_o_hero ==
+    // n_o_hoisted[0]`, and the hero solves with `n_e_raw_ch[0]`), so the first iteration draws
+    // the branch from it before it runs channel 0.
+    var internal_r_branch: f32 = 0.0;
+    var internal_p_o_exact: f32 = 0.0;
+    var internal_r_div: f32 = 1.0;
+    var internal_reflects = false;
+    var hero_refr_dir_i = vec3<f32>(0.0, 0.0, 0.0);
+    var split_mis_weight_i: f32 = 1.0;
+    for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
+        // Captured before the mutations below, so the split branch still has the original
+        // incident value.
+        let original_stokes_i = (*s).stokes[k].x;
+        let n_inc_k = n_medium_ch[k];
+        let sol = internal_solve(n_inc_k, n_o_hoisted[k], n_e_raw_ch[k], c_axis, uframe, !(*s).is_extraordinary);
+        if (k == 0u) {
+            let flux_inc_hero_i = max(sol.flux_inc, 1e-12);
+            let ro_pow_hero = cplx_norm_sqr(sol.r_o) * sol.flux_ro;
+            let re_pow_hero = cplx_norm_sqr(sol.r_e) * sol.flux_re;
+            internal_r_branch = clamp((ro_pow_hero + re_pow_hero) / flux_inc_hero_i, R_UNPOL_SELECT_MIN, R_UNPOL_SELECT_MAX);
+            internal_p_o_exact = ro_pow_hero / max(ro_pow_hero + re_pow_hero, 1e-12);
+            let internal_rng_bounce = f32(discrete_draw(seed0, bounce, FRESNEL_BRANCH_STREAM)) / 4294967295.0;
+            internal_r_div = select(internal_r_branch, 1.0, collect_on);
+            internal_reflects = run_reflect && (collect_on || internal_rng_bounce < internal_r_branch);
+            if (!internal_reflects) {
+                if (!run_transmit) {
+                    // The transmit branch runs in the other kernel; nothing is written yet.
+                    return PHASE_PARK;
+                }
+                let eta_dir_i = n1 / n2;
+                let sin2_t_dir_i = min(eta_dir_i * eta_dir_i * fma(-cos_i, cos_i, 1.0), 1.0);
+                let cos_t_dir_i = sqrt(max(1.0 - sin2_t_dir_i, 0.0));
+                hero_refr_dir_i = normalize(eta_dir_i * wave_dir_at_bounce + fma(eta_dir_i, cos_i, -cos_t_dir_i) * normal);
+
+                // Reached only while `inside_gem` is true, so this transmit is always a real
+                // exit. The split weight matches `dispatch_bounce`'s `exit.split_mis_weight`:
+                // same balance heuristic, same light pdf at the carried interior direction.
+                if (phase_pdf_this_check > 0.0 && nee_light_available()) {
+                    let light_pdf_i = nee_light_pdf(phase_dir_this_check, studio_key_dir);
+                    split_mis_weight_i = balance_heuristic(phase_pdf_this_check, light_pdf_i);
+                }
             }
+        }
+
+        if (internal_reflects) {
             if (internal_leaf_on && (internal_producers & (1u << k)) != 0u) {
                 // Leaf from the incident state, as `uniaxial_exit_leaf_intensities` does on the
                 // CPU.
@@ -78,7 +127,47 @@ fn bounce_arm_uni_internal_core(
             if (!collect_on) {
                 (*s).path_pdf[k] = (*s).path_pdf[k] * clamp(r_total_k, 1e-4, 1.0 - 1e-4);
             }
+            continue;
         }
+
+        // Uniaxial exact exit (crystal to air). A mismatched channel resolves its own split and
+        // keeps `path_pdf` accumulating through this event's exit factor. It never narrows
+        // `compat`. See `apply_uniaxial_internal_transmit_channels` on the CPU.
+        let eta_dir_k = n_inc_k;
+        let sin2_t_k = eta_dir_k * eta_dir_k * fma(-cos_i, cos_i, 1.0);
+        if (sin2_t_k > 1.0) {
+            (*s).stokes[k] = (*s).stokes[k] * 0.0;
+            (*s).path_pdf[k] = 0.0;
+            continue;
+        }
+        let cos_t_k = sqrt(max(1.0 - sin2_t_k, 0.0));
+        let refr_wave_dir_k = normalize(eta_dir_k * wave_dir_at_bounce + fma(eta_dir_k, cos_i, -cos_t_k) * normal);
+        let direction_matches_i = directions_match(refr_wave_dir_k, hero_refr_dir_i);
+
+        if (!direction_matches_i) {
+            // Chromatic termination.
+            let prefix_path_pdf_k = (*s).path_pdf[k];
+            (*s).stokes[k] = (*s).stokes[k] * 0.0;
+            (*s).path_pdf[k] = 0.0;
+
+            let et_mm = compute_uniaxial_exit_transmission(sol, internal_r_branch, original_stokes_i);
+            let t_unpol_k_mm = clamp(et_mm.i_unit, 1e-4, 1.0 - 1e-4);
+            (*s).path_pdf[k] = prefix_path_pdf_k * t_unpol_k_mm;
+            if (original_stokes_i > 0.0) {
+                (*h).split_mask = (*h).split_mask | (1u << k);
+                (*h).split_dir[k] = vec4<f32>(refr_wave_dir_k, et_mm.transmitted.x);
+                (*h).split_mis_weight = split_mis_weight_i;
+            }
+            continue;
+        }
+
+        // Matching direction: plain transmission.
+        let et = compute_uniaxial_exit_transmission(sol, internal_r_branch, original_stokes_i);
+        (*s).stokes[k] = et.transmitted;
+        let t_unpol_k = clamp(et.i_unit, 1e-4, 1.0 - 1e-4);
+        (*s).path_pdf[k] = (*s).path_pdf[k] * t_unpol_k;
+    }
+    if (internal_reflects) {
         let new_k_i = wave_dir_at_bounce - 2.0 * dot(wave_dir_at_bounce, normal) * normal;
         (*s).origin = hit_point + new_k_i * RAY_EPS;
         (*s).dir = new_k_i;
@@ -88,68 +177,6 @@ fn bounce_arm_uni_internal_core(
             (*s).stokes[0].x, (*s).stokes[0].y, (*s).stokes[0].z, true, internal_p_o_exact, seed0, bounce,
         );
     } else {
-        let eta_dir_i = n1 / n2;
-        let sin2_t_dir_i = min(eta_dir_i * eta_dir_i * fma(-cos_i, cos_i, 1.0), 1.0);
-        let cos_t_dir_i = sqrt(max(1.0 - sin2_t_dir_i, 0.0));
-        let hero_refr_dir_i = normalize(eta_dir_i * wave_dir_at_bounce + fma(eta_dir_i, cos_i, -cos_t_dir_i) * normal);
-
-        // Reached only while `inside_gem` is true, so this transmit is always a real exit. The
-        // split weight matches `dispatch_bounce`'s `exit.split_mis_weight`: same balance
-        // heuristic, same light pdf at the carried interior direction.
-        var split_mis_weight_i: f32 = 1.0;
-        if (phase_pdf_this_check > 0.0 && nee_light_available()) {
-            let light_pdf_i = nee_light_pdf(phase_dir_this_check, studio_key_dir);
-            split_mis_weight_i = balance_heuristic(phase_pdf_this_check, light_pdf_i);
-        }
-
-        // Uniaxial exact exit (crystal to air). A mismatched channel resolves its own split and
-        // keeps `path_pdf` accumulating through this event's exit factor. It never narrows
-        // `compat`. See `apply_uniaxial_internal_transmit_channels` on the CPU.
-        for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
-            // Captured before the mutations below, so the split branch still has the original
-            // incident value.
-            let original_stokes_i = (*s).stokes[k].x;
-            let n_inc_k = n_medium_ch[k];
-            let eta_dir_k = n_inc_k;
-            let sin2_t_k = eta_dir_k * eta_dir_k * fma(-cos_i, cos_i, 1.0);
-            if (sin2_t_k > 1.0) {
-                (*s).stokes[k] = (*s).stokes[k] * 0.0;
-                (*s).path_pdf[k] = 0.0;
-                continue;
-            }
-            let cos_t_k = sqrt(max(1.0 - sin2_t_k, 0.0));
-            let refr_wave_dir_k = normalize(eta_dir_k * wave_dir_at_bounce + fma(eta_dir_k, cos_i, -cos_t_k) * normal);
-            let direction_matches_i = directions_match(refr_wave_dir_k, hero_refr_dir_i);
-
-            // Channel 0 reuses the hero solve, which is identical.
-            var sol = sol_hero_i;
-            if (k != 0u) {
-                sol = internal_solve(n_inc_k, n_o_hoisted[k], n_e_raw_ch[k], c_axis, uframe, !(*s).is_extraordinary);
-            }
-
-            if (!direction_matches_i) {
-                // Chromatic termination.
-                let prefix_path_pdf_k = (*s).path_pdf[k];
-                (*s).stokes[k] = (*s).stokes[k] * 0.0;
-                (*s).path_pdf[k] = 0.0;
-
-                let et_mm = compute_uniaxial_exit_transmission(sol, internal_r_branch, original_stokes_i);
-                let t_unpol_k_mm = clamp(et_mm.i_unit, 1e-4, 1.0 - 1e-4);
-                (*s).path_pdf[k] = prefix_path_pdf_k * t_unpol_k_mm;
-                if (original_stokes_i > 0.0) {
-                    (*h).split_mask = (*h).split_mask | (1u << k);
-                    (*h).split_dir[k] = vec4<f32>(refr_wave_dir_k, et_mm.transmitted.x);
-                    (*h).split_mis_weight = split_mis_weight_i;
-                }
-                continue;
-            }
-
-            // Matching direction: plain transmission.
-            let et = compute_uniaxial_exit_transmission(sol, internal_r_branch, original_stokes_i);
-            (*s).stokes[k] = et.transmitted;
-            let t_unpol_k = clamp(et.i_unit, 1e-4, 1.0 - 1e-4);
-            (*s).path_pdf[k] = (*s).path_pdf[k] * t_unpol_k;
-        }
         (*s).origin = hit_point + hero_refr_dir_i * RAY_EPS;
         (*s).dir = hero_refr_dir_i;
         (*s).k = hero_refr_dir_i;
@@ -417,12 +444,12 @@ fn bounce_arm_generic_core(
             split_mis_weight = balance_heuristic(phase_pdf_this_check, light_pdf);
         }
         var scalar_dirs: array<vec3<f32>, 8>;
-        var scalar_dirs_valid: array<bool, 8>;
-        var scalar_hero_match: array<bool, 8>;
+        // Bit k: channel k refracted (`scalar_dirs[k]` holds its direction); that direction
+        // matches the hero's.
+        var scalar_dirs_valid: u32 = 0u;
+        var scalar_hero_match: u32 = 0u;
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             scalar_dirs[k] = vec3<f32>(0.0, 0.0, 0.0);
-            scalar_dirs_valid[k] = false;
-            scalar_hero_match[k] = false;
         }
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             // captured before any mutation below, so the mismatch/split
@@ -468,9 +495,9 @@ fn bounce_arm_generic_core(
                 final_dir_k = extraordinary_poynting_dir(refr_wave_dir_k, c_axis, n_o_hoisted[k], n_e_k);
             }
             scalar_dirs[k] = final_dir_k;
-            scalar_dirs_valid[k] = true;
+            scalar_dirs_valid = scalar_dirs_valid | (1u << k);
             let direction_matches = directions_match(final_dir_k, final_refr_dir);
-            scalar_hero_match[k] = direction_matches;
+            scalar_hero_match = scalar_hero_match | (u32(direction_matches) << k);
             if (direction_matches) {
                 let t_s_k = (2.0 * n1k * cos_i) / fma(n2k, cos_t_k, n1k * cos_i);
                 let t_p_k = (2.0 * n1k * cos_i) / fma(n1k, cos_t_k, n2k * cos_i);

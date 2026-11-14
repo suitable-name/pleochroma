@@ -1,0 +1,114 @@
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { BaselineModel } from "../../models/baseline.slint";
+import { LibraryModel } from "../../models/library.slint";
+import { TrialsModel } from "../../models/trials.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { KitFigure, KitFigures } from "../kit/kit.slint";
+
+// The Edit viewport's figures card: the same `KitFigures` and the same figure order as Live Render's
+// (`gem_viewport/live_figures.slint`: brilliance, fire, scintillation, windowing, extinction, then
+// yield, warnings and the tilt averages), here with the change since the Baseline beside every
+// figure (`BaselineModel.cells`, which Rust already orders that way). "Keep as Trial" is its action.
+//
+// Open by default; folded to one line when `ViewportModel.figures_folded` says so (the same saved
+// choice as Live Render's card) and by itself on a narrow view (`narrow`, not remembered). The two
+// states are two instances (`if`), as in `LiveFigures`.
+//
+// The Simple interface shows the figures without their changes and without Keep as Trial.
+export component EditFigures inherits Rectangle {
+    in property <bool> narrow: false;
+
+    property <bool> wide_folded: ViewportModel.figures_folded;
+    property <bool> narrow_open: false;
+    property <int> n: BaselineModel.cells.length;
+    property <bool> deltas: GuideModel.shows_advanced();
+
+    // A cell as a figure: `trend` 1 better, -1 worse, 0 about the same.
+    pure function fig(i: int) -> KitFigure {
+        return {
+            name: BaselineModel.cells[i].name,
+            value: BaselineModel.cells[i].value,
+            delta: BaselineModel.cells[i].delta,
+            part: 0.0,
+            ink: Theme.text-secondary,
+            trend: BaselineModel.cells[i].tone == 1 ? 1 : (BaselineModel.cells[i].tone == 2 ? -1 : 0),
+            flag: BaselineModel.cells[i].flag,
+        };
+    }
+    // The same with the short name, for the folded line.
+    pure function sfig(i: int) -> KitFigure {
+        return {
+            name: BaselineModel.cells[i].short_label,
+            value: BaselineModel.cells[i].value,
+            delta: BaselineModel.cells[i].delta,
+            part: 0.0,
+            ink: Theme.text-secondary,
+            trend: BaselineModel.cells[i].tone == 1 ? 1 : (BaselineModel.cells[i].tone == 2 ? -1 : 0),
+            flag: BaselineModel.cells[i].flag,
+        };
+    }
+    pure function blank(name: string) -> KitFigure {
+        return { name: name, value: "—", delta: "", part: 0.0, ink: Theme.text-secondary, trend: 0, flag: false };
+    }
+
+    // Nothing scored yet: the five names with a dash.
+    property <[KitFigure]> placeholder: [blank("Brilliance"), blank("Fire"), blank("Scintillation"), blank("Windowing"), blank("Extinction")];
+    property <[KitFigure]> open_list: root.n >= 10 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7), fig(8), fig(9)]
+        : root.n == 9 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7), fig(8)]
+        : root.n == 8 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7)]
+        : root.n == 7 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6)]
+        : root.n == 6 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5)]
+        : root.n == 5 ? [fig(0), fig(1), fig(2), fig(3), fig(4)]
+        : root.placeholder;
+    // Folded, the line names the first three, in Live Render's folded order: Bril, Wind, Ext.
+    property <[KitFigure]> folded_list: root.n >= 5 ? [sfig(0), sfig(3), sfig(4), sfig(1), sfig(2)] : [blank("Bril"), blank("Wind"), blank("Ext"), blank("Fire"), blank("Scint")];
+
+    // What a click copies: the five numbers with their names.
+    property <string> copy_text: root.n >= 5
+        ? (fig(0).name + " " + fig(0).value + "\n" + fig(1).name + " " + fig(1).value + "\n" + fig(2).name + " " + fig(2).value + "\n" + fig(3).name + " " + fig(3).value + "\n" + fig(4).name + " " + fig(4).value)
+        : "";
+
+    width: figures_lay.preferred-width;
+    height: figures_lay.preferred-height;
+    opacity: BaselineModel.stale ? 0.7 : 1.0;
+
+    Tooltip { text: @markdown("Click to copy these five numbers. Beside each figure is its change since the Baseline: a triangle up is better, a triangle down is worse, a dash is about the same. Within the noise threshold counts as the same. See the glossary."); }
+
+    figures_lay := HorizontalLayout {
+        alignment: start;
+        if root.narrow: KitFigures {
+            title: BaselineModel.has_baseline ? "VS BASELINE" : "FIGURES";
+            figures: !root.narrow_open ? root.folded_list : root.open_list;
+            folded: !root.narrow_open;
+            show_bars: false;
+            show_deltas: root.deltas && BaselineModel.has_baseline;
+            action_text: root.deltas && GuideModel.allows_history() && EditorModel.enabled ? "Keep as Trial" : "";
+            copy => { LibraryModel.copy_text(root.copy_text); }
+            action => { TrialsModel.keep_trial(); }
+            fold_toggled(f) => { root.narrow_open = !f; }
+        }
+        if !root.narrow: KitFigures {
+            title: BaselineModel.has_baseline ? "VS BASELINE" : "FIGURES";
+            figures: root.wide_folded ? root.folded_list : root.open_list;
+            folded: root.wide_folded;
+            show_bars: false;
+            show_deltas: root.deltas && BaselineModel.has_baseline;
+            action_text: root.deltas && GuideModel.allows_history() && EditorModel.enabled ? "Keep as Trial" : "";
+            copy => { LibraryModel.copy_text(root.copy_text); }
+            action => { TrialsModel.keep_trial(); }
+            fold_toggled(f) => {
+                root.wide_folded = f;
+                ViewportModel.figures_folded_set(f);
+            }
+        }
+    }
+
+    // The guide's Keep Trials lesson outlines the card.
+    if GuideModel.highlight_target == "keep_trial_button": Rectangle {
+        border-width: 2px;
+        border-color: Theme.accent-cyan;
+        border-radius: 10px;
+    }
+}

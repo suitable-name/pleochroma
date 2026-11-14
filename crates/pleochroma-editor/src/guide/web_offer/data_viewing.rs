@@ -65,7 +65,7 @@ fn custom_material() -> GuideOverlay {
                     "The custom material form sits in Design Settings, so this step carries everything you need.",
                 )
                 .line(
-                    "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), then click New/Edit Material....",
+                    "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material....",
                     "Open Design Settings, then click Custom material.",
                 )
                 .drop_line("Optionally pick a Load Preset Template, for example Quartz.")
@@ -347,47 +347,51 @@ fn live_render() -> GuideOverlay {
         .step(open_render_step())
         .step(
             StepOverlay::of("Turn the stone and move the light")
+                .drop_line("Click the mouse button at the bottom left to see all the gestures (Gestures); it opens by itself the first time and closes when you first drag in the view.")
                 .line(
-                    "Right-drag, or Shift and left-drag, moves the light.",
+                    "Right-drag, or Shift and left-drag, moves the light; a middle-drag pans.",
                     "Move the light with Light Azimuth and Light Elevation under Settings.",
                 )
-                .drop_line("Front and Top snap the camera to the standard poses; the reset button next to them puts the camera and the light back."),
+                .line(
+                    "Front, Top and Turn 90\u{b0} snap the camera to the standard poses; Reset Camera next to them puts the camera and the light back. Below about 1000 px these tools fold into a View menu.",
+                    "Front and Top snap the camera to the standard poses; the reset button next to them puts the camera and the light back.",
+                ),
         )
         .step(StepOverlay::of("Choose a lighting rig").line(
-            "Open the Lighting drop-down in the toolbar.",
+            "Click the Lighting chip in the toolbar (a rig picture and the short rig name). The rig menu lists SAVED lightings, then LIT MODELS, STUDIO and ANALYSIS rigs.",
             "Open the Lighting list at the top of the window.",
         ))
         .step(
             StepOverlay::of("The Parameters dock")
                 .retitle("Render Settings")
                 .line(
-                    "Everything else about the light is in the Lighting & Environment tab, beside the picture.",
+                    "Everything else about the light is in the Lighting tab, beside the picture.",
                     "Everything else about the light is in Render Settings, opened by the Settings button.",
                 )
                 .line(
-                    "The bulb button in the toolbar (or Ctrl+Alt+2) opens the tab; the step has opened it for you.",
+                    "The bulb button in the toolbar (or Ctrl+Alt+2) opens the tab, and All Rigs and Settings... at the foot of the rig menu does too; the step has opened it for you.",
                     "Click Settings above the picture to open the panel.",
                 )
                 .line(
-                    "It holds the lighting rig, the light direction, the exposure, the HDR map, backdrop and Stone Shadow, the observer's surface glare and head shadow, your saved lighting and the camera.",
+                    "From the top it holds the rig card (with Change, which opens the gallery of rigs), MAIN LIGHT (the dome, the azimuth and elevation fields, Exposure), SURROUNDINGS (the backdrop As Lit, Black, Grey, White, Stone Shadow, Tray Reflection and the HDR map), the Viewer card (Surface Glare and Head Shadow) and SAVED LIGHTINGS.",
                     "It holds the lighting rig, the light direction, the exposure, the HDR map and backdrop, the surface glare and the head shadow, and the render quality.",
                 )
-                .drop_line("The gem button (Ctrl+Alt+1) opens the Stone tab, and the gear button (Ctrl+Alt+3) the Render & Output tab. The same three buttons are in the Edit view.")
-                .drop_line("A saved lighting stores the whole look at once: the rig, the light direction, the exposure, the glare, the backdrop, Stone Shadow, the head shadow and the HDR map."),
+                .drop_line("The gem button (Ctrl+Alt+1) opens the Stone tab, and the gear button (Ctrl+Alt+3) the Render tab. The same three buttons are in the Edit view.")
+                .drop_line("A saved lighting stores the whole look at once: the rig, the main light direction, the exposure, the glare, the backdrop, Stone Shadow, the head shadow and the HDR map. The camera pose is stored only when you switch on Include the camera pose."),
         )
         .step(
             StepOverlay::of("The stone's material")
                 .line(
-                    "The toolbar shows the material of the picture as a small chip. The material itself belongs to the design and is changed in the Stone tab.",
+                    "The viewport shows the material of the picture as a small chip. The material itself belongs to the design and is changed in the Stone tab.",
                     "The material belongs to the design and is changed in Design Settings.",
                 )
                 .line(
                     "Open the Stone tab (the gem button, or Ctrl+Alt+1). Its Material drop-down changes the design's own material, and you can undo it.",
                     "Open Design Settings. Its Material list changes the design's own material, and you can undo it.",
                 )
-                .drop_line("Preview As... shows the same stone in another material without changing the design. While it is on, an amber Previewing badge says so in the toolbar and in the export dialogs, and Back to Design ends it.")
+                .drop_line("Preview As... shows the same stone in another material without changing the design. While it is on, an amber Previewing badge says so under the mode segment and in the export dialogs, and Back to Design ends it.")
                 .line(
-                    "New/Edit Material... opens the Material Editor (see the custom materials tutorial).",
+                    "The Material Menu (the \u{2026} button on the material card) holds RI Override and New/Edit Material..., which opens the Material Editor (see the custom materials tutorial).",
                     "Custom material, in the same panel, defines a material of your own (see the custom materials tutorial).",
                 )
                 .drop_line("A preview never starts by itself, so the picture, an export and the tilt video always use the design's material unless you can see the Previewing badge."),
@@ -400,7 +404,7 @@ fn live_render() -> GuideOverlay {
                     "The Solid tab is where you change the design with the handles.",
                 )
                 .line(
-                    "Click Edit, the pill to the right of Live Render.",
+                    "Click Edit in the places segment of the design header.",
                     "Click Solid, the tab next to Render.",
                 ),
         )
@@ -416,11 +420,11 @@ pub(super) fn open_render_step() -> StepOverlay {
             "The Render tab is the physically based picture of the stone: the light, the material and the dispersion as they really behave.",
         )
         .line(
-            "Click Live Render, the pill to the left of Edit, above the picture.",
+            "Click Live Render in the places segment in the design header (Live Render, Edit, Cutting Instructions, Files & Downloads).",
             "Click Render, the first tab above the picture (or press Alt+1).",
         )
         .line(
-            "The Live Render view opens with its toolbar of Lighting, the three Parameters buttons and the metrics. It starts on the flat Solid picture; click Path-Traced above the picture for the traced one.",
+            "The Live Render view opens with the mode segment (Solid, Path, Ray) at the top left, the Lighting chip and the view tools at the top right, the FACE-UP figures card on the left and the status pill at the bottom right. It starts on the flat Solid picture; click Path (Path-Traced) for the traced one.",
             "The Render view opens and the stone is traced with light. The Settings button holds the lighting and quality controls.",
         )
         .line(
@@ -531,7 +535,8 @@ fn export_asc() -> GuideOverlay {
                 .line(
                     "It does not add anything to your library. Save writes the whole .psdd design file instead.",
                     "Save Design (.psdd) writes the whole design file instead.",
-                ),
+                )
+                .drop_line("Copy Cutting Schedule, in the same menu, puts the cut order on the clipboard as text instead."),
         )
         .step(
             StepOverlay::of("Export it")

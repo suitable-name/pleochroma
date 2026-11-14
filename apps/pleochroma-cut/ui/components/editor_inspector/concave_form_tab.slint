@@ -1,4 +1,4 @@
-import { CheckBox, ComboBox, LineEdit } from "std-widgets.slint";
+import { LineEdit } from "std-widgets.slint";
 import { EditorTierItem } from "../../types.slint";
 import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
@@ -6,10 +6,83 @@ import { WarningLine } from "../warning_line.slint";
 import { FormRow, FormRowMetrics } from "form_row.slint";
 import { TipButton } from "../compact_controls.slint";
 import { WrapNote, WrapWarning } from "wrap_note.slint";
+import { KitSection, KitSegmentBar, KitSegment } from "../kit/kit.slint";
+import { R3Link } from "../kit/r3c.slint";
+
+// A tool as a tile: its shape drawn small, and its name. It is a radio button to a screen reader,
+// named as the tool is in the form ("Cylinder (CYL)").
+component ToolTile inherits Rectangle {
+    in property <string> text;
+    in property <string> reader_label;
+    in property <string> shape;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback picked();
+
+    height: 62px;
+    border-radius: 10px;
+    opacity: root.enabled ? 1.0 : 0.5;
+    background: root.on ? Theme.accent-cyan-surface : (touch.has-hover && root.enabled ? Theme.bg-card-hover : Theme.bg-input);
+    border-width: (root.on || fs.has-focus) ? 2px : 1px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : (root.on ? Theme.accent-cyan : Theme.border-subtle);
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.reader_label;
+    accessible-enabled: root.enabled;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        spacing: 5px;
+        HorizontalLayout {
+            alignment: center;
+            Path {
+                width: 40px;
+                height: 24px;
+                viewbox-width: 40;
+                viewbox-height: 24;
+                commands: root.shape;
+                stroke: root.on ? Theme.accent-cyan : Theme.text-secondary;
+                stroke-width: 1.6px;
+                fill: transparent;
+                stroke-line-join: round;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.picked(); }
+    }
+}
 
 // The Inspector's "Tier" tab for a CONCAVE tier, the tool-cut counterpart of `TierFormTab`.
 // A concave tier is two lines: the facet line (name, angle, indices, instructions) and the
-// tool line (tool, theta, X/Y/Z, D/W, tool angle, motion).
+// tool line (tool, theta, X/Y/Z, D/W, tool angle, motion). The tools are tiles, a small picture
+// shows the tool on the stone, the numbers are short rows and the motion is a segment.
 //
 // Like `TierFormTab`, this component only renders the scratch state `EditorInspector` owns
 // (the `c_*` properties, dirty snapshot and banners) and reports edits back through two-way
@@ -23,7 +96,8 @@ import { WrapNote, WrapWarning } from "wrap_note.slint";
 // is no Simple and Advanced split: every field of a concave tier is needed.
 //
 // `unlocked` is `GuideModel.allows_concave_tier()` (see `GuideAllow`): every input and
-// button ANDs it into its own `enabled:`.
+// button ANDs it into its own `enabled:`. The Add and Save button is pinned under the scroll area
+// by `EditorInspector`; while it is off its tooltip says what the form still lacks.
 export component ConcaveFormTab inherits VerticalLayout {
     in property <bool> unlocked: true;
 
@@ -31,7 +105,7 @@ export component ConcaveFormTab inherits VerticalLayout {
     in-out property <string> c_angle;
     in-out property <string> c_indices;
     in-out property <string> c_instructions;
-    // The tool combo's index: 0 CYL, 1 CON, 2 CIR, 3 DSC, 4 SPH (`EditorInspector` maps
+    // The tool tile picked: 0 CYL, 1 CON, 2 CIR, 3 DSC, 4 SPH (`EditorInspector` maps
     // it to and from the tool code `parse_concave_tier_form` accepts).
     in-out property <int> c_tool;
     in-out property <string> c_theta;
@@ -47,6 +121,10 @@ export component ConcaveFormTab inherits VerticalLayout {
     in property <bool> show_dirty_warning: false;
     in property <bool> show_external_change: false;
     in property <int> pending_load_index: -1;
+    // What the form still lacks, for the note under the fields (empty when nothing).
+    in property <string> missing: "";
+    // The form is complete and the guide allows saving: the Add/Save button is on.
+    in property <bool> can_save: false;
 
     callback keep_draft();
     callback confirm_discard_and_load();
@@ -54,6 +132,8 @@ export component ConcaveFormTab inherits VerticalLayout {
     callback dismiss_external_change();
     // Commits the draft (Enter in a field) -- forwarded to `EditorInspector.save_form()`.
     callback save_form();
+    // Gives the draft up: an "Add" draft returns to the flat form, an edit reloads the tier.
+    callback cancel_form();
 
     // Only a cone and a disc have an included angle; for the other tools the field is
     // disabled (and Rust rejects a value typed for them).
@@ -70,8 +150,13 @@ export component ConcaveFormTab inherits VerticalLayout {
             EditorModel.tier_form_error = "";
         }
     }
+    function pick_tool(index: int) {
+        root.c_tool = index;
+        root.clear_field_error("tool");
+        root.clear_field_error("tool_angle");
+    }
 
-    spacing: 8px;
+    spacing: 10px;
     // The scroll bar is drawn over the right edge: keep the fields clear of it.
     padding-right: FormRowMetrics.scroll_gutter;
     // A small inset above the first row, so a control is never cut right at the top edge of the
@@ -79,14 +164,37 @@ export component ConcaveFormTab inherits VerticalLayout {
     padding-top: 2px;
     // Packed at the top, as the other inspector tabs: no row takes the spare height.
     alignment: start;
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: root.loaded_tier_index < 0
+                ? "Add Concave Tier"
+                : "Edit Concave Tier #" + (root.loaded_tier_index + 1) + (root.c_name == "" ? "" : " -- " + root.c_name);
+            font-size: 14px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
+        VerticalLayout {
+            alignment: center;
+            R3Link {
+                text: "Cancel";
+                hint: root.loaded_tier_index < 0
+                    ? "Give up this draft and go back to the flat tier form."
+                    : "Drop your changes and show the tier as the design has it.";
+                enabled: root.unlocked;
+                clicked => { root.cancel_form(); }
+            }
+        }
+    }
     Text {
-        text: root.loaded_tier_index < 0
-            ? "Add Concave Tier"
-            : "Edit Concave Tier #" + (root.loaded_tier_index + 1) + (root.c_name == "" ? "" : " -- " + root.c_name);
-        font-size: 12px;
-        font-weight: 700;
-        color: Theme.text-primary;
-        accessible-role: AccessibleRole.text;
+        text: "A facet ground with a curved tool: the facet line says where, the tool line says with what.";
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
     }
     if root.show_dirty_warning: Rectangle {
         background: Theme.bg-input;
@@ -153,36 +261,44 @@ export component ConcaveFormTab inherits VerticalLayout {
     }
 
     // --- The facet line: what the tier is called and where it sits on the gear.
-    Text { text: "Facet Line"; font-size: 11px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
-    FormRow {
-        label: "Name";
-        tooltip: "Facet name. A concave tier may not reuse a flat tier's\nname, and nothing can meet it by name. See the glossary.";
-        invalid: root.field_error == "name";
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> root.c_name;
-            accessible-label: "Facet Name";
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            edited => { root.clear_field_error("name"); }
+    KitSection { label: "FACET LINE"; }
+    VerticalLayout {
+        spacing: 10px;
+        FormRow {
+            horizontal-stretch: 1;
+            label: "Name";
+            label_width: 56px;
+            tooltip: "Facet name. A concave tier may not reuse a flat tier's\nname, and nothing can meet it by name. See the glossary.";
+            invalid: root.field_error == "name";
+            LineEdit {
+                enabled: root.unlocked;
+                text <=> root.c_name;
+                accessible-label: "Facet Name";
+                accepted => { root.save_form(); }
+                changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                edited => { root.clear_field_error("name"); }
+            }
         }
-    }
-    FormRow {
-        label: "Angle (deg)";
-        tooltip: "Angle of the facet the tool leaves behind, in degrees from the\ngirdle plane. Type a minus sign for a facet on the pavilion\nside and none for the crown side; the tier table shows the\nplain number under a P or C label. See the glossary.";
-        invalid: Math.abs(root.c_angle.to-float()) > 90 || root.field_error == "angle";
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> root.c_angle;
-            placeholder-text: "e.g. -42";
-            accessible-label: "Angle in Degrees";
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            edited => { root.clear_field_error("angle"); }
+        FormRow {
+            horizontal-stretch: 1;
+            label: "Angle";
+            label_width: 56px;
+            tooltip: "Angle of the facet the tool leaves behind, in degrees from the\ngirdle plane. Type a minus sign for a facet on the pavilion\nside and none for the crown side; the tier table shows the\nplain number under a P or C label. See the glossary.";
+            invalid: Math.abs(root.c_angle.to-float()) > 90 || root.field_error == "angle";
+            LineEdit {
+                enabled: root.unlocked;
+                text <=> root.c_angle;
+                placeholder-text: "e.g. -42";
+                accessible-label: "Angle in Degrees";
+                accepted => { root.save_form(); }
+                changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                edited => { root.clear_field_error("angle"); }
+            }
         }
     }
     FormRow {
         label: "Indices";
+        label_width: 56px;
         tooltip: "Gear positions the tool is placed at, comma-separated.\nOne tool placement is cut at each. See the glossary.";
         invalid: root.field_error == "indices";
         LineEdit {
@@ -196,7 +312,8 @@ export component ConcaveFormTab inherits VerticalLayout {
         }
     }
     FormRow {
-        label: "Instructions";
+        label: "Note";
+        label_width: 56px;
         tooltip: "Free-text cutting instructions, printed on the facet line of the cutting sheet.";
         LineEdit {
             horizontal-stretch: 1;
@@ -209,43 +326,156 @@ export component ConcaveFormTab inherits VerticalLayout {
         }
     }
 
+    Rectangle { height: 1px; background: Theme.border-subtle; }
+
     // --- The tool line: which tool, where it sits and how it moves.
-    Text { text: "Tool Line"; font-size: 11px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
-    FormRow {
-        label: "Tool";
-        tooltip: "The tool's shape: cylinder, cone, circle (a ring), disc or sphere.";
-        invalid: root.field_error == "tool";
-        ComboBox {
+    KitSection { label: "TOOL LINE"; }
+    Rectangle {
+        height: 62px;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: "Tool Shape";
+        accessible-description: "The tool's shape: cylinder, cone, circle (a ring), disc or sphere.";
+        HorizontalLayout {
+            spacing: 6px;
+            ToolTile {
+                horizontal-stretch: 1;
+                text: "Cylinder";
+                reader_label: "Cylinder (CYL)";
+                shape: "M4 6 H36 M4 18 H36 M4 6 A3 6 0 0 0 4 18 M36 6 A3 6 0 0 1 36 18";
+                on: root.c_tool == 0;
+                enabled: root.unlocked;
+                picked => { root.pick_tool(0); }
+            }
+            ToolTile {
+                horizontal-stretch: 1;
+                text: "Cone";
+                reader_label: "Cone (CON)";
+                shape: "M4 4 L36 9 V15 L4 20 Z";
+                on: root.c_tool == 1;
+                enabled: root.unlocked;
+                picked => { root.pick_tool(1); }
+            }
+            ToolTile {
+                horizontal-stretch: 1;
+                text: "Circle";
+                reader_label: "Circle (CIR)";
+                shape: "M20 2 A10 10 0 1 0 20 22 A10 10 0 1 0 20 2 Z";
+                on: root.c_tool == 2;
+                enabled: root.unlocked;
+                picked => { root.pick_tool(2); }
+            }
+            ToolTile {
+                horizontal-stretch: 1;
+                text: "Disc";
+                reader_label: "Disc (DSC)";
+                shape: "M4 10 H36 V14 H4 Z";
+                on: root.c_tool == 3;
+                enabled: root.unlocked;
+                picked => { root.pick_tool(3); }
+            }
+            ToolTile {
+                horizontal-stretch: 1;
+                text: "Sphere";
+                reader_label: "Sphere (SPH)";
+                shape: "M20 2 A10 10 0 1 0 20 22 A10 10 0 1 0 20 2 Z M10 12 A10 3 0 0 0 30 12";
+                on: root.c_tool == 4;
+                enabled: root.unlocked;
+                picked => { root.pick_tool(4); }
+            }
+        }
+    }
+    // The tool against the stone: where it sits and how it is turned.
+    Rectangle {
+        height: 120px;
+        border-radius: 10px;
+        background: Theme.chart-bg;
+        border-width: 1px;
+        border-color: Theme.chart-border;
+        clip: true;
+        accessible-role: AccessibleRole.image;
+        accessible-label: "Tool on the stone";
+        accessible-description: "Turn " + (root.c_theta == "" ? "0" : root.c_theta) + " degrees, D/W " + root.c_diameter
+            + ", at X " + (root.c_x == "" ? "0" : root.c_x) + ", Y " + (root.c_y == "" ? "0" : root.c_y) + ", Z " + (root.c_z == "" ? "0" : root.c_z);
+        Text { x: 12px; y: 8px; text: "TOOL ON THE STONE"; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; color: Theme.text-muted; }
+        Path {
+            x: 24px;
+            y: 28px;
+            width: parent.width * 0.5;
+            height: 78px;
+            viewbox-width: 300;
+            viewbox-height: 100;
+            commands: "M0 100 L150 10 L300 100";
+            stroke: Theme.text-secondary;
+            stroke-width: 1.4px;
+            fill: transparent;
+        }
+        Rectangle {
+            x: 24px + parent.width * 0.5 * 0.62;
+            y: 40px;
+            width: parent.width * 0.5 * 0.4;
+            height: 26px;
+            border-radius: 13px;
+            border-width: 1.5px;
+            border-color: Theme.accent-cyan;
+            background: Theme.tint-cyan;
+        }
+        Text {
+            x: parent.width * 0.5 + 40px;
+            y: 38px;
+            width: parent.width * 0.5 - 52px;
+            text: "turn " + (root.c_theta == "" ? "0" : root.c_theta) + "°  ·  D/W " + (root.c_diameter == "" ? "-" : root.c_diameter);
+            font-size: 11px;
+            color: Theme.accent-cyan;
+            overflow: elide;
+        }
+        Text {
+            x: parent.width * 0.5 + 40px;
+            y: 58px;
+            width: parent.width * 0.5 - 52px;
+            text: "at X " + (root.c_x == "" ? "0" : root.c_x) + ", Y " + (root.c_y == "" ? "0" : root.c_y) + ", Z " + (root.c_z == "" ? "0" : root.c_z);
+            font-size: 11px;
+            color: Theme.text-secondary;
+            overflow: elide;
+        }
+    }
+    VerticalLayout {
+        spacing: 10px;
+        FormRow {
             horizontal-stretch: 1;
-            enabled: root.unlocked;
-            accessible-label: "Tool Shape";
-            model: [
-                "Cylinder (CYL)",
-                "Cone (CON)",
-                "Circle (CIR)",
-                "Disc (DSC)",
-                "Sphere (SPH)",
-            ];
-            current-index <=> root.c_tool;
-            selected => { root.clear_field_error("tool"); root.clear_field_error("tool_angle"); }
+            label: "Turn";
+            label_width: 56px;
+            tooltip: "Azimuth of the tool's axis around the stone, in degrees. Blank is 0.";
+            invalid: root.field_error == "theta";
+            LineEdit {
+                enabled: root.unlocked;
+                text <=> root.c_theta;
+                placeholder-text: "0";
+                accessible-label: "Tool Azimuth in Degrees";
+                accepted => { root.save_form(); }
+                changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                edited => { root.clear_field_error("theta"); }
+            }
+        }
+        FormRow {
+            horizontal-stretch: 1;
+            label: "D/W";
+            label_width: 56px;
+            tooltip: "Tool diameter over stone width (D/W). Must be positive.";
+            invalid: root.field_error == "diameter";
+            LineEdit {
+                enabled: root.unlocked;
+                text <=> root.c_diameter;
+                placeholder-text: "e.g. 0.25";
+                accessible-label: "Tool Diameter over Stone Width";
+                accepted => { root.save_form(); }
+                changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                edited => { root.clear_field_error("diameter"); }
+            }
         }
     }
     FormRow {
-        label: "Theta (deg)";
-        tooltip: "Azimuth of the tool's axis around the stone, in degrees. Blank is 0.";
-        invalid: root.field_error == "theta";
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> root.c_theta;
-            placeholder-text: "0";
-            accessible-label: "Tool Azimuth in Degrees";
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            edited => { root.clear_field_error("theta"); }
-        }
-    }
-    FormRow {
-        label: "X / Y / Z";
+        label: "Position";
+        label_width: 56px;
         tooltip: "Displacement of the tool from its default position,\nas ratios of the stone width. Blank is 0.";
         invalid: root.field_error == "x" || root.field_error == "y" || root.field_error == "z";
         LineEdit {
@@ -280,44 +510,50 @@ export component ConcaveFormTab inherits VerticalLayout {
         }
     }
     FormRow {
-        label: "D/W";
-        tooltip: "Tool diameter over stone width (D/W). Must be positive.";
-        invalid: root.field_error == "diameter";
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> root.c_diameter;
-            placeholder-text: "e.g. 0.25";
-            accessible-label: "Tool Diameter over Stone Width";
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            edited => { root.clear_field_error("diameter"); }
-        }
-    }
-    FormRow {
-        label: "Tool Angle";
+        label: "Tool angle";
+        label_width: 56px;
         tooltip: "Included angle of a cone or disc, in degrees. Only those\ntwo tools have one; leave it blank for the others.";
         invalid: root.field_error == "tool_angle";
         LineEdit {
             enabled: root.unlocked && root.has_tool_angle;
             text <=> root.c_tool_angle;
-            placeholder-text: root.has_tool_angle ? "e.g. 60" : "n/a";
+            placeholder-text: root.has_tool_angle ? "e.g. 60" : "n/a (cones and discs only)";
             accessible-label: "Tool Included Angle in Degrees";
             accepted => { root.save_form(); }
             changed has-focus => { EditorModel.text_focus = self.has-focus; }
             edited => { root.clear_field_error("tool_angle"); }
         }
     }
-    Rectangle {
-        height: motion_box.preferred-height;
-        Tooltip { text: @markdown("Reciprocating: the tool is stroked back and\nforth. Unticked, it is plunged straight in."); }
-        // On the field column like the inputs above (a lone child of a Rectangle is centred).
-        motion_box := CheckBox {
-            x: FormRowMetrics.field_start;
-            width: parent.width - FormRowMetrics.field_start;
-            enabled: root.unlocked;
-            text: "Reciprocating (Stroked Back and Forth)";
-            checked <=> root.c_reciprocating;
+    HorizontalLayout {
+        spacing: 10px;
+        height: 32px;
+        Text { width: 56px; text: "Stroke"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+        KitSegmentBar {
+            width: stroke_row.preferred-width + 4px;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: "Reciprocating (Stroked Back and Forth)";
+            accessible-description: "Reciprocating: the tool is stroked back and forth. Unticked, it is plunged straight in.";
+            stroke_row := HorizontalLayout {
+                x: 2px;
+                padding: 2px;
+                spacing: 2px;
+                KitSegment {
+                    text: "One Way";
+                    hint: "The tool is plunged straight in.";
+                    on: !root.c_reciprocating;
+                    enabled: root.unlocked;
+                    picked => { root.c_reciprocating = false; }
+                }
+                KitSegment {
+                    text: "Back and Forth";
+                    hint: "The tool is stroked back and forth.";
+                    on: root.c_reciprocating;
+                    enabled: root.unlocked;
+                    picked => { root.c_reciprocating = true; }
+                }
+            }
         }
+        Rectangle { horizontal-stretch: 1; }
     }
 
     // The same inline message the flat form shows, beside the corner toast.
@@ -326,6 +562,11 @@ export component ConcaveFormTab inherits VerticalLayout {
         font_size: 10px;
         font_weight: 700;
         ink: Theme.accent-ruby;
+    }
+    // What is still missing before Add or Save can be pressed.
+    if root.missing != "" && EditorModel.tier_form_error == "": WrapNote {
+        text: "To add this tier: " + root.missing;
+        font_size: 10px;
     }
 
     // --- Read-only: the tool line the cutting sheet prints, and any warning, for a
@@ -350,7 +591,20 @@ export component ConcaveFormTab inherits VerticalLayout {
             text: tier_row.warning_text;
         }
     }
-    // The Save Concave Tier button is pinned under the scroll area: this room keeps the last row
-    // (the Sheet Line and its warning) clear of it when the form is scrolled to the end.
-    Rectangle { height: 40px; }
+    // Add or Save, at the end of the form. While it is off, its tooltip says what is missing.
+    HorizontalLayout {
+        spacing: 8px;
+        Rectangle { horizontal-stretch: 1; }
+        TipButton {
+            text: root.loaded_tier_index < 0 ? "Add Concave Tier" : "Save Concave Tier";
+            hint: root.missing != ""
+                ? "Not ready yet: " + root.missing
+                : (root.loaded_tier_index < 0
+                    ? "Add the tier in the form to the design. It is one Undo step."
+                    : "Write the changes in the form onto the selected tier. It is one Undo\nstep; the table's mast and solve columns go stale until you Solve.");
+            primary: true;
+            enabled: root.can_save;
+            clicked => { root.save_form(); }
+        }
+    }
 }

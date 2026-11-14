@@ -77,22 +77,22 @@ export component ManipulateHintBar inherits Rectangle {
     in property <length> toolbar_height: 28px;
 
     // The room the text has: the strip's width less its side padding and the buttons.
-    property <length> text_width: max(1px, root.width - 20px - 16px - root.buttons_width);
+    property <length> text_width: max(1px, root.width - 24px - 16px - root.buttons_width);
     // The strip takes a second line for text that does not fit one, so the Slice hint's exit
     // tip stays visible. An estimate: Slint measures a wrapped Text as one line, and 11 px text
     // runs about 5.6 px a character.
     property <int> text_lines: Math.min(2, Math.max(1, Math.ceil(ManipulateModel.hint_text.character-count * 5.6px / root.text_width)));
 
-    // Sits just under the toolbar's pill rows (10px padding + rows + 10px gap).
+    // Sits just under the toolbar rows (their bottom edge + 8px).
     Rectangle {
-        x: 10px;
-        y: 20px + root.toolbar_height;
-        width: parent.width - 20px;
+        x: 12px;
+        y: root.toolbar_height + 8px;
+        width: parent.width - 24px;
         height: root.text_lines > 1 ? 38px : 24px;
-        background: Theme.bg-input;
-        border-radius: Theme.radius-sm;
+        background: Theme.glass-bg;
+        border-radius: 8px;
         border-width: 1px;
-        border-color: Theme.border-subtle;
+        border-color: Theme.glass-edge;
 
         accessible-role: AccessibleRole.text;
         accessible-label: ManipulateModel.hint_text;

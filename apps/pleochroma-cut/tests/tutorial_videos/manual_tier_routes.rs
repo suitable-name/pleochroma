@@ -388,18 +388,10 @@ impl Film<'_> {
             .map_err(|_| format!("Groove has invalid angle {old:?}"))?;
         let next = format!("{}", old_angle + 1.0);
         self.click_and_type(&field, &next)?;
-        // This commit button is pinned below the scrolling form, not inside it.
-        let view = self.view();
-        let dock = targets::run(&view, &targets::Query::Id("EditorView::dock_scroll"))
-            .ok_or("editor dock is missing")?;
-        let save = targets::role_label(
-            &view,
-            "Save Concave Tier",
-            uiprobe::AccessibleRole::Button,
-            Some("EditorInspector"),
-        )
-        .and_then(|spot| spot.clipped_to(&dock, view.size))
-        .ok_or("Save Concave Tier button is outside the editor dock")?;
+        // The button sits at the end of the scrolling form; the route scrolls it into view.
+        let save = self
+            .inspector_form_control("Save Concave Tier", uiprobe::AccessibleRole::Button)?
+            .ok_or("Save Concave Tier button is missing in the concave form")?;
         self.click_and_invoke(&save)?;
         let saved = editor
             .get_tiers()
@@ -446,7 +438,7 @@ impl Film<'_> {
             &self.view(),
             "Cut Mode",
             uiprobe::AccessibleRole::Button,
-            Some("AnalysisGroup"),
+            None,
         )
         .ok_or("Cutting Mode command is missing")?;
         self.click_and_invoke(&command)?;

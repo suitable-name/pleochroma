@@ -1,5 +1,5 @@
-import { Button } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
+import { KitButton } from "kit/kit.slint";
 import { EditorModel } from "../models/editor.slint";
 import { GuideModel } from "../models/guide.slint";
 
@@ -11,13 +11,13 @@ export component MaterialGuessBadge inherits HorizontalLayout {
     spacing: 6px;
     visible: EditorModel.material_guess_text != "";
 
-    // Centred beside the 32 px "Set Material" button instead of riding at its top.
+    // Centred beside the 28 px "Set Material" button instead of riding at its top.
     VerticalLayout {
         alignment: center;
         Rectangle {
             width: guess_lbl.preferred-width + 10px;
-            // Same 32 px as the "Set Material" button beside it, so the two read as one row.
-            height: 32px;
+            // Same 28 px as the "Set Material" button beside it, so the two read as one row.
+            height: 28px;
             background: Theme.accent-amber.with-alpha(0.14);
             border-radius: Theme.radius-sm;
             border-width: 1px;
@@ -39,12 +39,16 @@ export component MaterialGuessBadge inherits HorizontalLayout {
         }
     }
     // Not offered for a material the load already applied: it is the design's material.
-    if !EditorModel.material_guess_applied: Button {
-        text: "Set Material";
-        accessible-description: "Use the guessed material for this design. You can undo it.";
-        // A design-material edit: locked with Design Settings while the
-        // worked-example guide runs.
-        enabled: GuideModel.allows_design_settings();
-        clicked => { EditorModel.set_material_from_guess(EditorModel.material_guess_name); }
+    if !EditorModel.material_guess_applied: VerticalLayout {
+        alignment: center;
+        KitButton {
+            text: "Set Material";
+            hint: "Use the guessed material for this design. You can undo it.";
+            h: 28px;
+            // A design-material edit: locked with Design Settings while the
+            // worked-example guide runs.
+            enabled: GuideModel.allows_design_settings();
+            clicked => { EditorModel.set_material_from_guess(EditorModel.material_guess_name); }
+        }
     }
 }

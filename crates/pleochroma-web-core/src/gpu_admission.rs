@@ -72,8 +72,9 @@ pub const ISOTROPIC_BASE_KERNELS: &[&str] = &[
 
 /// The base kernels of a uniaxial stone: the isotropic set plus the uniaxial arms.
 ///
-/// The entry arm is split into its reflect and transmit halves. The uniaxial arms are the slowest
-/// to compile, so they come last.
+/// The entry arm is split into its reflect and transmit halves and the transmit half's
+/// surface-finish kernel, the internal arm into its reflect and transmit halves. The uniaxial arms
+/// are the slowest to compile, so they come last.
 pub const UNIAXIAL_BASE_KERNELS: &[&str] = &[
     "Tail",
     "ArmTir",
@@ -85,7 +86,9 @@ pub const UNIAXIAL_BASE_KERNELS: &[&str] = &[
     "ArmGeneric",
     "ArmUniEntry",
     "ArmUniEntryTransmit",
+    "ArmUniEntryFinish",
     "ArmUniInternal",
+    "ArmUniInternalTransmit",
 ];
 
 /// The material class of a uniaxial stone (`material_class::UNIAXIAL` in the desktop crate).

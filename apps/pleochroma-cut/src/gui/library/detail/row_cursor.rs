@@ -7,8 +7,8 @@
 //! ([`step_row_cursor`]), so tests can run without a window.
 
 use super::shared::side_shown_in_mode;
-use crate::{AngleItem, CuttingTableModel, MainWindow};
-use slint::{ComponentHandle, Model, ModelRc};
+use crate::{AngleItem, CuttingTableModel, EditorModel, MainWindow, gui::show_toast};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 /// The `order_idx` of every row that the filter `mode` (0 = All, 1 = Pavilion, 2 = Crown)
 /// shows, in the order the table draws them.
@@ -67,6 +67,44 @@ pub(super) fn setup_row_cursor_callback(ui: &MainWindow) {
         .on_step_row(|angles, current, step, mode| {
             step_row_cursor(&visible_order_indices(&angles, mode), current, step)
         });
+    // The page counts the rows it shows, which may be the open design's rows rather than the
+    // library's (`LibraryModel::filtered_row_count` reads only those).
+    ui.global::<CuttingTableModel>()
+        .on_count_rows(|angles, mode| super::shared::count_angles_for_mode(&angles, mode));
+    ui.global::<CuttingTableModel>()
+        .on_split_indices(|text| ModelRc::new(VecModel::from(split_indices(&text))));
+
+    // A click on a step's note: the Edit tab with that tier selected.
+    let ui_weak = ui.as_weak();
+    ui.global::<CuttingTableModel>().on_open_tier(move |code| {
+        let Some(ui) = ui_weak.upgrade() else {
+            return;
+        };
+        let editor = ui.global::<EditorModel>();
+        let Some(position) = editor.get_tiers().iter().position(|tier| tier.name == code) else {
+            show_toast(
+                &ui,
+                "That step is not a tier of the design open in Edit.",
+                "info",
+            );
+            return;
+        };
+        editor.set_selected_tier_index(i32::try_from(position).unwrap_or(-1));
+        ui.set_active_tab(0);
+        ui.invoke_active_tab_changed(0);
+        ui.set_render_view_tab(1);
+        ui.invoke_render_view_tab_changed(1);
+    });
+}
+
+/// The index chips of a row's index text (`"4, 56, 64, 116"`): the comma-separated parts, trimmed,
+/// without empty ones. A text with no comma (`"Table"`) is one chip.
+fn split_indices(text: &str) -> Vec<SharedString> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(SharedString::from)
+        .collect()
 }
 
 #[cfg(test)]
@@ -151,5 +189,16 @@ mod tests {
         assert_eq!(pavilion, vec![0, 2]);
         assert_eq!(step_row_cursor(&pavilion, 0, 1), 2);
         assert_eq!(visible_order_indices(&angles, 0), vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn index_text_splits_into_trimmed_chips() {
+        let chips: Vec<String> = super::split_indices("4, 56 ,64,, 116")
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(chips, ["4", "56", "64", "116"]);
+        assert_eq!(super::split_indices("Table").len(), 1);
+        assert!(super::split_indices("").is_empty());
     }
 }

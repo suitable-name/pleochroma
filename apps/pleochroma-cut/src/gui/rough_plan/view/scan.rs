@@ -836,6 +836,7 @@ mod tests {
             yaw: 0.6,
             pitch: 0.45,
             roll: 0.0,
+            pan: [0.0, 0.0],
             distance: 3.0,
         };
         let front = pose_toward(pose, Vec3::new(0.0, 0.0, 2.0));

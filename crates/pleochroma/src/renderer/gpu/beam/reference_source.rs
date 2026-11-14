@@ -402,7 +402,7 @@ pub fn reference_megakernel_source() -> Option<String> {
         .clone()
 }
 
-/// The reference variants of all sixteen event-wavefront kernels, `(entry point, source)` in
+/// The reference variants of every event-wavefront kernel, `(entry point, source)` in
 /// `EwKernel::ALL` order, built once per process.
 ///
 /// `None` if any anchor of any kernel drifted; callers decline.

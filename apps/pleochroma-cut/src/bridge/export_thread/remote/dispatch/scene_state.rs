@@ -43,6 +43,7 @@ pub(in crate::bridge::export_thread) fn scene_state_from_snapshot_with(
         height,
         yaw: cam_yaw,
         camera_roll: snapshot.camera_roll,
+        camera_pan: snapshot.camera_pan,
         // The shadow and the reflectance only where the lighting can apply them and the stone
         // is closed; the worker resolves its own plane and refuses a stone that is not closed.
         stone_shadow: snapshot.remote_stone_shadow(),
@@ -207,6 +208,27 @@ mod tests {
         let studio = capture(false);
         let state = scene_state_from_snapshot(&studio, 32, 24, studio.yaw, studio.pitch);
         assert_eq!(state.hdr_orientation, HdrOrientation::default());
+    }
+
+    /// The pan travels as the scene's `camera_pan`, through the wire, so the worker frames the
+    /// stone where the viewport does; a centred view sends `[0.0, 0.0]`.
+    #[test]
+    fn a_remote_scene_carries_the_camera_pan() {
+        let centred = Mutex::new(RenderContext::default());
+        let snapshot = SceneSnapshot::capture(&centred).expect("the default material resolves");
+        let state = scene_state_from_snapshot(&snapshot, 32, 24, snapshot.yaw, snapshot.pitch);
+        assert_eq!(state.camera_pan, [0.0, 0.0]);
+
+        let panned = Mutex::new(RenderContext {
+            camera_pan: [0.5, -0.75],
+            ..RenderContext::default()
+        });
+        let snapshot = SceneSnapshot::capture(&panned).expect("the default material resolves");
+        let state = scene_state_from_snapshot(&snapshot, 32, 24, snapshot.yaw, snapshot.pitch);
+        assert_eq!(state.camera_pan, [0.5, -0.75]);
+        let bytes = postcard::to_allocvec(&state).expect("the scene encodes");
+        let decoded: SceneState = postcard::from_bytes(&bytes).expect("the scene decodes");
+        assert_eq!(decoded.camera_pan, [0.5, -0.75]);
     }
 
     /// The scene carries its estimator, so the worker traces with the same one. The plain

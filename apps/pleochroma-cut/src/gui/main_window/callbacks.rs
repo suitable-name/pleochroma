@@ -36,6 +36,27 @@ pub(super) fn setup_render_callbacks(
         .on_panel_collapsed_changed(move |collapsed: bool| {
             settings_store_panel.update(|s| s.settings.library_panel_collapsed = collapsed);
         });
+    // Persists the two viewport flags: the gestures card shown once, and the folded figures
+    // card. No tab reset touches them.
+    // Each handler also writes the value back into its `in` property.
+    let settings_store_gestures = settings_store.clone();
+    let ui_weak_gestures = ui.as_weak();
+    ui.global::<ViewportModel>()
+        .on_gestures_seen_set(move |seen: bool| {
+            settings_store_gestures.update(|s| s.settings.gestures_seen = seen);
+            if let Some(ui) = ui_weak_gestures.upgrade() {
+                ui.global::<ViewportModel>().set_gestures_seen(seen);
+            }
+        });
+    let settings_store_fold = settings_store.clone();
+    let ui_weak_fold = ui.as_weak();
+    ui.global::<ViewportModel>()
+        .on_figures_folded_set(move |folded: bool| {
+            settings_store_fold.update(|s| s.settings.figures_folded = folded);
+            if let Some(ui) = ui_weak_fold.upgrade() {
+                ui.global::<ViewportModel>().set_figures_folded(folded);
+            }
+        });
     // Persists the Edit sub-tab's dock width, inspector height and collapsed sections.
     editor_layout::setup_editor_layout_callbacks(ui, settings_store);
     // The Parameters dock's open/tab state: restored now, saved on every change.

@@ -75,7 +75,9 @@ impl Film<'_> {
                     "{name} has no solved numeric result to show: {value:?}"
                 ));
             }
-            let line = format!("{name}: {value}");
+            // The figures are `BigFigure`s of the Preform tab: the label is the name, a space, the
+            // value (the big number over its name).
+            let line = format!("{name} {value}");
             let spot = self
                 .inspector_form_control(&line, uiprobe::AccessibleRole::Text)?
                 .ok_or_else(|| {
@@ -263,11 +265,12 @@ impl Film<'_> {
     pub(super) fn open_variants_view(&mut self) -> Result<(), String> {
         self.film_inspector_tab(4)?;
         if self.ui.global::<VariantsModel>().get_view() == 1 {
-            let steps = targets::run(&self.view(), &Query::Tab("Steps"))
-                .ok_or("History Steps tab is missing")?;
+            // The History views are the segments of a segment bar (radio buttons, not tabs).
+            let steps = targets::run(&self.view(), &Query::Label("Steps"))
+                .ok_or("History Steps segment is missing")?;
             self.click_and_invoke(&steps)?;
         }
-        let variants = targets::run(&self.view(), &Query::Tab("Variants"))
+        let variants = targets::run(&self.view(), &Query::Label("Variants"))
             .ok_or("History Variants tab is missing")?;
         self.click_and_invoke(&variants)?;
         if self.ui.global::<VariantsModel>().get_view() != 1 {

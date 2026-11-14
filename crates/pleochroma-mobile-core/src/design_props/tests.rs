@@ -1130,3 +1130,127 @@ fn the_snap_is_planned_first_and_asks_what_it_cuts_away_before_it_is_applied() {
     assert!(state.session.undo().expect("undo replays").is_some());
     assert_eq!(state.session.design.tiers, before);
 }
+
+// --- material identity and the Light tab's rig pictures -----------------------------------
+
+#[test]
+fn a_design_with_no_material_has_an_empty_identity() {
+    let state = state();
+    assert_eq!(material_identity(&state), MaterialIdentity::default());
+    // The unnamed design is offered the plain color list on a colorless stand-in host, so its
+    // Material Default swatch is white rather than absent.
+    assert_eq!(body_color_swatch(&state), Some([255, 255, 255]));
+}
+
+#[test]
+fn the_material_identity_gives_a_family_line_and_four_chips() {
+    let mut state = state();
+    state.session = template_session(0);
+    let identity = material_identity(&state);
+    assert_eq!(identity.family, "Cubic \u{b7} isotropic \u{b7} built-in");
+    assert!(identity.ri.starts_with("RI 2.4"), "{}", identity.ri);
+    assert!(
+        identity.critical.starts_with("Critical 24."),
+        "{}",
+        identity.critical
+    );
+    assert!(
+        identity.critical.ends_with('\u{b0}'),
+        "{}",
+        identity.critical
+    );
+    assert!(
+        identity.dispersion.starts_with("Disp. 0."),
+        "{}",
+        identity.dispersion
+    );
+    assert_eq!(identity.specific_gravity, "SG 3.52");
+    assert_eq!(stone_view(&state).identity, identity);
+
+    assert_eq!(select_material(&mut state, "Quartz"), Ok(true));
+    let quartz = material_identity(&state);
+    assert!(quartz.family.contains("uniaxial"), "{}", quartz.family);
+    assert!(quartz.family.ends_with("built-in"), "{}", quartz.family);
+}
+
+#[test]
+fn an_index_override_shows_in_the_identity_chips() {
+    let mut state = state();
+    state.session = template_session(0);
+    assert_eq!(set_refractive_index_override(&mut state, "1.76"), Ok(true));
+    let identity = material_identity(&state);
+    assert_eq!(identity.ri, "RI 1.760");
+    assert!(
+        identity.critical.starts_with("Critical 3"),
+        "{}",
+        identity.critical
+    );
+}
+
+#[test]
+fn a_custom_material_without_a_specific_gravity_leaves_that_chip_out() {
+    let mut state = state();
+    state.session = template_session(0);
+    let form = CustomMaterialInput {
+        name: "Glass X".to_owned(),
+        ri: "1.62".to_owned(),
+        ..CustomMaterialInput::default()
+    };
+    assert_eq!(add_custom_material(&mut state, &form), Ok(true));
+    let identity = material_identity(&state);
+    assert!(identity.family.ends_with("custom"), "{}", identity.family);
+    assert_eq!(identity.ri, "RI 1.620");
+    assert_eq!(identity.specific_gravity, "", "no gravity on file, no chip");
+
+    let with_gravity = CustomMaterialInput {
+        name: "Glass Y".to_owned(),
+        ri: "1.62".to_owned(),
+        specific_gravity: "2.5".to_owned(),
+        ..CustomMaterialInput::default()
+    };
+    assert_eq!(add_custom_material(&mut state, &with_gravity), Ok(true));
+    assert_eq!(material_identity(&state).specific_gravity, "SG 2.50");
+}
+
+#[test]
+fn the_body_color_swatch_follows_the_picked_color() {
+    let mut state = state();
+    state.session = template_session(0);
+    let red = color_row(&state, "Red");
+    assert_eq!(set_color_entry(&mut state, red), Ok(true));
+    let swatch = body_color_swatch(&state).expect("a generic color has a swatch");
+    assert!(
+        swatch[0] > swatch[2],
+        "Red reads redder than blue: {swatch:?}"
+    );
+    let blue = color_row(&state, "Blue");
+    assert_eq!(set_color_entry(&mut state, blue), Ok(true));
+    let other = body_color_swatch(&state).expect("a generic color has a swatch");
+    assert_ne!(swatch, other);
+    assert!(other[2] > other[0], "Blue reads bluer than red: {other:?}");
+}
+
+#[test]
+fn every_offered_rig_has_a_short_name_and_a_picture_kind() {
+    let rows = lighting_rows();
+    assert_eq!(rows[0].short_name, "Light Tent");
+    assert_eq!(rows[0].kind, 0);
+    let tray = rows
+        .iter()
+        .find(|row| row.short_name == "Grading Tray")
+        .expect("the grading tray is offered");
+    assert_eq!(tray.kind, 1);
+    assert!(rows.iter().all(|row| !row.short_name.is_empty()));
+    let mut kinds: Vec<i32> = rows.iter().map(|row| row.kind).collect();
+    assert!(
+        kinds.iter().all(|kind| (0..=12).contains(kind)),
+        "the UV pictures (13, 14) are not offered: {kinds:?}"
+    );
+    kinds.sort_unstable();
+    kinds.dedup();
+    assert_eq!(kinds.len(), rows.len(), "one picture per rig");
+    let mut names: Vec<&str> = rows.iter().map(|row| row.short_name.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), rows.len(), "one short name per rig");
+}

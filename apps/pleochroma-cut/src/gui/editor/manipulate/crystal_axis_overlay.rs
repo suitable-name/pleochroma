@@ -88,7 +88,9 @@ pub(super) fn view_of(geometry: &FrameGeometry) -> Option<(View, f32)> {
     let size = ScreenSize::new(geometry.size.0 as f32, geometry.size.1 as f32);
     Some((
         View::Camera(
-            Camera::new(pose.yaw, pose.pitch, pose.distance, CAMERA_FOV_DEG).with_roll(pose.roll),
+            Camera::new(pose.yaw, pose.pitch, pose.distance, CAMERA_FOV_DEG)
+                .with_roll(pose.roll)
+                .with_pan(pose.pan),
             size,
         ),
         length,

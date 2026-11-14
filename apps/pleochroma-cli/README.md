@@ -405,14 +405,16 @@ PICTURE OPTIONS
 - `--stone-shadow on|off` sets the job's Stone Shadow, and the job's file format follows it
   (format 3 with the shadow alone, the engine's own format without it and without the Tray
   Reflection; a reflection above 0 makes it format 4 either way, except that a stone with color
-  zones makes it format 5 and a turned HDR map format 6). The map is computed at Final
+  zones makes it format 5, a turned HDR map format 6 and an off-centre camera format 7). The map
+  is computed at Final
   quality before the first sample; the path cache (and beam tracing, in a `beam` build) cannot
   serve a stone with the shadow, so it renders without them and a note says why.
 - `--tray-reflection PERCENT` sets the job's Tray Reflection: the surface's head-on reflectance
   `R0` in percent, from 0 (off) to 100 (a mirror), as on the app's slider; the job stores the
   fraction (`4` is stored as `0.04`). About 4 looks like black acrylic or glass on the Black
   backdrop; glancing views reflect more. The job's file format follows it: format 4 when the
-  value is above 0 (format 5 when the stone has color zones, format 6 with a turned HDR map),
+  value is above 0 (format 5 when the stone has color zones, format 6 with a turned HDR map,
+  format 7 with an off-centre camera),
   so an older reader refuses the file. It works together with the Stone
   Shadow. The path cache and beam tracing (in a build with the `beam` feature) cannot serve it
   ("Path cache off: the tray reflection needs paths the cache does not keep." and "Beam tracing

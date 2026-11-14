@@ -36,11 +36,59 @@ fn complete_chunk(lane: &mut LiveLane, chunk: &ChunkRequest, done_at: Instant) -
 
 #[test]
 fn chunk_sizing_starts_small_and_then_follows_the_measured_rate() {
-    assert_eq!(live_chunk_samples(None), LIVE_FIRST_CHUNK_SAMPLES);
-    assert_eq!(live_chunk_samples(Some(100.0)), 150, "1.5 s at 100 spp/s");
-    assert_eq!(live_chunk_samples(Some(0.1)), LIVE_CHUNK_MIN_SAMPLES);
-    assert_eq!(live_chunk_samples(Some(f64::NAN)), LIVE_CHUNK_MIN_SAMPLES);
-    assert_eq!(live_chunk_samples(Some(1e12)), LIVE_CHUNK_MAX_SAMPLES);
+    let secs = LIVE_CHUNK_TARGET_SECS;
+    assert_eq!(live_chunk_samples(None, secs), LIVE_FIRST_CHUNK_SAMPLES);
+    assert_eq!(
+        live_chunk_samples(Some(100.0), secs),
+        150,
+        "1.5 s at 100 spp/s"
+    );
+    assert_eq!(
+        live_chunk_samples(Some(100.0), 6.0),
+        600,
+        "6 s at 100 spp/s"
+    );
+    assert_eq!(live_chunk_samples(Some(0.1), secs), LIVE_CHUNK_MIN_SAMPLES);
+    assert_eq!(
+        live_chunk_samples(Some(f64::NAN), secs),
+        LIVE_CHUNK_MIN_SAMPLES
+    );
+    assert_eq!(live_chunk_samples(Some(1e12), secs), LIVE_CHUNK_MAX_SAMPLES);
+}
+
+/// A growing lane doubles its chunk duration after every completed rate-sized chunk, up to
+/// its cap; the calibration chunk does not grow it, and a lane without growth keeps 1.5 s.
+#[test]
+fn settled_chunks_grow_to_the_cap_only_on_a_growing_lane() {
+    let run = |mut lane: LiveLane| {
+        // Calibration: 8 samples in 100 ms, 80 spp/s; each later chunk takes exactly its
+        // duration at that rate, so the rate stays 80 spp/s.
+        let probe = lane.next_chunk(1, t(0)).unwrap();
+        assert_eq!(probe.samples, LIVE_FIRST_CHUNK_SAMPLES);
+        complete_chunk(&mut lane, &probe, t(100));
+        let mut clock = 100;
+        let mut sizes = Vec::new();
+        for id in 2..=6 {
+            let chunk = lane.next_chunk(id, t(clock)).unwrap();
+            sizes.push(chunk.samples);
+            clock += u64::from(chunk.samples) * 1000 / 80;
+            complete_chunk(&mut lane, &chunk, t(clock));
+        }
+        sizes
+    };
+    let growing =
+        LiveLane::new(Arc::new(LiveEpoch::new(1, 1, 100_000)), false).with_chunk_growth(6.0);
+    assert_eq!(run(growing), [120, 240, 480, 480, 480]);
+    let plain = LiveLane::new(Arc::new(LiveEpoch::new(1, 1, 100_000)), false);
+    assert_eq!(run(plain), [120, 120, 120, 120, 120]);
+    assert_eq!(
+        grown_chunk_secs(TransferMode::FinalOnly).to_bits(),
+        LIVE_CHUNK_GROWN_SECS_WHEN_FINISHED.to_bits()
+    );
+    assert_eq!(
+        grown_chunk_secs(TransferMode::LiveProgressive).to_bits(),
+        LIVE_CHUNK_GROWN_SECS_STREAMED.to_bits()
+    );
 }
 
 #[test]

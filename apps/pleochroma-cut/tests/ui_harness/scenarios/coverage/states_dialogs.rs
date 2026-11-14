@@ -564,8 +564,8 @@ fn empty_state_and_guide_states() -> Vec<State> {
 // ---------------------------------------------------------------------------------------------
 
 /// The Lighting tab with one lighting of the user's own saved and remembered for the design, so
-/// its rename and delete buttons and "Forget for This Design" exist. `renaming` presses the
-/// pencil, which opens the name field and the "Keep the new name" button.
+/// its "..." menu (Rename, Usable for Export, Delete) and "Forget for This Design" exist.
+/// `renaming` presses Rename, which opens the name field and the "Keep the new name" button.
 fn saved_lighting(a: &HarnessApp, renaming: bool) {
     let viewport = a.ui().global::<ViewportModel>();
     viewport.invoke_save_lighting_preset("Harness lighting".into());
@@ -579,6 +579,11 @@ fn saved_lighting(a: &HarnessApp, renaming: bool) {
     design.invoke_use_for_design();
     let _ = wait_until(Duration::from_secs(5), || design.get_has_saved());
     parameters(a, 1);
+    // The saved lighting's rename, Usable for Export and delete are in its "..." menu
+    // ("Saved Lighting Options <name>"): open it first. `renaming` then presses Rename, which
+    // opens the name field; otherwise the menu itself stays open for the sweep.
+    press(a, "Saved Lighting Options Harness lighting", None);
+    pump(250);
     if renaming {
         press(a, "Rename this saved lighting", None);
     }

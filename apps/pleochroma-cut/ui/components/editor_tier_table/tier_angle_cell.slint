@@ -137,9 +137,9 @@ export component TierAngleCell inherits Rectangle {
             }
         }
         Text {
-            text: root.value;
-            font-size: 11px;
-            font-weight: 600;
+            text: root.value + "\u{b0}";
+            font-size: 14px;
+            font-weight: 700;
             color: Theme.accent-amber;
             overflow: elide;
             vertical-alignment: center;
@@ -203,7 +203,7 @@ export component TierAngleCell inherits Rectangle {
         width: 100%;
         height: 100%;
         text: root.full_value;
-        font-size: 11px;
+        font-size: 13px;
         accessible-label: "Angle in Degrees";
         init => {
             self.select-all();

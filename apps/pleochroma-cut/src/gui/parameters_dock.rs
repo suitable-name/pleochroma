@@ -30,6 +30,14 @@ fn tab_to_saved(index: i32) -> u8 {
         .unwrap_or(0)
 }
 
+/// The fold mask of the Stone tab's cards with `bit` set or cleared; bits outside the four cards
+/// are dropped.
+const fn fold_mask_with(mask: i32, bit: i32, open: bool) -> i32 {
+    let bit = bit & 0b1111;
+    let mask = mask & 0b1111;
+    if open { mask | bit } else { mask & !bit }
+}
+
 /// Applies the saved dock state to `ParametersModel` and wires `layout_changed` to save every
 /// later change. Called once from `main_window::callbacks::setup_render_callbacks`, before the
 /// window is shown.
@@ -43,6 +51,21 @@ pub(super) fn setup_parameters_dock(ui: &MainWindow, settings_store: &Arc<Settin
     let model = ui.global::<ParametersModel>();
     model.set_active_tab(tab_from_saved(saved.parameters_dock_tab));
     model.set_open(saved.parameters_dock_open);
+
+    model.set_stone_folds(i32::from(saved.stone_folds_open));
+
+    // The Stone tab's folding cards: one bit each, saved on every change.
+    let fold_store = Arc::clone(settings_store);
+    let fold_weak = ui.as_weak();
+    model.on_stone_fold_set(move |bit: i32, open: bool| {
+        let Some(ui) = fold_weak.upgrade() else {
+            return;
+        };
+        let model = ui.global::<ParametersModel>();
+        let mask = fold_mask_with(model.get_stone_folds(), bit, open);
+        model.set_stone_folds(mask);
+        fold_store.update(|s| s.settings.stone_folds_open = u8::try_from(mask).unwrap_or(0));
+    });
 
     let settings_store = Arc::clone(settings_store);
     let ui_weak = ui.as_weak();
@@ -69,6 +92,14 @@ mod tests {
         for tab in 0..TAB_COUNT {
             assert_eq!(tab_to_saved(tab_from_saved(tab)), tab);
         }
+    }
+
+    #[test]
+    fn a_fold_bit_opens_and_folds_one_card_only() {
+        assert_eq!(fold_mask_with(0, 2, true), 2);
+        assert_eq!(fold_mask_with(2, 4, true), 6);
+        assert_eq!(fold_mask_with(6, 2, false), 4);
+        assert_eq!(fold_mask_with(0, 0b1_0000, true), 0);
     }
 
     #[test]

@@ -95,21 +95,24 @@ fn directions_match(a: vec3<f32>, b: vec3<f32>) -> bool {
 // comment. Hero is always channel 0 in this kernel's convention (`path_pdf[0]`
 // throughout `spectral_transport.wgsl`), so this is specialized to that fixed hero
 // index rather than taking one as a parameter, unlike the CPU function's `hero: usize`.
-// `dirs_valid[k] == false` stands in for the CPU `dirs[k]: Option<Vec3> == None` case.
+// `dirs_valid` and `hero_match` are channel bit masks: bit `k` of `dirs_valid` clear stands in
+// for the CPU `dirs[k]: Option<Vec3> == None` case, and bit `k` of `hero_match` is the CPU
+// `hero_match[k]`. Masks, not `array<bool, 8>` values, so no bool array is copied into function
+// memory at the call.
 fn narrow_compat(
     compat: ptr<function, array<u32, 8>>,
     dirs: array<vec3<f32>, 8>,
-    dirs_valid: array<bool, 8>,
-    hero_match: array<bool, 8>,
+    dirs_valid: u32,
+    hero_match: u32,
 ) {
     for (var a: u32 = 0u; a < 8u; a = a + 1u) {
         for (var b: u32 = a + 1u; b < 8u; b = b + 1u) {
             var matches_ab: bool = true;
             if (a == 0u) {
-                matches_ab = hero_match[b];
+                matches_ab = ((hero_match >> b) & 1u) != 0u;
             } else if (b == 0u) {
-                matches_ab = hero_match[a];
-            } else if (dirs_valid[a] && dirs_valid[b]) {
+                matches_ab = ((hero_match >> a) & 1u) != 0u;
+            } else if (((dirs_valid >> a) & (dirs_valid >> b) & 1u) != 0u) {
                 matches_ab = directions_match(dirs[a], dirs[b]);
             } else {
                 matches_ab = true;

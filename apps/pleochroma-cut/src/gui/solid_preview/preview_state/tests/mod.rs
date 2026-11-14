@@ -122,6 +122,7 @@ const CAMERA: CameraPose = CameraPose {
     yaw: 0.0,
     pitch: 0.0,
     distance: 5.0,
+    pan: [0.0, 0.0],
 };
 
 #[test]

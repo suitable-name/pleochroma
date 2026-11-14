@@ -19,7 +19,7 @@ android {
         applicationId = "com.indicatrixsuite.mobile"
         minSdk = 28
         targetSdk = 37
-        versionCode = 6
+        versionCode = 8
         versionName = "0.11.0"
 
         ndk {

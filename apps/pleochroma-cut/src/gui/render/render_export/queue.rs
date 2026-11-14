@@ -63,8 +63,8 @@ pub(in crate::gui) const fn apply_export_bounce_cap(
 /// - The light, exposure, rig, glare, backdrop, head shadow, Stone Shadow and Tray Reflection
 ///   are always overlaid. Fields a preset lacks take their serde defaults (`LightingValues`).
 /// - The camera pose is overlaid only when the preset carries one (`camera_yaw`/`camera_pitch`
-///   both `Some`). `None` leaves the base capture's camera alone (see
-///   `settings::model::LightingPreset`).
+///   both `Some`), with its roll and pan (an older pose is unrolled and centred). `None` leaves
+///   the base capture's camera alone, pan included (see `settings::model::LightingPreset`).
 /// - The HDR map is overlaid when the preset carries one and it loads, with the preset's own
 ///   rotation (yaw and "turns with the camera"). A map that cannot be loaded leaves the base
 ///   capture's environment in place, so a missing file does not fail the whole render. A preset
@@ -125,6 +125,9 @@ pub(super) fn apply_preset_to_scene(
         scene.yaw = yaw;
         scene.pitch = pitch.clamp(-1.48, 1.48);
         scene.camera_roll = roll;
+    }
+    if let Some(pan) = values.pose_pan() {
+        scene.camera_pan = pan;
     }
 
     if let Some(path) = &values.env_map_path {
@@ -602,6 +605,7 @@ mod tests {
         let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
             yaw: 1.23,
             pitch: 0.44,
+            camera_pan: [0.2, 0.1],
             ..Default::default()
         }))
         .expect("Diamond resolves");
@@ -616,6 +620,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -629,6 +634,7 @@ mod tests {
         let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5);
         assert_eq!(overlaid.yaw, base.yaw);
         assert_eq!(overlaid.pitch, base.pitch);
+        assert_eq!(overlaid.camera_pan, base.camera_pan);
         assert_eq!(
             overlaid.distance.to_bits(),
             base.distance.to_bits(),
@@ -637,16 +643,18 @@ mod tests {
         assert_eq!(overlaid.light_yaw, preset.light_yaw_deg.to_radians());
     }
 
-    /// A preset with a camera pose overlays it on the export path too.
+    /// A preset with a camera pose overlays it on the export path too, its pan included; an
+    /// older pose without a pan centres the stone.
     #[test]
     fn apply_preset_to_scene_overlays_camera_when_the_preset_carries_one() {
         let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
             yaw: 1.23,
             pitch: 0.44,
+            camera_pan: [0.2, 0.1],
             ..Default::default()
         }))
         .expect("Diamond resolves");
-        let preset = SavedLightingPreset {
+        let mut preset = SavedLightingPreset {
             name: "Full Shot".to_string(),
             built_in: false,
             light_yaw_deg: 10.0,
@@ -657,6 +665,7 @@ mod tests {
             camera_yaw: Some(0.75),
             camera_pitch: Some(0.3),
             camera_roll: Some(std::f32::consts::FRAC_PI_2),
+            camera_pan: Some([0.4, -0.3]),
             env_map_path: None,
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -667,10 +676,14 @@ mod tests {
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
         };
-        let overlaid = apply_preset_to_scene(base, &preset, 1.5);
+        let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5);
         assert_eq!(overlaid.yaw, 0.75);
         assert_eq!(overlaid.pitch, 0.3);
         assert_eq!(overlaid.camera_roll, std::f32::consts::FRAC_PI_2);
+        assert_eq!(overlaid.camera_pan, [0.4, -0.3]);
+        preset.camera_pan = None;
+        let older = apply_preset_to_scene(base, &preset, 1.5);
+        assert_eq!(older.camera_pan, [0.0, 0.0], "an older view is centred");
     }
 
     /// A saved lighting is a complete look: its glare and head shadow reach the exported scene,
@@ -699,6 +712,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: true,
             surface_glare: 0.25,
@@ -743,6 +757,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: Some(path.to_string_lossy().into_owned()),
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -791,6 +806,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -832,6 +848,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -874,6 +891,7 @@ mod tests {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             env_map_path: None,
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,

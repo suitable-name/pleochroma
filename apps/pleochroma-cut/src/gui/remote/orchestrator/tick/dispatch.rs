@@ -16,7 +16,7 @@ use crate::{
         export_thread::SceneSnapshot,
         frame_cache::guide_pass::GuideCache,
         remote::{
-            live_lane::LiveLane,
+            live_lane::{LiveLane, grown_chunk_secs},
             remote_render::{self, RemoteRenderRequest, RemoteUpdate},
         },
         render_thread::RenderContext,
@@ -75,6 +75,8 @@ pub(super) fn start_remote_render(
         lock(state).display_only_refused,
     );
     let combining = matches!(live_compute_target, LiveComputeTarget::Both) && !display_only;
+    // Read before the connection set-up below takes the endpoint's connection settings.
+    let transfer_mode = endpoint.connection.transfer_mode;
     // A material that does not resolve makes the capture fail, so the wrong stone is never
     // sent to a worker. The render loop shows the refusal; here the dispatch is skipped and
     // the next settle retries.
@@ -98,7 +100,8 @@ pub(super) fn start_remote_render(
             snapshot.distance,
             DEFAULT_FOV_DEG,
         )
-        .with_roll(snapshot.camera_roll);
+        .with_roll(snapshot.camera_roll)
+        .with_pan(snapshot.camera_pan);
         let guide_key = GuideCache::key_for_camera(
             width,
             height,
@@ -154,8 +157,12 @@ pub(super) fn start_remote_render(
         }
         s.live_lane = Some(if display_only {
             LiveLane::display_only(epoch)
+        } else if combining {
+            LiveLane::new(epoch, true)
         } else {
-            LiveLane::new(epoch, combining)
+            // Remote Only: no local tracer shares the epoch, so settled chunks grow and the
+            // worker idles less between them (see `LiveLane::with_chunk_growth`).
+            LiveLane::new(epoch, false).with_chunk_growth(grown_chunk_secs(transfer_mode))
         });
         s.lane_scene = Some(scene);
     }
@@ -268,6 +275,7 @@ fn scene_state_from_snapshot(snapshot: &SceneSnapshot, width: u32, height: u32) 
         height,
         yaw: snapshot.yaw,
         camera_roll: snapshot.camera_roll,
+        camera_pan: snapshot.camera_pan,
         // Off for a stone that is not closed, which the worker would refuse.
         stone_shadow: snapshot.remote_stone_shadow(),
         tray_reflection: snapshot.remote_tray_reflection(),
@@ -327,6 +335,24 @@ mod tests {
         let snapshot = SceneSnapshot::capture(&ctx).expect("default resolves");
         let state = scene_state_from_snapshot(&snapshot, 64, 64);
         assert_eq!(state.surface_glare.to_bits(), 0.4f32.to_bits());
+    }
+
+    /// The live chunks trace the viewport's framing: the scene carries its pan.
+    #[test]
+    fn the_live_dispatch_scene_carries_the_viewports_pan() {
+        let ctx = Mutex::new(RenderContext {
+            camera_pan: [-0.6, 0.3],
+            ..Default::default()
+        });
+        let snapshot = SceneSnapshot::capture(&ctx).expect("default resolves");
+        let state = scene_state_from_snapshot(&snapshot, 64, 64);
+        assert_eq!(state.camera_pan, [-0.6, 0.3]);
+        let centred = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
+            .expect("default resolves");
+        assert_eq!(
+            scene_state_from_snapshot(&centred, 64, 64).camera_pan,
+            [0.0, 0.0]
+        );
     }
 
     #[test]

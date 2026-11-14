@@ -1,10 +1,10 @@
 # compiler: R8
-# compiler_version: 9.5.28
+# compiler_version: 9.5.29
 # min_api: 28
 # common_typos_disable
 # {"id":"com.android.tools.r8.mapping","version":"2.2"}
-# pg_map_id: ade9c039f411de8c55f837d06165385c75a74d15b55091649cd335c120755555
-# pg_map_hash: SHA-256 ade9c039f411de8c55f837d06165385c75a74d15b55091649cd335c120755555
+# pg_map_id: d198dc97cfd6572ec6291296b62c0a92abf19fe8157ab13808164a70b8a5e307
+# pg_map_hash: SHA-256 d198dc97cfd6572ec6291296b62c0a92abf19fe8157ab13808164a70b8a5e307
 android.support.v4.app.RemoteActionCompatParcelizer -> android.support.v4.app.RemoteActionCompatParcelizer:
 # {"id":"sourceFile","fileName":"RemoteActionCompatParcelizer.java"}
     1:4:void <init>():8:8 -> <init>
@@ -2354,13 +2354,13 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
       # {"id":"com.android.tools.r8.residualsignature","signature":"La0;"}
     kotlin.Lazy vault$delegate -> vault$delegate
       # {"id":"com.android.tools.r8.residualsignature","signature":"Lt1;"}
-    3:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):476:476 -> <clinit>
-    3:5:void com.indicatrixsuite.mobile.MainActivity$Companion.<init>():476 -> <clinit>
+    3:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):499:499 -> <clinit>
+    3:5:void com.indicatrixsuite.mobile.MainActivity$Companion.<init>():499 -> <clinit>
     3:5:void com.indicatrixsuite.mobile.MainActivity$Companion.<init>(kotlin.jvm.internal.DefaultConstructorMarker):0 -> <clinit>
     3:5:void <clinit>():0 -> <clinit>
     6:7:void <clinit>():0:0 -> <clinit>
-    8:13:java.lang.Object onUi(kotlin.jvm.functions.Function0):497:497 -> <clinit>
-    8:13:void <clinit>():497 -> <clinit>
+    8:13:java.lang.Object onUi(kotlin.jvm.functions.Function0):520:520 -> <clinit>
+    8:13:void <clinit>():520 -> <clinit>
     1:3:void <init>():46:46 -> <init>
     4:12:void <init>():55:55 -> <init>
     13:14:void <init>():56:56 -> <init>
@@ -2379,209 +2379,209 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
     1:5:Unit $r8$lambda$7oUy5fFZwu1mQUymcnBeDOtB4jQ(com.indicatrixsuite.mobile.MainActivity,java.lang.String):0:0 -> c
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Ljava/lang/String;)Lt3;"}
-    1:12:java.lang.String cacheDirPath():221:221 -> cacheDirPath
-    10:24:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):120:120 -> createDocument
-    4:10:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):121:121 -> createDocument$lambda$5
-    4:10:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):121 -> createDocument$lambda$5
-    11:15:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):122:122 -> createDocument$lambda$5
-    11:15:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):122 -> createDocument$lambda$5
-    16:26:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):123:123 -> createDocument$lambda$5
-    16:26:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):123 -> createDocument$lambda$5
-    27:33:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):124:124 -> createDocument$lambda$5
-    27:33:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):124 -> createDocument$lambda$5
-    34:38:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):126:126 -> createDocument$lambda$5
-    34:38:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):126 -> createDocument$lambda$5
+    1:12:java.lang.String cacheDirPath():238:238 -> cacheDirPath
+    10:24:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):123:123 -> createDocument
+    4:10:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):124:124 -> createDocument$lambda$5
+    4:10:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):124 -> createDocument$lambda$5
+    11:15:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):125:125 -> createDocument$lambda$5
+    11:15:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):125 -> createDocument$lambda$5
+    16:26:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):126:126 -> createDocument$lambda$5
+    16:26:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):126 -> createDocument$lambda$5
+    27:33:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):127:127 -> createDocument$lambda$5
+    27:33:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):127 -> createDocument$lambda$5
+    34:38:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):129:129 -> createDocument$lambda$5
+    34:38:java.lang.String createDocument$lambda$5(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):129 -> createDocument$lambda$5
     1:5:Unit $r8$lambda$8pm2YVKNn4A0qtQaoUFvFFj-0x8(com.indicatrixsuite.mobile.MainActivity,MainActivity$PendingRequest,android.content.Intent,long):0:0 -> d
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Lj2;Landroid/content/Intent;J)Lt3;"}
-    1:3:java.lang.Object onUi(kotlin.jvm.functions.Function0):382:382 -> deliver
-    1:3:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    1:3:java.lang.Object onUi(kotlin.jvm.functions.Function0):405:405 -> deliver
+    1:3:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
       # {"id":"com.android.tools.r8.residualsignature","signature":"(JLp0;Lz2;Landroid/net/Uri;Ljava/lang/String;)V"}
     4:12:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):0:0 -> deliver
-    4:12:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    4:12:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     13:20:void <init>():65:65 -> deliver
     13:20:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):65 -> deliver
-    13:20:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    13:20:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     21:27:void <init>():67:67 -> deliver
     21:27:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):67 -> deliver
-    21:27:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    21:27:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     28:31:void <init>():68:68 -> deliver
     28:31:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):68 -> deliver
-    28:31:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    28:31:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     32:47:void <init>():71:71 -> deliver
     32:47:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):71 -> deliver
-    32:47:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    32:47:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     48:51:void <init>():77:77 -> deliver
     48:51:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):77 -> deliver
-    48:51:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    48:51:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     52:75:void <init>():75:75 -> deliver
     52:75:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):75 -> deliver
-    52:75:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    52:75:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     76:78:void com.indicatrixsuite.mobile.ImportLimitException.<init>(java.lang.String):23:23 -> deliver
     76:78:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):75 -> deliver
-    76:78:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    76:78:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     79:79:void <init>():75:75 -> deliver
     79:79:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):75 -> deliver
-    79:79:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    79:79:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     80:91:void com.indicatrixsuite.mobile.ReadBudget.take(long):30:30 -> deliver
     80:91:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):79 -> deliver
-    80:91:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    80:91:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     92:95:void <init>():80:80 -> deliver
     92:95:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):80 -> deliver
-    92:95:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    92:95:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     96:98:void <init>():46:46 -> deliver
     96:98:void kotlin.io.CloseableKt.closeFinally(java.io.Closeable,java.lang.Throwable):46 -> deliver
     96:98:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):66 -> deliver
-    96:98:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    96:98:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     99:101:void <init>():66:66 -> deliver
     99:101:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):66 -> deliver
-    99:101:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
-    102:105:java.lang.Object onUi(kotlin.jvm.functions.Function0):382:382 -> deliver
-    102:105:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    99:101:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
+    102:105:java.lang.Object onUi(kotlin.jvm.functions.Function0):405:405 -> deliver
+    102:105:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     106:109:void com.indicatrixsuite.mobile.ReadBudget.take(long):32:32 -> deliver
     106:109:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):79 -> deliver
-    106:109:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    106:109:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     110:112:void com.indicatrixsuite.mobile.ImportLimitException.<init>(java.lang.String):23:23 -> deliver
     110:112:void com.indicatrixsuite.mobile.ReadBudget.take(long):32 -> deliver
     110:112:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):79 -> deliver
-    110:112:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    110:112:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     113:114:void com.indicatrixsuite.mobile.ReadBudget.take(long):32:32 -> deliver
     113:114:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):79 -> deliver
-    113:114:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    113:114:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     115:120:void <init>():66:66 -> deliver
     115:120:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):66 -> deliver
-    115:120:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
+    115:120:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
     121:145:void <init>():65:65 -> deliver
     121:145:byte[] com.indicatrixsuite.mobile.DocumentReader.read(android.net.Uri,java.lang.String,com.indicatrixsuite.mobile.ReadBudget):65 -> deliver
-    121:145:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):382 -> deliver
-    3:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):375:375 -> deliverTree
-    3:5:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    121:145:void deliver(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri,java.lang.String):405 -> deliver
+    3:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):398:398 -> deliverTree
+    3:5:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
       # {"id":"com.android.tools.r8.residualsignature","signature":"(JLp0;Lz2;Landroid/net/Uri;)V"}
     6:8:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):0:0 -> deliverTree
-    6:8:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    6:8:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     9:13:void <init>():90:90 -> deliverTree
     9:13:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):90 -> deliverTree
-    9:13:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    9:13:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     14:18:void <init>():92:92 -> deliverTree
     14:18:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):92 -> deliverTree
-    14:18:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    14:18:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     19:25:void <init>():93:93 -> deliverTree
     19:25:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):93 -> deliverTree
-    19:25:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    19:25:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     26:27:void <init>():97:97 -> deliverTree
     26:27:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):97 -> deliverTree
-    26:27:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    26:27:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     28:39:void <init>():98:98 -> deliverTree
     28:39:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):98 -> deliverTree
-    28:39:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    28:39:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     40:46:void <init>():100:100 -> deliverTree
     40:46:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):100 -> deliverTree
-    40:46:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
-    47:52:int networkMetered():237:237 -> deliverTree
-    47:52:int kotlin.collections.CollectionsKt__CollectionsKt.getLastIndex(java.util.List):237 -> deliverTree
+    40:46:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
+    47:52:int kotlin.collections.CollectionsKt__CollectionsKt.getLastIndex(java.util.List):237:237 -> deliverTree
     47:52:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):101 -> deliverTree
-    47:52:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    47:52:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     53:61:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):101:101 -> deliverTree
-    53:61:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    53:61:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     62:67:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):102:102 -> deliverTree
-    62:67:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    62:67:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     68:78:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):103:103 -> deliverTree
-    68:78:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    68:78:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     79:84:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):104:104 -> deliverTree
     79:84:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):104 -> deliverTree
-    79:84:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    79:84:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     85:88:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):105:105 -> deliverTree
     85:88:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):105 -> deliverTree
-    85:88:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    85:88:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     89:97:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):106:106 -> deliverTree
     89:97:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):106 -> deliverTree
-    89:97:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    89:97:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     98:109:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):108:108 -> deliverTree
     98:109:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):108 -> deliverTree
-    98:109:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    98:109:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     110:113:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):109:109 -> deliverTree
     110:113:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):109 -> deliverTree
-    110:113:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
-    114:122:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):130:130 -> deliverTree
+    110:113:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
+    114:122:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):130:130 -> deliverTree
+    114:122:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):130 -> deliverTree
     114:122:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):110 -> deliverTree
-    114:122:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
-    123:126:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):131:131 -> deliverTree
+    114:122:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
+    123:126:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):131:131 -> deliverTree
+    123:126:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):131 -> deliverTree
     123:126:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):110 -> deliverTree
-    123:126:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    123:126:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     127:132:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):140:140 -> deliverTree
     127:132:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):110 -> deliverTree
-    127:132:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    127:132:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     133:150:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):141:141 -> deliverTree
     133:150:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):110 -> deliverTree
-    133:150:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    133:150:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     151:153:boolean kotlin.text.StringsKt__StringsJVMKt.endsWith(java.lang.String,java.lang.String,boolean):0:0 -> deliverTree
     151:153:boolean kotlin.text.StringsKt__StringsJVMKt.endsWith$default(java.lang.String,java.lang.String,boolean,int,java.lang.Object):437 -> deliverTree
     151:153:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):131 -> deliverTree
     151:153:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):110 -> deliverTree
-    151:153:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    151:153:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     154:160:java.lang.Object onUi(kotlin.jvm.functions.Function0):440:440 -> deliverTree
     154:160:boolean kotlin.text.StringsKt__StringsJVMKt.endsWith(java.lang.String,java.lang.String,boolean):440 -> deliverTree
     154:160:boolean kotlin.text.StringsKt__StringsJVMKt.endsWith$default(java.lang.String,java.lang.String,boolean,int,java.lang.Object):437 -> deliverTree
     154:160:boolean com.indicatrixsuite.mobile.DocumentReader.isDesignFile(java.lang.String):131 -> deliverTree
     154:160:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):110 -> deliverTree
-    154:160:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    154:160:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     161:174:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):111:111 -> deliverTree
     161:174:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):111 -> deliverTree
-    161:174:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    161:174:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     175:189:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):113:113 -> deliverTree
     175:189:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):113 -> deliverTree
-    175:189:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
-    190:198:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):121:121 -> deliverTree
-    190:198:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):121 -> deliverTree
-    190:198:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    175:189:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
+    190:198:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):121:121 -> deliverTree
+    190:198:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     199:202:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):119:119 -> deliverTree
-    199:202:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    199:202:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     203:205:void com.indicatrixsuite.mobile.ImportLimitException.<init>(java.lang.String):23:23 -> deliverTree
     203:205:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):119 -> deliverTree
-    203:205:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    203:205:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     206:206:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):119:119 -> deliverTree
-    206:206:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    206:206:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     207:208:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):114:114 -> deliverTree
     207:208:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):114 -> deliverTree
-    207:208:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    207:208:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     209:210:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):115:115 -> deliverTree
     209:210:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):115 -> deliverTree
-    209:210:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    209:210:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     211:213:void com.indicatrixsuite.mobile.ImportLimitException.<init>(java.lang.String):23:23 -> deliverTree
     211:213:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):114 -> deliverTree
-    211:213:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    211:213:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     214:216:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):114:114 -> deliverTree
     214:216:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):114 -> deliverTree
-    214:216:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    214:216:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     217:223:void <init>():46:46 -> deliverTree
     217:223:void kotlin.io.CloseableKt.closeFinally(java.io.Closeable,java.lang.Throwable):46 -> deliverTree
     217:223:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):103 -> deliverTree
-    217:223:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    217:223:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     224:231:java.util.List com.indicatrixsuite.mobile.DocumentReader.listTree(android.net.Uri):103:103 -> deliverTree
-    224:231:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
-    232:245:java.lang.Object onUi(kotlin.jvm.functions.Function0):375:375 -> deliverTree
-    232:245:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):375 -> deliverTree
+    224:231:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
+    232:245:java.lang.Object onUi(kotlin.jvm.functions.Function0):398:398 -> deliverTree
+    232:245:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):398 -> deliverTree
     246:247:java.lang.String com.indicatrixsuite.mobile.TreeEntry.getDocumentId():38:38 -> deliverTree
-    246:247:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):376 -> deliverTree
+    246:247:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):399 -> deliverTree
       # {"id":"com.android.tools.r8.rewriteFrame","conditions":["throws(Ljava/lang/NullPointerException;)"],"actions":["removeInnerFrames(1)"]}
-    248:251:java.lang.Object onUi(kotlin.jvm.functions.Function0):376:376 -> deliverTree
-    248:251:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):376 -> deliverTree
-    252:254:java.lang.Object onUi(kotlin.jvm.functions.Function0):377:377 -> deliverTree
-    252:254:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):377 -> deliverTree
+    248:251:java.lang.Object onUi(kotlin.jvm.functions.Function0):399:399 -> deliverTree
+    248:251:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):399 -> deliverTree
+    252:254:java.lang.Object onUi(kotlin.jvm.functions.Function0):400:400 -> deliverTree
+    252:254:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):400 -> deliverTree
     255:266:java.lang.String com.indicatrixsuite.mobile.TreeEntry.getName():38:38 -> deliverTree
-    255:266:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):377 -> deliverTree
-    267:273:java.lang.Object onUi(kotlin.jvm.functions.Function0):377:377 -> deliverTree
-    267:273:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):377 -> deliverTree
-    1:7:java.lang.Object onUi(kotlin.jvm.functions.Function0):460:460 -> describe
-    1:7:java.lang.String describe(java.lang.Exception):460 -> describe
-    8:20:java.lang.Object onUi(kotlin.jvm.functions.Function0):461:461 -> describe
-    8:20:java.lang.String describe(java.lang.Exception):461 -> describe
-    21:32:java.lang.Object onUi(kotlin.jvm.functions.Function0):462:462 -> describe
-    21:32:java.lang.String describe(java.lang.Exception):462 -> describe
-    33:47:java.lang.Object onUi(kotlin.jvm.functions.Function0):463:463 -> describe
-    33:47:java.lang.String describe(java.lang.Exception):463 -> describe
-    48:56:java.lang.Object onUi(kotlin.jvm.functions.Function0):462:462 -> describe
-    48:56:java.lang.String describe(java.lang.Exception):462 -> describe
+    255:266:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):400 -> deliverTree
+    267:273:java.lang.Object onUi(kotlin.jvm.functions.Function0):400:400 -> deliverTree
+    267:273:void deliverTree(long,com.indicatrixsuite.mobile.DocumentReader,com.indicatrixsuite.mobile.ReadBudget,android.net.Uri):400 -> deliverTree
+    1:7:java.lang.Object onUi(kotlin.jvm.functions.Function0):483:483 -> describe
+    1:7:java.lang.String describe(java.lang.Exception):483 -> describe
+    8:20:java.lang.Object onUi(kotlin.jvm.functions.Function0):484:484 -> describe
+    8:20:java.lang.String describe(java.lang.Exception):484 -> describe
+    21:32:java.lang.Object onUi(kotlin.jvm.functions.Function0):485:485 -> describe
+    21:32:java.lang.String describe(java.lang.Exception):485 -> describe
+    33:47:java.lang.Object onUi(kotlin.jvm.functions.Function0):486:486 -> describe
+    33:47:java.lang.String describe(java.lang.Exception):486 -> describe
+    48:56:java.lang.Object onUi(kotlin.jvm.functions.Function0):485:485 -> describe
+    48:56:java.lang.String describe(java.lang.Exception):485 -> describe
     1:5:java.lang.String $r8$lambda$DUnHpO8jk2LHh7mwUvvHFRCROqQ(com.indicatrixsuite.mobile.MainActivity,long,byte[],java.lang.String,java.lang.String):0:0 -> e
       # {"id":"com.android.tools.r8.synthesized"}
     1:5:Unit $r8$lambda$KCKz4HzYu7F2mTeVKZiutR3Zcco(com.indicatrixsuite.mobile.MainActivity,java.util.List):0:0 -> f
@@ -2589,140 +2589,140 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Ljava/util/List;)Lt3;"}
     1:7:void <init>():50:50 -> finishPick
     1:7:long com.indicatrixsuite.mobile.MainActivity$PendingRequest.getRustId():50 -> finishPick
-    1:7:void finishPick(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):327 -> finishPick
+    1:7:void finishPick(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):350 -> finishPick
       # {"id":"com.android.tools.r8.rewriteFrame","conditions":["throws(Ljava/lang/NullPointerException;)"],"actions":["removeInnerFrames(2)"]}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lj2;ILandroid/content/Intent;)V"}
-    8:23:java.lang.Object onUi(kotlin.jvm.functions.Function0):332:332 -> finishPick
-    8:23:void finishPick(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):332 -> finishPick
-    24:27:java.lang.Object onUi(kotlin.jvm.functions.Function0):329:329 -> finishPick
-    24:27:void finishPick(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):329 -> finishPick
-    1:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):334:334 -> finishPick$lambda$28
-    1:12:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):334 -> finishPick$lambda$28
+    8:23:java.lang.Object onUi(kotlin.jvm.functions.Function0):355:355 -> finishPick
+    8:23:void finishPick(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):355 -> finishPick
+    24:27:java.lang.Object onUi(kotlin.jvm.functions.Function0):352:352 -> finishPick
+    24:27:void finishPick(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):352 -> finishPick
+    1:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):357:357 -> finishPick$lambda$28
+    1:12:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):357 -> finishPick$lambda$28
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Lj2;Landroid/content/Intent;J)Lt3;"}
-    13:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):335:335 -> finishPick$lambda$28
-    13:14:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):335 -> finishPick$lambda$28
+    13:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):358:358 -> finishPick$lambda$28
+    13:14:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):358 -> finishPick$lambda$28
     15:17:void com.indicatrixsuite.mobile.ReadBudget.<init>():26:26 -> finishPick$lambda$28
-    15:17:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):335 -> finishPick$lambda$28
+    15:17:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):358 -> finishPick$lambda$28
     18:22:void <init>():51:51 -> finishPick$lambda$28
     18:22:int com.indicatrixsuite.mobile.MainActivity$PendingRequest.getKind():51 -> finishPick$lambda$28
-    18:22:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):336 -> finishPick$lambda$28
+    18:22:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):359 -> finishPick$lambda$28
       # {"id":"com.android.tools.r8.rewriteFrame","conditions":["throws(Ljava/lang/NullPointerException;)"],"actions":["removeInnerFrames(2)"]}
-    23:39:java.lang.Object onUi(kotlin.jvm.functions.Function0):337:337 -> finishPick$lambda$28
-    23:39:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):337 -> finishPick$lambda$28
-    40:60:java.lang.Object onUi(kotlin.jvm.functions.Function0):339:339 -> finishPick$lambda$28
-    40:60:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):339 -> finishPick$lambda$28
-    61:77:java.lang.Object onUi(kotlin.jvm.functions.Function0):340:340 -> finishPick$lambda$28
-    61:77:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):340 -> finishPick$lambda$28
-    78:84:java.lang.Object onUi(kotlin.jvm.functions.Function0):345:345 -> finishPick$lambda$28
-    78:84:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):345 -> finishPick$lambda$28
-    85:88:java.lang.Object onUi(kotlin.jvm.functions.Function0):346:346 -> finishPick$lambda$28
-    85:88:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):346 -> finishPick$lambda$28
-    89:91:java.lang.Object onUi(kotlin.jvm.functions.Function0):348:348 -> finishPick$lambda$28
-    89:91:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):348 -> finishPick$lambda$28
-    92:94:java.lang.Object onUi(kotlin.jvm.functions.Function0):349:349 -> finishPick$lambda$28
-    92:94:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):349 -> finishPick$lambda$28
+    23:39:java.lang.Object onUi(kotlin.jvm.functions.Function0):360:360 -> finishPick$lambda$28
+    23:39:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):360 -> finishPick$lambda$28
+    40:60:java.lang.Object onUi(kotlin.jvm.functions.Function0):362:362 -> finishPick$lambda$28
+    40:60:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):362 -> finishPick$lambda$28
+    61:77:java.lang.Object onUi(kotlin.jvm.functions.Function0):363:363 -> finishPick$lambda$28
+    61:77:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):363 -> finishPick$lambda$28
+    78:84:java.lang.Object onUi(kotlin.jvm.functions.Function0):368:368 -> finishPick$lambda$28
+    78:84:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):368 -> finishPick$lambda$28
+    85:88:java.lang.Object onUi(kotlin.jvm.functions.Function0):369:369 -> finishPick$lambda$28
+    85:88:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):369 -> finishPick$lambda$28
+    89:91:java.lang.Object onUi(kotlin.jvm.functions.Function0):371:371 -> finishPick$lambda$28
+    89:91:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):371 -> finishPick$lambda$28
+    92:94:java.lang.Object onUi(kotlin.jvm.functions.Function0):372:372 -> finishPick$lambda$28
+    92:94:kotlin.Unit finishPick$lambda$28(com.indicatrixsuite.mobile.MainActivity,com.indicatrixsuite.mobile.MainActivity$PendingRequest,android.content.Intent,long):372 -> finishPick$lambda$28
     1:5:void <init>():50:50 -> finishSave
     1:5:long com.indicatrixsuite.mobile.MainActivity$PendingRequest.getRustId():50 -> finishSave
-    1:5:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):354 -> finishSave
+    1:5:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):377 -> finishSave
       # {"id":"com.android.tools.r8.rewriteFrame","conditions":["throws(Ljava/lang/NullPointerException;)"],"actions":["removeInnerFrames(2)"]}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lj2;ILandroid/content/Intent;)V"}
-    6:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):355:355 -> finishSave
-    6:12:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):355 -> finishSave
+    6:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):378:378 -> finishSave
+    6:12:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):378 -> finishSave
     13:21:void <init>():52:52 -> finishSave
     13:21:byte[] com.indicatrixsuite.mobile.MainActivity$PendingRequest.getSaveBytes():52 -> finishSave
-    13:21:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):356 -> finishSave
-    22:34:java.lang.Object onUi(kotlin.jvm.functions.Function0):361:361 -> finishSave
-    22:34:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):361 -> finishSave
-    35:38:java.lang.Object onUi(kotlin.jvm.functions.Function0):358:358 -> finishSave
-    35:38:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):358 -> finishSave
-    2:13:java.lang.Object onUi(kotlin.jvm.functions.Function0):363:363 -> finishSave$lambda$30
-    2:13:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):363 -> finishSave$lambda$30
+    13:21:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):379 -> finishSave
+    22:34:java.lang.Object onUi(kotlin.jvm.functions.Function0):384:384 -> finishSave
+    22:34:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):384 -> finishSave
+    35:38:java.lang.Object onUi(kotlin.jvm.functions.Function0):381:381 -> finishSave
+    35:38:void finishSave(com.indicatrixsuite.mobile.MainActivity$PendingRequest,int,android.content.Intent):381 -> finishSave
+    2:13:java.lang.Object onUi(kotlin.jvm.functions.Function0):386:386 -> finishSave$lambda$30
+    2:13:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):386 -> finishSave$lambda$30
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Landroid/net/Uri;J[B)Lt3;"}
-    14:16:java.lang.Object onUi(kotlin.jvm.functions.Function0):365:365 -> finishSave$lambda$30
-    14:16:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):365 -> finishSave$lambda$30
+    14:16:java.lang.Object onUi(kotlin.jvm.functions.Function0):388:388 -> finishSave$lambda$30
+    14:16:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):388 -> finishSave$lambda$30
     17:19:void <init>():46:46 -> finishSave$lambda$30
     17:19:void kotlin.io.CloseableKt.closeFinally(java.io.Closeable,java.lang.Throwable):46 -> finishSave$lambda$30
-    17:19:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):365 -> finishSave$lambda$30
-    20:40:java.lang.Object onUi(kotlin.jvm.functions.Function0):366:366 -> finishSave$lambda$30
-    20:40:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):366 -> finishSave$lambda$30
-    41:46:java.lang.Object onUi(kotlin.jvm.functions.Function0):365:365 -> finishSave$lambda$30
-    41:46:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):365 -> finishSave$lambda$30
-    47:55:java.lang.Object onUi(kotlin.jvm.functions.Function0):364:364 -> finishSave$lambda$30
-    47:55:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):364 -> finishSave$lambda$30
-    56:62:java.lang.Object onUi(kotlin.jvm.functions.Function0):368:368 -> finishSave$lambda$30
-    56:62:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):368 -> finishSave$lambda$30
-    63:69:java.lang.Object onUi(kotlin.jvm.functions.Function0):369:369 -> finishSave$lambda$30
-    63:69:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):369 -> finishSave$lambda$30
-    70:72:java.lang.Object onUi(kotlin.jvm.functions.Function0):371:371 -> finishSave$lambda$30
-    70:72:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):371 -> finishSave$lambda$30
-    1:11:java.lang.String forgetRemoteCredentials():260:260 -> forgetRemoteCredentials
-    1:4:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):261:261 -> forgetRemoteCredentials$lambda$22
+    17:19:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):388 -> finishSave$lambda$30
+    20:40:java.lang.Object onUi(kotlin.jvm.functions.Function0):389:389 -> finishSave$lambda$30
+    20:40:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):389 -> finishSave$lambda$30
+    41:46:java.lang.Object onUi(kotlin.jvm.functions.Function0):388:388 -> finishSave$lambda$30
+    41:46:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):388 -> finishSave$lambda$30
+    47:55:java.lang.Object onUi(kotlin.jvm.functions.Function0):387:387 -> finishSave$lambda$30
+    47:55:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):387 -> finishSave$lambda$30
+    56:62:java.lang.Object onUi(kotlin.jvm.functions.Function0):391:391 -> finishSave$lambda$30
+    56:62:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):391 -> finishSave$lambda$30
+    63:69:java.lang.Object onUi(kotlin.jvm.functions.Function0):392:392 -> finishSave$lambda$30
+    63:69:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):392 -> finishSave$lambda$30
+    70:72:java.lang.Object onUi(kotlin.jvm.functions.Function0):394:394 -> finishSave$lambda$30
+    70:72:kotlin.Unit finishSave$lambda$30(com.indicatrixsuite.mobile.MainActivity,android.net.Uri,long,byte[]):394 -> finishSave$lambda$30
+    1:11:java.lang.String forgetRemoteCredentials():283:283 -> forgetRemoteCredentials
+    1:4:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):284:284 -> forgetRemoteCredentials$lambda$22
     5:6:void <init>():53:53 -> forgetRemoteCredentials$lambda$22
     5:6:void com.indicatrixsuite.mobile.RemoteCredentialVault.forget():53 -> forgetRemoteCredentials$lambda$22
-    5:6:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):261 -> forgetRemoteCredentials$lambda$22
+    5:6:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):284 -> forgetRemoteCredentials$lambda$22
       # {"id":"com.android.tools.r8.rewriteFrame","conditions":["throws(Ljava/lang/NullPointerException;)"],"actions":["removeInnerFrames(2)"]}
     7:9:void <init>():53:53 -> forgetRemoteCredentials$lambda$22
     7:9:void com.indicatrixsuite.mobile.RemoteCredentialVault.forget():53 -> forgetRemoteCredentials$lambda$22
-    7:9:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):261 -> forgetRemoteCredentials$lambda$22
+    7:9:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):284 -> forgetRemoteCredentials$lambda$22
     10:19:void <init>():54:54 -> forgetRemoteCredentials$lambda$22
     10:19:void com.indicatrixsuite.mobile.RemoteCredentialVault.forget():54 -> forgetRemoteCredentials$lambda$22
-    10:19:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):261 -> forgetRemoteCredentials$lambda$22
+    10:19:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):284 -> forgetRemoteCredentials$lambda$22
     20:31:void <init>():55:55 -> forgetRemoteCredentials$lambda$22
     20:31:void com.indicatrixsuite.mobile.RemoteCredentialVault.forget():55 -> forgetRemoteCredentials$lambda$22
-    20:31:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):261 -> forgetRemoteCredentials$lambda$22
+    20:31:java.lang.String forgetRemoteCredentials$lambda$22(com.indicatrixsuite.mobile.MainActivity):284 -> forgetRemoteCredentials$lambda$22
     1:5:java.lang.String $r8$lambda$LnL_x4PLBlKvBygxmJ3qxDz99n0(com.indicatrixsuite.mobile.MainActivity):0:0 -> g
       # {"id":"com.android.tools.r8.synthesized"}
     1:11:void <init>():100:100 -> getVault
     1:11:com.indicatrixsuite.mobile.RemoteCredentialVault getVault():100 -> getVault
       # {"id":"com.android.tools.r8.residualsignature","signature":"()Ld3;"}
-    1:8:java.lang.Object onUi(kotlin.jvm.functions.Function0):451:451 -> guarded
-    1:8:java.lang.String guarded(kotlin.jvm.functions.Function0):451 -> guarded
+    1:8:java.lang.Object onUi(kotlin.jvm.functions.Function0):474:474 -> guarded
+    1:8:java.lang.String guarded(kotlin.jvm.functions.Function0):474 -> guarded
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lv0;)Ljava/lang/String;"}
-    9:15:java.lang.Object onUi(kotlin.jvm.functions.Function0):453:453 -> guarded
-    9:15:java.lang.String guarded(kotlin.jvm.functions.Function0):453 -> guarded
-    16:20:java.lang.Object onUi(kotlin.jvm.functions.Function0):454:454 -> guarded
-    16:20:java.lang.String guarded(kotlin.jvm.functions.Function0):454 -> guarded
+    9:15:java.lang.Object onUi(kotlin.jvm.functions.Function0):476:476 -> guarded
+    9:15:java.lang.String guarded(kotlin.jvm.functions.Function0):476 -> guarded
+    16:20:java.lang.Object onUi(kotlin.jvm.functions.Function0):477:477 -> guarded
+    16:20:java.lang.String guarded(kotlin.jvm.functions.Function0):477 -> guarded
     1:5:java.lang.String $r8$lambda$N5TBk7yTCi58wvnwWbJ-cqpcy0s(com.indicatrixsuite.mobile.MainActivity,boolean):0:0 -> h
       # {"id":"com.android.tools.r8.synthesized"}
-    3:37:java.lang.Object onUi(kotlin.jvm.functions.Function0):408:408 -> handleIncoming
-    3:37:void handleIncoming(android.content.Intent):408 -> handleIncoming
-    38:42:java.lang.Object onUi(kotlin.jvm.functions.Function0):411:411 -> handleIncoming
-    38:42:void handleIncoming(android.content.Intent):411 -> handleIncoming
-    43:50:java.lang.Object onUi(kotlin.jvm.functions.Function0):408:408 -> handleIncoming
-    43:50:void handleIncoming(android.content.Intent):408 -> handleIncoming
-    51:56:java.lang.Object onUi(kotlin.jvm.functions.Function0):409:409 -> handleIncoming
-    51:56:void handleIncoming(android.content.Intent):409 -> handleIncoming
+    3:37:java.lang.Object onUi(kotlin.jvm.functions.Function0):431:431 -> handleIncoming
+    3:37:void handleIncoming(android.content.Intent):431 -> handleIncoming
+    38:42:java.lang.Object onUi(kotlin.jvm.functions.Function0):434:434 -> handleIncoming
+    38:42:void handleIncoming(android.content.Intent):434 -> handleIncoming
+    43:50:java.lang.Object onUi(kotlin.jvm.functions.Function0):431:431 -> handleIncoming
+    43:50:void handleIncoming(android.content.Intent):431 -> handleIncoming
+    51:56:java.lang.Object onUi(kotlin.jvm.functions.Function0):432:432 -> handleIncoming
+    51:56:void handleIncoming(android.content.Intent):432 -> handleIncoming
     57:64:java.util.List kotlin.collections.CollectionsKt__CollectionsJVMKt.listOf(java.lang.Object):21:21 -> handleIncoming
     57:64:java.util.List kotlin.collections.CollectionsKt__CollectionsKt.listOfNotNull(java.lang.Object):134 -> handleIncoming
-    57:64:void handleIncoming(android.content.Intent):409 -> handleIncoming
-    65:72:java.lang.Object onUi(kotlin.jvm.functions.Function0):408:408 -> handleIncoming
-    65:72:void handleIncoming(android.content.Intent):408 -> handleIncoming
-    73:78:java.lang.Object onUi(kotlin.jvm.functions.Function0):410:410 -> handleIncoming
-    73:78:void handleIncoming(android.content.Intent):410 -> handleIncoming
+    57:64:void handleIncoming(android.content.Intent):432 -> handleIncoming
+    65:72:java.lang.Object onUi(kotlin.jvm.functions.Function0):431:431 -> handleIncoming
+    65:72:void handleIncoming(android.content.Intent):431 -> handleIncoming
+    73:78:java.lang.Object onUi(kotlin.jvm.functions.Function0):433:433 -> handleIncoming
+    73:78:void handleIncoming(android.content.Intent):433 -> handleIncoming
     79:85:java.util.List kotlin.collections.CollectionsKt__CollectionsJVMKt.listOf(java.lang.Object):21:21 -> handleIncoming
     79:85:java.util.List kotlin.collections.CollectionsKt__CollectionsKt.listOfNotNull(java.lang.Object):134 -> handleIncoming
-    79:85:void handleIncoming(android.content.Intent):410 -> handleIncoming
-    86:92:java.lang.Object onUi(kotlin.jvm.functions.Function0):414:414 -> handleIncoming
-    86:92:void handleIncoming(android.content.Intent):414 -> handleIncoming
-    93:104:java.lang.Object onUi(kotlin.jvm.functions.Function0):415:415 -> handleIncoming
-    93:104:void handleIncoming(android.content.Intent):415 -> handleIncoming
-    1:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):416:416 -> handleIncoming$lambda$33
-    1:12:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):416 -> handleIncoming$lambda$33
+    79:85:void handleIncoming(android.content.Intent):433 -> handleIncoming
+    86:92:java.lang.Object onUi(kotlin.jvm.functions.Function0):437:437 -> handleIncoming
+    86:92:void handleIncoming(android.content.Intent):437 -> handleIncoming
+    93:104:java.lang.Object onUi(kotlin.jvm.functions.Function0):438:438 -> handleIncoming
+    93:104:void handleIncoming(android.content.Intent):438 -> handleIncoming
+    1:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):439:439 -> handleIncoming$lambda$33
+    1:12:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):439 -> handleIncoming$lambda$33
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Ljava/util/List;)Lt3;"}
-    13:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):417:417 -> handleIncoming$lambda$33
-    13:14:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):417 -> handleIncoming$lambda$33
+    13:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):440:440 -> handleIncoming$lambda$33
+    13:14:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):440 -> handleIncoming$lambda$33
     15:17:void com.indicatrixsuite.mobile.ReadBudget.<init>():26:26 -> handleIncoming$lambda$33
-    15:17:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):417 -> handleIncoming$lambda$33
-    18:34:java.lang.Object onUi(kotlin.jvm.functions.Function0):418:418 -> handleIncoming$lambda$33
-    18:34:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):418 -> handleIncoming$lambda$33
-    35:52:java.lang.Object onUi(kotlin.jvm.functions.Function0):420:420 -> handleIncoming$lambda$33
-    35:52:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):420 -> handleIncoming$lambda$33
-    53:64:java.lang.Object onUi(kotlin.jvm.functions.Function0):422:422 -> handleIncoming$lambda$33
-    53:64:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):422 -> handleIncoming$lambda$33
-    65:67:java.lang.Object onUi(kotlin.jvm.functions.Function0):425:425 -> handleIncoming$lambda$33
-    65:67:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):425 -> handleIncoming$lambda$33
-    68:70:java.lang.Object onUi(kotlin.jvm.functions.Function0):426:426 -> handleIncoming$lambda$33
-    68:70:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):426 -> handleIncoming$lambda$33
+    15:17:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):440 -> handleIncoming$lambda$33
+    18:34:java.lang.Object onUi(kotlin.jvm.functions.Function0):441:441 -> handleIncoming$lambda$33
+    18:34:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):441 -> handleIncoming$lambda$33
+    35:52:java.lang.Object onUi(kotlin.jvm.functions.Function0):443:443 -> handleIncoming$lambda$33
+    35:52:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):443 -> handleIncoming$lambda$33
+    53:64:java.lang.Object onUi(kotlin.jvm.functions.Function0):445:445 -> handleIncoming$lambda$33
+    53:64:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):445 -> handleIncoming$lambda$33
+    65:67:java.lang.Object onUi(kotlin.jvm.functions.Function0):448:448 -> handleIncoming$lambda$33
+    65:67:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):448 -> handleIncoming$lambda$33
+    68:70:java.lang.Object onUi(kotlin.jvm.functions.Function0):449:449 -> handleIncoming$lambda$33
+    68:70:kotlin.Unit handleIncoming$lambda$33(com.indicatrixsuite.mobile.MainActivity,java.util.List):449 -> handleIncoming$lambda$33
     1:5:Unit $r8$lambda$V--P2lTuCQ-DJvqynOZnvlPEoA4(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):0:0 -> i
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;JI[BLandroid/content/Intent;)Lt3;"}
@@ -2732,68 +2732,68 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
     1:5:Unit $r8$lambda$Zm94pZfdx9WZtHfVj6RpuXYlXIY(com.indicatrixsuite.mobile.MainActivity,android.content.Intent):0:0 -> k
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Landroid/content/Intent;)Lt3;"}
-    1:10:java.lang.String keepScreenOn(boolean):186:186 -> keepScreenOn
-    1:10:java.lang.String keepScreenOn$lambda$17(com.indicatrixsuite.mobile.MainActivity,boolean):187:187 -> keepScreenOn$lambda$17
-    5:12:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):189:189 -> keepScreenOn$lambda$17$lambda$16
+    1:10:java.lang.String keepScreenOn(boolean):200:200 -> keepScreenOn
+    1:10:java.lang.String keepScreenOn$lambda$17(com.indicatrixsuite.mobile.MainActivity,boolean):201:201 -> keepScreenOn$lambda$17
+    5:12:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):203:203 -> keepScreenOn$lambda$17$lambda$16
       # {"id":"com.android.tools.r8.residualsignature","signature":"(ZLcom/indicatrixsuite/mobile/MainActivity;)Lt3;"}
-    13:19:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):191:191 -> keepScreenOn$lambda$17$lambda$16
-    20:22:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):193:193 -> keepScreenOn$lambda$17$lambda$16
+    13:19:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):205:205 -> keepScreenOn$lambda$17$lambda$16
+    20:22:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):207:207 -> keepScreenOn$lambda$17$lambda$16
     1:5:java.lang.String $r8$lambda$cSBm2czIsNukfXWxY3zIgXy4zWk(com.indicatrixsuite.mobile.MainActivity,java.lang.String):0:0 -> l
       # {"id":"com.android.tools.r8.synthesized"}
-    1:4:java.lang.String loadRemoteCredentials():257:257 -> loadRemoteCredentials
+    1:4:java.lang.String loadRemoteCredentials():277:277 -> loadRemoteCredentials
     5:6:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():40:40 -> loadRemoteCredentials
-    5:6:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    5:6:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
       # {"id":"com.android.tools.r8.rewriteFrame","conditions":["throws(Ljava/lang/NullPointerException;)"],"actions":["removeInnerFrames(1)"]}
     7:18:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():40:40 -> loadRemoteCredentials
-    7:18:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    7:18:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     19:22:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():41:41 -> loadRemoteCredentials
-    19:22:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    19:22:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     23:29:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():42:42 -> loadRemoteCredentials
-    23:29:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    23:29:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     30:33:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():43:43 -> loadRemoteCredentials
-    30:33:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    30:33:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     34:38:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():44:44 -> loadRemoteCredentials
-    34:38:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    34:38:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     39:44:void <init>():45:45 -> loadRemoteCredentials
     39:44:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():45 -> loadRemoteCredentials
-    39:44:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    39:44:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     45:59:void <init>():46:46 -> loadRemoteCredentials
     45:59:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():46 -> loadRemoteCredentials
-    45:59:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    45:59:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     60:68:void <init>():47:47 -> loadRemoteCredentials
     60:68:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():47 -> loadRemoteCredentials
-    60:68:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    60:68:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     69:77:void <init>():48:48 -> loadRemoteCredentials
     69:77:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():48 -> loadRemoteCredentials
-    69:77:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    69:77:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     78:83:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():44:44 -> loadRemoteCredentials
-    78:83:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    78:83:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     84:89:java.lang.String com.indicatrixsuite.mobile.RemoteCredentialVault.load():42:42 -> loadRemoteCredentials
-    84:89:java.lang.String loadRemoteCredentials():257 -> loadRemoteCredentials
+    84:89:java.lang.String loadRemoteCredentials():277 -> loadRemoteCredentials
     1:5:Unit $r8$lambda$cYe3BZ95ah3Fxa1zWmyHdq9CluY(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):0:0 -> m
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Ljava/lang/String;Ljava/lang/String;)Lt3;"}
     1:5:RemoteCredentialVault $r8$lambda$cdbhqvv6zt7LvDXlxRfuUSmrAao(com.indicatrixsuite.mobile.MainActivity):0:0 -> n
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;)Ld3;"}
-    2:9:int networkMetered():234:234 -> networkMetered
-    10:16:int networkMetered():236:236 -> networkMetered
-    17:27:int networkMetered():237:237 -> networkMetered
+    2:9:int networkMetered():251:251 -> networkMetered
+    10:16:int networkMetered():253:253 -> networkMetered
+    17:27:int networkMetered():254:254 -> networkMetered
     1:4:void $r8$lambda$ftJHhLN9IRr2bci-nJkFVOaPvhQ(java.util.concurrent.atomic.AtomicReference,Function0,java.util.concurrent.atomic.AtomicReference,java.util.concurrent.CountDownLatch):0:0 -> o
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Ljava/util/concurrent/atomic/AtomicReference;Lv0;Ljava/util/concurrent/atomic/AtomicReference;Ljava/util/concurrent/CountDownLatch;)V"}
-    1:3:java.lang.Object onUi(kotlin.jvm.functions.Function0):316:316 -> onActivityResult
-    1:3:void onActivityResult(int,int,android.content.Intent):316 -> onActivityResult
-    4:18:java.lang.Object onUi(kotlin.jvm.functions.Function0):317:317 -> onActivityResult
-    4:18:void onActivityResult(int,int,android.content.Intent):317 -> onActivityResult
+    1:3:java.lang.Object onUi(kotlin.jvm.functions.Function0):339:339 -> onActivityResult
+    1:3:void onActivityResult(int,int,android.content.Intent):339 -> onActivityResult
+    4:18:java.lang.Object onUi(kotlin.jvm.functions.Function0):340:340 -> onActivityResult
+    4:18:void onActivityResult(int,int,android.content.Intent):340 -> onActivityResult
     19:24:void <init>():51:51 -> onActivityResult
     19:24:int com.indicatrixsuite.mobile.MainActivity$PendingRequest.getKind():51 -> onActivityResult
-    19:24:void onActivityResult(int,int,android.content.Intent):318 -> onActivityResult
+    19:24:void onActivityResult(int,int,android.content.Intent):341 -> onActivityResult
       # {"id":"com.android.tools.r8.rewriteFrame","conditions":["throws(Ljava/lang/NullPointerException;)"],"actions":["removeInnerFrames(2)"]}
-    25:28:java.lang.Object onUi(kotlin.jvm.functions.Function0):319:319 -> onActivityResult
-    25:28:void onActivityResult(int,int,android.content.Intent):319 -> onActivityResult
-    29:32:java.lang.Object onUi(kotlin.jvm.functions.Function0):321:321 -> onActivityResult
-    29:32:void onActivityResult(int,int,android.content.Intent):321 -> onActivityResult
+    25:28:java.lang.Object onUi(kotlin.jvm.functions.Function0):342:342 -> onActivityResult
+    25:28:void onActivityResult(int,int,android.content.Intent):342 -> onActivityResult
+    29:32:java.lang.Object onUi(kotlin.jvm.functions.Function0):344:344 -> onActivityResult
+    29:32:void onActivityResult(int,int,android.content.Intent):344 -> onActivityResult
     1:4:void <init>():68:68 -> onCreate
     1:4:void onCreate(android.os.Bundle):68 -> onCreate
     5:10:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):123:123 -> onCreate
@@ -2805,16 +2805,13 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
     19:22:java.lang.String createDocument(long,java.lang.String,java.lang.String,byte[]):126:126 -> onCreate
     19:22:void androidx.core.view.WindowCompat.setDecorFitsSystemWindows(android.view.Window,boolean):126 -> onCreate
     19:22:void onCreate(android.os.Bundle):68 -> onCreate
-    23:26:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):188:188 -> onCreate
-    23:26:void androidx.core.view.WindowCompat$Api16Impl.setDecorFitsSystemWindows(android.view.Window,boolean):188 -> onCreate
+    23:26:void androidx.core.view.WindowCompat$Api16Impl.setDecorFitsSystemWindows(android.view.Window,boolean):188:188 -> onCreate
     23:26:void androidx.core.view.WindowCompat.setDecorFitsSystemWindows(android.view.Window,boolean):128 -> onCreate
     23:26:void onCreate(android.os.Bundle):68 -> onCreate
-    27:32:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):189:189 -> onCreate
-    27:32:void androidx.core.view.WindowCompat$Api16Impl.setDecorFitsSystemWindows(android.view.Window,boolean):189 -> onCreate
+    27:32:void androidx.core.view.WindowCompat$Api16Impl.setDecorFitsSystemWindows(android.view.Window,boolean):189:189 -> onCreate
     27:32:void androidx.core.view.WindowCompat.setDecorFitsSystemWindows(android.view.Window,boolean):128 -> onCreate
     27:32:void onCreate(android.os.Bundle):68 -> onCreate
-    33:35:kotlin.Unit keepScreenOn$lambda$17$lambda$16(boolean,com.indicatrixsuite.mobile.MainActivity):190:190 -> onCreate
-    33:35:void androidx.core.view.WindowCompat$Api16Impl.setDecorFitsSystemWindows(android.view.Window,boolean):190 -> onCreate
+    33:35:void androidx.core.view.WindowCompat$Api16Impl.setDecorFitsSystemWindows(android.view.Window,boolean):190:190 -> onCreate
     33:35:void androidx.core.view.WindowCompat.setDecorFitsSystemWindows(android.view.Window,boolean):128 -> onCreate
     33:35:void onCreate(android.os.Bundle):68 -> onCreate
     36:42:void <init>():69:69 -> onCreate
@@ -2876,23 +2873,23 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
     7:9:void onNewIntent(android.content.Intent):81 -> onNewIntent
     10:13:void <init>():82:82 -> onNewIntent
     10:13:void onNewIntent(android.content.Intent):82 -> onNewIntent
-    1:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):281:281 -> onUi
+    1:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):304:304 -> onUi
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lv0;)Ljava/lang/Object;"}
-    6:10:java.lang.Object onUi(kotlin.jvm.functions.Function0):282:282 -> onUi
-    11:16:java.lang.Object onUi(kotlin.jvm.functions.Function0):283:283 -> onUi
-    17:26:java.lang.Object onUi(kotlin.jvm.functions.Function0):284:284 -> onUi
-    27:34:java.lang.Object onUi(kotlin.jvm.functions.Function0):293:293 -> onUi
-    35:42:java.lang.Object onUi(kotlin.jvm.functions.Function0):296:296 -> onUi
-    43:47:java.lang.Object onUi(kotlin.jvm.functions.Function0):298:298 -> onUi
-    48:48:java.lang.Object onUi(kotlin.jvm.functions.Function0):296:296 -> onUi
-    49:56:java.lang.Object onUi(kotlin.jvm.functions.Function0):294:294 -> onUi
-    1:9:java.lang.Object onUi(kotlin.jvm.functions.Function0):286:286 -> onUi$lambda$24
-    1:9:void onUi$lambda$24(java.util.concurrent.atomic.AtomicReference,kotlin.jvm.functions.Function0,java.util.concurrent.atomic.AtomicReference,java.util.concurrent.CountDownLatch):286 -> onUi$lambda$24
+    6:10:java.lang.Object onUi(kotlin.jvm.functions.Function0):305:305 -> onUi
+    11:16:java.lang.Object onUi(kotlin.jvm.functions.Function0):306:306 -> onUi
+    17:26:java.lang.Object onUi(kotlin.jvm.functions.Function0):307:307 -> onUi
+    27:34:java.lang.Object onUi(kotlin.jvm.functions.Function0):316:316 -> onUi
+    35:42:java.lang.Object onUi(kotlin.jvm.functions.Function0):319:319 -> onUi
+    43:47:java.lang.Object onUi(kotlin.jvm.functions.Function0):321:321 -> onUi
+    48:48:java.lang.Object onUi(kotlin.jvm.functions.Function0):319:319 -> onUi
+    49:56:java.lang.Object onUi(kotlin.jvm.functions.Function0):317:317 -> onUi
+    1:9:java.lang.Object onUi(kotlin.jvm.functions.Function0):309:309 -> onUi$lambda$24
+    1:9:void onUi$lambda$24(java.util.concurrent.atomic.AtomicReference,kotlin.jvm.functions.Function0,java.util.concurrent.atomic.AtomicReference,java.util.concurrent.CountDownLatch):309 -> onUi$lambda$24
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Ljava/util/concurrent/atomic/AtomicReference;Lv0;Ljava/util/concurrent/atomic/AtomicReference;Ljava/util/concurrent/CountDownLatch;)V"}
-    10:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):288:288 -> onUi$lambda$24
-    10:12:void onUi$lambda$24(java.util.concurrent.atomic.AtomicReference,kotlin.jvm.functions.Function0,java.util.concurrent.atomic.AtomicReference,java.util.concurrent.CountDownLatch):288 -> onUi$lambda$24
-    13:21:java.lang.Object onUi(kotlin.jvm.functions.Function0):290:290 -> onUi$lambda$24
-    13:21:void onUi$lambda$24(java.util.concurrent.atomic.AtomicReference,kotlin.jvm.functions.Function0,java.util.concurrent.atomic.AtomicReference,java.util.concurrent.CountDownLatch):290 -> onUi$lambda$24
+    10:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):311:311 -> onUi$lambda$24
+    10:12:void onUi$lambda$24(java.util.concurrent.atomic.AtomicReference,kotlin.jvm.functions.Function0,java.util.concurrent.atomic.AtomicReference,java.util.concurrent.CountDownLatch):311 -> onUi$lambda$24
+    13:21:java.lang.Object onUi(kotlin.jvm.functions.Function0):313:313 -> onUi$lambda$24
+    13:21:void onUi$lambda$24(java.util.concurrent.atomic.AtomicReference,kotlin.jvm.functions.Function0,java.util.concurrent.atomic.AtomicReference,java.util.concurrent.CountDownLatch):313 -> onUi$lambda$24
     1:14:java.lang.String openDocuments(long,int,boolean):103:103 -> openDocuments
     9:15:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):105:105 -> openDocuments$lambda$2
     16:21:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):106:106 -> openDocuments$lambda$2
@@ -2904,32 +2901,32 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
     76:79:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):111:111 -> openDocuments$lambda$2
     80:86:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):104:104 -> openDocuments$lambda$2
     87:91:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):115:115 -> openDocuments$lambda$2
-    4:13:java.lang.String openUrl(java.lang.String):211:211 -> openUrl
-    1:4:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):212:212 -> openUrl$lambda$19
-    5:28:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):213:213 -> openUrl$lambda$19
-    29:36:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):214:214 -> openUrl$lambda$19
-    37:47:kotlin.Unit openUrl$lambda$19$lambda$18(com.indicatrixsuite.mobile.MainActivity,android.net.Uri):216:216 -> openUrl$lambda$19
-    37:47:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):216 -> openUrl$lambda$19
-    1:13:kotlin.Unit openUrl$lambda$19$lambda$18(com.indicatrixsuite.mobile.MainActivity,android.net.Uri):216:216 -> openUrl$lambda$19$lambda$18
+    4:13:java.lang.String openUrl(java.lang.String):228:228 -> openUrl
+    1:4:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):229:229 -> openUrl$lambda$19
+    5:28:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):230:230 -> openUrl$lambda$19
+    29:36:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):231:231 -> openUrl$lambda$19
+    37:47:kotlin.Unit openUrl$lambda$19$lambda$18(com.indicatrixsuite.mobile.MainActivity,android.net.Uri):233:233 -> openUrl$lambda$19
+    37:47:java.lang.String openUrl$lambda$19(java.lang.String,com.indicatrixsuite.mobile.MainActivity):233 -> openUrl$lambda$19
+    1:13:kotlin.Unit openUrl$lambda$19$lambda$18(com.indicatrixsuite.mobile.MainActivity,android.net.Uri):233:233 -> openUrl$lambda$19$lambda$18
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Landroid/net/Uri;)Lt3;"}
     1:5:java.lang.String $r8$lambda$khhRFpXXVip4QbBa4vykhtlw2tA(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):0:0 -> p
       # {"id":"com.android.tools.r8.synthesized"}
-    7:16:java.lang.String printHtml(java.lang.String,java.lang.String):150:150 -> printHtml
-    1:8:java.lang.String printHtml$lambda$13(java.lang.String,com.indicatrixsuite.mobile.MainActivity,java.lang.String):151:151 -> printHtml$lambda$13
-    9:18:java.lang.String printHtml$lambda$13(java.lang.String,com.indicatrixsuite.mobile.MainActivity,java.lang.String):152:152 -> printHtml$lambda$13
-    1:5:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):153:153 -> printHtml$lambda$13$lambda$12
+    7:16:java.lang.String printHtml(java.lang.String,java.lang.String):159:159 -> printHtml
+    1:8:java.lang.String printHtml$lambda$13(java.lang.String,com.indicatrixsuite.mobile.MainActivity,java.lang.String):160:160 -> printHtml$lambda$13
+    9:18:java.lang.String printHtml$lambda$13(java.lang.String,com.indicatrixsuite.mobile.MainActivity,java.lang.String):161:161 -> printHtml$lambda$13
+    1:5:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):162:162 -> printHtml$lambda$13$lambda$12
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Ljava/lang/String;Ljava/lang/String;)Lt3;"}
-    6:13:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):154:154 -> printHtml$lambda$13$lambda$12
-    14:20:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):155:155 -> printHtml$lambda$13$lambda$12
-    21:27:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):156:156 -> printHtml$lambda$13$lambda$12
-    28:29:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):157:157 -> printHtml$lambda$13$lambda$12
+    6:13:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):163:163 -> printHtml$lambda$13$lambda$12
+    14:20:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):164:164 -> printHtml$lambda$13$lambda$12
+    21:27:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):165:165 -> printHtml$lambda$13$lambda$12
+    28:29:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):166:166 -> printHtml$lambda$13$lambda$12
     30:32:void <init>():85:85 -> printHtml$lambda$13$lambda$12
     30:32:void kotlin.jvm.internal.Ref$BooleanRef.<init>():85 -> printHtml$lambda$13$lambda$12
-    30:32:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):157 -> printHtml$lambda$13$lambda$12
-    33:40:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):158:158 -> printHtml$lambda$13$lambda$12
-    41:42:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):170:170 -> printHtml$lambda$13$lambda$12
-    43:52:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):171:171 -> printHtml$lambda$13$lambda$12
-    53:55:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):172:172 -> printHtml$lambda$13$lambda$12
+    30:32:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):166 -> printHtml$lambda$13$lambda$12
+    33:40:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):167:167 -> printHtml$lambda$13$lambda$12
+    41:42:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):179:179 -> printHtml$lambda$13$lambda$12
+    43:52:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):180:180 -> printHtml$lambda$13$lambda$12
+    53:55:kotlin.Unit printHtml$lambda$13$lambda$12(com.indicatrixsuite.mobile.MainActivity,java.lang.String,java.lang.String):181:181 -> printHtml$lambda$13$lambda$12
     1:5:java.lang.String $r8$lambda$m_UVnJO6pbht6CPl0ti3gJPlrRk(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):0:0 -> q
       # {"id":"com.android.tools.r8.synthesized"}
     1:5:Unit $r8$lambda$o1VM-XBYT61P5tLM8Gr19GXeIxQ(com.indicatrixsuite.mobile.MainActivity,boolean):0:0 -> r
@@ -2937,225 +2934,225 @@ com.indicatrixsuite.mobile.MainActivity -> com.indicatrixsuite.mobile.MainActivi
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Z)Lt3;"}
     1:5:java.lang.String $r8$lambda$vAhYI4stITji4jYJYOiByQ-KUhY(com.indicatrixsuite.mobile.MainActivity,java.lang.String):0:0 -> s
       # {"id":"com.android.tools.r8.synthesized"}
-    3:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):303:303 -> safeFileName
-    3:12:java.lang.String safeFileName(java.lang.String):303 -> safeFileName
-    13:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):304:304 -> safeFileName
-    13:14:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    3:12:java.lang.Object onUi(kotlin.jvm.functions.Function0):326:326 -> safeFileName
+    3:12:java.lang.String safeFileName(java.lang.String):326 -> safeFileName
+    13:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):327:327 -> safeFileName
+    13:14:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     15:21:void <init>():90:90 -> safeFileName
     15:21:void kotlin.text.Regex.<init>(java.lang.String):90 -> safeFileName
-    15:21:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
-    22:23:java.lang.Object onUi(kotlin.jvm.functions.Function0):304:304 -> safeFileName
-    22:23:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    15:21:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
+    22:23:java.lang.Object onUi(kotlin.jvm.functions.Function0):327:327 -> safeFileName
+    22:23:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     24:35:java.lang.String kotlin.text.Regex.replace(java.lang.CharSequence,java.lang.String):182:182 -> safeFileName
-    24:35:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
-    36:42:java.lang.Object onUi(kotlin.jvm.functions.Function0):304:304 -> safeFileName
-    36:42:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    24:35:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
+    36:42:java.lang.Object onUi(kotlin.jvm.functions.Function0):327:327 -> safeFileName
+    36:42:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     43:49:java.lang.String kotlin.text.StringsKt__StringsKt.trimStart(java.lang.String,char[]):1664:1664 -> safeFileName
-    43:49:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    43:49:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     50:56:java.lang.String kotlin.text.StringsKt__StringsKt.trimStart(java.lang.String,char[]):1665:1665 -> safeFileName
-    50:56:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    50:56:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     57:69:int kotlin.collections.ArraysKt___ArraysKt.indexOf(char[],char):1671:1671 -> safeFileName
     57:69:boolean kotlin.collections.ArraysKt___ArraysKt.contains(char[],char):580 -> safeFileName
     57:69:java.lang.String kotlin.text.StringsKt__StringsKt.trimStart(java.lang.String,char[]):160 -> safeFileName
-    57:69:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    57:69:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     70:78:java.lang.String kotlin.text.StringsKt__StringsKt.trimStart(java.lang.String,char[]):1666:1666 -> safeFileName
-    70:78:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    70:78:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     79:80:java.lang.String kotlin.text.StringsKt__StringsKt.trimStart(java.lang.String,char[]):1668:1668 -> safeFileName
-    79:80:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    79:80:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     81:84:java.lang.String kotlin.text.StringsKt__StringsKt.trimStart(java.lang.String,char[]):1663:1663 -> safeFileName
-    81:84:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    81:84:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     85:87:java.lang.CharSequence kotlin.text.StringsKt__StringsKt.trim(java.lang.CharSequence):0:0 -> safeFileName
-    85:87:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    85:87:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     88:101:java.lang.CharSequence kotlin.text.StringsKt__StringsKt.trim(java.lang.CharSequence):1681:1681 -> safeFileName
-    88:101:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    88:101:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     102:105:java.lang.CharSequence kotlin.text.StringsKt__StringsKt.trim(java.lang.CharSequence):1686:1686 -> safeFileName
-    102:105:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    102:105:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     106:135:boolean kotlin.text.CharsKt__CharJVMKt.isWhitespace(char):103:103 -> safeFileName
     106:135:java.lang.CharSequence kotlin.text.StringsKt__StringsKt.trim(java.lang.CharSequence):175 -> safeFileName
-    106:135:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    106:135:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     136:139:java.lang.CharSequence kotlin.text.StringsKt__StringsKt.trim(java.lang.CharSequence):1701:1701 -> safeFileName
-    136:139:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
-    140:146:java.lang.Object onUi(kotlin.jvm.functions.Function0):304:304 -> safeFileName
-    140:146:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
+    136:139:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
+    140:146:java.lang.Object onUi(kotlin.jvm.functions.Function0):327:327 -> safeFileName
+    140:146:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
     147:159:java.lang.String kotlin.text.StringsKt___StringsKt.take(java.lang.String,int):572:572 -> safeFileName
-    147:159:java.lang.String safeFileName(java.lang.String):304 -> safeFileName
-    160:168:java.lang.Object onUi(kotlin.jvm.functions.Function0):305:305 -> safeFileName
-    160:168:java.lang.String safeFileName(java.lang.String):305 -> safeFileName
-    1:9:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):247:247 -> setBackTarget
-    1:9:void setBackTarget(int,int):247 -> setBackTarget
-    1:4:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):247:247 -> setBackTarget$lambda$20
+    147:159:java.lang.String safeFileName(java.lang.String):327 -> safeFileName
+    160:168:java.lang.Object onUi(kotlin.jvm.functions.Function0):328:328 -> safeFileName
+    160:168:java.lang.String safeFileName(java.lang.String):328 -> safeFileName
+    1:9:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):264:264 -> setBackTarget
+    1:9:void setBackTarget(int,int):264 -> setBackTarget
+    1:4:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):264:264 -> setBackTarget$lambda$20
     5:6:void com.indicatrixsuite.mobile.BackNavigationController.setTarget(int,int):34:34 -> setBackTarget$lambda$20
-    5:6:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):247 -> setBackTarget$lambda$20
+    5:6:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):264 -> setBackTarget$lambda$20
     7:8:void com.indicatrixsuite.mobile.BackNavigationController.setTarget(int,int):35:35 -> setBackTarget$lambda$20
-    7:8:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):247 -> setBackTarget$lambda$20
+    7:8:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):264 -> setBackTarget$lambda$20
     9:12:void com.indicatrixsuite.mobile.BackNavigationController.setTarget(int,int):36:36 -> setBackTarget$lambda$20
-    9:12:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):247 -> setBackTarget$lambda$20
-    4:14:java.lang.String setClipboardText(java.lang.String):177:177 -> setClipboardText
-    1:11:java.lang.String setClipboardText$lambda$15(com.indicatrixsuite.mobile.MainActivity,java.lang.String):178:178 -> setClipboardText$lambda$15
-    1:8:kotlin.Unit setClipboardText$lambda$15$lambda$14(com.indicatrixsuite.mobile.MainActivity,java.lang.String):179:179 -> setClipboardText$lambda$15$lambda$14
+    9:12:void setBackTarget$lambda$20(com.indicatrixsuite.mobile.MainActivity,int,int):264 -> setBackTarget$lambda$20
+    4:14:java.lang.String setClipboardText(java.lang.String):189:189 -> setClipboardText
+    1:11:java.lang.String setClipboardText$lambda$15(com.indicatrixsuite.mobile.MainActivity,java.lang.String):190:190 -> setClipboardText$lambda$15
+    1:8:kotlin.Unit setClipboardText$lambda$15$lambda$14(com.indicatrixsuite.mobile.MainActivity,java.lang.String):191:191 -> setClipboardText$lambda$15$lambda$14
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Ljava/lang/String;)Lt3;"}
-    9:17:kotlin.Unit setClipboardText$lambda$15$lambda$14(com.indicatrixsuite.mobile.MainActivity,java.lang.String):180:180 -> setClipboardText$lambda$15$lambda$14
-    18:20:kotlin.Unit setClipboardText$lambda$15$lambda$14(com.indicatrixsuite.mobile.MainActivity,java.lang.String):181:181 -> setClipboardText$lambda$15$lambda$14
-    10:19:java.lang.String share(java.lang.String,java.lang.String,byte[]):131:131 -> share
-    1:11:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):132:132 -> share$lambda$10
-    12:31:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):133:133 -> share$lambda$10
-    32:40:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):134:134 -> share$lambda$10
-    41:47:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):135:135 -> share$lambda$10
+    9:17:kotlin.Unit setClipboardText$lambda$15$lambda$14(com.indicatrixsuite.mobile.MainActivity,java.lang.String):192:192 -> setClipboardText$lambda$15$lambda$14
+    18:20:kotlin.Unit setClipboardText$lambda$15$lambda$14(com.indicatrixsuite.mobile.MainActivity,java.lang.String):193:193 -> setClipboardText$lambda$15$lambda$14
+    10:19:java.lang.String share(java.lang.String,java.lang.String,byte[]):137:137 -> share
+    1:11:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):138:138 -> share$lambda$10
+    12:31:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):139:139 -> share$lambda$10
+    32:40:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):140:140 -> share$lambda$10
+    41:47:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):141:141 -> share$lambda$10
     48:53:boolean kotlin.collections.ArraysKt___ArraysKt.contains(float[],float):13472:13472 -> share$lambda$10
-    48:53:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):135 -> share$lambda$10
-    54:65:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):135:135 -> share$lambda$10
+    48:53:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):141 -> share$lambda$10
+    54:65:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):141:141 -> share$lambda$10
     66:68:void kotlin.io.FilesKt__FileReadWriteKt.writeBytes(java.io.File,byte[]):0:0 -> share$lambda$10
-    66:68:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):136 -> share$lambda$10
+    66:68:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):142 -> share$lambda$10
     69:76:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):114:114 -> share$lambda$10
     69:76:void kotlin.io.FilesKt__FileReadWriteKt.writeBytes(java.io.File,byte[]):114 -> share$lambda$10
-    69:76:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):136 -> share$lambda$10
+    69:76:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):142 -> share$lambda$10
     77:79:void <init>():46:46 -> share$lambda$10
     77:79:void kotlin.io.CloseableKt.closeFinally(java.io.Closeable,java.lang.Throwable):46 -> share$lambda$10
     77:79:void kotlin.io.FilesKt__FileReadWriteKt.writeBytes(java.io.File,byte[]):114 -> share$lambda$10
-    77:79:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):136 -> share$lambda$10
-    80:81:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137:137 -> share$lambda$10
+    77:79:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):142 -> share$lambda$10
+    80:81:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143:143 -> share$lambda$10
     82:86:java.lang.Object onUi(kotlin.jvm.functions.Function0):414:414 -> share$lambda$10
     82:86:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):414 -> share$lambda$10
-    82:86:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    82:86:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     87:90:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):895:895 -> share$lambda$10
     87:90:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    87:90:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    87:90:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     91:115:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):902:902 -> share$lambda$10
     91:115:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    91:115:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    91:115:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     116:125:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):903:903 -> share$lambda$10
     116:125:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    116:125:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    116:125:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     126:129:boolean androidx.core.content.FileProvider$SimplePathStrategy.belongsToRoot(java.lang.String,java.lang.String):968:968 -> share$lambda$10
     126:129:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):904 -> share$lambda$10
     126:129:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    126:129:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    126:129:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     130:133:boolean androidx.core.content.FileProvider$SimplePathStrategy.belongsToRoot(java.lang.String,java.lang.String):969:969 -> share$lambda$10
     130:133:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):904 -> share$lambda$10
     130:133:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    130:133:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    130:133:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     134:145:boolean androidx.core.content.FileProvider$SimplePathStrategy.belongsToRoot(java.lang.String,java.lang.String):972:972 -> share$lambda$10
     134:145:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):904 -> share$lambda$10
     134:145:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    134:145:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    134:145:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     146:169:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):905:905 -> share$lambda$10
     146:169:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    146:169:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    146:169:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     170:179:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):916:916 -> share$lambda$10
     170:179:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    170:179:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    170:179:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     180:186:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):917:917 -> share$lambda$10
     180:186:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    180:186:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    180:186:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     187:195:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):918:918 -> share$lambda$10
     187:195:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    187:195:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    187:195:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     196:204:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):920:920 -> share$lambda$10
     196:204:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    196:204:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    196:204:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     205:238:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):924:924 -> share$lambda$10
     205:238:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    205:238:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    205:238:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     239:259:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):925:925 -> share$lambda$10
     239:259:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    239:259:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    239:259:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     260:263:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):926:926 -> share$lambda$10
     260:263:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    260:263:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
-    264:270:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):138:138 -> share$lambda$10
-    271:281:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):139:139 -> share$lambda$10
-    282:286:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):140:140 -> share$lambda$10
-    287:297:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):141:141 -> share$lambda$10
-    298:300:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):142:142 -> share$lambda$10
-    301:311:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):144:144 -> share$lambda$10
-    312:320:kotlin.Unit share$lambda$10$lambda$9(com.indicatrixsuite.mobile.MainActivity,android.content.Intent):145:145 -> share$lambda$10
-    312:320:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):145 -> share$lambda$10
+    260:263:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
+    264:270:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):144:144 -> share$lambda$10
+    271:281:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):145:145 -> share$lambda$10
+    282:286:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):146:146 -> share$lambda$10
+    287:297:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):147:147 -> share$lambda$10
+    298:300:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):148:148 -> share$lambda$10
+    301:311:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):150:150 -> share$lambda$10
+    312:320:kotlin.Unit share$lambda$10$lambda$9(com.indicatrixsuite.mobile.MainActivity,android.content.Intent):151:151 -> share$lambda$10
+    312:320:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):151 -> share$lambda$10
     321:326:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):911:911 -> share$lambda$10
     321:326:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    321:326:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    321:326:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     327:333:android.net.Uri androidx.core.content.FileProvider$SimplePathStrategy.getUriForFile(java.io.File):897:897 -> share$lambda$10
     327:333:android.net.Uri androidx.core.content.FileProvider.getUriForFile(android.content.Context,java.lang.String,java.io.File):415 -> share$lambda$10
-    327:333:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):137 -> share$lambda$10
+    327:333:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):143 -> share$lambda$10
     334:339:java.lang.String openDocuments$lambda$2(int,com.indicatrixsuite.mobile.MainActivity,long,boolean):114:114 -> share$lambda$10
     334:339:void kotlin.io.FilesKt__FileReadWriteKt.writeBytes(java.io.File,byte[]):114 -> share$lambda$10
-    334:339:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):136 -> share$lambda$10
-    1:6:kotlin.Unit share$lambda$10$lambda$9(com.indicatrixsuite.mobile.MainActivity,android.content.Intent):145:145 -> share$lambda$10$lambda$9
+    334:339:java.lang.String share$lambda$10(com.indicatrixsuite.mobile.MainActivity,java.lang.String,byte[],java.lang.String):142 -> share$lambda$10
+    1:6:kotlin.Unit share$lambda$10$lambda$9(com.indicatrixsuite.mobile.MainActivity,android.content.Intent):151:151 -> share$lambda$10$lambda$9
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Landroid/content/Intent;)Lt3;"}
-    1:14:void startForResult(android.content.Intent,long,int,byte[]):267:267 -> startForResult
-    1:6:void startForResult(android.content.Intent,long,int,byte[]):268:268 -> startForResult$lambda$23
-    1:6:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):268 -> startForResult$lambda$23
+    1:14:void startForResult(android.content.Intent,long,int,byte[]):290:290 -> startForResult
+    1:6:void startForResult(android.content.Intent,long,int,byte[]):291:291 -> startForResult$lambda$23
+    1:6:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):291 -> startForResult$lambda$23
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;JI[BLandroid/content/Intent;)Lt3;"}
-    7:20:void startForResult(android.content.Intent,long,int,byte[]):269:269 -> startForResult$lambda$23
-    7:20:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):269 -> startForResult$lambda$23
-    21:23:void startForResult(android.content.Intent,long,int,byte[]):271:271 -> startForResult$lambda$23
-    21:23:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):271 -> startForResult$lambda$23
-    24:27:void startForResult(android.content.Intent,long,int,byte[]):276:276 -> startForResult$lambda$23
-    24:27:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):276 -> startForResult$lambda$23
-    28:36:void startForResult(android.content.Intent,long,int,byte[]):273:273 -> startForResult$lambda$23
-    28:36:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):273 -> startForResult$lambda$23
-    37:37:void startForResult(android.content.Intent,long,int,byte[]):274:274 -> startForResult$lambda$23
-    37:37:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):274 -> startForResult$lambda$23
-    4:14:java.lang.String storeRemoteCredentials(java.lang.String):251:251 -> storeRemoteCredentials
-    1:7:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252:252 -> storeRemoteCredentials$lambda$21
+    7:20:void startForResult(android.content.Intent,long,int,byte[]):292:292 -> startForResult$lambda$23
+    7:20:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):292 -> startForResult$lambda$23
+    21:23:void startForResult(android.content.Intent,long,int,byte[]):294:294 -> startForResult$lambda$23
+    21:23:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):294 -> startForResult$lambda$23
+    24:27:void startForResult(android.content.Intent,long,int,byte[]):299:299 -> startForResult$lambda$23
+    24:27:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):299 -> startForResult$lambda$23
+    28:36:void startForResult(android.content.Intent,long,int,byte[]):296:296 -> startForResult$lambda$23
+    28:36:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):296 -> startForResult$lambda$23
+    37:37:void startForResult(android.content.Intent,long,int,byte[]):297:297 -> startForResult$lambda$23
+    37:37:kotlin.Unit startForResult$lambda$23(com.indicatrixsuite.mobile.MainActivity,long,int,byte[],android.content.Intent):297 -> startForResult$lambda$23
+    4:14:java.lang.String storeRemoteCredentials(java.lang.String):268:268 -> storeRemoteCredentials
+    1:7:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269:269 -> storeRemoteCredentials$lambda$21
     8:10:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):0:0 -> storeRemoteCredentials$lambda$21
-    8:10:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    8:10:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     11:17:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):22:22 -> storeRemoteCredentials$lambda$21
-    11:17:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    11:17:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     18:24:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):23:23 -> storeRemoteCredentials$lambda$21
-    18:24:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    18:24:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     25:28:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):24:24 -> storeRemoteCredentials$lambda$21
-    25:28:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    25:28:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     29:41:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):25:25 -> storeRemoteCredentials$lambda$21
-    29:41:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    29:41:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     42:47:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):26:26 -> storeRemoteCredentials$lambda$21
-    42:47:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    42:47:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     48:51:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):28:28 -> storeRemoteCredentials$lambda$21
-    48:51:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    48:51:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     52:54:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):29:29 -> storeRemoteCredentials$lambda$21
-    52:54:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    52:54:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     55:57:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):30:30 -> storeRemoteCredentials$lambda$21
-    55:57:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    55:57:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     58:63:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):31:31 -> storeRemoteCredentials$lambda$21
-    58:63:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    58:63:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     64:66:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):33:33 -> storeRemoteCredentials$lambda$21
-    64:66:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
+    64:66:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
     67:67:void com.indicatrixsuite.mobile.RemoteCredentialVault.store(java.lang.String):34:34 -> storeRemoteCredentials$lambda$21
-    67:67:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):252 -> storeRemoteCredentials$lambda$21
-    1:6:java.lang.Object onUi(kotlin.jvm.functions.Function0):430:430 -> streamExtra
-    1:6:android.net.Uri streamExtra(android.content.Intent):430 -> streamExtra
-    7:13:java.lang.Object onUi(kotlin.jvm.functions.Function0):431:431 -> streamExtra
-    7:13:android.net.Uri streamExtra(android.content.Intent):431 -> streamExtra
-    14:22:java.lang.Object onUi(kotlin.jvm.functions.Function0):433:433 -> streamExtra
-    14:22:android.net.Uri streamExtra(android.content.Intent):433 -> streamExtra
-    1:6:java.lang.Object onUi(kotlin.jvm.functions.Function0):437:437 -> streamListExtra
-    1:6:java.util.List streamListExtra(android.content.Intent):437 -> streamListExtra
-    7:11:java.lang.Object onUi(kotlin.jvm.functions.Function0):438:438 -> streamListExtra
-    7:11:java.util.List streamListExtra(android.content.Intent):438 -> streamListExtra
-    12:19:java.lang.Object onUi(kotlin.jvm.functions.Function0):440:440 -> streamListExtra
-    12:19:java.util.List streamListExtra(android.content.Intent):440 -> streamListExtra
-    20:27:java.lang.Object onUi(kotlin.jvm.functions.Function0):442:442 -> streamListExtra
-    20:27:java.util.List streamListExtra(android.content.Intent):442 -> streamListExtra
-    1:15:boolean systemPowerSave():226:226 -> systemPowerSave
+    67:67:java.lang.String storeRemoteCredentials$lambda$21(com.indicatrixsuite.mobile.MainActivity,java.lang.String):269 -> storeRemoteCredentials$lambda$21
+    1:6:java.lang.Object onUi(kotlin.jvm.functions.Function0):453:453 -> streamExtra
+    1:6:android.net.Uri streamExtra(android.content.Intent):453 -> streamExtra
+    7:13:java.lang.Object onUi(kotlin.jvm.functions.Function0):454:454 -> streamExtra
+    7:13:android.net.Uri streamExtra(android.content.Intent):454 -> streamExtra
+    14:22:java.lang.Object onUi(kotlin.jvm.functions.Function0):456:456 -> streamExtra
+    14:22:android.net.Uri streamExtra(android.content.Intent):456 -> streamExtra
+    1:6:java.lang.Object onUi(kotlin.jvm.functions.Function0):460:460 -> streamListExtra
+    1:6:java.util.List streamListExtra(android.content.Intent):460 -> streamListExtra
+    7:11:java.lang.Object onUi(kotlin.jvm.functions.Function0):461:461 -> streamListExtra
+    7:11:java.util.List streamListExtra(android.content.Intent):461 -> streamListExtra
+    12:19:java.lang.Object onUi(kotlin.jvm.functions.Function0):463:463 -> streamListExtra
+    12:19:java.util.List streamListExtra(android.content.Intent):463 -> streamListExtra
+    20:27:java.lang.Object onUi(kotlin.jvm.functions.Function0):465:465 -> streamListExtra
+    20:27:java.util.List streamListExtra(android.content.Intent):465 -> streamListExtra
+    1:15:boolean systemPowerSave():243:243 -> systemPowerSave
     1:5:Unit $r8$lambda$xLI37VllxBeTtvy5U8devqvfQK0(com.indicatrixsuite.mobile.MainActivity,android.net.Uri):0:0 -> t
       # {"id":"com.android.tools.r8.synthesized"}
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;Landroid/net/Uri;)Lt3;"}
-    3:8:float thermalHeadroom():200:200 -> thermalHeadroom
-    9:23:float thermalHeadroom():201:201 -> thermalHeadroom
-    24:31:float thermalHeadroom():206:206 -> thermalHeadroom
+    3:8:float thermalHeadroom():217:217 -> thermalHeadroom
+    9:23:float thermalHeadroom():218:218 -> thermalHeadroom
+    24:31:float thermalHeadroom():223:223 -> thermalHeadroom
     1:4:void $r8$lambda$zxGhxEcxXQwUMoXpXlUZWzyKotc(com.indicatrixsuite.mobile.MainActivity,int,int):0:0 -> u
       # {"id":"com.android.tools.r8.synthesized"}
-    1:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):387:387 -> urisOf
-    1:5:java.util.List urisOf(android.content.Intent):387 -> urisOf
-    6:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):388:388 -> urisOf
-    6:14:java.util.List urisOf(android.content.Intent):388 -> urisOf
-    15:20:java.lang.Object onUi(kotlin.jvm.functions.Function0):389:389 -> urisOf
-    15:20:java.util.List urisOf(android.content.Intent):389 -> urisOf
-    21:27:java.lang.Object onUi(kotlin.jvm.functions.Function0):391:391 -> urisOf
-    21:27:java.util.List urisOf(android.content.Intent):391 -> urisOf
-    28:43:java.lang.Object onUi(kotlin.jvm.functions.Function0):392:392 -> urisOf
-    28:43:java.util.List urisOf(android.content.Intent):392 -> urisOf
-    44:48:java.lang.Object onUi(kotlin.jvm.functions.Function0):395:395 -> urisOf
-    44:48:java.util.List urisOf(android.content.Intent):395 -> urisOf
+    1:5:java.lang.Object onUi(kotlin.jvm.functions.Function0):410:410 -> urisOf
+    1:5:java.util.List urisOf(android.content.Intent):410 -> urisOf
+    6:14:java.lang.Object onUi(kotlin.jvm.functions.Function0):411:411 -> urisOf
+    6:14:java.util.List urisOf(android.content.Intent):411 -> urisOf
+    15:20:java.lang.Object onUi(kotlin.jvm.functions.Function0):412:412 -> urisOf
+    15:20:java.util.List urisOf(android.content.Intent):412 -> urisOf
+    21:27:java.lang.Object onUi(kotlin.jvm.functions.Function0):414:414 -> urisOf
+    21:27:java.util.List urisOf(android.content.Intent):414 -> urisOf
+    28:43:java.lang.Object onUi(kotlin.jvm.functions.Function0):415:415 -> urisOf
+    28:43:java.util.List urisOf(android.content.Intent):415 -> urisOf
+    44:48:java.lang.Object onUi(kotlin.jvm.functions.Function0):418:418 -> urisOf
+    44:48:java.util.List urisOf(android.content.Intent):418 -> urisOf
     1:6:void <init>():100:100 -> vault_delegate$lambda$0
     1:6:com.indicatrixsuite.mobile.RemoteCredentialVault vault_delegate$lambda$0(com.indicatrixsuite.mobile.MainActivity):100 -> vault_delegate$lambda$0
       # {"id":"com.android.tools.r8.residualsignature","signature":"(Lcom/indicatrixsuite/mobile/MainActivity;)Ld3;"}
@@ -3372,14 +3369,14 @@ com.indicatrixsuite.mobile.MainActivity$printHtml$1$1$1 -> m2:
       # {"id":"com.android.tools.r8.residualsignature","signature":"La3;"}
     com.indicatrixsuite.mobile.MainActivity this$0 -> b
     java.lang.String $jobName -> c
-    7:10:void <init>(kotlin.jvm.internal.Ref$BooleanRef,com.indicatrixsuite.mobile.MainActivity,java.lang.String):158:158 -> <init>
+    7:10:void <init>(kotlin.jvm.internal.Ref$BooleanRef,com.indicatrixsuite.mobile.MainActivity,java.lang.String):167:167 -> <init>
       # {"id":"com.android.tools.r8.residualsignature","signature":"(La3;Lcom/indicatrixsuite/mobile/MainActivity;Ljava/lang/String;)V"}
-    4:11:void onPageFinished(android.webkit.WebView,java.lang.String):160:160 -> onPageFinished
-    12:13:void onPageFinished(android.webkit.WebView,java.lang.String):161:161 -> onPageFinished
-    14:23:void onPageFinished(android.webkit.WebView,java.lang.String):163:163 -> onPageFinished
-    24:42:void onPageFinished(android.webkit.WebView,java.lang.String):164:164 -> onPageFinished
-    43:47:void onPageFinished(android.webkit.WebView,java.lang.String):162:162 -> onPageFinished
-    48:55:void onPageFinished(android.webkit.WebView,java.lang.String):166:166 -> onPageFinished
+    4:11:void onPageFinished(android.webkit.WebView,java.lang.String):169:169 -> onPageFinished
+    12:13:void onPageFinished(android.webkit.WebView,java.lang.String):170:170 -> onPageFinished
+    14:23:void onPageFinished(android.webkit.WebView,java.lang.String):172:172 -> onPageFinished
+    24:42:void onPageFinished(android.webkit.WebView,java.lang.String):173:173 -> onPageFinished
+    43:47:void onPageFinished(android.webkit.WebView,java.lang.String):171:171 -> onPageFinished
+    48:55:void onPageFinished(android.webkit.WebView,java.lang.String):175:175 -> onPageFinished
 com.indicatrixsuite.mobile.ReadBudget -> z2:
 # {"id":"sourceFile","fileName":"DocumentReader.kt"}
     long used -> a

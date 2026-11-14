@@ -138,6 +138,17 @@ fn wire_view(window: &AppWindow, state: &Shared) {
     });
 
     let (weak, shared) = (window.as_weak(), state.clone());
+    model.on_diagram_panel_chosen(move |panel| {
+        let Some(window) = weak.upgrade() else { return };
+        let changed = shared
+            .try_borrow_mut()
+            .is_ok_and(|mut app| app.viewport.set_diagram_panel(panel));
+        if changed {
+            super::push(&window, &shared.borrow());
+        }
+    });
+
+    let (weak, shared) = (window.as_weak(), state.clone());
     model.on_camera_chosen(move |kind| {
         let Some(window) = weak.upgrade() else { return };
         if let Ok(mut app) = shared.try_borrow_mut() {

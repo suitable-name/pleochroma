@@ -28,6 +28,7 @@ fn a_declined_ray_range_is_an_explicit_stream_and_own_lane_failure() {
         threads: 1,
         compute_mode: ComputeMode::OnlyCpu,
         pin: Arc::new(TrayPin::new(None)),
+        subbatch: crate::stream_emit::sizing::TARGET_SUBBATCH,
     };
     let state = Arc::new(Mutex::new(SharedState::new(16)));
     let (tx, _rx) = mpsc::channel();

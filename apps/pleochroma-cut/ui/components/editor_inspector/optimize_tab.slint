@@ -13,105 +13,80 @@ import { TuneTab } from "tune_tab.slint";
 import { FormRowMetrics } from "form_row.slint";
 import { WrapNote } from "wrap_note.slint";
 import { ColumnHead, CandidateRowView } from "candidate_row.slint";
+import { KitSection, KitSegmentBar, KitSegment, KitIcon, KitIcons, KitCard } from "../kit/kit.slint";
+import { R3Tile, R3Wide, R3Link } from "../kit/r3c.slint";
 
-// One of the two views of this tab (Search, Tune). It looks like the tab pills of the Inspector
-// header (the same fill when picked, the same height), so the picked view reads in the same blue
-// as the picked tab above it. It takes Tab, answers Space and Enter, and is a radio button to a
-// screen reader.
-component ModePill inherits Rectangle {
-    in property <string> text;
-    in property <string> hint;
-    in property <bool> selected: false;
-    in property <bool> enabled: true;
-    callback picked();
-
-    horizontal-stretch: 1;
-    height: 26px;
-    border-radius: Theme.radius-sm;
-    opacity: root.enabled ? 1.0 : 0.45;
-    background: root.selected ? Theme.primary : (mode_touch.has-hover && root.enabled ? Theme.bg-elevated : Theme.bg-input);
-    border-width: (root.selected || mode_focus.has-focus) ? 2px : 1px;
-    border-color: mode_focus.has-focus ? Theme.accent-cyan-hover : (root.selected ? Theme.accent-cyan : Theme.border-subtle);
-
-    accessible-role: AccessibleRole.radio-button;
-    accessible-label: root.text;
-    accessible-description: root.hint;
-    accessible-checkable: true;
-    accessible-checked: root.selected;
-    accessible-enabled: root.enabled;
-    accessible-action-default => {
-        if root.enabled {
-            root.picked();
-        }
-    }
-
-    Tooltip { text: @markdown("\{root.hint}"); }
-
-    mode_focus := FocusScope {
-        enabled: root.enabled;
-        key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return {
-                root.picked();
-                return accept;
-            }
-            return reject;
-        }
-    }
-
-    Text {
-        text: root.text;
-        font-size: 11px;
-        font-weight: 600;
-        color: root.selected ? Theme.text-on-primary : Theme.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        overflow: elide;
-    }
-
-    mode_touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
-        clicked => { root.picked(); }
-    }
-}
-
-// A tick box with a label that wraps and can be clicked, for the long option texts of this
-// tab (a plain `CheckBox` text does not wrap in a narrow panel). The tick box carries the label
-// for screen readers; the tooltip shows over the label.
-component OptionRow inherits HorizontalLayout {
+// A tick box with a label that wraps and can be clicked, for the long option texts of this tab (a
+// plain `CheckBox` text does not wrap in a narrow panel). The whole row is the check box for a
+// screen reader; the tooltip shows over the row.
+component OptionRow inherits Rectangle {
     in property <string> label;
     in property <string> tip;
     in property <bool> active: true;
     in-out property <bool> checked: false;
     callback toggled(bool);
 
-    spacing: 2px;
-    CheckBox {
-        horizontal-stretch: 0;
-        enabled: root.active;
-        checked <=> root.checked;
-        accessible-label: root.label;
-        accessible-description: root.tip;
-        toggled => { root.toggled(self.checked); }
-    }
-    Rectangle {
-        horizontal-stretch: 1;
-        height: option_label.preferred-height + 4px;
-        if root.tip != "": Tooltip { text: @markdown("\{root.tip}"); }
-        option_label := Text {
-            y: 2px;
-            width: parent.width;
-            text: root.label;
-            font-size: 10px;
-            color: root.active ? Theme.text-secondary : Theme.text-muted;
-            wrap: word-wrap;
+    height: max(28px, option_label.preferred-height + 10px);
+    border-radius: 6px;
+    border-width: option_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.checkbox;
+    accessible-label: root.label;
+    accessible-description: root.tip;
+    accessible-enabled: root.active;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        if root.active {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
         }
-        TouchArea {
-            enabled: root.active;
-            clicked => {
+    }
+
+    if root.tip != "": Tooltip { text: @markdown("\{root.tip}"); }
+    option_focus := FocusScope {
+        enabled: root.active;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
                 root.checked = !root.checked;
                 root.toggled(root.checked);
+                return accept;
             }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 2px;
+        spacing: 9px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: 5px;
+                background: root.checked ? Theme.accent-cyan : transparent;
+                border-width: 1px;
+                border-color: root.checked ? Theme.accent-cyan : Theme.border-medium;
+                opacity: root.active ? 1.0 : 0.5;
+                if root.checked: KitIcon { x: 2px; y: 2px; d: KitIcons.check; size: 14px; ink: Theme.text-on-accent; stroke: 2.4px; }
+            }
+        }
+        option_label := Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            font-size: 12px;
+            color: root.active ? Theme.text-primary : Theme.text-muted;
+            wrap: word-wrap;
+            vertical-alignment: center;
+        }
+    }
+    TouchArea {
+        enabled: root.active;
+        mouse-cursor: pointer;
+        clicked => {
+            option_focus.focus();
+            root.checked = !root.checked;
+            root.toggled(root.checked);
         }
     }
 }
@@ -124,11 +99,15 @@ component OptionRow inherits HorizontalLayout {
 // `EditorInspector` itself (`EditorModel.optimize_preview_toggled` is a callback-only surface,
 // not a two-way property) and is mirrored here two-way.
 //
+// Search view, top to bottom: the objective as tiles, What May Change, the Run line (budget,
+// starts, seed, candidates and polish, folded: they are rarely changed), Optimize with its
+// estimate, and the candidates as cards.
+//
 // Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the objective
 // (the five presets, without "Custom" unless it is already chosen), the Optimize and Cancel
 // buttons, the time estimate and the whole candidate list with Preview, Compare and Apply.
-// It hides "What may change", the angle ranges, the budget, the seed, the number of candidates
-// and polish. They keep their values and the search uses them; a line says so when any of them
+// It hides "What may change", the angle ranges, the Run line and Tune (the Search/Tune segment).
+// They keep their values and the search uses them; a line says so when any of them
 // is not at its default (`OptimizeModel.settings_in_use`).
 //
 // Keyboard: the candidate list is one Tab stop; Up and Down move through the starting stone and
@@ -178,6 +157,17 @@ export component OptimizeTab inherits VerticalLayout {
     }
     // The last combo box entry is "Custom".
     property <bool> custom_objective: OptimizeModel.preset_index >= OptimizeModel.preset_labels.length - 1;
+    // The Run line is open (its fields show), and the run's own report is open.
+    property <bool> run_open: false;
+    property <bool> details_open: false;
+    // The objectives that show: without "Custom" in the Simple interface.
+    property <[string]> objective_labels: (root.advanced || root.custom_objective) ? OptimizeModel.preset_labels : OptimizeModel.simple_preset_labels;
+    // The Run line's one-sentence summary of the values behind it.
+    property <string> run_summary: (EditorModel.optimize_budget_text == "" ? "800" : EditorModel.optimize_budget_text) + " evaluations · "
+        + (OptimizeModel.starts_text == "" ? "8" : OptimizeModel.starts_text) + " starts · "
+        + OptimizeModel.candidates + (OptimizeModel.candidates == 1 ? " result" : " results")
+        + (EditorModel.optimize_polish_enabled ? " · polish" : "")
+        + " · seed " + (EditorModel.optimize_seed_text == "" ? "0" : EditorModel.optimize_seed_text);
 
     // Picks a row of the candidate list: -1 is the starting stone (preview off), anything else a
     // candidate (preview on). Shared by a click and the Up and Down keys.
@@ -187,8 +177,8 @@ export component OptimizeTab inherits VerticalLayout {
         EditorModel.optimize_preview_toggled(index >= 0);
     }
 
-    spacing: 8px;
-    // The scroll bar is drawn over the right edge: keep the fields, the combos and the buttons
+    spacing: 10px;
+    // The scroll bar is drawn over the right edge: keep the fields, the tiles and the buttons
     // (the Tune view's too) clear of it.
     padding-right: FormRowMetrics.scroll_gutter;
     // A small inset above the first row, so a control is never cut right at the top edge.
@@ -198,73 +188,78 @@ export component OptimizeTab inherits VerticalLayout {
     alignment: start;
 
     // --- Search | Tune ---
-    // Search is the tab as it always was (everything below, in the one `if`, not re-indented so
-    // that the diff of this file stays the pills and the two branches); Tune is its own view
-    // (`tune_tab.slint`, state in `models/tune.slint`).
-    HorizontalLayout {
-        spacing: 4px;
-        ModePill {
-            text: "Search";
-            hint: "Let Optimize search for better angles and rank the candidates.";
-            selected: !TuneModel.active;
-            enabled: root.unlocked;
-            picked => {
-                TuneModel.active = false;
-                TuneModel.mode_changed();
+    // Search is the tab as it always was; Tune is its own view (`tune_tab.slint`, state in
+    // `models/tune.slint`). Tune is Advanced: the Simple interface shows Search alone.
+    if root.advanced: HorizontalLayout {
+        KitSegmentBar {
+            width: mode_row.preferred-width + 4px;
+            mode_row := HorizontalLayout {
+                x: 2px;
+                padding: 2px;
+                spacing: 2px;
+                KitSegment {
+                    text: "Search";
+                    hint: "Let Optimize search for better angles and rank the candidates.";
+                    on: !TuneModel.active;
+                    enabled: root.unlocked;
+                    picked => {
+                        TuneModel.active = false;
+                        TuneModel.mode_changed();
+                    }
+                }
+                KitSegment {
+                    text: "Tune";
+                    hint: "Take the tiers one at a time and set their\nangles by hand, with a small sweep of each.";
+                    on: TuneModel.active;
+                    enabled: root.unlocked;
+                    picked => {
+                        TuneModel.active = true;
+                        TuneModel.mode_changed();
+                    }
+                }
             }
         }
-        ModePill {
-            text: "Tune";
-            hint: "Take the tiers one at a time and set their\nangles by hand, with a small sweep of each.";
-            selected: TuneModel.active;
-            enabled: root.unlocked;
-            picked => {
-                TuneModel.active = true;
-                TuneModel.mode_changed();
-            }
-        }
+        Rectangle { horizontal-stretch: 1; }
     }
-    if TuneModel.active: TuneTab {
+    if TuneModel.active && root.advanced: TuneTab {
         unlocked: root.unlocked;
     }
-    if !TuneModel.active: VerticalLayout {
-    spacing: 8px;
+    if !TuneModel.active || !root.advanced: VerticalLayout {
+    spacing: 10px;
     alignment: start;
 
-    // --- Header ---
-    Rectangle {
-        height: optimize_header_lbl.preferred-height;
-        // `optimize_hint` is never empty: a disabled Optimize always says why. Shown on hover.
-        Tooltip { text: @markdown("\{EditorModel.optimize_hint}"); }
-        // Left, like the other tab headings (a lone child of a Rectangle is centred otherwise).
-        optimize_header_lbl := Text { x: 0px; y: 0px; text: "Optimize"; font-size: 12px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; accessible-role: AccessibleRole.text; }
-    }
-
     // --- Objective ---
-    Text { text: "Objective"; font-size: 10px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
+    // `optimize_hint` is never empty: a disabled Optimize always says why (it shows on the
+    // Optimize button below).
+    KitSection { label: "AIM FOR"; }
     Rectangle {
-        // Fixed height. Sizing this from the drop-down, which takes its height from here, is a
-        // loop that collapses the combo to 16 px with its text cut.
-        height: 32px;
-        Tooltip { text: @markdown("What the search should favour. Every preset weighs the same\nmeasurements; they differ in which one counts most. See the glossary."); }
-        preset_combo := ComboBox {
-            width: parent.width;
-            height: parent.height;
+        height: Math.ceil(root.objective_labels.length / 3) * 48px - 6px;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: "Optimize Objective";
+        accessible-description: "What the search should favour. Every preset weighs the same measurements; they differ in which one counts most. See the glossary.";
+        for label[i] in root.objective_labels: R3Tile {
+            x: Math.mod(i, 3) * (parent.width / 3);
+            y: Math.floor(i / 3) * 48px;
+            width: parent.width / 3 - 6px;
+            h: 42px;
+            text: label;
+            on: OptimizeModel.preset_index == i;
             enabled: root.unlocked;
-            accessible-label: "Optimize Objective";
-            model: (root.advanced || root.custom_objective) ? OptimizeModel.preset_labels : OptimizeModel.simple_preset_labels;
-            current-index <=> OptimizeModel.preset_index;
-            selected => { OptimizeModel.preset_changed(self.current-index); }
+            hint: OptimizeModel.preset_index == i ? OptimizeModel.preset_description : "";
+            picked => {
+                OptimizeModel.preset_index = i;
+                OptimizeModel.preset_changed(i);
+            }
         }
     }
     WrapNote {
         text: OptimizeModel.preset_description;
-        font_size: 9px;
+        font_size: 11px;
     }
     // The size rule or the missing body colour, for the face-up colour objective.
     if (OptimizeModel.tone_active || EditorModel.optimize_weight_tone > 0.05 || EditorModel.optimize_weight_tone < -0.05) && OptimizeModel.tone_note != "": WrapNote {
         text: OptimizeModel.tone_note;
-        font_size: 9px;
+        font_size: 10px;
     }
     if root.custom_objective: VerticalLayout {
         spacing: 4px;
@@ -336,40 +331,55 @@ export component OptimizeTab inherits VerticalLayout {
     }
 
     // --- What may change (Advanced) ---
-    if root.advanced: Text { text: "What May Change"; font-size: 10px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
-    if root.advanced: OptionRow {
-        active: root.unlocked;
-        label: "Vary Anchored Tiers (Keeps Each Facet's Girdle Edge)";
-        tip: "A tier pinned to a scale value normally stays put. With this on, the\nsearch turns it about the edge it keeps on the girdle, so the girdle\noutline stays the same while the angle changes. Needed for designs\nimported from the catalogue, where every tier is pinned. See the glossary.";
-        checked <=> OptimizeModel.vary_anchored;
-        toggled(on) => { OptimizeModel.vary_toggled(on); }
-    }
-    if root.advanced: OptionRow {
-        active: root.unlocked;
-        label: "Keep the Girdle (at Least Half Its Thickness)";
-        tip: "Reject a candidate whose girdle is thinner than half of the\nstarting girdle, or that loses the table facet. See the glossary.";
-        checked <=> OptimizeModel.keep_girdle;
-    }
-    if root.advanced: OptionRow {
-        active: root.unlocked;
-        label: "Only Selected Tiers";
-        tip: "Limit the search to the tiers selected in the tier table.";
-        checked <=> EditorModel.optimize_only_selected;
+    if root.advanced: KitSection { label: "WHAT MAY CHANGE"; }
+    if root.advanced: VerticalLayout {
+        spacing: 0px;
+        OptionRow {
+            active: root.unlocked;
+            label: "Vary Anchored Tiers (Keeps Each Facet's Girdle Edge)";
+            tip: "A tier pinned to a scale value normally stays put. With this on, the\nsearch turns it about the edge it keeps on the girdle, so the girdle\noutline stays the same while the angle changes. Needed for designs\nimported from the catalogue, where every tier is pinned. See the glossary.";
+            checked <=> OptimizeModel.vary_anchored;
+            toggled(on) => { OptimizeModel.vary_toggled(on); }
+        }
+        OptionRow {
+            active: root.unlocked;
+            label: "Keep the Girdle (at Least Half Its Thickness)";
+            tip: "Reject a candidate whose girdle is thinner than half of the\nstarting girdle, or that loses the table facet. See the glossary.";
+            checked <=> OptimizeModel.keep_girdle;
+        }
+        OptionRow {
+            active: root.unlocked;
+            label: "Only Selected Tiers";
+            tip: "Limit the search to the tiers selected in the tier table.";
+            checked <=> EditorModel.optimize_only_selected;
+        }
     }
 
-    // --- Angle ranges (Advanced) ---
-    if root.advanced: tip-button-ranges-open := TipButton {
-        enabled: root.unlocked;
-        text: OptimizeModel.ranges_open ? "Hide Angle Ranges" : "Angle Ranges...";
-        hint: "Each tier the search may move can change by 5 degrees either\nway. Open this to give a tier a narrower or wider range.";
-        clicked => {
-            OptimizeModel.ranges_open = !OptimizeModel.ranges_open;
-            OptimizeModel.ranges_toggled(OptimizeModel.ranges_open);
+    // --- Angle ranges (Advanced): the summary and a link that opens the table ---
+    if root.advanced: HorizontalLayout {
+        spacing: 8px;
+        height: 24px;
+        Text {
+            horizontal-stretch: 1;
+            text: OptimizeModel.range_summary == "" ? "Each tier may change by 5 degrees either way." : OptimizeModel.range_summary;
+            font-size: 11px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        tip-button-ranges-open := R3Link {
+            enabled: root.unlocked;
+            text: OptimizeModel.ranges_open ? "Hide" : "Edit...";
+            reader_label: OptimizeModel.ranges_open ? "Hide Angle Ranges" : "Angle Ranges...";
+            hint: "Each tier the search may move can change by 5 degrees either\nway. Open this to give a tier a narrower or wider range.";
+            clicked => {
+                OptimizeModel.ranges_open = !OptimizeModel.ranges_open;
+                OptimizeModel.ranges_toggled(OptimizeModel.ranges_open);
+            }
         }
     }
     if root.advanced && OptimizeModel.ranges_open: VerticalLayout {
         spacing: 3px;
-        Text { text: OptimizeModel.range_summary; font-size: 9px; color: Theme.text-muted; wrap: word-wrap; accessible-role: AccessibleRole.text; }
         HorizontalLayout {
             spacing: 4px;
             ColumnHead { width: 24px; text: "#"; align_left: true; }
@@ -424,75 +434,118 @@ export component OptimizeTab inherits VerticalLayout {
         }
     }
 
-    // --- Run ---
-    Text { text: "Run"; font-size: 10px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
-    if root.advanced: FormRow {
-        label: "Budget";
-        tooltip: "How many designs the search may try. More tries take longer\nand may find more. A calculation such as `100 * 4` works.";
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> EditorModel.optimize_budget_text;
-            placeholder-text: "800";
-            accessible-label: "Search Budget";
-            edited(typed) => { OptimizeModel.settings_edited(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+    // --- Run (Advanced): one line, folded ---
+    if root.advanced: KitCard {
+        height: run_column.preferred-height;
+        run_column := VerticalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-bottom: root.run_open ? 10px : 0px;
+            spacing: 6px;
+            Rectangle {
+                height: 40px;
+                border-radius: 8px;
+                border-width: run_focus.has-focus ? 2px : 0px;
+                border-color: Theme.accent-cyan-hover;
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Run Settings";
+                accessible-description: root.run_summary;
+                accessible-expandable: true;
+                accessible-expanded: root.run_open;
+                accessible-action-default => { root.run_open = !root.run_open; }
+                run_focus := FocusScope {
+                    key-pressed(event) => {
+                        if event.text == Key.Space || event.text == Key.Return {
+                            root.run_open = !root.run_open;
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+                Tooltip { text: @markdown("How many designs the search tries, from how many starts, how many results it keeps, and its seed. Rarely changed."); }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: "Run"; font-size: 12px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { horizontal-stretch: 1; text: root.run_summary; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
+                    VerticalLayout {
+                        alignment: center;
+                        KitIcon { d: root.run_open ? KitIcons.chevron-down : KitIcons.chevron-right; size: 13px; ink: Theme.text-muted; }
+                    }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.run_open = !root.run_open; }
+                }
+            }
+            if root.run_open: FormRow {
+                label: "Budget";
+                tooltip: "How many designs the search may try. More tries take longer\nand may find more. A calculation such as `100 * 4` works.";
+                LineEdit {
+                    enabled: root.unlocked;
+                    text <=> EditorModel.optimize_budget_text;
+                    placeholder-text: "800";
+                    accessible-label: "Search Budget";
+                    edited(typed) => { OptimizeModel.settings_edited(); }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            if root.run_open: FormRow {
+                label: "Starts";
+                tooltip: "How many different starting arrangements the search tries.\nMore starts explore more of the design space and take longer.";
+                LineEdit {
+                    enabled: root.unlocked;
+                    text <=> OptimizeModel.starts_text;
+                    placeholder-text: "8";
+                    accessible-label: "Number of Starting Arrangements, 1 to 32";
+                    edited(typed) => { OptimizeModel.settings_edited(); }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            if root.run_open: FormRow {
+                label: "Seed";
+                tooltip: "The same seed on the same design gives the same result.";
+                LineEdit {
+                    enabled: root.unlocked;
+                    text <=> EditorModel.optimize_seed_text;
+                    placeholder-text: "0";
+                    accessible-label: "Search Seed";
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            if root.run_open: FormRow {
+                label: "Candidates";
+                tooltip: "How many different good designs to keep, 1\nto 5. Each one costs a little more time.";
+                SpinBox {
+                    enabled: root.unlocked;
+                    minimum: 1;
+                    maximum: 5;
+                    value <=> OptimizeModel.candidates;
+                    accessible-label: "Number of Candidates to Keep";
+                    edited(picked) => { OptimizeModel.settings_edited(); }
+                }
+            }
+            if root.run_open: OptionRow {
+                active: root.unlocked;
+                label: "Polish";
+                tip: "After the coordinate search, a second search refines the best result.";
+                checked <=> EditorModel.optimize_polish_enabled;
+                toggled(on) => { OptimizeModel.settings_edited(); }
+            }
         }
-    }
-    if root.advanced: FormRow {
-        label: "Starts";
-        tooltip: "How many different starting arrangements the search tries.\nMore starts explore more of the design space and take longer.";
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> OptimizeModel.starts_text;
-            placeholder-text: "8";
-            accessible-label: "Number of Starting Arrangements, 1 to 32";
-            edited(typed) => { OptimizeModel.settings_edited(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
-        }
-    }
-    if root.advanced: FormRow {
-        label: "Seed";
-        tooltip: "The same seed on the same design gives the same result.";
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> EditorModel.optimize_seed_text;
-            placeholder-text: "0";
-            accessible-label: "Search Seed";
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
-        }
-    }
-    if root.advanced: FormRow {
-        label: "Candidates";
-        tooltip: "How many different good designs to keep, 1\nto 5. Each one costs a little more time.";
-        SpinBox {
-            enabled: root.unlocked;
-            minimum: 1;
-            maximum: 5;
-            value <=> OptimizeModel.candidates;
-            accessible-label: "Number of Candidates to Keep";
-            edited(picked) => { OptimizeModel.settings_edited(); }
-        }
-    }
-    if root.advanced: OptionRow {
-        active: root.unlocked;
-        label: "Polish";
-        tip: "After the coordinate search, a second search refines the best result.";
-        checked <=> EditorModel.optimize_polish_enabled;
-        toggled(on) => { OptimizeModel.settings_edited(); }
-    }
-    if OptimizeModel.estimate_text != "": WrapNote {
-        text: OptimizeModel.estimate_text;
-        font_size: 9px;
     }
     if root.hidden_in_use: AdvancedNote { }
+
+    // --- Optimize, with its estimate ---
     HorizontalLayout {
-        spacing: 6px;
-        TipButton {
+        spacing: 8px;
+        R3Wide {
+            horizontal-stretch: 1;
             text: "Optimize";
+            icon: KitIcons.play;
             // `optimize_hint` explains why the button is off when it is.
             hint: EditorModel.optimize_hint;
-            primary: true;
             enabled: root.unlocked && EditorModel.optimize_available && EditorModel.busy_action == "";
+            h: 42px;
             clicked => {
                 EditorModel.optimize(EditorModel.optimize_weight_windowing, EditorModel.optimize_weight_extinction, EditorModel.optimize_weight_tilt_brilliance, EditorModel.optimize_weight_yield, EditorModel.optimize_weight_tone);
             }
@@ -506,6 +559,10 @@ export component OptimizeTab inherits VerticalLayout {
                 EditorModel.optimize_cancel();
             }
         }
+    }
+    if OptimizeModel.estimate_text != "": WrapNote {
+        text: OptimizeModel.estimate_text;
+        font_size: 10px;
     }
     if EditorModel.optimize_running: Rectangle {
         height: 4px;
@@ -524,8 +581,9 @@ export component OptimizeTab inherits VerticalLayout {
         }
     }
 
-    // --- Status: running progress, or what the last run found. ---
-    if EditorModel.optimize_running || EditorModel.optimize_status != "": Rectangle {
+    // --- Status: running progress, or what the last run found (a problem always shows; the
+    // report of a good run is behind "Details") ---
+    if EditorModel.optimize_status != "" && (EditorModel.optimize_running || EditorModel.optimize_status_is_problem || root.details_open): Rectangle {
         background: Theme.bg-input;
         border-radius: Theme.radius-sm;
         border-width: 1px;
@@ -542,28 +600,22 @@ export component OptimizeTab inherits VerticalLayout {
 
     // --- Results: the starting stone and the ranked candidates ---
     if OptimizeModel.has_results && !EditorModel.optimize_running: VerticalLayout {
-        spacing: 4px;
-        Text { text: "Candidates"; font-size: 10px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
+        spacing: 6px;
+        KitSection {
+            label: "RESULTS";
+            Rectangle { horizontal-stretch: 1; }
+            if EditorModel.optimize_status != "" && !EditorModel.optimize_status_is_problem: VerticalLayout {
+                alignment: center;
+                R3Link {
+                    text: root.details_open ? "Hide details" : "Details";
+                    hint: "What the last run found: evaluations, starts, time and what the polish added.";
+                    clicked => { root.details_open = !root.details_open; }
+                }
+            }
+        }
         if OptimizeModel.results_stale: WarningLine {
             text: "The design changed after this run. Run Optimize again to apply a candidate.";
             font_size: 9px;
-        }
-        HorizontalLayout {
-            padding-left: 4px;
-            padding-right: 4px;
-            spacing: 3px;
-            ColumnHead { width: 34px; text: "#"; align_left: true; tip: "The candidate's rank: 1 is the best score. Start is the stone as it is now."; }
-            ColumnHead { width: 38px; text: "Score"; tip: "One number combining all the measurements\nbelow, using your objective. Higher is better:\n100 is best, 0 is worst."; }
-            ColumnHead { width: 38px; text: "Wind."; tip: "Windowing: the share of the stone that looks\nsee-through. Lower is better. See the glossary."; }
-            ColumnHead { width: 40px; text: "Bril."; tip: "Tilt brilliance: the light the stone returns to the eye\nas it is tilted. Higher is better. See the glossary."; }
-            ColumnHead { width: 38px; text: "Ext."; tip: "Extinction: the share of the stone that looks\ndead dark. Lower is better. See the glossary."; }
-            ColumnHead { width: 38px; text: "Yield"; tip: "Yield loss: how much more of the rough this candidate\nthrows away. Lower is better. See the glossary."; }
-            HorizontalLayout {
-                width: 72px;
-                padding-left: 6px;
-                ColumnHead { text: "Tone"; align_left: true; tip: "Face-up lightness L* of the light the stone returns, with\nits predicted color. 100 is colorless. Green follows\nthe objective: lighter for Lighten Dark Rough, stronger\ncolor for Intensify Pale Rough. See the glossary."; }
-            }
-            ColumnHead { horizontal-stretch: 1; text: "Tiers"; tip: "How many tiers this candidate changes."; }
         }
         // The list is one Tab stop; Up and Down pick the row above or below, like a click.
         list_focus := FocusScope {
@@ -586,6 +638,7 @@ export component OptimizeTab inherits VerticalLayout {
                 reject
             }
             VerticalLayout {
+                spacing: 6px;
                 CandidateRowView {
                     item: OptimizeModel.baseline_row;
                     selected: OptimizeModel.selected_candidate < 0;
@@ -612,7 +665,7 @@ export component OptimizeTab inherits VerticalLayout {
         // --- The picked candidate: Preview, Compare and Apply first, then its figures and the
         // tiers it changes ---
         if OptimizeModel.selected_candidate >= 0: VerticalLayout {
-            spacing: 4px;
+            spacing: 6px;
             HorizontalLayout {
                 spacing: 6px;
                 // Shows the picked candidate's geometry in the shared viewport before
@@ -646,11 +699,11 @@ export component OptimizeTab inherits VerticalLayout {
             // Only enabled while there is a real, current (not stale) candidate to commit.
             // Goes through `History::apply`, never a direct mutation, so it is one undoable
             // step like every other edit.
-            TipButton {
+            R3Wide {
                 enabled: root.unlocked && EditorModel.optimize_can_apply;
                 text: "Apply This Candidate";
                 hint: "Commit the picked candidate as one undoable edit.\nTiers that follow a relation move with it.";
-                primary: true;
+                h: 38px;
                 clicked => { EditorModel.optimize_apply(); }
             }
             // Per-component before/after: windowing, extinction, tilt brilliance and yield
@@ -674,12 +727,12 @@ export component OptimizeTab inherits VerticalLayout {
                 spacing: 2px;
                 for row in EditorModel.optimize_result_rows: HorizontalLayout {
                     spacing: 4px;
-                    Text { horizontal-stretch: 1; text: row.label; font-size: 10px; color: Theme.text-secondary; overflow: elide; accessible-role: AccessibleRole.text; }
-                    Text { text: row.before; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
-                    Text { text: "->"; font-size: 10px; color: Theme.text-muted; }
+                    Text { horizontal-stretch: 1; text: row.label; font-size: 11px; color: Theme.text-secondary; overflow: elide; accessible-role: AccessibleRole.text; }
+                    Text { text: row.before; font-size: 11px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                    Text { text: "->"; font-size: 11px; color: Theme.text-muted; }
                     Text {
-                        text: row.after;
-                        font-size: 10px;
+                        text: (row.direction > 0 ? "▲ " : (row.direction < 0 ? "▼ " : "")) + row.after;
+                        font-size: 11px;
                         font-weight: 600;
                         color: row.direction > 0 ? Theme.accent-emerald
                             : (row.direction < 0 ? Theme.accent-ruby : Theme.text-primary);
@@ -690,7 +743,7 @@ export component OptimizeTab inherits VerticalLayout {
             // Which tiers the picked candidate would change, and by how much.
             if EditorModel.optimize_change_rows.length > 0: VerticalLayout {
                 spacing: 2px;
-                Text { text: "Tiers This Would Change:"; font-size: 9px; font-weight: 700; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                Text { text: "Tiers This Would Change:"; font-size: 10px; font-weight: 700; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
                 HorizontalLayout {
                     spacing: 4px;
                     ColumnHead { width: 28px; text: "#"; align_left: true; }
@@ -700,17 +753,17 @@ export component OptimizeTab inherits VerticalLayout {
                 }
                 for change in EditorModel.optimize_change_rows: HorizontalLayout {
                     spacing: 4px;
-                    Text { width: 28px; text: change.tier_number; font-size: 10px; color: Theme.text-secondary; }
-                    Text { horizontal-stretch: 1; text: change.name == "" ? "(unnamed)" : change.name; font-size: 10px; color: Theme.text-secondary; overflow: elide; }
-                    Text { width: 52px; horizontal-alignment: right; text: change.from_angle; font-size: 10px; color: Theme.text-muted; }
-                    Text { width: 52px; horizontal-alignment: right; text: change.to_angle; font-size: 10px; font-weight: 600; color: Theme.text-primary; }
+                    Text { width: 28px; text: change.tier_number; font-size: 11px; color: Theme.text-secondary; }
+                    Text { horizontal-stretch: 1; text: change.name == "" ? "(unnamed)" : change.name; font-size: 11px; color: Theme.text-secondary; overflow: elide; }
+                    Text { width: 52px; horizontal-alignment: right; text: change.from_angle; font-size: 11px; color: Theme.text-muted; }
+                    Text { width: 52px; horizontal-alignment: right; text: change.to_angle; font-size: 11px; font-weight: 600; color: Theme.text-primary; }
                 }
             }
         }
-        // How to read the table above.
+        // How to read the cards above.
         WrapNote {
-            text: "Windowing (Wind.), tilt brilliance (Bril.), extinction (Ext.) and yield loss as percentages. Green beats the starting stone, red is worse. Tone is the face-up lightness L* with its predicted color. Click a row to preview it.";
-            font_size: 9px;
+            text: "Windowing (Wind.), tilt brilliance (Bril.), extinction (Ext.) and yield loss as percentages. ▲ green beats the starting stone, ▼ red is worse. Tone is the face-up lightness L* with its predicted color. Click a card to preview it.";
+            font_size: 10px;
         }
     }
     } // The Search view.

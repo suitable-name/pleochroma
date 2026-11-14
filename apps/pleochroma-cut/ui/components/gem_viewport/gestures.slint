@@ -1,0 +1,165 @@
+import { Theme } from "../../theme.slint";
+import { KitButton, KitGlass, KitIcon, KitIcons } from "../kit/kit.slint";
+
+// The mouse button at the bottom left of a viewport and the card of gestures it opens above it.
+// Shared by the Live Render and the Edit viewports.
+//
+// The card opens by itself once (`open_by_default`, bound to "not seen yet"). It closes when the
+// button is pressed again, with "Got It" or Escape, and on the first drag in the view (`dragging`
+// turning true); each close fires `dismissed`, which the host answers with
+// `ViewportModel.gestures_seen_set(true)`.
+export component GesturesButton inherits KitGlass {
+    in property <bool> open_by_default: false;
+    in property <[{k: string, v: string}]> items: [
+        { k: "Drag", v: "Orbit the stone" },
+        { k: "Right drag", v: "Move the light" },
+        { k: "Middle drag", v: "Pan" },
+        { k: "Scroll", v: "Zoom" },
+        { k: "Click figures", v: "Copy them" },
+    ];
+    // True while the person drags in the view: an open card closes at once.
+    in property <bool> dragging: false;
+    in-out property <bool> open: false;
+    callback dismissed();
+
+    public function close() {
+        if root.open {
+            root.open = false;
+            root.dismissed();
+        }
+    }
+
+    width: 36px;
+    height: 36px;
+    border-color: root.open ? Theme.accent-cyan : Theme.glass-edge;
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Gestures";
+    accessible-description: "Show what the mouse does in this view.";
+    accessible-checkable: true;
+    accessible-checked: root.open;
+    accessible-enabled: true;
+    accessible-action-default => { root.toggle(); }
+
+    // Set once the person toggles the card; the saved flag no longer closes it then.
+    property <bool> touched: false;
+
+    init => {
+        if root.open_by_default {
+            root.open = true;
+        }
+    }
+    // Rust pushes the saved flag after init: a seen card closes again.
+    changed open_by_default => {
+        if !root.open_by_default && !root.touched {
+            root.open = false;
+        }
+    }
+    changed dragging => {
+        if root.dragging {
+            root.touched = true;
+            root.close();
+        }
+    }
+
+    function toggle() {
+        root.touched = true;
+        if root.open {
+            root.close();
+        } else {
+            root.open = true;
+        }
+    }
+
+    Tooltip { text: @markdown("Show what the mouse does in this view."); }
+    btn_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.toggle();
+                return accept;
+            }
+            if event.text == Key.Escape && root.open {
+                root.close();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    KitIcon {
+        x: 10px;
+        y: 10px;
+        d: KitIcons.mouse;
+        size: 16px;
+        ink: root.open ? Theme.accent-cyan : Theme.text-secondary;
+    }
+    btn_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggle(); }
+    }
+
+    if root.open: Rectangle {
+        x: 0px;
+        y: -self.height - 8px;
+        width: 236px;
+        height: card_lay.preferred-height;
+        background: Theme.popup-surface;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.shadow-heavy;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: "Mouse gestures";
+
+        card_lay := VerticalLayout {
+            padding: 12px;
+            spacing: 7px;
+            Text {
+                text: "IN THE VIEW";
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.7px;
+                color: Theme.text-muted;
+            }
+            for g in root.items: HorizontalLayout {
+                spacing: 8px;
+                Rectangle {
+                    width: 92px;
+                    height: 20px;
+                    border-radius: 5px;
+                    background: Theme.bg-input;
+                    border-width: 1px;
+                    border-color: Theme.border-medium;
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: g.k;
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: g.v;
+                    font-size: 11px;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                KitButton {
+                    text: "Got It";
+                    kind: 2;
+                    h: 26px;
+                    hint: "Close this card.";
+                    clicked => { root.close(); }
+                }
+            }
+        }
+    }
+}

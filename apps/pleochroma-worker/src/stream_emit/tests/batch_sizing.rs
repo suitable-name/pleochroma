@@ -9,23 +9,26 @@ use crate::{
 use pleochroma_net::SceneState;
 use std::time::Duration;
 
+/// The streamed target, the one these tests and repros were written against.
+const TARGET: Duration = sizing::TARGET_SUBBATCH;
+
 #[test]
 fn next_batch_size_grows_when_well_under_budget() {
-    let next = next_batch_size(4, Duration::from_millis(10));
+    let next = next_batch_size(4, Duration::from_millis(10), TARGET);
     assert!(next > 4, "expected growth from 4, got {next}");
 }
 
 #[test]
 fn next_batch_size_shrinks_when_over_budget() {
-    let next = next_batch_size(100, Duration::from_millis(400));
+    let next = next_batch_size(100, Duration::from_millis(400), TARGET);
     assert!(next < 100, "expected shrink from 100, got {next}");
     assert!(next >= 1);
 }
 
 #[test]
 fn next_batch_size_never_returns_zero() {
-    assert!(next_batch_size(0, Duration::from_millis(1)) >= 1);
-    assert!(next_batch_size(1, Duration::from_secs(10)) >= 1);
+    assert!(next_batch_size(0, Duration::from_millis(1), TARGET) >= 1);
+    assert!(next_batch_size(1, Duration::from_secs(10), TARGET) >= 1);
 }
 
 #[test]
@@ -34,7 +37,7 @@ fn next_batch_size_never_exceeds_the_absolute_cap_even_under_adversarial_timing(
     // make the relative 4x-per-step clamp alone compound unboundedly across calls.
     let mut batch = 1;
     for _ in 0..40 {
-        batch = next_batch_size(batch, Duration::from_nanos(1));
+        batch = next_batch_size(batch, Duration::from_nanos(1), TARGET);
         assert!(
             batch <= sizing::MAX_SUBBATCH,
             "batch size {batch} exceeded the absolute cap of {}",
@@ -80,7 +83,7 @@ fn repro_batch_growth_runaway_against_real_gpu_tracer() {
             wall_start.elapsed()
         );
         produced += this_batch;
-        batch_size = next_batch_size(batch_size, elapsed);
+        batch_size = next_batch_size(batch_size, elapsed, TARGET);
         step += 1;
         if step > 30 {
             break;
@@ -123,7 +126,7 @@ fn repro_batch_growth_runaway_against_real_gpu_tracer_cheap_scene() {
             wall_start.elapsed()
         );
         produced += this_batch;
-        batch_size = next_batch_size(batch_size, elapsed);
+        batch_size = next_batch_size(batch_size, elapsed, TARGET);
         step += 1;
         if step > 30 {
             break;
@@ -157,7 +160,7 @@ fn repro_batch_growth_runaway_against_real_tracer() {
             produced + this_batch
         );
         produced += this_batch;
-        batch_size = next_batch_size(batch_size, elapsed);
+        batch_size = next_batch_size(batch_size, elapsed, TARGET);
         step += 1;
         if step > 30 {
             break;

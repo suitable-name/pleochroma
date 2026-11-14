@@ -33,6 +33,10 @@ export component VerdictBadge inherits Rectangle {
         GuideModel.event("verdict_opened");
     }
 
+    // The Solve button's check count asks for the same popover.
+    property <int> asked: VerdictModel.open_pulse;
+    changed asked => { root.open_popover(); }
+
     width: badge_layout.preferred-width;
     // At least 20 px tall, so the badge is an easy target.
     height: max(20px, badge_layout.preferred-height);

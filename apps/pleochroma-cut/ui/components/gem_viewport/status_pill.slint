@@ -1,0 +1,136 @@
+import { Theme } from "../../theme.slint";
+import { ExportModel } from "../../models/export.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { BatchModel } from "../../models/batch.slint";
+import { KitGlass, KitIcon, KitIcons } from "../kit/kit.slint";
+
+// A muted chip for `ViewportModel.trace_note`: a shortcut the picture skipped (the stone shadow or
+// the tray reflection off for this light, beam tracing yielding). The picture is valid, so this is
+// no banner. It shrinks and elides before it pushes the status pill.
+export component TraceNoteChip inherits Rectangle {
+    min-width: 0px;
+    max-width: 280px;
+    preferred-width: note_text.preferred-width + 20px;
+    height: 24px;
+    border-radius: 12px;
+    background: Theme.hint-surface;
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Note: " + ViewportModel.trace_note;
+    note_text := Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: ViewportModel.trace_note;
+        font-size: 11px;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+// The render's own status, bottom right: a pause or resume button, the stage, "96 / 256 samples"
+// and the time left. Amber while paused, or held still by an export or a catalogue batch; the
+// button is disabled then, so a click cannot flip the user's own pause behind the shown state.
+// The button is path-traced only (`live_view_mode == 1`): the ray tracer has nothing to pause.
+export component StatusPill inherits KitGlass {
+    in property <bool> narrow: false;
+
+    // A running catalogue batch (tilt sweep or preview render) suspends the live tracer like an
+    // explicit pause. Same property as `batch_suspends_tracer` in `solid_viewport/toolbar.slint`.
+    property <bool> batch_suspends_tracer: BatchModel.tilt_batch_running || BatchModel.preview_batch_running;
+    property <bool> pause_displayed: ViewportModel.render_paused || ExportModel.is_exporting || root.batch_suspends_tracer;
+    property <bool> has_button: ViewportModel.live_view_mode == 1;
+    // The accessible name of the button: the state, as the old toolbar button announced it.
+    property <string> state_label: ViewportModel.render_paused ? "Paused" : (ExportModel.is_exporting ? "Exporting" : (root.batch_suspends_tracer ? "Paused (Batch)" : "Live"));
+    property <string> stage_text: root.pause_displayed ? root.state_label : (ViewportModel.render_progress_visible ? ViewportModel.render_progress_stage : "Live");
+
+    height: 36px;
+    width: pill_lay.preferred-width + 8px;
+    border-color: root.pause_displayed ? Theme.accent-amber : Theme.glass-edge;
+
+    pill_lay := HorizontalLayout {
+        x: 4px;
+        spacing: 8px;
+        if root.has_button: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                border-radius: 14px;
+                background: root.pause_displayed ? Theme.accent-amber : (pause_touch.has-hover ? Theme.bg-card-hover : Theme.glass-edge);
+                border-width: pause_focus.has-focus ? 2px : 0px;
+                border-color: Theme.accent-cyan-hover;
+                opacity: pause_touch.enabled ? 1.0 : 0.7;
+                accessible-role: AccessibleRole.button;
+                accessible-label: root.state_label;
+                accessible-description: root.pause_displayed && !ViewportModel.render_paused
+                    ? "The live render is held still while an export or a catalogue batch runs."
+                    : (ViewportModel.render_paused ? "Resume the live render." : "Pause the live render. While paused the picture stops improving, which frees the processor.");
+                accessible-checkable: true;
+                accessible-checked: root.pause_displayed;
+                accessible-enabled: pause_touch.enabled;
+                accessible-action-default => {
+                    if pause_touch.enabled {
+                        ViewportModel.render_paused = !ViewportModel.render_paused;
+                        ViewportModel.pause_toggled(ViewportModel.render_paused);
+                    }
+                }
+
+                Tooltip { text: root.pause_displayed && !ViewportModel.render_paused
+                    ? @markdown("The live render is held still while an export or a catalogue batch runs.")
+                    : (ViewportModel.render_paused ? @markdown("Resume the live render.") : @markdown("Pause the live render. While paused the picture stops improving, which frees the processor.")); }
+                pause_focus := FocusScope {
+                    enabled: pause_touch.enabled;
+                    key-pressed(event) => {
+                        if event.text == Key.Space || event.text == Key.Return {
+                            ViewportModel.render_paused = !ViewportModel.render_paused;
+                            ViewportModel.pause_toggled(ViewportModel.render_paused);
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+                KitIcon {
+                    x: 7px;
+                    y: 7px;
+                    d: ViewportModel.render_paused ? KitIcons.play : KitIcons.pause;
+                    size: 14px;
+                    stroke: 2.2px;
+                    ink: root.pause_displayed ? Theme.text-on-amber : Theme.text-primary;
+                }
+                // Disabled during an export or a batch: the button shows a state that is not
+                // `render_paused`, and a click must not change the user's real pause state.
+                pause_touch := TouchArea {
+                    enabled: !ExportModel.is_exporting && !root.batch_suspends_tracer;
+                    mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+                    clicked => {
+                        ViewportModel.render_paused = !ViewportModel.render_paused;
+                        ViewportModel.pause_toggled(ViewportModel.render_paused);
+                    }
+                }
+            }
+        }
+        Text {
+            max-width: 170px;
+            text: root.stage_text;
+            font-size: 12px;
+            font-weight: 600;
+            color: root.pause_displayed ? Theme.accent-amber : Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if ViewportModel.render_progress_visible && !ViewportModel.render_progress_indeterminate: Text {
+            text: ViewportModel.render_samples_done + " / " + ViewportModel.render_samples_target + " samples";
+            font-size: 12px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+        if ViewportModel.render_progress_visible && !root.pause_displayed && !root.narrow && ViewportModel.render_eta_text != "": Text {
+            text: ViewportModel.render_eta_text;
+            font-size: 12px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+        Rectangle { width: 4px; }
+    }
+}

@@ -510,6 +510,7 @@ fn a_claim_connection_cannot_issue_a_render_request() {
         head_shadow_deg: 16.0,
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        camera_pan: [0.0, 0.0],
     };
     let request = RenderRequest {
         intent: pleochroma_net::messages::RequestIntent::Batch,

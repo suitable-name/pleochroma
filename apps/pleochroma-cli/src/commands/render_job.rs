@@ -1193,6 +1193,7 @@ mod tests {
             // Branching, unlike the apps' exit collection: a plain run changes the estimator,
             // which the executor puts in the token.
             estimator: Estimator::Branching,
+            camera_pan: [0.0, 0.0],
         }
     }
 

@@ -498,6 +498,93 @@ pub fn status_line(state: &AppState) -> String {
     }
 }
 
+/// Where the trace runs, in plain words, from the backend report.
+///
+/// The report reads "Device GPU", "Device CPU · reason" or "Remote ...". `None` while the
+/// report names no device yet. The engineering report itself stays available in the details
+/// dialog.
+#[must_use]
+pub fn device_phrase(report: &str) -> Option<String> {
+    if report.starts_with("Device GPU") {
+        return Some("on this device's GPU".to_owned());
+    }
+    if let Some(rest) = report.strip_prefix("Device CPU") {
+        let lower = rest.to_ascii_lowercase();
+        let reason =
+            if lower.contains("budget") || lower.contains("exceeds") || lower.contains("too large")
+            {
+                Some("picture too large for the GPU")
+            } else if lower.contains("restart") || lower.contains("recover") {
+                Some("the GPU is restarting")
+            } else if lower.contains("requires")
+                || lower.contains("needs")
+                || lower.contains("fluorescence")
+            {
+                Some("this stone needs the CPU")
+            } else {
+                None
+            };
+        return Some(reason.map_or_else(
+            || "on this device's CPU".to_owned(),
+            |reason| format!("on this device's CPU ({reason})"),
+        ));
+    }
+    if report.starts_with("Remote") {
+        return Some("on the server".to_owned());
+    }
+    None
+}
+
+/// The render pill's two lines: a short title ("Refining", "Done", "Paused") and a detail in
+/// plain words ("41 / 64 · on this device's GPU"). Says "this device", never "the phone".
+#[must_use]
+pub fn pill_line(state: &AppState) -> (String, String) {
+    let line = status_line(state);
+    let generation = state.session.current_generation();
+    if state.solve.current_tiers(generation).is_none() {
+        return ("Not solved".to_owned(), line);
+    }
+    if state.viewport.light_drag.on {
+        return ("Light".to_owned(), line);
+    }
+    if state.viewport.render_live.owes_restart() && state.viewport.touch.is_down() {
+        return ("Camera".to_owned(), line);
+    }
+    let ray = state.settings.render.engine_spec().is_ray();
+    let device = device_phrase(&state.render.backend_report());
+    let with_device = |base: String| match &device {
+        Some(device) => format!("{base} \u{b7} {device}"),
+        None => base,
+    };
+    match state.render.status() {
+        RenderStatus::Idle => ("Starting".to_owned(), line),
+        RenderStatus::Tracing { samples, target } => (
+            "Refining".to_owned(),
+            with_device(if ray {
+                line
+            } else {
+                format!("{samples} / {target}")
+            }),
+        ),
+        RenderStatus::Done { samples } => (
+            "Done".to_owned(),
+            with_device(if ray {
+                "Ray-Traced".to_owned()
+            } else {
+                format!("{samples} samples")
+            }),
+        ),
+        RenderStatus::Paused(PauseReason::User) => {
+            ("Paused".to_owned(), "Tap play to continue".to_owned())
+        }
+        RenderStatus::Paused(PauseReason::Background) => {
+            ("Paused".to_owned(), "App in background".to_owned())
+        }
+        RenderStatus::Paused(PauseReason::Hot) => ("Paused".to_owned(), "Device is hot".to_owned()),
+        RenderStatus::Failed(message) => ("Stopped".to_owned(), message),
+    }
+}
+
 /// How far the trace is, `0.0..=1.0`, when the status says; `None` while paused (keep the
 /// last value) or idle.
 #[must_use]

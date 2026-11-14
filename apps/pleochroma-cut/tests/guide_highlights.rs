@@ -95,7 +95,15 @@ fn sources(folder: &str, extension: &str) -> Vec<String> {
 /// Whether some component compares the open step's highlight target with `target`.
 fn is_drawn(target: &str, slint: &[String]) -> bool {
     let check = format!("highlight_target == \"{target}\"");
-    slint.iter().any(|source| source.contains(&check))
+    // The Edit toolbar's overlay toggles share one component: each is outlined through its entry
+    // in `ShowState.targets` (`highlight_target == ShowState.targets[kind]`).
+    let listed = format!("\"{target}\"");
+    slint.iter().any(|source| {
+        source.contains(&check)
+            || (source.contains("highlight_target == ShowState.targets[")
+                && source.contains("property <[string]> targets:")
+                && source.contains(&listed))
+    })
 }
 
 /// The constant that `name` is the value of: the event names are `lower_snake_case`, the
@@ -181,7 +189,8 @@ fn ray_traced_guide_target_has_a_real_viewport_pill_and_video_route() {
         .expect("viewport toolbar source");
     let targets = fs::read_to_string(root.join("tests/tutorial_videos/targets.rs"))
         .expect("video target registry source");
-    assert!(toolbar.contains("text: \"Ray-Traced\";"));
+    // The pill reads "Ray" on a narrow toolbar; its accessible label stays "Ray-Traced".
+    assert!(toolbar.contains("label: \"Ray-Traced\";"));
     assert!(toolbar.contains("SolidPreviewModel.toggle_ray();"));
     assert!(targets.contains("4 => \"Ray-Traced\""));
 }

@@ -12,10 +12,16 @@
 //!
 //! Remote claims chunks from the epoch's shared cursor rather than reserving a fixed
 //! `[0, N)` up front. Each chunk is sized to about [`LIVE_CHUNK_TARGET_SECS`] of the
-//! worker's measured rate ([`live_chunk_samples`]), so cancelling on a drag wastes at most a
-//! second or two of worker time. The next chunk is requested when the previous one's `Done`
-//! arrives; a slow worker simply claims less, a fast one more, and nothing is claimed past
-//! the epoch's target.
+//! worker's measured rate ([`live_chunk_samples`]), so the first picture of a settle arrives
+//! quickly. The next chunk is requested when the previous one's `Done` arrives; a slow worker
+//! simply claims less, a fast one more, and nothing is claimed past the epoch's target.
+//!
+//! The worker idles from the end of one chunk until the next one reaches it: the chunk's
+//! radiance travels back, is merged, and the next request travels out. A lane built with
+//! [`LiveLane::with_chunk_growth`] (Remote Only, where no local tracer shares the epoch)
+//! therefore doubles its chunk duration after every completed rate-sized chunk, up to a cap
+//! that depends on the transfer mode ([`grown_chunk_secs`]). A drag still cancels the chunk
+//! in flight at once, whatever its size.
 //!
 //! # Failure
 //!
@@ -31,15 +37,24 @@
 mod tests;
 
 use crate::bridge::sample_cursor::{ChunkEnd, LiveEpoch};
-use pleochroma_net::client::Accumulator;
+use pleochroma_net::{client::Accumulator, messages::TransferMode};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
-/// Target wall-clock length of one live remote chunk at the worker's measured rate.
+/// Target wall-clock length of one live remote chunk at the worker's measured rate: the
+/// first rate-sized chunk of a settle, and every chunk of a lane without growth.
 pub const LIVE_CHUNK_TARGET_SECS: f64 = 1.5;
+/// The longest a growing chunk gets when the remote streams its progress while it renders
+/// (`TransferMode::LiveProgressive`): the picture updates at the stream cadence anyway, so a
+/// long chunk keeps the worker busy without making the view less live.
+pub const LIVE_CHUNK_GROWN_SECS_STREAMED: f64 = 30.0;
+/// The longest a growing chunk gets under `TransferMode::FinalOnly`, where a chunk's samples
+/// reach the picture only when it ends: long enough that the idle gap at each chunk boundary
+/// stops dominating, short enough that the picture still changes every few seconds.
+pub const LIVE_CHUNK_GROWN_SECS_WHEN_FINISHED: f64 = 8.0;
 /// The first chunk of an epoch, before any rate has been measured on this lane: small,
 /// so a slow worker cannot hold a big slice hostage before its rate is known.
 pub const LIVE_FIRST_CHUNK_SAMPLES: u32 = 8;
@@ -51,19 +66,29 @@ pub use pleochroma_dispatch::DEFAULT_MAX_CHUNK_SAMPLES as LIVE_CHUNK_MAX_SAMPLES
 /// Consecutive chunk failures after which the lane stops claiming for this epoch.
 pub const MAX_CONSECUTIVE_CHUNK_FAILURES: u32 = 2;
 
+/// The cap of a growing chunk (see the module doc comment) for a live view whose remote
+/// sends its radiance with `mode`.
+#[must_use]
+pub const fn grown_chunk_secs(mode: TransferMode) -> f64 {
+    match mode {
+        TransferMode::FinalOnly => LIVE_CHUNK_GROWN_SECS_WHEN_FINISHED,
+        TransferMode::LiveProgressive | TransferMode::DisplayOnly => LIVE_CHUNK_GROWN_SECS_STREAMED,
+    }
+}
+
 /// How many samples the next chunk should cover given the lane's current rate estimate
-/// (samples/second), `None` before the first measurement.
+/// (samples/second, `None` before the first measurement) and its chunk duration in seconds.
 #[must_use]
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "target is finite and within the MIN..=MAX u32 sample bounds checked before the cast"
 )]
-pub fn live_chunk_samples(rate_samples_per_sec: Option<f64>) -> u32 {
+pub fn live_chunk_samples(rate_samples_per_sec: Option<f64>, target_secs: f64) -> u32 {
     let Some(rate) = rate_samples_per_sec else {
         return LIVE_FIRST_CHUNK_SAMPLES;
     };
-    let target = rate * LIVE_CHUNK_TARGET_SECS;
+    let target = rate * target_secs;
     if !target.is_finite() || target < f64::from(LIVE_CHUNK_MIN_SAMPLES) {
         return LIVE_CHUNK_MIN_SAMPLES;
     }
@@ -132,6 +157,12 @@ pub struct LiveLane {
     /// samples) and nothing is merged -- see [`Self::display_only`].
     display_only: bool,
     rate: Option<f64>,
+    /// The next rate-sized chunk's duration in seconds: [`LIVE_CHUNK_TARGET_SECS`], doubled
+    /// after every completed rate-sized chunk up to [`Self::max_target_secs`].
+    target_secs: f64,
+    /// The cap of [`Self::target_secs`]: [`LIVE_CHUNK_TARGET_SECS`] (no growth) unless set
+    /// by [`Self::with_chunk_growth`].
+    max_target_secs: f64,
     consecutive_failures: u32,
     in_flight: Option<InFlight>,
     own_retry: VecDeque<(u32, u32)>,
@@ -149,12 +180,24 @@ impl LiveLane {
             local_lane,
             display_only: false,
             rate: None,
+            target_secs: LIVE_CHUNK_TARGET_SECS,
+            max_target_secs: LIVE_CHUNK_TARGET_SECS,
             consecutive_failures: 0,
             in_flight: None,
             own_retry: VecDeque::new(),
             state: LaneState::Active,
             last_target: None,
         }
+    }
+
+    /// Lets the chunk duration double after every completed rate-sized chunk, up to
+    /// `max_secs` (see the module doc comment). Meant for a lane no local tracer shares
+    /// (`RemoteOnly`): with one, a long remote claim near the end of the epoch would leave the
+    /// local tracer with nothing to trace while the remote finishes it.
+    #[must_use]
+    pub const fn with_chunk_growth(mut self, max_secs: f64) -> Self {
+        self.max_target_secs = max_secs.max(LIVE_CHUNK_TARGET_SECS);
+        self
     }
 
     /// A lane for a final-picture epoch: no local lane shares it,
@@ -233,7 +276,7 @@ impl LiveLane {
         let want = if self.display_only {
             LIVE_CHUNK_MAX_SAMPLES
         } else {
-            live_chunk_samples(self.rate)
+            live_chunk_samples(self.rate, self.target_secs)
         };
         let retry = self
             .own_retry
@@ -285,7 +328,8 @@ impl LiveLane {
     }
 
     /// The in-flight chunk `request_id` finished (`Done`, not cancelled): merges it
-    /// into the epoch, refreshes the rate estimate and resets the failure streak.
+    /// into the epoch, refreshes the rate estimate and resets the failure streak. A
+    /// complete rate-sized chunk also grows the next one (see [`Self::with_chunk_growth`]).
     /// A short `Done` (fewer samples than assigned) still hands its remainder back like
     /// a failure would, without counting as one. `None` if `request_id` is not the
     /// chunk in flight.
@@ -302,6 +346,8 @@ impl LiveLane {
                 ..end
             });
         }
+        // The calibration chunk (sized before any rate was known) does not grow the next.
+        let sized_by_rate = self.rate.is_some();
         if let Some(measured) = measured_rate(&flight, end.done, now) {
             // A light exponential blend: damps one noisy chunk, still tracks a real
             // change (another job starting on the worker) within a couple of chunks.
@@ -312,6 +358,9 @@ impl LiveLane {
         }
         if end.done == end.count {
             self.consecutive_failures = 0;
+            if sized_by_rate {
+                self.target_secs = (self.target_secs * 2.0).min(self.max_target_secs);
+            }
         } else {
             self.hand_back(end);
         }

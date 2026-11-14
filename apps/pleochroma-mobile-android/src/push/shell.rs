@@ -23,7 +23,7 @@ pub fn push_window_class(window: &AppWindow, state: &AppState) {
         .set_window_class(state.window_class.index());
 }
 
-/// Pushes the theme choice, which `ui/theme.slint` turns into dark or light.
+/// Pushes the theme choice, which `ui/theme.slint` turns into the dark or high-contrast palette.
 pub fn push_theme(window: &AppWindow, settings: &MobileSettings) {
     window
         .global::<Shell>()

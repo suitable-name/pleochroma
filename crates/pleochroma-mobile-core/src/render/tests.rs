@@ -347,7 +347,7 @@ fn needs_restart_follows_the_scene_inputs_and_nothing_else() {
     assert!(!needs_restart(&state));
 
     // Not part of the picture.
-    state.settings.theme = ThemeChoice::Dark;
+    state.settings.theme = ThemeChoice::HighContrast;
     state.selected_tier = Some(0);
     assert!(!needs_restart(&state));
 

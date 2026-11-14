@@ -10,6 +10,8 @@ import { Theme } from "../../theme.slint";
 // the label's own preferred width, so the button needs no layout to size itself.
 export component CmButton inherits Rectangle {
     in property <string> text;
+    // The accessible name when it differs from the visible text ("Mark Step Done" for "P3 Done · Next").
+    in property <string> access_label: "";
     // One plain sentence: what the button does and which key does the same. Shown as the tooltip.
     in property <string> hint;
     // An icon next to the label; leave unset for none.
@@ -58,7 +60,7 @@ export component CmButton inherits Rectangle {
         : (touch.has-hover ? Theme.surface-control-hover : Theme.surface-control);
 
     accessible-role: AccessibleRole.button;
-    accessible-label: root.text;
+    accessible-label: root.access_label != "" ? root.access_label : root.text;
     accessible-description: root.hint;
     accessible-enabled: root.enabled;
     accessible-action-default => {

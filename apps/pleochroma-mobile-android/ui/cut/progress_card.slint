@@ -60,6 +60,11 @@ component StartButton inherits Rectangle {
 export component ProgressCard inherits Rectangle {
     background: Theme.surface-container;
     border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
+    drop-shadow-color: Theme.shadow;
+    drop-shadow-blur: Theme.shadow-blur-2;
+    drop-shadow-offset-y: Theme.shadow-offset-2;
     height: card.preferred-height;
 
     card := VerticalLayout {
@@ -78,7 +83,9 @@ export component ProgressCard inherits Rectangle {
         Rectangle {
             height: 8px;
             border-radius: 4px;
-            background: Theme.surface-highest;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.outline-variant;
             accessible-role: AccessibleRole.text;
             accessible-label: "Progress " + CutModel.progress-text;
 
@@ -87,7 +94,7 @@ export component ProgressCard inherits Rectangle {
                 width: parent.width * clamp(CutModel.progress, 0.0, 1.0);
                 height: parent.height;
                 border-radius: 4px;
-                background: Theme.primary;
+                background: Theme.accent;
             }
         }
 
@@ -100,14 +107,16 @@ export component ProgressCard inherits Rectangle {
     }
 }
 
-// The three-panel diagram with the selected row's tier highlighted. The picture is
-// drawn on a dark background, so the card stays dark in the light theme too.
+// The three-panel diagram with the selected row's tier highlighted. The picture area is the
+// desktop's picture ground (#0b0e15) with a soft edge.
 export component DiagramCard inherits Rectangle {
     in property <string> hint: "";
 
     // The picture is 2.5 times as wide as it is tall; the parent sets the height.
     border-radius: Theme.radius-lg;
-    background: #0c0e14;
+    background: #0b0e15;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
     clip: true;
 
     if CutModel.has-diagram: ZoomPicture {
@@ -120,7 +129,7 @@ export component DiagramCard inherits Rectangle {
 
     if !CutModel.has-diagram: Text {
         text: root.hint;
-        color: #cac4d0;
+        color: Theme.text-secondary;
         font-size: Theme.text-body;
         horizontal-alignment: center;
         vertical-alignment: center;

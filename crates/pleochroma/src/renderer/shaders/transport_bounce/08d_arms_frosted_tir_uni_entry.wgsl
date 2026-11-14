@@ -318,12 +318,12 @@ fn bounce_arm_uni_entry_core(
         // the hero keeps `path_pdf` accumulating through its own `t_unpol_k`, and `compat` is
         // narrowed below. No split. See `apply_uniaxial_entry_transmit_channels` on the CPU.
         var entry_dirs: array<vec3<f32>, 8>;
-        var entry_dirs_valid: array<bool, 8>;
-        var entry_hero_match: array<bool, 8>;
+        // Bit k: channel k refracted (`entry_dirs[k]` holds its direction); that direction
+        // matches the hero's.
+        var entry_dirs_valid: u32 = 0u;
+        var entry_hero_match: u32 = 0u;
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             entry_dirs[k] = vec3<f32>(0.0, 0.0, 0.0);
-            entry_dirs_valid[k] = false;
-            entry_hero_match[k] = false;
         }
         for (var k: u32 = 0u; k < NUM_CHANNELS; k = k + 1u) {
             let n_o_k = n_o_hoisted[k];
@@ -348,9 +348,9 @@ fn bounce_arm_uni_entry_core(
                 final_dir_k = extraordinary_poynting_dir(refr_wave_dir_k, c_axis, n_o_k, n_e_eff_k);
             }
             entry_dirs[k] = final_dir_k;
-            entry_dirs_valid[k] = true;
+            entry_dirs_valid = entry_dirs_valid | (1u << k);
             let direction_matches_entry = directions_match(final_dir_k, final_refr_dir_e);
-            entry_hero_match[k] = direction_matches_entry;
+            entry_hero_match = entry_hero_match | (u32(direction_matches_entry) << k);
             if (!direction_matches_entry) {
                 (*s).stokes[k] = (*s).stokes[k] * 0.0;
                 // technique k stays a live member of every compatible

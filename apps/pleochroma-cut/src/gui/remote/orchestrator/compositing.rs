@@ -26,13 +26,15 @@ pub(super) struct AccumSnapshot<'a> {
     pub(super) buffer: &'a [Vec3],
 }
 
-/// The pose (`yaw`/`pitch`/`distance`) and geometry [`render_merged_frame`] needs to key
-/// and, on a cache miss, regenerate the guide-buffer prepass -- see
+/// The pose (`yaw`/`pitch`/`distance`, roll and pan) and geometry [`render_merged_frame`]
+/// needs to key and, on a cache miss, regenerate the guide-buffer prepass -- see
 /// [`GuideCache::ensure`]. `Copy` for the same reason as [`AccumSnapshot`].
 #[derive(Clone, Copy)]
 pub(super) struct PoseAndGeometry<'a> {
     pub(super) yaw: f32,
     pub(super) camera_roll: f32,
+    /// The pan the remote image was traced with (`SceneState::camera_pan`).
+    pub(super) camera_pan: [f32; 2],
     pub(super) pitch: f32,
     pub(super) distance: f32,
     pub(super) planes: &'a [GpuFacetPlane],
@@ -80,7 +82,8 @@ pub(super) fn render_merged_frame(
         pose.distance,
         pleochroma::optics::raytracer::DEFAULT_FOV_DEG,
     )
-    .with_roll(pose.camera_roll);
+    .with_roll(pose.camera_roll)
+    .with_pan(pose.camera_pan);
     let stone = StoneGeometry {
         planes: pose.planes,
         tools: pose.tools,
@@ -153,6 +156,7 @@ mod tests {
             PoseAndGeometry {
                 yaw: 0.60,
                 camera_roll: 0.0,
+                camera_pan: [0.0, 0.0],
                 pitch: 0.45,
                 distance: 2.4,
                 planes: &planes,
@@ -201,6 +205,7 @@ mod tests {
                 PoseAndGeometry {
                     yaw: 0.60,
                     camera_roll: 0.0,
+                    camera_pan: [0.0, 0.0],
                     pitch: 0.45,
                     distance: 2.4,
                     planes: &planes,
@@ -245,6 +250,7 @@ mod tests {
             PoseAndGeometry {
                 yaw: 0.60,
                 camera_roll: 0.0,
+                camera_pan: [0.0, 0.0],
                 pitch: 0.45,
                 distance: 2.4,
                 planes: &planes,
@@ -269,6 +275,7 @@ mod tests {
             PoseAndGeometry {
                 yaw: 0.90,
                 camera_roll: 0.0,
+                camera_pan: [0.0, 0.0],
                 pitch: 0.45,
                 distance: 2.4,
                 planes: &planes,
@@ -289,6 +296,52 @@ mod tests {
             "a camera-pose change (a fresh drag settling into a new remote request) \
              must invalidate the cached guides -- reusing a stale pose's guides would \
              misalign depth/normal/facet-id against the new image's geometry"
+        );
+    }
+
+    /// A pan moves the stone in the picture, so the guides of the centred frame do not fit it.
+    #[test]
+    fn render_merged_frame_regenerates_guides_when_only_the_pan_changes() {
+        let planes = StandardGemCuts::standard_round_brilliant();
+        let (width, height) = (6u32, 5u32);
+        let buffer = synthetic_noisy_buffer(width, height);
+        let mut guide_cache = GuideCache::new();
+        let mut denoiser = AtrousDenoiser::new();
+        let mut avg = Vec::new();
+        let mut filtered = Vec::new();
+
+        for camera_pan in [[0.0, 0.0], [0.4, -0.3], [0.4, -0.3]] {
+            render_merged_frame(
+                AccumSnapshot {
+                    width,
+                    height,
+                    samples_done: 1,
+                    buffer: &buffer,
+                },
+                true,
+                PoseAndGeometry {
+                    yaw: 0.60,
+                    camera_roll: 0.0,
+                    camera_pan,
+                    pitch: 0.45,
+                    distance: 2.4,
+                    planes: &planes,
+                    tools: &[],
+                    n_d: 0.0,
+                },
+                &mut guide_cache,
+                &mut DenoiseScratch {
+                    denoiser: &mut denoiser,
+                    avg_color_buf: &mut avg,
+                    filtered_buf: &mut filtered,
+                },
+            );
+        }
+
+        assert_eq!(
+            guide_cache.generation(),
+            2,
+            "the pan is part of the guide key, and an unchanged pan reuses the guides"
         );
     }
 
@@ -319,6 +372,7 @@ mod tests {
             PoseAndGeometry {
                 yaw: 0.60,
                 camera_roll: 0.0,
+                camera_pan: [0.0, 0.0],
                 pitch: 0.45,
                 distance: 2.4,
                 planes: &planes,
@@ -368,6 +422,7 @@ mod tests {
             PoseAndGeometry {
                 yaw,
                 camera_roll: 0.0,
+                camera_pan: [0.0, 0.0],
                 pitch,
                 distance,
                 planes: &planes,

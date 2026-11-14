@@ -1,4 +1,4 @@
-import { ComboBox, LineEdit } from "std-widgets.slint";
+import { LineEdit } from "std-widgets.slint";
 import { EditorTierItem } from "../../types.slint";
 import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
@@ -13,57 +13,20 @@ import { TipButton } from "../compact_controls.slint";
 import { AdvancedNote } from "../advanced_note.slint";
 import { TierFacetsSection } from "tier_facets_section.slint";
 import { WrapNote, WrapWarning } from "wrap_note.slint";
+import { ChoiceSeg } from "choice_seg.slint";
 
-// The "Meets" drop-down. The tier form keeps the meet kind as a number in the order of the full
-// list (0 unspecified vertex, 1 named facets, 2 exact scale value, 3 cut to depth, 4 girdle
-// thickness, 5 table width). The Simple interface leaves "Exact scale value" out of the list
-// unless the tier already uses it (`full`), so the list the cutter sees can be one entry
-// shorter: `shown` is the entry to highlight and the pick is mapped back to `kind`.
-// The ComboBox stops following a one-way `current-index` binding after the first pick, so a
-// `changed shown` handler sets it again whenever the tier's kind moves under it.
-component MeetsCombo inherits ComboBox {
-    in property <bool> full: true;
-    in-out property <int> kind;
-    // The user chose an entry (not called when `kind` is set from outside).
-    callback picked();
-
-    property <int> shown: root.full || root.kind < 3 ? root.kind : root.kind - 1;
-
-    model: root.full
-        ? [
-            "Unspecified Vertex",
-            "Named Facet(s)",
-            "Exact Scale Value",
-            "Cut to Depth (mm)",
-            "Girdle Thickness (mm)",
-            "Table Width (mm)",
-        ]
-        : [
-            "Unspecified Vertex",
-            "Named Facet(s)",
-            "Cut to Depth (mm)",
-            "Girdle Thickness (mm)",
-            "Table Width (mm)",
-        ];
-    current-index: root.shown;
-    changed shown => { root.current-index = root.shown; }
-    selected(value) => {
-        root.kind = root.full || root.current-index < 2 ? root.current-index : root.current-index + 1;
-        root.picked();
-    }
-    accessible-action-set-value(val) => {
-        root.kind = Math.round(val.to-float());
-        root.picked();
-    }
-}
-
-// The Inspector's "Tier" tab: the per-tier add and edit form.
+// The Inspector's "Tier" tab: the per-tier add and edit form, the inspector of the tier selected in
+// the list above it.
 // The scratch state (`tier_angle` and the other fields, dirty tracking, per-field validation,
 // the draft warnings) lives on `EditorInspector`, see its `form_dirty`, `loaded_tier_index`
 // and `show_dirty_warning`. This component renders that state and reports edits and actions
-// back through two-way properties and callbacks, as `EditorTierTable`'s components do. The
-// Save and Add Tier button row is pinned under the scroll area by `EditorInspector`, so it
-// stays visible when the tab is shorter than the available height.
+// back through two-way properties and callbacks, as `EditorTierTable`'s components do.
+//
+// There is no Save Tier (Fable E1). On a saved tier a text field applies on Enter or when it is
+// left (`commit_field`), a segment, a chip or a slider release applies at once, and each commit is
+// one undo step. A field that was left unchanged applies nothing (Rust compares the tier with the
+// design's). A new tier (Add mode) is still added with one button, since leaving a field must not
+// create a tier.
 //
 // Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the Angle,
 // Meets, Name and Indices fields, the facet chips with Add and Mirror, the note and the
@@ -254,6 +217,47 @@ export component TierFormTab inherits VerticalLayout {
     // shows. See `TierFacetsSection`.
     property <bool> selection_is_loaded: root.loaded_tier_index == EditorModel.selected_tier_index;
 
+    // --- Apply on leave -----------------------------------------------------------------------
+    // A saved tier takes a field's text when the field is left; Enter does too. A new tier (Add
+    // mode) is added by Enter or by the Add button, never by leaving a field.
+    function commit_field() {
+        if root.has_loaded_tier && root.unlocked && !root.angle_field_invalid {
+            root.save_form();
+        }
+    }
+    function enter_field() {
+        if root.unlocked {
+            root.save_form();
+        }
+    }
+    // The Meets segments: the Simple interface leaves "Exact Scale Value" out unless the tier already
+    // uses it, so the segment index is the meet kind less one past it.
+    property <bool> meets_full: root.advanced || root.tier_constraint_kind == 2;
+    property <int> meets_picked: root.meets_full || root.tier_constraint_kind < 2 ? root.tier_constraint_kind : root.tier_constraint_kind - 1;
+    function pick_meet(i: int) {
+        root.tier_constraint_kind = root.meets_full || i < 2 ? i : i + 1;
+        root.clear_field_error("constraint");
+        // A kind that needs a value waits for the value field; the vertex needs none.
+        if root.tier_constraint_kind == 0 || root.tier_constraint_text != "" {
+            root.commit_field();
+        }
+    }
+    // "Girdle Facet Preset" from the Add Tier menu arrives as a flag, since the form may not exist
+    // yet when the menu is used. Applied once the form is there and the flag is up.
+    property <bool> tracked_girdle_preset: EditorModel.girdle_preset_pending;
+    function apply_girdle_preset() {
+        if EditorModel.girdle_preset_pending {
+            EditorModel.girdle_preset_pending = false;
+            root.tier_angle = "90";
+            root.tier_constraint_kind = 2;
+            root.tier_constraint_text = "1";
+            root.clear_field_error("angle");
+            root.clear_field_error("constraint");
+        }
+    }
+    changed tracked_girdle_preset => { root.apply_girdle_preset(); }
+    init => { root.apply_girdle_preset(); }
+
     spacing: 8px;
     // The scroll bar is drawn over the right edge: keep the fields, the Typical menu and the
     // buttons clear of it.
@@ -262,14 +266,44 @@ export component TierFormTab inherits VerticalLayout {
     padding-top: 2px;
     // Packed at the top, as the other inspector tabs: no row takes the spare height.
     alignment: start;
+    // The tier being edited: its code and name large, then its block, place and facet count; at
+    // the right, how changes apply.
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: root.loaded_tier_index < 0
+                ? "New Tier"
+                : (root.tier_name == "" ? "Tier " + (root.loaded_tier_index + 1) : root.tier_name);
+            font-size: 18px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+            // Kept as the form's heading name: "Edit Tier #N" or "Add Tier".
+            accessible-label: root.loaded_tier_index < 0
+                ? "Add Tier"
+                : "Edit Tier #" + (root.loaded_tier_index + 1) + (root.tier_name == "" ? "" : " -- " + root.tier_name);
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.has_loaded_tier
+                ? EditorModel.tiers[root.loaded_tier_index].block + " \u{b7} tier " + (root.loaded_tier_index + 1) + " of " + EditorModel.tiers.length
+                    + " \u{b7} " + EditorModel.selected_tier_chips.length + " facets"
+                : "Fill in the fields, then press Add";
+            font-size: 11px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
     Text {
-        // Names the tier being edited, not just its position, for clarity.
-        text: root.loaded_tier_index < 0
-            ? "Add Tier"
-            : "Edit Tier #" + (root.loaded_tier_index + 1) + (root.tier_name == "" ? "" : " -- " + root.tier_name);
-        font-size: 12px;
-        font-weight: 700;
-        color: Theme.text-primary;
+        text: root.has_loaded_tier
+            ? "Changes apply when you press Enter or leave a field. Ctrl+Z undoes."
+            : "A new tier is added with the Add button or Enter.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
         accessible-role: AccessibleRole.text;
     }
     // Shown while the table selection has moved away from the draft.
@@ -348,15 +382,21 @@ export component TierFormTab inherits VerticalLayout {
     FormRow {
         label: "Angle (deg)";
         label_hint: root.angle_side_hint;
-        tooltip: "Angle from the girdle plane in degrees (0\u{b0} to 90\u{b0}). Pavilion tiers are\ncut on the pavilion side (P/PF), crown on crown (C/Table), exactly 90\u{b0} is\ngirdle (G). You can type arithmetic, for example 41.5+0.3. Start with =\nto make the angle follow other tiers, for example =C1-4 or =(P1+P3)/2;\nput a name with spaces in brackets, for example =[Crown Main]-2. Up and\nDown change the angle by 0.1\u{b0}, Shift by 1\u{b0}, Ctrl by 0.01\u{b0}. The slider\nunder the field follows what you type; dragging it fills the field in,\nand nothing is saved until Save Tier. See the glossary.";
+        tooltip: "Angle from the girdle plane in degrees (0\u{b0} to 90\u{b0}). Pavilion tiers are\ncut on the pavilion side (P/PF), crown on crown (C/Table), exactly 90\u{b0} is\ngirdle (G). You can type arithmetic, for example 41.5+0.3. Start with =\nto make the angle follow other tiers, for example =C1-4 or =(P1+P3)/2;\nput a name with spaces in brackets, for example =[Crown Main]-2. Up and\nDown change the angle by 0.1\u{b0}, Shift by 1\u{b0}, Ctrl by 0.01\u{b0}. The slider\nunder the field follows what you type; dragging it fills the field in,\nand the angle applies when you press Enter or leave the field. See the glossary.";
         invalid: root.angle_field_invalid;
         error: root.angle_error;
         LineEdit {
             enabled: root.unlocked;
             text <=> root.tier_angle;
             accessible-label: "Angle in Degrees";
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            font-size: 15px;
+            accepted => { root.enter_field(); }
+            changed has-focus => {
+                EditorModel.text_focus = self.has-focus;
+                if !self.has-focus {
+                    root.commit_field();
+                }
+            }
             // Live critical-angle guidance fires on every keystroke
             // so the bar updates before the cutter leaves the field.
             edited => {
@@ -402,18 +442,24 @@ export component TierFormTab inherits VerticalLayout {
                 band_to: root.angle_spec.band_to;
                 label: root.angle_spec.side + " Angle";
                 value_text: root.angle_spec.value_text;
-                hint: "Drag to set the angle. Click the slider, then use the arrow keys for\n0.05\u{b0}, Shift+arrow for 0.01\u{b0} and Page Up or Page Down for 0.5\u{b0}. Hold\nShift while dragging for fine steps. The Angle field above stays\neditable and the slider follows it. Nothing is saved until Save Tier.";
+                hint: "Drag to set the angle. Click the slider, then use the arrow keys for\n0.05\u{b0}, Shift+arrow for 0.01\u{b0} and Page Up or Page Down for 0.5\u{b0}. Hold\nShift while dragging for fine steps. The Angle field above stays\neditable and the slider follows it. The angle applies when you let go.";
                 moved(v) => { root.set_angle_from_slider(v); }
-                released(v) => { root.set_angle_from_slider(v); }
+                released(v) => {
+                    root.set_angle_from_slider(v);
+                    root.commit_field();
+                }
             }
             PresetMenu {
                 // As tall as the slider beside it (its own default is 22 px).
                 height: 26px;
                 enabled: root.unlocked;
                 label: "Typical";
-                hint: "Common angles for this stone, each with its\nreason. Choosing one only fills the Angle field.";
+                hint: "Common angles for this stone, each with its\nreason. Choosing one sets the angle.";
                 presets: SliderModel.angle_presets(root.angle_spec.side, EditorModel.effective_ri_text, root.material_label);
-                chosen(v) => { root.set_angle_from_slider(v); }
+                chosen(v) => {
+                    root.set_angle_from_slider(v);
+                    root.commit_field();
+                }
             }
         }
         if root.angle_spec.note != "": HorizontalLayout {
@@ -478,13 +524,19 @@ export component TierFormTab inherits VerticalLayout {
     FormRow {
         label: "Meets";
         tooltip: "How the depth is decided: an unnamed meet point, named facets, an\nexact scale value (an anchor), or a stated dimension in millimetres.\nThe Simple interface leaves out the exact scale value unless this\ntier already uses it; Advanced lists every choice. See the glossary.";
-        MeetsCombo {
+        ChoiceSeg {
             horizontal-stretch: 1;
             enabled: root.unlocked;
-            accessible-label: "Meets";
-            full: root.advanced || root.tier_constraint_kind == 2;
-            kind <=> root.tier_constraint_kind;
-            picked => { root.clear_field_error("constraint"); }
+            group_label: "Meets";
+            font_size: 11px;
+            labels: root.meets_full
+                ? ["Vertex", "Facets", "Scale", "Depth", "Girdle", "Table"]
+                : ["Vertex", "Facets", "Depth", "Girdle", "Table"];
+            reader_labels: root.meets_full
+                ? ["Unspecified Vertex", "Named Facet(s)", "Exact Scale Value", "Cut to Depth (mm)", "Girdle Thickness (mm)", "Table Width (mm)"]
+                : ["Unspecified Vertex", "Named Facet(s)", "Cut to Depth (mm)", "Girdle Thickness (mm)", "Table Width (mm)"];
+            picked: root.meets_picked;
+            selected(i) => { root.pick_meet(i); }
         }
     }
     // The constraint value row. Its per-kind explanation is the label cell's tooltip
@@ -501,9 +553,26 @@ export component TierFormTab inherits VerticalLayout {
             enabled: root.unlocked;
             text <=> root.tier_constraint_text;
             accessible-label: root.constraint_reader_label;
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            accepted => { root.enter_field(); }
+            changed has-focus => {
+                EditorModel.text_focus = self.has-focus;
+                if !self.has-focus {
+                    root.commit_field();
+                }
+            }
             edited => { root.clear_field_error("constraint"); }
+        }
+        // Takes the tier's solved mast as the exact scale value, and applies it.
+        if root.tier_constraint_kind == 2 && root.has_loaded_tier && EditorModel.tiers[root.loaded_tier_index].mast_full != "": TipButton {
+            enabled: root.unlocked;
+            text: "Use Solved";
+            reader_label: "Use Solved Mast";
+            hint: "Put this tier's solved mast (" + EditorModel.tiers[root.loaded_tier_index].mast_full + ") in the field as its exact scale value.";
+            clicked => {
+                root.tier_constraint_text = EditorModel.tiers[root.loaded_tier_index].mast_full;
+                root.clear_field_error("constraint");
+                root.commit_field();
+            }
         }
         // Three targets are in millimetres (unlike kind 2's model-unit scale value).
         // A cell of its own, so the unit neither shrinks the field nor crowds its right edge.
@@ -522,22 +591,6 @@ export component TierFormTab inherits VerticalLayout {
             }
         }
     }
-    // Facet names can use '/' to give one tier multiple names (e.g., "P1/P2").
-    // Red border for name-collision rejection.
-    FormRow {
-        label: "Name";
-        tooltip: "Facet name, referenced by other tiers' named-facet field.\nJoin several names with '/' (e.g. \"P1/P2\") to give one\ntier more than one name; avoid reusing a name another tier\nalready has. Left blank, a new tier is named from its angle\n(C crown, P pavilion, G girdle). See the glossary.";
-        invalid: root.name_field_invalid;
-        error: root.name_error;
-        LineEdit {
-            enabled: root.unlocked;
-            text <=> root.tier_name;
-            accessible-label: "Facet Name";
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
-            edited => { root.clear_field_error("name"); }
-        }
-    }
     // Red border for an invalid index (off the gear, repeated, or not a number).
     // The wheel is a ring, so the gear's own tooth count (96 on a 96-tooth gear)
     // is a valid entry: it is the same position as 0.
@@ -551,18 +604,23 @@ export component TierFormTab inherits VerticalLayout {
             text <=> root.tier_indices;
             placeholder-text: "e.g. 96, 16, 32, 48";
             accessible-label: "Index Positions";
-            accepted => { root.save_form(); }
-            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            accepted => { root.enter_field(); }
+            changed has-focus => {
+                EditorModel.text_focus = self.has-focus;
+                if !self.has-focus {
+                    root.commit_field();
+                }
+            }
             edited => { root.clear_field_error("indices"); }
         }
     }
     // Girdle facet preset: `classify_blocks` reads only +-90 degrees as a girdle (0 reads as a
     // crown), so this fills in 90 degrees with the scale value 1 (the girdle half-width).
     // Name and Indices are not touched.
-    TipButton {
+    if root.loaded_tier_index < 0: TipButton {
         enabled: root.unlocked;
         text: "Girdle Facet Preset (90\u{b0}, Scale = 1)";
-        hint: "Fill in a real girdle facet: angle 90\u{b0} and Meets set to the exact\nscale value 1 (the girdle's half-width). Name and Indices stay as\nthey are, and nothing is saved until Save Tier. See the glossary.";
+        hint: "Fill in a real girdle facet: angle 90\u{b0} and Meets set to the exact\nscale value 1 (the girdle's half-width). Name and Indices stay as\nthey are, and nothing is added until you press Add. See the glossary.";
         clicked => {
             root.tier_angle = "90";
             root.tier_constraint_kind = 2;
@@ -582,6 +640,28 @@ export component TierFormTab inherits VerticalLayout {
         rotate_by_text <=> root.rotate_by_text;
     }
 
+
+    // Facet names can use '/' to give one tier multiple names (e.g., "P1/P2").
+    // Red border for name-collision rejection.
+    FormRow {
+        label: "Name";
+        tooltip: "Facet name, referenced by other tiers' named-facet field.\nJoin several names with '/' (e.g. \"P1/P2\") to give one\ntier more than one name; avoid reusing a name another tier\nalready has. Left blank, a new tier is named from its angle\n(C crown, P pavilion, G girdle). See the glossary.";
+        invalid: root.name_field_invalid;
+        error: root.name_error;
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> root.tier_name;
+            accessible-label: "Facet Name";
+            accepted => { root.enter_field(); }
+            changed has-focus => {
+                EditorModel.text_focus = self.has-focus;
+                if !self.has-focus {
+                    root.commit_field();
+                }
+            }
+            edited => { root.clear_field_error("name"); }
+        }
+    }
 
     // The Simple interface hides the cheater offset, the Detach buttons and the imported-meet
     // details: if this tier uses any of them, say so.
@@ -673,7 +753,15 @@ export component TierFormTab inherits VerticalLayout {
             text: tier_row.warning_text;
         }
     }
-    // The Save Tier button is pinned under the scroll area: this spacer keeps the last row clear
-    // of it when the form is scrolled to the end.
+    // A new tier is added with one button (leaving a field must not create a tier).
+    if root.loaded_tier_index < 0: TipButton {
+        enabled: root.unlocked && !root.angle_field_invalid;
+        text: "Add This Tier";
+        reader_label: "Add This Tier";
+        primary: true;
+        hint: "Add the tier in the form to the design. It is one Undo step.";
+        clicked => { root.enter_field(); }
+    }
+    // Room under the last row.
     Rectangle { height: 40px; }
 }

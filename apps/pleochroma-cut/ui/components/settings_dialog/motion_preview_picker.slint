@@ -1,43 +1,33 @@
-import { Theme } from "../../theme.slint";
 import { SettingsModel } from "../../models/settings.slint";
-import { SegmentPill } from "../pill_button.slint";
-import { SettingLabel } from "setting_label.slint";
+import { KitFillSegments } from "../kit/kit.slint";
+import { KitRowName } from "../kit/r2r.slint";
 
-// Motion Preview Resolution, off by default. Same segmented-pill idiom as
-// Render Resolution. A discrete choice, not a slider: only these three scales matter.
-// Advanced: Simple mode hides it
-// (the Parameters panel).
-export component MotionPreviewPicker inherits VerticalLayout {
-    spacing: 6px;
-    SettingLabel {
-        text: "Motion Preview Resolution";
-        hint: "Motion Preview Resolution: how sharp the picture is while you drag the gem. A lower setting moves more smoothly; the full picture comes back when you stop.";
+// Motion Preview Resolution, off by default: a row of the Live View Details card. A discrete
+// choice, not a slider: only these three scales matter. Advanced: Simple mode hides it (the
+// Parameters panel).
+export component MotionPreviewPicker inherits HorizontalLayout {
+    height: 32px;
+    spacing: 10px;
+    KitRowName {
+        text: "While moving";
+        full: "Motion Preview Resolution";
+        hint: "Motion Preview Resolution: how sharp the picture is while you drag the gem. A lower\nsetting moves more smoothly; the full picture comes back when you stop.";
     }
-
-    HorizontalLayout {
-        spacing: 4px;
-
-        // 0 Off (default): always renders at full "Render Resolution" above.
-        // 1 Half resolution while the camera is moving. 2 Quarter resolution.
-        for label[idx] in ["Off", "Half", "Quarter"]: SegmentPill {
-            text: label;
-            hint: idx == 0
-                ? "Always trace at the full render resolution, even while you drag."
-                : (idx == 1
-                    ? "Trace at half the resolution while you drag the gem, then at full resolution once you stop."
-                    : "Trace at a quarter of the resolution while you drag the gem, then at full resolution once you stop.");
-            selected: SettingsModel.local_preview_scale_index == idx;
-            picked => {
+    // 0 Off (default): always the full render resolution. 1 Half and 2 Quarter while the camera
+    // moves.
+    Rectangle {
+        horizontal-stretch: 1;
+        height: 32px;
+        KitFillSegments {
+            width: 100%;
+            height: 100%;
+            labels: ["Off", "Half", "Quarter"];
+            picked: SettingsModel.local_preview_scale_index;
+            selected(idx) => {
                 SettingsModel.local_preview_scale_index = idx;
                 SettingsModel.local_preview_scale_changed(idx);
             }
         }
-    }
-
-    Text {
-        text: "While dragging the gem, render at a reduced resolution for a smoother feel, then snap back to full resolution once you stop moving.";
-        font-size: 11px;
-        color: Theme.text-muted;
-        wrap: word-wrap;
+        Tooltip { text: @markdown("Off traces at the full render resolution even while you drag. Half or Quarter\ntrace smaller while you drag the gem, then at full resolution once you stop."); }
     }
 }

@@ -7,8 +7,10 @@ use crate::targets::{Entry, Query};
 /// draws the outline.
 pub const TABLE: &[Entry] = &[Entry {
     name: "crystal_axis_toggle",
-    queries: &[Query::Label("Crystal Axis")],
-    source: "components/solid_viewport/toolbar.slint (Crystal Axis pill)",
+    // The Stone tab's fold card is called "Crystal Axis" too: the label is looked up inside the
+    // Solid viewport toolbar.
+    queries: &[Query::InComponent("SolidViewportToolbar", "Crystal Axis")],
+    source: "components/solid_viewport/toolbar.slint (Crystal Axis toggle)",
 }];
 
 /// The entries `targets::resolve` reads after its own table.

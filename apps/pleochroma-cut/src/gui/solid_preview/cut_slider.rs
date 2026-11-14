@@ -25,6 +25,7 @@ use pleochroma::geometry::{GpuFacetPlane, meet_solver::SolvedTier};
 use pleochroma_cut_core::Design;
 pub use pleochroma_solid::cut_position::{CutPosition, MODEL_FINISHED, MODEL_ROUGH, cut_label};
 use pleochroma_solid::{
+    cut_position::step_name,
     live_update::{CutLimit, display_geometry},
     preview::StoneGeometryBuf,
 };
@@ -148,7 +149,41 @@ fn publish(ui: &MainWindow, design: &Design) -> CutPosition {
     model.set_tier_cutoff(position.to_model());
     model.set_cut_position(position.slider_value(step_count));
     model.set_cut_label(cut_label(design, position).into());
+    publish_step_names(&model, design);
     position
+}
+
+/// The code of each cutting step ("P1", "C3"): the first word of [`step_name`].
+fn step_codes(design: &Design) -> Vec<String> {
+    design
+        .preview_steps()
+        .iter()
+        .map(|&step| {
+            step_name(design, step)
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Writes `SolidPreviewModel.cut_step_names`, leaving the model alone when nothing changed.
+fn publish_step_names(model: &SolidPreviewModel<'_>, design: &Design) {
+    use slint::Model;
+    let names = step_codes(design);
+    let current = model.get_cut_step_names();
+    let same = current.row_count() == names.len()
+        && names.iter().enumerate().all(|(row, name)| {
+            current
+                .row_data(row)
+                .is_some_and(|have| have.as_str() == name)
+        });
+    if !same {
+        let rows: Vec<slint::SharedString> =
+            names.iter().map(|name| name.as_str().into()).collect();
+        model.set_cut_step_names(slint::ModelRc::new(slint::VecModel::from(rows)));
+    }
 }
 
 /// Brings the model's slider fields in line with `design` (see [`publish`]) and returns

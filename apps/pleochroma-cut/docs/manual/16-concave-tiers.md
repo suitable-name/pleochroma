@@ -98,9 +98,9 @@ with Ctrl or Shift on a tool facet selects the concave row alone, like a click o
 row. While the Slice tool holds an unconfirmed tier, a click selects nothing until
 you keep or discard it.
 
-## The Cutting Sheet and the Schedule
+## The Cutting Sheet and the Cutting Order
 
-The text, HTML and PDF cutting sheets, the Edit tab's **Schedule** tab and the
+The text, HTML and PDF cutting sheets, the **Cutting Instructions** page and the
 catalogue's cutting table all print a concave tier as its two lines in one band,
 with the zebra striping alternating per tier. Flat tiers print in the usual way.
 The catalogue's **Copy Instructions** puts each tool line under its facet line.

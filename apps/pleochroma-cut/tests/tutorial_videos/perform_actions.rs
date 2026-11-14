@@ -24,8 +24,8 @@ const FIELD_PAUSE: Duration = Duration::from_millis(200);
 /// fields with the same labels ("Index Positions"), so every lookup is scoped to it.
 const TOOLBAR_COMPONENT: &str = "TierTableToolbar";
 
-/// What the accessible label of the trash button of a tier row starts with (`TierTableRow`, the
-/// `CompactIcon` whose hint reads "Remove this tier (Delete).").
+/// What the accessible label of the Delete item of a tier row's menu starts with
+/// (`TierRowActions`; the item's text is "Delete").
 const REMOVE_BUTTON: &str = "Remove this tier";
 
 /// Whether a typed value and its readback say the same: equal as numbers when both are numbers
@@ -363,10 +363,10 @@ impl Film<'_> {
                 .input_spot("Note for This Tier")?
                 .ok_or("tier note input is missing")?;
             self.click_and_type(&spot, text)?;
-            let btn = self
-                .inspector_form_control("Set Note", uiprobe::AccessibleRole::Button)?
-                .ok_or("Set Note button is missing")?;
-            self.click_and_invoke(&btn)?;
+            // There is no Set Note button: the field applies on Enter or when it is left.
+            self.rec
+                .press_keys(self.ui.window(), "Return")
+                .map_err(|e| format!("Note Return: {e:?}"))?;
         }
         pump(80);
         self.reselect_tier_to_verify_commit(tier)?;
@@ -393,10 +393,10 @@ impl Film<'_> {
                 .input_spot("Cheater Offset in Degrees")?
                 .ok_or("cheater offset input is missing")?;
             self.click_and_type(&spot, text)?;
-            let btn = self
-                .inspector_form_control("Set Cheater Offset", uiprobe::AccessibleRole::Button)?
-                .ok_or("Set Cheater Offset button is missing")?;
-            self.click_and_invoke(&btn)?;
+            // There is no Set Cheater Offset button: the field applies on Enter or when left.
+            self.rec
+                .press_keys(self.ui.window(), "Return")
+                .map_err(|e| format!("Cheater offset Return: {e:?}"))?;
         }
         pump(80);
         self.reselect_tier_to_verify_commit(tier)?;
@@ -563,7 +563,7 @@ impl Film<'_> {
         self.hold(FIELD_PAUSE)
     }
 
-    /// Films typing the Girdle Diameter in the Preform tab and clicking "Apply Yield Inputs".
+    /// Films typing the Girdle Diameter in the Preform tab and pressing Enter (there is no Apply button).
     pub(crate) fn film_yield(&mut self, girdle_diameter_mm: f64) -> Result<(), String> {
         let editor = self.ui.global::<EditorModel>();
         if editor.get_inspector_tab() != 1 || editor.get_inspector_collapsed() {
@@ -581,22 +581,10 @@ impl Film<'_> {
             .input_spot("Girdle Diameter (mm)")?
             .ok_or("Girdle Diameter input is missing")?;
         self.click_and_type(&spot, &text)?;
-        // Typing marks the tab "not applied yet", and the button's accessible label says so; the
-        // plain label is the fallback for a commit that already cleared the mark.
-        let pending = self.inspector_form_control(
-            "Apply Yield Inputs, changes not applied yet",
-            uiprobe::AccessibleRole::Button,
-        )?;
-        let apply_spot = match pending {
-            Some(spot) => Some(spot),
-            None => {
-                self.inspector_form_control("Apply Yield Inputs", uiprobe::AccessibleRole::Button)?
-            }
-        };
-        let spot = apply_spot.ok_or(
-            "Apply Yield Inputs button is missing (neither the pending nor the plain label)",
-        )?;
-        self.click_and_invoke(&spot)?;
+        // There is no Apply Yield Inputs button: Enter (or leaving the field) applies the value.
+        self.rec
+            .press_keys(self.ui.window(), "Return")
+            .map_err(|e| format!("Girdle Diameter Return: {e:?}"))?;
         pump(100);
         Ok(())
     }
@@ -716,6 +704,28 @@ impl Film<'_> {
         if id == CMD_DELETE {
             return self.click_selected_row_remove();
         }
+        // Set Baseline and Compare are items of the command bar's Baseline menu: press the menu
+        // button first, unless the menu is already open.
+        if matches!(id, "solve.snapshot" | CMD_COMPARE) {
+            let item = if id == CMD_COMPARE {
+                "Compare"
+            } else {
+                "Set Baseline"
+            };
+            if targets::role_label(&self.view(), item, uiprobe::AccessibleRole::Button, None)
+                .is_none()
+            {
+                let menu = targets::role_label(
+                    &self.view(),
+                    "Baseline",
+                    uiprobe::AccessibleRole::Button,
+                    None,
+                )
+                .ok_or("the Baseline menu button is missing")?;
+                self.click_and_invoke(&menu)?;
+                pump(80);
+            }
+        }
         let mut spot = self.command_spot(id);
         // The command bar scrolls with the editor dock: a tall tab (Optimize grows the dock)
         // can leave it above the dock's top edge, so scroll the dock back up, as a user would.
@@ -779,19 +789,12 @@ impl Film<'_> {
         if selected < 0 {
             return Err(format!("{REMOVE_BUTTON:?}: no tier row is selected"));
         }
-        let (button, turns) = self
-            .reveal_table_button(selected, |film, _area| {
-                film.tier_row_control(
-                    selected,
-                    uiprobe::AccessibleRole::Button,
-                    "Remove this tier",
-                )
-                .ok()
-            })
+        // Delete is an item of the row's "Actions for Tier N" menu, which opens first.
+        let item = self
+            .tier_row_menu_item(selected, REMOVE_BUTTON)
             .map_err(|why| format!("{REMOVE_BUTTON:?} on the selected tier row: {why}"))?;
-        self.click_and_invoke(&button)?;
+        self.click_and_invoke(&item)?;
         pump(60);
-        self.hold(Duration::from_millis(500))?;
-        self.unturn_table(turns)
+        self.hold(Duration::from_millis(500))
     }
 }

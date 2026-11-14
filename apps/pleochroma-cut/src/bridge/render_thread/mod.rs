@@ -82,6 +82,7 @@ pub use context::{
 pub use denoise::{
     DenoiseScratch, FirstHitSnapshot, denoise_and_tonemap_frame, tonemap_running_average,
 };
+pub use gpu_backend::PREPARING_STATUS as GPU_PREPARING_STATUS;
 pub use metrics::hash_planes;
 pub use redraw_gate::RedrawGate;
 

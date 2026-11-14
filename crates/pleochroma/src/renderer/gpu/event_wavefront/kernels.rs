@@ -6,12 +6,13 @@ use crate::{
     renderer::{buffers::GpuGemMaterial, frame_scene::FrameScene, gpu::frame::material_class},
 };
 
-/// The sixteen discrete event-wavefront compute kernels, in dispatch order.
+/// The eighteen discrete event-wavefront compute kernels, in dispatch order.
 ///
 /// Three heavy kernels are split in two along an event boundary so that none of them is slow to
-/// compile in a browser; the variants are declared next to their other half. The halves split off
-/// are only dispatched when the scene needs them (see [`kernels_for`] and
-/// [`with_zoned_absorb`]), and an omitted kernel never receives a ray.
+/// compile in a browser, and two more parts of the uniaxial arms are split off because the Adreno
+/// 740 driver does not link those arms whole; the variants are declared next to the kernel they
+/// come from. The parts split off are only dispatched when the scene needs them (see
+/// [`kernels_for`] and [`with_zoned_absorb`]), and an omitted kernel never receives a ray.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EwKernel {
     /// Ray generation: initializes ray core and channel state from camera.
@@ -37,8 +38,15 @@ pub enum EwKernel {
     ArmUniEntry,
     /// Uniaxial crystal entry interaction arm, transmit branch, split off [`Self::ArmUniEntry`].
     ArmUniEntryTransmit,
-    /// Uniaxial crystal internal reflection/exit interaction arm.
+    /// The surface-finish correction and routing of [`Self::ArmUniEntryTransmit`]'s rays, split
+    /// off that kernel.
+    ArmUniEntryFinish,
+    /// Uniaxial crystal internal reflection/exit interaction arm: the hero solve and the reflect
+    /// branch.
     ArmUniInternal,
+    /// Uniaxial crystal internal interaction arm, transmit (exit) branch, split off
+    /// [`Self::ArmUniInternal`].
+    ArmUniInternalTransmit,
     /// Generic isotropic and biaxial Fresnel reflection/refraction interaction arm.
     ArmGeneric,
     /// Deferred chromatic exit split resolution.
@@ -51,7 +59,7 @@ pub enum EwKernel {
 
 impl EwKernel {
     /// All event wavefront kernels in canonical sequence.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 18] = [
         Self::Generate,
         Self::Extend,
         Self::Scatter,
@@ -63,7 +71,9 @@ impl EwKernel {
         Self::ArmTir,
         Self::ArmUniEntry,
         Self::ArmUniEntryTransmit,
+        Self::ArmUniEntryFinish,
         Self::ArmUniInternal,
+        Self::ArmUniInternalTransmit,
         Self::ArmGeneric,
         Self::SplitResolve,
         Self::Tail,
@@ -85,7 +95,9 @@ impl EwKernel {
             Self::ArmTir => "ew_arm_tir",
             Self::ArmUniEntry => "ew_arm_uni_entry",
             Self::ArmUniEntryTransmit => "ew_arm_uni_entry_transmit",
+            Self::ArmUniEntryFinish => "ew_arm_uni_entry_finish",
             Self::ArmUniInternal => "ew_arm_uni_internal",
+            Self::ArmUniInternalTransmit => "ew_arm_uni_internal_transmit",
             Self::ArmGeneric => "ew_arm_generic",
             Self::SplitResolve => "ew_split_resolve",
             Self::Tail => "ew_tail",
@@ -130,9 +142,17 @@ impl EwKernel {
                 env!("OUT_DIR"),
                 "/ew_arm_uni_entry_transmit.generated.wgsl"
             )),
+            Self::ArmUniEntryFinish => include_str!(concat!(
+                env!("OUT_DIR"),
+                "/ew_arm_uni_entry_finish.generated.wgsl"
+            )),
             Self::ArmUniInternal => include_str!(concat!(
                 env!("OUT_DIR"),
                 "/ew_arm_uni_internal.generated.wgsl"
+            )),
+            Self::ArmUniInternalTransmit => include_str!(concat!(
+                env!("OUT_DIR"),
+                "/ew_arm_uni_internal_transmit.generated.wgsl"
             )),
             Self::ArmGeneric => {
                 include_str!(concat!(env!("OUT_DIR"), "/ew_arm_generic.generated.wgsl"))
@@ -171,9 +191,11 @@ pub fn arms_for(class: u32, frosted: bool) -> Vec<EwKernel> {
     let kind = class & material_class::KIND_MASK;
     if kind == material_class::UNIAXIAL || kind == material_class::GENERIC {
         arms.push(EwKernel::ArmUniEntry);
-        // The transmit half runs after the reflect half has parked its rays.
+        // Each part split off runs after the kernel that parks its rays.
         arms.push(EwKernel::ArmUniEntryTransmit);
+        arms.push(EwKernel::ArmUniEntryFinish);
         arms.push(EwKernel::ArmUniInternal);
+        arms.push(EwKernel::ArmUniInternalTransmit);
     }
     arms.push(EwKernel::ArmGeneric);
     arms
@@ -296,7 +318,9 @@ mod tests {
             EwKernel::ArmTir,
             EwKernel::ArmUniEntry,
             EwKernel::ArmUniEntryTransmit,
+            EwKernel::ArmUniEntryFinish,
             EwKernel::ArmUniInternal,
+            EwKernel::ArmUniInternalTransmit,
             EwKernel::ArmGeneric,
         ] {
             assert!(arms.contains(&arm), "class 0 is missing {arm:?}");
@@ -309,24 +333,33 @@ mod tests {
             let arms = arms_for(class, false);
             assert!(!arms.contains(&EwKernel::ArmUniEntry));
             assert!(!arms.contains(&EwKernel::ArmUniEntryTransmit));
+            assert!(!arms.contains(&EwKernel::ArmUniEntryFinish));
             assert!(!arms.contains(&EwKernel::ArmUniInternal));
+            assert!(!arms.contains(&EwKernel::ArmUniInternalTransmit));
             assert!(!arms.contains(&EwKernel::ArmFrosted));
         }
         let arms = arms_for(material_class::UNIAXIAL, false);
         assert!(arms.contains(&EwKernel::ArmUniEntry) && arms.contains(&EwKernel::ArmUniInternal));
         assert!(arms.contains(&EwKernel::ArmUniEntryTransmit));
+        assert!(arms.contains(&EwKernel::ArmUniEntryFinish));
+        assert!(arms.contains(&EwKernel::ArmUniInternalTransmit));
     }
 
     #[test]
-    fn the_uniaxial_entry_transmit_half_runs_after_the_reflect_half() {
+    fn each_split_off_part_of_a_uniaxial_arm_runs_after_the_kernel_that_parks_its_rays() {
         let arms = arms_for(material_class::UNIAXIAL, false);
-        let reflect = arms.iter().position(|k| *k == EwKernel::ArmUniEntry);
-        let transmit = arms
-            .iter()
-            .position(|k| *k == EwKernel::ArmUniEntryTransmit);
+        let at = |kernel: EwKernel| arms.iter().position(|k| *k == kernel);
         assert!(
-            reflect < transmit,
+            at(EwKernel::ArmUniEntry) < at(EwKernel::ArmUniEntryTransmit),
             "the reflect half parks the transmit rays"
+        );
+        assert!(
+            at(EwKernel::ArmUniEntryTransmit) < at(EwKernel::ArmUniEntryFinish),
+            "the transmit half parks the rays for the surface-finish correction"
+        );
+        assert!(
+            at(EwKernel::ArmUniInternal) < at(EwKernel::ArmUniInternalTransmit),
+            "the internal reflect half parks the transmit rays"
         );
     }
 
@@ -419,7 +452,7 @@ mod tests {
         let base_iso = kernels_for(browser(material_class::ISOTROPIC), false, false, false);
         let base_uni = kernels_for(browser(material_class::UNIAXIAL), false, false, false);
         assert_eq!(base_iso.len(), 8, "{base_iso:?}");
-        assert_eq!(base_uni.len(), 11, "{base_uni:?}");
+        assert_eq!(base_uni.len(), 13, "{base_uni:?}");
         for kernel in [
             EwKernel::Scatter,
             EwKernel::ScatterOriented,
@@ -432,7 +465,7 @@ mod tests {
         let full_iso = kernels_for(browser(material_class::ISOTROPIC), true, true, true);
         let full_uni = kernels_for(browser(material_class::UNIAXIAL), true, true, true);
         assert_eq!(full_iso.len(), 11);
-        assert_eq!(full_uni.len(), 14);
+        assert_eq!(full_uni.len(), 16);
         assert!(!full_iso.contains(&EwKernel::ScatterOriented));
     }
 
@@ -461,7 +494,7 @@ mod tests {
         let mut sorted = EwKernel::ALL;
         sorted.sort();
         assert_eq!(sorted, EwKernel::ALL, "ALL is in declaration order");
-        assert_eq!(EwKernel::ALL.len(), 16);
+        assert_eq!(EwKernel::ALL.len(), 18);
         let mut unique = EwKernel::ALL.to_vec();
         unique.dedup();
         assert_eq!(unique.len(), EwKernel::ALL.len());

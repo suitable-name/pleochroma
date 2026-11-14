@@ -20,6 +20,7 @@ impl Default for RenderContext {
             yaw: DEFAULT_POSE.yaw,
             pitch: DEFAULT_POSE.pitch,
             camera_roll: 0.0,
+            camera_pan: [0.0, 0.0],
             distance: DEFAULT_POSE.distance,
             light_yaw: 0.85, // ~48 degrees azimuth
             // 72 degrees elevation, the `AppSettings` default.

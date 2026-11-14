@@ -1,7 +1,8 @@
-// Cutting Mode: the full-screen page a cutter follows at the faceting machine. White on
-// black in every theme. One step at a time: the facet code, the angle and the index
-// numerals as large as the screen allows, a 72 px "Done" toggle, and previous / next
-// buttons in the bottom corners (swiping left or right also moves).
+// Cutting Mode: the full-screen page a cutter follows at the faceting machine, in the theme's
+// colors (High Contrast: white on black, a bright cyan). One step at a time: the facet code,
+// the angle and the index numerals as large as the screen allows (the largest type of the
+// app), a 72 px "Done" toggle, and previous / next buttons, 64 px high, in the thumb zone at
+// the bottom (swiping left or right also moves).
 //
 // Medium and expanded windows, and any landscape window, put the numerals in the left
 // half and the highlighted diagram in the right half.
@@ -22,7 +23,7 @@ import { AxisPicture } from "axis_picture.slint";
 component FacetLine inherits HorizontalLayout {
     in property <string> code;
     in property <string> name;
-    in property <length> code-size: 44px;
+    in property <length> code-size: Theme.base-font * 3.14;
 
     spacing: 12px;
     alignment: start;
@@ -90,7 +91,7 @@ export component CuttingModeScreen inherits Rectangle {
     property <length> chrome: root.wide ? 250px : (CutModel.mode-axis-shown ? 528px : 420px);
     property <length> numeral-room: max(120px, root.content-height - root.chrome);
     // The angle takes at most about a third (two fifths side by side) of that room.
-    property <length> numeral-cap: max(32px, min(96px, root.numeral-room * (root.wide ? 0.4 : 0.34) / 1.2));
+    property <length> numeral-cap: max(32px, min(Theme.base-font * (root.wide ? 8.6 : 6.9), root.numeral-room * (root.wide ? 0.4 : 0.34) / 1.2));
     // What is left for the index, all its lines together.
     property <length> index-room: max(72px, root.numeral-room - 1.2 * root.numeral-cap);
 
@@ -200,8 +201,9 @@ export component CuttingModeScreen inherits Rectangle {
                 Numeral {
                     caption: "INDEX";
                     value: CutModel.mode-index;
+                    display: CutModel.mode-index-display;
                     avail-width: root.numeral-width;
-                    size-cap: 96px;
+                    size-cap: Theme.base-font * 6.9;
                     min-size: 24px;
                     max-lines: 3;
                     text-room: root.index-room;
@@ -236,12 +238,16 @@ export component CuttingModeScreen inherits Rectangle {
 
                 VerticalLayout {
                     horizontal-stretch: 1;
+                    // The numerals are sized to this width; a long index wraps instead of
+                    // pushing the picture out of the window.
+                    min-width: 0px;
+                    max-width: root.numeral-width;
                     spacing: 4px;
 
                     FacetLine {
                         code: CutModel.mode-code;
                         name: CutModel.mode-name;
-                        code-size: 36px;
+                        code-size: Theme.base-font * 2.57;
                     }
 
                     Numeral {
@@ -254,8 +260,9 @@ export component CuttingModeScreen inherits Rectangle {
                     Numeral {
                         caption: "INDEX";
                         value: CutModel.mode-index;
+                        display: CutModel.mode-index-display;
                         avail-width: root.numeral-width;
-                        size-cap: 96px;
+                        size-cap: Theme.base-font * 6.9;
                         min-size: 24px;
                         max-lines: 3;
                         text-room: root.index-room;
@@ -328,25 +335,26 @@ export component CuttingModeScreen inherits Rectangle {
                     }
                 }
 
+                // Previous and next share the width: the thumb zone.
                 HorizontalLayout {
                     height: 64px;
+                    spacing: 12px;
 
                     ModeArrow {
                         icon: Icons.chevron-left;
                         label: "Previous Step";
+                        caption: "Previous";
                         enabled: root.has-previous;
                         clicked => {
                             CutModel.mode-previous();
                         }
                     }
 
-                    Rectangle {
-                        horizontal-stretch: 1;
-                    }
-
                     ModeArrow {
                         icon: Icons.chevron-right;
                         label: "Next Step";
+                        caption: "Next";
+                        trailing: true;
                         enabled: root.has-next;
                         clicked => {
                             CutModel.mode-next();
@@ -366,8 +374,11 @@ export component CuttingModeScreen inherits Rectangle {
                 cross-axis-alignment: center;
 
                 ModeArrow {
+                    width: 180px;
+                    horizontal-stretch: 0;
                     icon: Icons.chevron-left;
                     label: "Previous Step";
+                    caption: "Previous";
                     enabled: root.has-previous;
                     clicked => {
                         CutModel.mode-previous();
@@ -383,8 +394,12 @@ export component CuttingModeScreen inherits Rectangle {
                 }
 
                 ModeArrow {
+                    width: 180px;
+                    horizontal-stretch: 0;
                     icon: Icons.chevron-right;
                     label: "Next Step";
+                    caption: "Next";
+                    trailing: true;
                     enabled: root.has-next;
                     clicked => {
                         CutModel.mode-next();

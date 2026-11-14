@@ -116,7 +116,7 @@ for. Examples:
 | Open the Edit tab first | The command only makes sense in the Edit tab. |
 | Not available in the Diagram view | Slice mode needs the 3D picture, not the flat diagram. |
 | Already using the Simple interface | You are already in the interface the command would switch to. |
-| Switch to the Advanced interface first | The control exists only in the Advanced interface (Inspector: Schedule Tab; Chapter 17). |
+| Switch to the Advanced interface first | The control exists only in the Advanced interface (for example Surface Finish; Chapter 17). |
 | Locked by the guide | A guide or tutorial step has locked this control (Chapters 7 and 22). |
 
 Picking a dimmed command does not close the palette. It shows a short message instead,
@@ -147,10 +147,10 @@ of the row.
   Folder.
 - **Edit:** Undo, Redo, Keep as Trial (**Ctrl+Shift+K**, Chapter 18), Edit Instructions as Text... (Chapter 11), Preferences..., Use the
   Simple Interface, Use the Advanced Interface.
-- **View:** Go to 3D Spectral Preview, Go to Cutting Instructions, Go to Files &
+- **View:** Go to 3D Spectral Preview (the Live Render / Edit places), Go to Cutting Instructions (it also replaces the old Inspector: Schedule Tab command), Go to Files &
   Downloads, Show Live Render, Show Edit Tab, the five Solid viewport modes (Solid,
   Path-Traced, Solid and Path-Traced, Diagram, Ray-Traced), the three Live Render modes, the
-  inspector tabs (Tier, Preform, Optimize, Schedule, History) and the History tab's
+  inspector tabs (Tier, Preform, Optimize, History) and the History tab's
   Variants view (Chapter 18), Show or Hide the Library Panel,
   Toggle Slice Mode, Toggle Snap to Gear Steps.
 - **Tiers:** Add Tier, Add Concave Tier, Duplicate Selected Tier, Delete Selected Tier,
@@ -210,6 +210,10 @@ to keep Ctrl+K in mind: it works even then.
   use the menus and panels they live in for those.
 - It does not press the buttons inside a dialog. Open the dialog from the palette, then
   use its own fields and buttons.
+- It does not move the camera. Orbiting, zooming, moving the light and moving the stone
+  within the picture (middle-drag, or Ctrl and drag) are mouse gestures in the 3D views
+  (Chapter 2); **Reset Camera** and the named views on the viewport's toolbar centre the
+  stone again.
 - While a confirmation question (unsaved changes, overwrite, close) is on screen,
   the menu item is greyed out. Answer the question before you start anything else.
 - The recent-commands list is forgotten when you close the app.

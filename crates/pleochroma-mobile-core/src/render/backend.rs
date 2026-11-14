@@ -57,6 +57,9 @@ pub(super) struct GpuProbe {
     /// When a lost path-tracing session was last replaced by a fresh one, so a device that is
     /// lost on every use is not re-acquired on every epoch.
     spectral_replaced: Arc<Mutex<Option<Instant>>>,
+    /// The pass classes with a kernel the device's GPU driver could not build. Their stones
+    /// stay on the CPU for the rest of the process; the other classes keep the GPU.
+    spectral_rejected: Arc<Mutex<Vec<u32>>>,
     whitted: ProbeSlot<WhittedGpuBackend>,
     /// When a poisoned Ray-Traced backend was last replaced by a fresh one, so a kernel that
     /// panics every time is not re-acquired on every epoch.

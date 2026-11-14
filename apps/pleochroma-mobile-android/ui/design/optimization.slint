@@ -1,10 +1,12 @@
-import { ComboBox, CheckBox, LineEdit, SpinBox, ProgressIndicator } from "std-widgets.slint";
 import { Shell } from "../models.slint";
 import { Theme } from "../theme.slint";
 import { TopBar } from "../shell/top_bar.slint";
 import { PageScroll } from "../shell/page_scroll.slint";
 import { PrimaryButton, TextButton } from "../shell/buttons.slint";
 import { ListRow } from "../shell/list_row.slint";
+import { ChoiceField, Stepper, ToggleRow, TextField, ProgressBar } from "../shell/inputs.slint";
+import { FieldLabel, PageColumn, GroupHeader } from "../pages/fields.slint";
+import { Card } from "props/props_parts.slint";
 
 export struct OptimizeRange { tier: int, name: string, minimum: string, maximum: string, locked: bool }
 export global OptimizeModel {
@@ -38,11 +40,34 @@ export global OptimizeModel {
     callback select(int); callback apply(); callback save-variant(); callback reset-ranges();
 }
 
+// A caption above a text field.
 component Field inherits VerticalLayout {
     in property <string> label;
+    in property <InputType> input-type: InputType.text;
     in-out property <string> value;
-    Text { text: root.label; color: Theme.on-surface-variant; }
-    LineEdit { text <=> root.value; }
+    spacing: Theme.space-xs;
+    FieldLabel { text: root.label; }
+    TextField { text <=> root.value; label: root.label; input-type: root.input-type; }
+}
+
+// A caption above a stepper.
+component StepField inherits VerticalLayout {
+    in property <string> label;
+    in property <int> minimum;
+    in property <int> maximum;
+    in-out property <int> value;
+    spacing: Theme.space-xs;
+    FieldLabel { text: root.label; }
+    Stepper { label: root.label; minimum: root.minimum; maximum: root.maximum; value <=> root.value; }
+}
+
+// The page's side margin for the texts and buttons that sit between the cards.
+component Pad inherits VerticalLayout {
+    padding-left: Theme.space-lg;
+    padding-right: Theme.space-lg;
+    padding-top: Theme.space-xs;
+    padding-bottom: Theme.space-xs;
+    spacing: Theme.space-sm;
 }
 
 export component OptimizeScreen inherits Rectangle {
@@ -52,56 +77,98 @@ export component OptimizeScreen inherits Rectangle {
         TopBar { title: "Optimize"; show-back: true; back-clicked => { Shell.request-back(); } }
         PageScroll {
             vertical-stretch: 1;
-            VerticalLayout {
-                padding: Theme.space-md;
-                spacing: Theme.space-sm;
-                if !OptimizeModel.release-ready: Text {
-                    text: "Awaiting shared preservation regression validation. Available in development builds; release enablement requires owner validation.";
-                    color: Theme.on-surface-variant; wrap: word-wrap;
+            PageColumn { VerticalLayout {
+                padding-bottom: Theme.space-lg;
+                if !OptimizeModel.release-ready: Pad {
+                    Text {
+                        text: "Awaiting shared preservation regression validation. Available in development builds; release enablement requires owner validation.";
+                        color: Theme.text-secondary; wrap: word-wrap;
+                    }
                 }
-                ComboBox { model: OptimizeModel.presets; current-index <=> OptimizeModel.preset; }
-                ComboBox {
-                    model: ["Quick · 100 evaluations", "Normal · 300 evaluations", "Thorough · 800 evaluations"];
-                    current-index <=> OptimizeModel.effort;
-                    selected(value) => { OptimizeModel.budget = OptimizeModel.effort == 0 ? "100" : OptimizeModel.effort == 1 ? "300" : "800"; }
+                GroupHeader { text: "SEARCH"; }
+                Card {
+                    VerticalLayout {
+                        spacing: Theme.space-md;
+                        VerticalLayout {
+                            spacing: Theme.space-xs;
+                            FieldLabel { text: "Preset"; }
+                            ChoiceField { label: "Preset"; model: OptimizeModel.presets; current-index <=> OptimizeModel.preset; }
+                        }
+                        VerticalLayout {
+                            spacing: Theme.space-xs;
+                            FieldLabel { text: "Search Effort"; }
+                            ChoiceField {
+                                label: "Search Effort";
+                                model: ["Quick · 100 evaluations", "Normal · 300 evaluations", "Thorough · 800 evaluations"];
+                                current-index <=> OptimizeModel.effort;
+                                selected(value) => { OptimizeModel.budget = OptimizeModel.effort == 0 ? "100" : OptimizeModel.effort == 1 ? "300" : "800"; }
+                            }
+                        }
+                        ToggleRow { text: "Only Selected Flat Tiers"; checked <=> OptimizeModel.only-selected; }
+                        ToggleRow { text: "Vary Anchored Tiers About Their Girdle Hinges"; checked <=> OptimizeModel.vary-anchored; toggled => { OptimizeModel.reset-ranges(); } }
+                        ToggleRow { text: "Keep Girdle Thickness"; checked <=> OptimizeModel.keep-girdle; }
+                        ToggleRow { text: "Advanced"; checked <=> OptimizeModel.advanced; }
+                    }
                 }
-                CheckBox { text: "Only Selected Flat Tiers"; checked <=> OptimizeModel.only-selected; }
-                CheckBox { text: "Vary Anchored Tiers About Their Girdle Hinges"; checked <=> OptimizeModel.vary-anchored; toggled => { OptimizeModel.reset-ranges(); } }
-                CheckBox { text: "Keep Girdle Thickness"; checked <=> OptimizeModel.keep-girdle; }
-                CheckBox { text: "Advanced"; checked <=> OptimizeModel.advanced; }
                 if OptimizeModel.advanced: VerticalLayout {
-                    spacing: Theme.space-sm;
-                    Field { label: "Evaluation Budget"; value <=> OptimizeModel.budget; }
-                    Field { label: "Seed"; value <=> OptimizeModel.seed; }
-                    Text { text: "Starts"; color: Theme.on-surface-variant; }
-                    SpinBox { minimum: 1; maximum: 32; value <=> OptimizeModel.starts; }
-                    Text { text: "Candidates"; color: Theme.on-surface-variant; }
-                    SpinBox { minimum: 1; maximum: 5; value <=> OptimizeModel.candidates; }
-                    CheckBox { text: "Polish Candidates"; checked <=> OptimizeModel.polish; }
-                    Field { label: "Custom Windowing Weight"; value <=> OptimizeModel.window-weight; }
-                    Field { label: "Custom Extinction Weight"; value <=> OptimizeModel.extinction-weight; }
-                    Field { label: "Custom Tilt Brilliance Weight"; value <=> OptimizeModel.tilt-weight; }
-                    Field { label: "Custom Yield Weight"; value <=> OptimizeModel.yield-weight; }
-                    Field { label: "Custom Tone (−3 to +3)"; value <=> OptimizeModel.tone; }
-                    Text { text: "Angle magnitudes (degrees). Relation followers stay locked."; color: Theme.on-surface-variant; wrap: word-wrap; }
-                    for row[index] in OptimizeModel.ranges: VerticalLayout {
-                        Text { text: row.name + (row.locked ? " · relation follower" : ""); color: Theme.on-surface; }
-                        HorizontalLayout {
-                            LineEdit { text <=> row.minimum; enabled: !row.locked; }
-                            LineEdit { text <=> row.maximum; enabled: !row.locked; }
+                    GroupHeader { text: "ADVANCED"; }
+                    Card {
+                        VerticalLayout {
+                            spacing: Theme.space-md;
+                            Field { label: "Evaluation Budget"; input-type: InputType.number; value <=> OptimizeModel.budget; }
+                            Field { label: "Seed"; input-type: InputType.number; value <=> OptimizeModel.seed; }
+                            HorizontalLayout {
+                                spacing: Theme.space-md;
+                                StepField { horizontal-stretch: 1; label: "Starts"; minimum: 1; maximum: 32; value <=> OptimizeModel.starts; }
+                                StepField { horizontal-stretch: 1; label: "Candidates"; minimum: 1; maximum: 5; value <=> OptimizeModel.candidates; }
+                            }
+                            ToggleRow { text: "Polish Candidates"; checked <=> OptimizeModel.polish; }
+                        }
+                    }
+                    GroupHeader { text: "WEIGHTS"; }
+                    Card {
+                        VerticalLayout {
+                            spacing: Theme.space-md;
+                            Field { label: "Custom Windowing Weight"; input-type: InputType.decimal; value <=> OptimizeModel.window-weight; }
+                            Field { label: "Custom Extinction Weight"; input-type: InputType.decimal; value <=> OptimizeModel.extinction-weight; }
+                            Field { label: "Custom Tilt Brilliance Weight"; input-type: InputType.decimal; value <=> OptimizeModel.tilt-weight; }
+                            Field { label: "Custom Yield Weight"; input-type: InputType.decimal; value <=> OptimizeModel.yield-weight; }
+                            Field { label: "Custom Tone (−3 to +3)"; value <=> OptimizeModel.tone; }
+                        }
+                    }
+                    GroupHeader { text: "ANGLE RANGES"; }
+                    Pad { Text { text: "Angle magnitudes (degrees). Relation followers stay locked."; color: Theme.text-secondary; wrap: word-wrap; } }
+                    Card {
+                        VerticalLayout {
+                            spacing: Theme.space-md;
+                            for row[index] in OptimizeModel.ranges: VerticalLayout {
+                                spacing: Theme.space-xs;
+                                Text { text: row.name + (row.locked ? " · relation follower" : ""); color: Theme.on-surface; wrap: word-wrap; }
+                                HorizontalLayout {
+                                    spacing: Theme.space-sm;
+                                    TextField { compact: true; label: row.name + " minimum"; input-type: InputType.decimal; text <=> row.minimum; enabled: !row.locked; }
+                                    TextField { compact: true; label: row.name + " maximum"; input-type: InputType.decimal; text <=> row.maximum; enabled: !row.locked; }
+                                }
+                            }
                         }
                     }
                 }
-                PrimaryButton { text: "Run Optimize"; enabled: OptimizeModel.release-ready && !OptimizeModel.running; clicked => { OptimizeModel.start(); } }
-                if OptimizeModel.running: ProgressIndicator { indeterminate: true; }
-                if OptimizeModel.running: TextButton { text: "Cancel Search"; clicked => { OptimizeModel.cancel(); } }
-                Text { text: OptimizeModel.status; color: Theme.on-surface; wrap: word-wrap; }
+                Pad {
+                    PrimaryButton { text: "Run Optimize"; enabled: OptimizeModel.release-ready && !OptimizeModel.running; clicked => { OptimizeModel.start(); } }
+                    if OptimizeModel.running: ProgressBar { indeterminate: true; }
+                    if OptimizeModel.running: TextButton { text: "Cancel Search"; clicked => { OptimizeModel.cancel(); } }
+                    Text { text: OptimizeModel.status; color: Theme.on-surface; wrap: word-wrap; }
+                }
                 for candidate[index] in OptimizeModel.results: ListRow { title: candidate; clicked => { OptimizeModel.select(index); } }
-                Text { text: OptimizeModel.comparison; color: Theme.on-surface; wrap: word-wrap; }
-                PrimaryButton { text: "Apply Selected Candidate"; enabled: OptimizeModel.can-apply; clicked => { OptimizeModel.apply(); } }
-                Field { label: "Variant Name"; value <=> OptimizeModel.variant-name; }
-                TextButton { text: "Save Selected Candidate As Variant"; enabled: OptimizeModel.can-apply; clicked => { OptimizeModel.save-variant(); } }
-            }
+                Pad {
+                    Text { text: OptimizeModel.comparison; color: Theme.on-surface; wrap: word-wrap; }
+                    PrimaryButton { text: "Apply Selected Candidate"; enabled: OptimizeModel.can-apply; clicked => { OptimizeModel.apply(); } }
+                }
+                Card {
+                    Field { label: "Variant Name"; value <=> OptimizeModel.variant-name; }
+                }
+                Pad { TextButton { text: "Save Selected Candidate As Variant"; enabled: OptimizeModel.can-apply; clicked => { OptimizeModel.save-variant(); } } }
+            } }
         }
     }
 }

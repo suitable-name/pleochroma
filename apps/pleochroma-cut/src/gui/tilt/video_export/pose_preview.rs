@@ -7,7 +7,10 @@
 //! (`LatestWorker`): typing in the angle fields asks again and again, and only the newest
 //! request is drawn. Each picture is a few milliseconds of software rasterizing.
 
-use super::{frames::axis_roll, params};
+use super::{
+    frames::{axis_roll, turned_pan},
+    params,
+};
 use crate::{
     MainWindow, TiltPosePreview, TiltVideoExportModel,
     bridge::render_thread::RenderContext,
@@ -36,9 +39,10 @@ const LONG_EDGE: u32 = 160;
 /// One request: everything the drawing needs, taken on the UI thread.
 struct PoseRequest {
     stone: StoneGeometryBuf,
-    /// The video's camera distance and the image roll of its first axis.
+    /// The video's camera distance and the image roll and pan of its first axis.
     distance: f32,
     base_roll: f32,
+    base_pan: [f32; 2],
     axes: Vec<usize>,
     start_deg: f64,
     end_deg: f64,
@@ -74,6 +78,15 @@ fn picture_size(width: u32, height: u32) -> (u32, u32) {
     }
 }
 
+/// The camera of the video's frames about `axis_index` at `(yaw, pitch)`, as
+/// `frames::render_frames_tapped` builds it: the base roll plus this axis's roll, and the base
+/// pan, which the axis roll leaves alone.
+fn frame_camera(request: &PoseRequest, axis_index: usize, yaw: f32, pitch: f32) -> Camera {
+    Camera::new(yaw, pitch, request.distance, DEFAULT_FOV_DEG)
+        .with_roll(request.base_roll + axis_roll(&request.axes, axis_index))
+        .with_pan(request.base_pan)
+}
+
 /// Draws `stone` at the video's pose for `axis_index` tilted by `tilt_deg`.
 fn draw(
     cache: &mut MeshCache,
@@ -83,8 +96,7 @@ fn draw(
 ) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     let mesh = cache.get_or_build_geometry(&request.stone)?;
     let (yaw, pitch) = camera_pose_for_axis_tilt(axis_index, tilt_deg);
-    let camera = Camera::new(yaw, pitch, request.distance, DEFAULT_FOV_DEG)
-        .with_roll(request.base_roll + axis_roll(&request.axes, axis_index));
+    let camera = frame_camera(request, axis_index, yaw, pitch);
     let style = SolidStyle {
         show_orientation_marker: false,
         ..SolidStyle::default()
@@ -146,7 +158,7 @@ pub(super) fn setup(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
             } else {
                 0.0
             };
-            let (stone, distance, base_roll) = {
+            let (stone, distance, base_roll, base_pan) = {
                 let guard = RenderContext::lock(&render_ctx);
                 (
                     StoneGeometryBuf {
@@ -159,6 +171,7 @@ pub(super) fn setup(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
                     },
                     guard.distance,
                     guard.camera_roll + quarter_turn,
+                    turned_pan(guard.camera_pan, quarter_turn),
                 )
             };
             if stone.planes.is_empty() {
@@ -169,6 +182,7 @@ pub(super) fn setup(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>) {
                 stone,
                 distance,
                 base_roll,
+                base_pan,
                 axes: super::selected_axes(&ui, fallback_axis),
                 start_deg: params::clamp_angle_deg(f64::from(model.get_start_angle_deg())),
                 end_deg: params::clamp_angle_deg(f64::from(model.get_end_angle_deg())),
@@ -234,6 +248,7 @@ mod tests {
             stone: cube(),
             distance: 4.0,
             base_roll: 0.0,
+            base_pan: [0.0, 0.0],
             axes: vec![0, 2],
             start_deg: -30.0,
             end_deg: 30.0,
@@ -250,6 +265,30 @@ mod tests {
         }
     }
 
+    /// The pictures frame the stone as the frames do: the pan moves the eye, and the face-up
+    /// picture of every axis keeps the first axis's eye, since the axis roll leaves the pan alone.
+    #[test]
+    fn the_pictures_frame_the_stone_with_the_videos_pan() {
+        let request = |base_pan| PoseRequest {
+            stone: cube(),
+            distance: 4.0,
+            base_roll: 0.0,
+            base_pan,
+            axes: vec![1, 3],
+            start_deg: 0.0,
+            end_deg: 0.0,
+            width: 32,
+            height: 32,
+        };
+        let (panned, centred) = (request([0.3, 0.2]), request([0.0, 0.0]));
+        let eye = |request: &PoseRequest, axis: usize| {
+            let (yaw, pitch) = camera_pose_for_axis_tilt(axis, 0.0);
+            frame_camera(request, axis, yaw, pitch).origin
+        };
+        assert!(eye(&panned, 1).distance(eye(&centred, 1)) > 1e-3);
+        assert!(eye(&panned, 1).distance(eye(&panned, 3)) < 2e-5);
+    }
+
     #[test]
     fn an_open_stone_draws_no_pictures() {
         let mut stone = cube();
@@ -258,6 +297,7 @@ mod tests {
             stone,
             distance: 4.0,
             base_roll: 0.0,
+            base_pan: [0.0, 0.0],
             axes: vec![0],
             start_deg: 0.0,
             end_deg: 10.0,

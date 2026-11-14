@@ -510,7 +510,7 @@ fn submitted(window: &AppWindow, result: Result<JobInfo, String>) {
     match result {
         Ok(info) => {
             let note = format!(
-                "Sent to the server: {}. It keeps rendering without this phone; open More > Remote > Server Jobs to follow it and download the picture.",
+                "Sent to the server: {}. It keeps rendering without this device; open More > Remote > Server Jobs to follow it and download the picture.",
                 jobs::describe(&info)
             );
             model.set_export_problem(SharedString::new());

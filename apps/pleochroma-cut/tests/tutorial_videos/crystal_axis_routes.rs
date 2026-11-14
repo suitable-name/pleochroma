@@ -104,6 +104,8 @@ fn press_stone_choice(
     label: &str,
     role: AccessibleRole,
 ) -> Result<(), String> {
+    // The Crystal Axis card starts folded: open it first (its header is a button).
+    film.open_stone_fold("Crystal Axis", 1)?;
     let spot = film.stone_control(label, |view| {
         targets::role_label(view, label, role, Some("ParametersPanel"))
     })?;
@@ -168,6 +170,7 @@ pub(super) fn second_axis(film: &mut Film<'_>) -> Result<(), String> {
     if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_second_set()) {
         return Err("the Second Axis switch did not turn on".into());
     }
+    film.open_stone_fold("Crystal Axis", 1)?;
     film.drag_stone_slider("Second Axis Turn in Degrees")?;
     if model.get_second_deg() <= 0.0 {
         return Err("dragging the Turn slider did not change the Second Axis".into());

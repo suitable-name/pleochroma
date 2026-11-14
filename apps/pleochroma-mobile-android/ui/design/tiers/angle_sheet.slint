@@ -106,9 +106,12 @@ component StepButton inherits Rectangle {
     callback clicked();
 
     height: Theme.touch;
-    min-width: 44px;
+    min-width: 48px;
+    horizontal-stretch: 1;
     border-radius: Theme.radius-md;
-    background: Theme.secondary-container;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.outline-variant;
     accessible-role: AccessibleRole.button;
     accessible-label: "Change angle by " + root.text;
     accessible-action-default => {
@@ -118,15 +121,15 @@ component StepButton inherits Rectangle {
     StateLayer {
         pressed: touch.pressed;
         hovered: touch.has-hover;
-        tint: Theme.on-secondary-container;
+        tint: Theme.accent;
         border-radius: root.border-radius;
     }
 
     Text {
         text: root.text;
-        color: Theme.on-secondary-container;
+        color: Theme.on-surface;
         font-size: Theme.text-label-large;
-        font-weight: 500;
+        font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -148,6 +151,8 @@ export component AngleSheet inherits Rectangle {
         { label: "+1", delta: 1.0 }
     ];
 
+    property <string> hero-text: TiersModel.angle-readout + (TiersModel.angle-typing ? "" : "\u{b0}");
+
     background: Theme.surface-container;
     accessible-role: AccessibleRole.groupbox;
     accessible-label: TiersModel.angle-title;
@@ -158,6 +163,12 @@ export component AngleSheet inherits Rectangle {
     VerticalLayout {
         Rectangle {
             height: 56px;
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.outline-variant;
+            }
 
             HorizontalLayout {
                 padding-left: Theme.space-xs;
@@ -187,7 +198,7 @@ export component AngleSheet inherits Rectangle {
 
                     Text {
                         text: TiersModel.angle-block;
-                        color: Theme.on-surface-variant;
+                        color: Theme.text-secondary;
                         font-size: Theme.text-label;
                         overflow: elide;
                     }
@@ -208,8 +219,29 @@ export component AngleSheet inherits Rectangle {
             VerticalLayout {
                 padding-left: Theme.space-lg;
                 padding-right: Theme.space-lg;
+                padding-top: Theme.space-md;
                 padding-bottom: Theme.space-xl;
                 spacing: Theme.space-md;
+
+                // The angle, big, in the accent color (amber is kept for warnings).
+                Rectangle {
+                    height: Theme.text-headline * 1.5;
+                    border-radius: Theme.radius-md;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+                    accessible-role: AccessibleRole.text;
+                    accessible-label: root.hero-text;
+
+                    Text {
+                        text: root.hero-text;
+                        color: Theme.accent;
+                        font-size: Theme.text-headline;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
 
                 // A refusal, such as an angle that follows a relation or is over 90 degrees.
                 if TiersModel.angle-error != "": Text {
@@ -220,7 +252,7 @@ export component AngleSheet inherits Rectangle {
                 }
 
                 HorizontalLayout {
-                    spacing: 6px;
+                    spacing: Theme.space-xs;
 
                     for step in root.steps: StepButton {
                         text: step.label;
@@ -253,7 +285,7 @@ export component AngleSheet inherits Rectangle {
 
                         Text {
                             text: "\{TiersModel.angle-slider-min}\u{b0}";
-                            color: Theme.on-surface-variant;
+                            color: Theme.text-secondary;
                             font-size: Theme.text-label;
                         }
 
@@ -263,7 +295,7 @@ export component AngleSheet inherits Rectangle {
 
                         Text {
                             text: "\{TiersModel.angle-slider-max}\u{b0}";
-                            color: Theme.on-surface-variant;
+                            color: Theme.text-secondary;
                             font-size: Theme.text-label;
                         }
                     }
@@ -271,7 +303,7 @@ export component AngleSheet inherits Rectangle {
 
                 if TiersModel.angle-note != "": Text {
                     text: TiersModel.angle-note;
-                    color: Theme.on-surface-variant;
+                    color: Theme.text-secondary;
                     font-size: Theme.text-label;
                     wrap: word-wrap;
                 }
@@ -280,6 +312,10 @@ export component AngleSheet inherits Rectangle {
                     height: Theme.touch;
 
                     Flickable {
+                        // Explicit size: otherwise the chip row's width caps the whole
+                        // page column at the presets' width.
+                        width: parent.width;
+                        height: parent.height;
                         content-width: presets-row.preferred-width;
 
                         presets-row := HorizontalLayout {
@@ -297,12 +333,15 @@ export component AngleSheet inherits Rectangle {
                     }
                 }
 
-                HorizontalLayout {
-                    alignment: center;
+                // A plain box, not a layout, so the keypad's own size limits do not cap
+                // the width of the whole page column.
+                Rectangle {
+                    height: keypad.preferred-height;
 
-                    Keypad {
-                        max-width: 400px;
-                        horizontal-stretch: 1;
+                    keypad := Keypad {
+                        width: min(parent.width, 400px);
+                        x: (parent.width - self.width) / 2;
+                        height: parent.height;
                         caption: "Angle";
                         readout: TiersModel.angle-readout;
                         unit: TiersModel.angle-typing ? "" : "\u{b0}";

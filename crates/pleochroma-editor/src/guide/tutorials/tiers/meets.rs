@@ -93,9 +93,8 @@ fn meets_named_facets() -> Guide {
         )
         .actions([
             "Click the Upper Girdle row.",
-            "Set Meets to Named Facet(s).",
-            "Facet Names: Lower Girdle",
-            "Click Save Tier.",
+            "Set Meets to Named Facet(s) (Facets segment).",
+            "Facet Names: Lower Girdle, then press Enter.",
         ])
         .check("Upper Girdle's Meets column reads meets Lower Girdle.")
         .why("Several names are separated by commas. The solver puts the depth where this tier's facets cut the named facets: here, where the upper girdle facets touch the lower girdle facets. The crown still has other tiers with an exact scale value, so the stone keeps solving.")
@@ -115,8 +114,7 @@ fn meets_named_facets() -> Guide {
         )
         .actions([
             "Click the Table row.",
-            "Set Meets to Unspecified Vertex.",
-            "Click Save Tier.",
+            "Set Meets to Unspecified Vertex (Vertex segment); it applies at once.",
         ])
         .check("the Table row's Meets column reads meet.")
         .why("The solver cuts the table down to a vertex of the facets already there, and this crown, with its star facets, gives it one close to where the table was. Use it for a table you do not want to size by hand, and look at the result: on a crown of main facets only, with no star facets, the next vertex below the point where they meet is the girdle, so the table would sink there and cut the crown away. Undo (Ctrl+Z) brings the table back.")
@@ -134,10 +132,9 @@ fn meets_named_facets() -> Guide {
         )
         .actions([
             "Click the Lower Girdle row.",
-            "Change Name to LG1.",
-            "Click Save Tier.",
+            "Change Name to LG1 and press Enter.",
         ])
-        .check("Upper Girdle's Meets column now reads meets LG1.")
+        .check("Upper Girdle's row now reads meets LG1.")
         .why("Renaming a tier updates every tier that meets it by name, in the same Undo step.")
         .goal(
             check("Upper Girdle meets LG1", |ctx| {
@@ -177,8 +174,7 @@ fn meets_in_millimetres() -> Guide {
         )
         .actions([
             "Open the Preform tab in the inspector.",
-            "Girdle Diameter (mm): 6.5",
-            "Click Apply Yield Inputs.",
+            "Girdle Diameter (mm): 6.5, then press Enter (the value applies when you press Enter or leave the field).",
         ])
         .check("the Preform tab shows the yield figures after the next solve.")
         .why("The girdle diameter is the stone's real width. It turns the design's own units into millimetres; without it these targets cannot be solved.")
@@ -193,9 +189,8 @@ fn meets_in_millimetres() -> Guide {
         )
         .actions([
             "Open the Tier tab and click the Pavilion Main row.",
-            "Set Meets to Cut to depth (mm).",
-            "Value (mm): 2.2",
-            "Click Save Tier.",
+            "Set Meets to Cut to depth (mm) (Depth segment).",
+            "Value (mm): 2.2, then press Enter.",
         ])
         .check("the Pavilion Main row's Meets column reads 2.20 mm depth.")
         .why("The value is turned into a scale value just before each solve, so it follows the girdle diameter if you change it.")
@@ -218,9 +213,8 @@ fn meets_in_millimetres() -> Guide {
         )
         .actions([
             "Click the Table row.",
-            "Set Meets to Table width (mm).",
-            "Value (mm): 3.2",
-            "Click Save Tier.",
+            "Set Meets to Table width (mm) (Table segment).",
+            "Value (mm): 3.2, then press Enter.",
         ])
         .check("the Table row's Meets column reads table 3.20 mm.")
         .why("This costs several solves rather than one, so the status strip may take a moment to settle.")
@@ -243,9 +237,8 @@ fn meets_in_millimetres() -> Guide {
         )
         .actions([
             "Click the Girdle row.",
-            "Set Meets to Girdle thickness (mm).",
-            "Value (mm): 0.3",
-            "Click Save Tier.",
+            "Set Meets to Girdle thickness (mm) (Girdle segment).",
+            "Value (mm): 0.3, then press Enter.",
         ])
         .check("the Girdle row's Meets column reads girdle 0.30 mm.")
         .why("Put it on the tier that makes the girdle: the girdle row itself.")
@@ -268,7 +261,7 @@ fn meets_in_millimetres() -> Guide {
         )
         .actions([
             "If the status strip says a target could not be bracketed, widen or remove it.",
-            "Choose Exact Scale Value or Named Facet(s) again in Meets to remove a target; saving does it for you.",
+            "Pick Scale (Exact Scale Value) or Facets again in Meets to remove a target.",
         ])
         .why("Every control is unlocked again."),
     )
@@ -325,7 +318,7 @@ fn adopt_imported_meets() -> Guide {
             "Adopt the rest at once",
             "Adopt All does every remaining tier in one go.",
         )
-        .actions(["Click Adopt All above the tier table."])
+        .actions(["Open the Tier List Menu above the tier list and click Adopt All."])
         .check("no Adopt button is left in the tier table.")
         .why("Adopt All is one Undo step, so a single Ctrl+Z brings every pinned value back.")
         .goal(
@@ -363,9 +356,8 @@ fn pin_to_mast() -> Guide {
         )
         .actions([
             "Click the Upper Girdle row.",
-            "Set Meets to Named Facet(s).",
-            "Facet Names: Lower Girdle",
-            "Click Save Tier.",
+            "Set Meets to Named Facet(s) (Facets segment).",
+            "Facet Names: Lower Girdle, then press Enter.",
         ])
         .check("the Upper Girdle row's Meets column reads meets Lower Girdle.")
         .why("The stone keeps solving because the crown still has other tiers with an exact scale value.")

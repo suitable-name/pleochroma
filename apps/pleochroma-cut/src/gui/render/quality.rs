@@ -9,12 +9,14 @@ use crate::{
     bridge::render_thread::RenderContext,
     gui::{
         local_compute_target_from_index, local_preview_scale_from_index,
-        render::sample_scale::exponent_to_count, show_toast, tutorial_events::raise,
+        render::sample_scale::exponent_to_count, show_toast,
+        startup_settings::push_quality_controls, tutorial_events::raise,
     },
     settings::{
         SettingsPersister,
         model::{
-            head_shadow_deg_from_slider, surface_glare_from_percent, tray_reflection_from_percent,
+            QualityPreset, head_shadow_deg_from_slider, surface_glare_from_percent,
+            tray_reflection_from_percent,
         },
     },
 };
@@ -64,7 +66,11 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
             // A new target stops only the unfinished pass; the radiance already valid for
             // this scene is kept. The context guard handles the cancel and the redraw.
             drop(ctx);
-            settings_store_samples.update(|s| s.settings.target_samples = target_samples);
+            settings_store_samples.update(|s| {
+                s.settings.target_samples = target_samples;
+                // Touching a detail makes the quality preset Custom (and remembered).
+                s.settings.note_quality_edit();
+            });
             if let Some(ui) = ui_weak_samples.upgrade() {
                 show_toast(&ui, &format!("Target samples: {target_samples}"), "info");
             }
@@ -87,6 +93,7 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
             settings_store_res.update(|s| {
                 s.settings.render_width = width;
                 s.settings.render_height = height;
+                s.settings.note_quality_edit();
             });
             if let Some(ui) = ui_weak_res.upgrade() {
                 show_toast(&ui, &format!("Render resolution: {width}x{height}"), "info");
@@ -94,6 +101,7 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
         });
 
     setup_local_render_path_callbacks(ui, render_ctx, settings_store);
+    setup_quality_preset_callback(ui, render_ctx, settings_store);
 
     // Explicit pause and resume, the state the button shows. Independent of the
     // tab-visibility suspend.
@@ -118,7 +126,10 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
             ctx.max_bounces = clamped;
             ctx.dirty = true;
             drop(ctx);
-            settings_store_bnc.update(|s| s.settings.max_bounces = clamped);
+            settings_store_bnc.update(|s| {
+                s.settings.max_bounces = clamped;
+                s.settings.note_quality_edit();
+            });
         });
 
     let render_ctx_exp = render_ctx.clone();
@@ -135,6 +146,46 @@ pub(in crate::gui) fn setup_material_and_quality_callbacks(
 
     // The Parameters panel's "Some advanced settings are in use" note (Simple mode).
     super::advanced_in_use::setup_advanced_in_use_callback(ui);
+}
+
+/// Wires the Render tab's quality presets (`SettingsModel.quality_preset_selected`). Draft,
+/// Balanced and High set the samples, the resolution and the bounces together; Custom brings back
+/// the mix it remembered (`settings::model::QualityPreset`). The render context gets the three
+/// values like the single controls give them, the settings file keeps the choice, and the
+/// controls are pushed back so the slider and the lists show the preset's numbers.
+fn setup_quality_preset_callback(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    settings_store: &Arc<SettingsPersister>,
+) {
+    let render_ctx = render_ctx.clone();
+    let settings_store = settings_store.clone();
+    let ui_weak = ui.as_weak();
+    ui.global::<SettingsModel>()
+        .on_quality_preset_selected(move |index: i32| {
+            let preset = QualityPreset::from_index(index);
+            // The same function on a copy to push and on the persisted copy: the settings
+            // writer is debounced, and the push must not wait for it.
+            let mut next = settings_store.snapshot().settings;
+            next.select_quality_preset(preset);
+            settings_store.update(|s| s.settings.select_quality_preset(preset));
+            {
+                let mut ctx = RenderContext::lock(&render_ctx);
+                ctx.target_samples = next.target_samples;
+                ctx.width = next.render_width;
+                ctx.height = next.render_height;
+                ctx.max_bounces = next.max_bounces;
+                ctx.dirty = true;
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                push_quality_controls(&ui, &next);
+                show_toast(
+                    &ui,
+                    &format!("Live view quality: {}", preset.label()),
+                    "info",
+                );
+            }
+        });
 }
 
 /// Wires the two local render-path controls: the preview-then-settle resolution reduction and

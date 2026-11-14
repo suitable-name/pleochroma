@@ -8,6 +8,8 @@ import { HelpTopics } from "../../models/help.slint";
 import { HelpButton } from "../help_button.slint";
 import { CompactButton } from "../compact_controls.slint";
 import { AdvancedNote } from "../advanced_note.slint";
+import { KitIcon, KitIcons } from "../kit/icons.slint";
+import { TierMenuSurface, TierMenuItem, TierMenuCaption, TierMenuSeparator } from "tier_menu_parts.slint";
 
 // A small text field of the toolbar with a tooltip and a screen-reader label. Read its text
 // through the id (`step_name.text`).
@@ -35,8 +37,8 @@ component TipField inherits Rectangle {
         accepted => { root.accepted(); }
         changed has-focus => { EditorModel.text_focus = self.has-focus; }
     }
-    // The hint in an empty field, at the typed text's size. It takes no clicks (a `Text` does not),
-    // so they reach the field beneath. The 12 px is the field's own left padding.
+    // The hint in an empty field, at the typed text's size. It takes no clicks, so they reach the
+    // field beneath. The 12 px is the field's own left padding.
     if root.text == "": Text {
         x: 12px;
         width: parent.width - 24px;
@@ -50,249 +52,404 @@ component TipField inherits Rectangle {
     }
 }
 
-// `EditorTierTable`'s toolbar: the name/index/block/strategy/meets filter
-// box, the "+ Add Tier"/"Adopt all"/"Select" row, the quick-add anchor
-// buttons plus the "Steps / Mirror" toggle and its inline form, and the
-// multi-select batch-action bar (shown only while more than one row is
-// selected). Root is a plain `VerticalLayout` (not a `Rectangle`) so it
-// slots into `EditorTierTable`'s own `VerticalLayout` exactly like these five
-// pieces did before extraction -- same `spacing: 4px` as that parent, so the
-// gap above/below this whole group and between the pieces inside it stays
-// the same pixel value either way.
+// "Add Tier" with a menu: the body adds a tier (opens the Tier form in Add mode); the chevron opens
+// the menu of the other ways to add one. A split button, in the accent color.
+component AddTierSplit inherits Rectangle {
+    // The body's click: Add mode.
+    callback add();
+    // Menu picks.
+    callback add_concave();
+    callback add_table();
+    callback add_girdle();
+    callback add_culet();
+    callback add_girdle_preset();
+
+    property <bool> body_enabled: GuideModel.allows_tier_form();
+    property <bool> quick_enabled: GuideModel.allows_tier_table();
+
+    height: 28px;
+    width: 126px;
+    border-radius: 8px;
+    background: Theme.accent-cyan;
+    opacity: root.body_enabled ? 1.0 : 0.4;
+
+    // The body: plus and text. Named "+ Add Tier" for a screen reader and the lesson routes.
+    body := Rectangle {
+        x: 0px;
+        width: parent.width - 30px;
+        height: parent.height;
+        border-radius: 8px;
+        background: (body_touch.has-hover && root.body_enabled) ? Theme.accent-cyan-hover : transparent;
+        border-width: body_focus.has-focus ? 2px : 0px;
+        border-color: Theme.text-on-accent;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "+ Add Tier";
+        accessible-description: root.body_enabled ? "Open the Tier tab in Add mode to author a new tier." : GuideModel.locked_hint;
+        accessible-enabled: root.body_enabled;
+        accessible-action-default => {
+            if root.body_enabled {
+                root.add();
+            }
+        }
+        Tooltip { text: root.body_enabled ? @markdown("Open the Tier tab in Add mode to author a new tier.") : @markdown("\{GuideModel.locked_hint}"); }
+        body_focus := FocusScope {
+            enabled: root.body_enabled;
+            key-pressed(event) => {
+                if event.text == Key.Space || event.text == Key.Return {
+                    root.add();
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            VerticalLayout {
+                alignment: center;
+                KitIcon { d: KitIcons.plus; size: 14px; ink: Theme.text-on-accent; stroke: 2.2px; }
+            }
+            Text {
+                text: "Add Tier";
+                font-size: 12px;
+                font-weight: 700;
+                color: Theme.text-on-accent;
+                vertical-alignment: center;
+            }
+        }
+        body_touch := TouchArea {
+            enabled: root.body_enabled;
+            mouse-cursor: pointer;
+            clicked => { root.add(); }
+        }
+    }
+    Rectangle {
+        x: body.width;
+        y: 6px;
+        width: 1px;
+        height: parent.height - 12px;
+        background: Theme.text-on-accent;
+        opacity: 0.35;
+    }
+    // The chevron: opens the menu.
+    chevron := Rectangle {
+        x: parent.width - 30px;
+        width: 30px;
+        height: parent.height;
+        border-radius: 8px;
+        background: chevron_touch.has-hover ? Theme.accent-cyan-hover : transparent;
+        border-width: chevron_focus.has-focus ? 2px : 0px;
+        border-color: Theme.text-on-accent;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "More Ways to Add a Tier";
+        accessible-description: "Tier, Concave Tier, Table, Girdle, Culet and the Girdle Facet Preset.";
+        accessible-action-default => { add_menu.show(); }
+        chevron_focus := FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Space || event.text == Key.Return || event.text == Key.DownArrow {
+                    add_menu.show();
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        KitIcon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            d: KitIcons.chevron-down;
+            size: 14px;
+            ink: Theme.text-on-accent;
+            stroke: 2.2px;
+        }
+        chevron_touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { add_menu.show(); }
+        }
+    }
+
+    add_menu := PopupWindow {
+        x: 0px;
+        y: root.height + 4px;
+        width: 220px;
+        height: 8px + 28px + 28px + 9px + 22px + 3 * 28px + 9px + 28px;
+        close-policy: close-on-click-outside;
+        TierMenuSurface {
+            width: parent.width;
+            height: parent.height;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: "Add Tier Menu";
+            VerticalLayout {
+                padding: 4px;
+                TierMenuItem {
+                    text: "Tier";
+                    label: "Add Tier";
+                    hint: "Open the Tier tab in Add mode to author a new tier.";
+                    enabled: root.body_enabled;
+                    activated => { add_menu.close(); root.add(); }
+                }
+                TierMenuItem {
+                    text: "Concave Tier";
+                    label: "+ Add Concave Tier";
+                    hint: GuideModel.allows_concave_tier() ? "Open the Tier tab in Add mode for a concave tier -- a facet cut with a\ntool (cylinder, cone, circle, disc or sphere) instead of a flat lap." : GuideModel.locked_hint;
+                    enabled: GuideModel.allows_concave_tier();
+                    activated => { add_menu.close(); root.add_concave(); }
+                }
+                TierMenuSeparator { }
+                TierMenuCaption { text: "QUICK ADD"; }
+                TierMenuItem {
+                    text: "Table";
+                    label: "Table";
+                    hint: root.quick_enabled ? "Add a Table tier (0\u{b0}, pinned to an exact scale value) --\na starting anchor for the crown. See the glossary." : GuideModel.locked_hint;
+                    enabled: root.quick_enabled && !EditorModel.tier_name_taken(EditorModel.tiers, "Table");
+                    activated => { add_menu.close(); root.add_table(); }
+                }
+                TierMenuItem {
+                    text: "Girdle";
+                    label: "Girdle";
+                    hint: root.quick_enabled ? "Add a Girdle tier (90\u{b0}, pinned to an exact scale value = half-width) --\n90\u{b0} is required for a real girdle band. See the glossary." : GuideModel.locked_hint;
+                    enabled: root.quick_enabled && !EditorModel.tier_name_taken(EditorModel.tiers, "Girdle");
+                    activated => { add_menu.close(); root.add_girdle(); }
+                }
+                TierMenuItem {
+                    text: "Culet";
+                    label: "Culet";
+                    hint: root.quick_enabled ? "Add a Culet tier (a flat pavilion facet, pinned to an exact scale\nvalue) -- a starting anchor for the pavilion. See the glossary." : GuideModel.locked_hint;
+                    enabled: root.quick_enabled && !EditorModel.tier_name_taken(EditorModel.tiers, "Culet");
+                    activated => { add_menu.close(); root.add_culet(); }
+                }
+                TierMenuSeparator { }
+                TierMenuItem {
+                    text: "Girdle Facet Preset";
+                    label: "Girdle Facet Preset (90\u{b0}, Scale = 1)";
+                    hint: root.body_enabled ? "Open Add mode with a real girdle facet filled in: angle 90\u{b0} and\nMeets set to the exact scale value 1. Name and Indices stay as they are." : GuideModel.locked_hint;
+                    enabled: root.body_enabled;
+                    activated => { add_menu.close(); root.add_girdle_preset(); }
+                }
+            }
+        }
+    }
+}
+
+// `EditorTierTable`'s toolbar: the filter box with the list menu ("..."), the "Add Tier" split
+// button, "Steps / Mirror" and its inline form, and the multi-select batch-action bar (shown only
+// while more than one row is selected). The list menu holds Adopt All and Select. Quick Add (Table,
+// Girdle, Culet) and the concave entry live in the Add Tier menu. Root is a plain `VerticalLayout`
+// so it slots into `EditorTierTable`'s own `VerticalLayout`.
 //
-// While the worked-example guide runs, "+ Add Tier" follows
-// `GuideModel.allows_tier_form()` and every other action here follows
-// `allows_tier_table()`: a locked button is dimmed, ignores clicks and shows the
-// guide's lock tooltip instead of its own (see `GuideAllow`, `models/guide.slint`).
+// While the worked-example guide runs, "Add Tier" follows `GuideModel.allows_tier_form()` and every
+// other action here follows `allows_tier_table()`: a locked button is dimmed, ignores clicks and
+// shows the guide's lock tooltip instead of its own (see `GuideAllow`, `models/guide.slint`).
 //
-// The Simple interface (`GuideModel.shows_advanced()`) leaves out the filter box, "Adopt all",
-// "Steps / Mirror" and its form, and "Adopt sel." in the multi-select bar; Select, Clear, Delete
-// and Offset stay. A line says so when a tier is detached, since the Detach buttons are hidden
-// too. The filter does nothing while it is hidden (`TierTableRow.row_matches`).
+// The Simple interface (`GuideModel.shows_advanced()`) leaves out the filter box, "Adopt All",
+// "Steps / Mirror" and its form, and "Adopt Sel." in the multi-select bar; Select, Clear, Delete and
+// Offset stay. A line says so when a tier is detached, since the Detach actions are hidden too.
 export component TierTableToolbar inherits VerticalLayout {
-    // Mirrored two-way with `EditorTierTable.select_mode`: the "Select"
-    // button here toggles it, and the tier table's header/rows both read it
-    // (the checkbox column, and per-row multi-select toggling).
+    // Mirrored two-way with `EditorTierTable.select_mode`: the "Select" menu item toggles it, and
+    // the tier list's rows read it (the tick-box column, and per-row multi-select toggling).
     in-out property <bool> select_mode: false;
-    // Read-only here: "Mirror" applies to the tier the tier list's own keyboard cursor is on.
-    // The multi-select "Offset" acts on the ticked group and only uses the cursor to pick
-    // which ticked row anchors it.
+    // Read-only here: "Mirror" applies to the tier the tier list's own keyboard cursor is on. The
+    // multi-select "Offset" acts on the ticked group and only uses the cursor to pick its anchor.
     in property <int> keyboard_focus_index: -1;
 
-    // Whether the "Generate steps..." inline form is open. Local to this
-    // toolbar -- nothing outside it needs to know.
+    // Whether the "Generate steps..." inline form is open.
     property <bool> generate_steps_open: false;
-    // The Steps form's "Keep linked" box: Generate then makes every tier after the first
-    // follow the first (`RelationModel.generate_step_series_linked`), so moving the first
-    // tier moves the whole ladder. Local, like `generate_steps_open`.
+    // The Steps form's "Keep linked" box: Generate then makes every tier after the first follow the
+    // first (`RelationModel.generate_step_series_linked`).
     property <bool> keep_linked: false;
     property <bool> advanced: GuideModel.shows_advanced();
 
-    // Lets `EditorTierTable.focus_filter()` (Ctrl+F) reach `filter_edit`. The field stays
-    // mounted while the Simple interface hides it, since an id inside an `if` cannot be
-    // reached from here, and Ctrl+F then does nothing.
+    // Lets `EditorTierTable.focus_filter()` (Ctrl+F) reach `filter_edit`. The field stays mounted
+    // while the Simple interface hides it, and Ctrl+F then does nothing.
     public function focus_filter() {
         if root.advanced {
             filter_edit.focus();
         }
     }
 
-    spacing: 4px;
+    spacing: 6px;
 
-    // The search/filter box itself -- narrows the rendered rows by
-    // name/index/block/strategy/meets substring (row indices stay whatever
-    // `EditorTierItem.index` already says, so every callback below still
-    // identifies the right tier regardless of what's dimmed). Non-matching
-    // rows are DIMMED rather than removed from layout, so Up/Down/Home/End's
-    // arithmetic (all of it keyed on `EditorModel.tiers.length`, not a
-    // filtered count) keeps working exactly as it does with no filter set.
-    Rectangle {
-        height: root.advanced ? 28px : 0px;
-        visible: root.advanced;
-        background: Theme.bg-input;
-        border-radius: Theme.radius-sm;
-        border-width: 1px;
-        border-color: filter_edit.has-focus ? Theme.accent-cyan : Theme.border-subtle;
-        HorizontalLayout {
-            padding-left: 6px;
-            padding-right: 6px;
-            spacing: 4px;
-            VerticalLayout {
-                alignment: center;
-                Image {
-                    source: @image-url("../../icons/search.svg");
-                    colorize: Theme.text-muted;
-                    width: 12px;
-                    height: 12px;
-                    image-fit: contain;
+    // Row one: the filter box and the list menu. Non-matching rows are DIMMED rather than removed,
+    // so Up/Down/Home/End keep their arithmetic (keyed on `EditorModel.tiers.length`).
+    HorizontalLayout {
+        spacing: 6px;
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 30px;
+            visible: root.advanced;
+            background: Theme.bg-input;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: filter_edit.has-focus ? Theme.accent-cyan : Theme.border-subtle;
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 6px;
+                spacing: 6px;
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../../icons/search.svg");
+                        colorize: Theme.text-muted;
+                        width: 13px;
+                        height: 13px;
+                        image-fit: contain;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    filter_edit := LineEdit {
+                        height: 24px;
+                        min-width: 0px;
+                        enabled: root.advanced;
+                        text <=> EditorModel.tier_filter_text;
+                        placeholder-text: "Filter tiers by name, index, block or strategy...";
+                        font-size: 11px;
+                        accessible-label: "Filter Tiers";
+                        accessible-description: "Type part of a name, an index, a block or a strategy. Tiers that do not match are dimmed.";
+                        changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                    }
+                }
+                if EditorModel.tier_filter_text != "": VerticalLayout {
+                    alignment: center;
+                    CompactButton {
+                        height: 24px;
+                        font_size: 11px;
+                        width: 22px;
+                        text: "x";
+                        ink: Theme.text-muted;
+                        hint: "Clear the filter.";
+                        clicked => { EditorModel.tier_filter_text = ""; }
+                    }
                 }
             }
-            VerticalLayout {
-                alignment: center;
-                horizontal-stretch: 1;
-                filter_edit := LineEdit {
-                    height: 22px;
-                    min-width: 0px;
-                    enabled: root.advanced;
-                    text <=> EditorModel.tier_filter_text;
-                    placeholder-text: "Filter tiers by name, index, block or strategy...";
-                    font-size: 10px;
-                    accessible-label: "Filter Tiers";
-                    accessible-description: "Type part of a name, an index, a block or a strategy. Tiers that do not match are dimmed.";
-                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+        }
+        if !root.advanced: Rectangle { horizontal-stretch: 1; }
+        // The list menu: actions on the whole list.
+        list_menu_button := Rectangle {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            background: list_touch.has-hover ? Theme.bg-card-hover : Theme.bg-input;
+            border-width: list_focus.has-focus ? 2px : 1px;
+            border-color: list_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-subtle;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Tier List Menu";
+            accessible-description: "Adopt All and Select, which act on the whole list.";
+            accessible-action-default => { list_menu.show(); }
+            Tooltip { text: @markdown("Adopt All and Select: actions on the whole list."); }
+            list_focus := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        list_menu.show();
+                        return accept;
+                    }
+                    return reject;
                 }
             }
-            if EditorModel.tier_filter_text != "": VerticalLayout {
-                alignment: center;
-                CompactButton {
-                    height: 24px;
-                    font_size: 10px;
-                    width: 20px;
-                    text: "x";
-                    ink: Theme.text-muted;
-                    hint: "Clear the filter.";
-                    clicked => { EditorModel.tier_filter_text = ""; }
+            KitIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                d: KitIcons.more;
+                size: 16px;
+                stroke: 2.4px;
+                ink: Theme.text-secondary;
+            }
+            list_touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { list_menu.show(); }
+            }
+            list_menu := PopupWindow {
+                x: parent.width - 200px;
+                y: parent.height + 4px;
+                width: 200px;
+                height: 8px + (root.advanced ? 28px : 0px) + 28px;
+                close-policy: close-on-click-outside;
+                TierMenuSurface {
+                    width: parent.width;
+                    height: parent.height;
+                    accessible-role: AccessibleRole.groupbox;
+                    accessible-label: "Tier List Actions";
+                    VerticalLayout {
+                        padding: 4px;
+                        // Bulk-adopts every tier that still has an unadopted imported meet, as one
+                        // undoable step. A click with nothing to adopt is a harmless no-op in Rust.
+                        if root.advanced: TierMenuItem {
+                            text: "Adopt All";
+                            label: "Adopt All";
+                            hint: GuideModel.allows_tier_table() ? "Adopt every tier's imported meet at once, as one Undo step. See the glossary." : GuideModel.locked_hint;
+                            enabled: GuideModel.allows_tier_table();
+                            activated => { list_menu.close(); EditorModel.adopt_all(); }
+                        }
+                        // Shows the tick-box column, where a plain click adds or removes a row: the
+                        // same group Ctrl+click and Shift+click build.
+                        TierMenuItem {
+                            text: "Select";
+                            label: "Select";
+                            hint: GuideModel.allows_tier_table() ? "Show a tick box column for choosing several tiers at once -- the\nsame group Ctrl+click and Shift+click build, without needing\nthe modifier key. From the keyboard, press Space on a row." : GuideModel.locked_hint;
+                            enabled: GuideModel.allows_tier_table();
+                            checked: root.select_mode;
+                            activated => { list_menu.close(); root.select_mode = !root.select_mode; }
+                        }
+                    }
                 }
             }
         }
     }
 
-    // Bulk-adopts every tier that still has an unadopted imported meet,
-    // as one undoable step, instead of one Adopt click (and one
-    // re-solve) per tier. Always shown rather than conditioned on "does
-    // anything need adopting" -- Slint has no cheap way to ask that of
-    // `EditorModel.tiers` from a binding here -- so a click with nothing
-    // to adopt is a harmless no-op handled on the Rust side
-    // (`EditorModel.adopt_all`, declared on `EditorModel` and wired to
-    // `gui::editor::callbacks::tier_actions::setup_adopt_all_callback`).
+    // Row two: Add Tier, Steps / Mirror and the manual.
     HorizontalLayout {
-        padding-left: 4px;
-        padding-right: 4px;
         spacing: 6px;
-        // A "+ Add Tier" button in the table, next to the Tier tab's form. It sets
-        // `selected_tier_index = -1` and the inspector tab properties, the same as the row's
-        // "Add Anchor" action (`TierRowActions`). Entering Add mode while already in it has
-        // nothing to reload, so no reload guard is needed.
-        CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 78px;
-            text: "+ Add Tier";
-            ink: Theme.accent-emerald;
-            hint: GuideModel.allows_tier_form() ? "Open the Tier tab in Add mode to author a new tier." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_tier_form();
-            clicked => {
+        AddTierSplit {
+            add => {
+                EditorModel.selected_tier_index = -1;
+                EditorModel.inspector_tab = 0;
+                EditorModel.inspector_collapsed = false;
+            }
+            add_concave => { EditorModel.add_concave_tier(); }
+            add_table => { EditorModel.save_tier(-1, "0", 2, "0.32", "Table", ""); }
+            add_girdle => { EditorModel.save_tier(-1, "90", 2, "1", "Girdle", ""); }
+            add_culet => { EditorModel.save_tier(-1, "-0", 2, "0.88", "Culet", ""); }
+            add_girdle_preset => {
+                EditorModel.girdle_preset_pending = true;
                 EditorModel.selected_tier_index = -1;
                 EditorModel.inspector_tab = 0;
                 EditorModel.inspector_collapsed = false;
             }
         }
-        // The tool-cut counterpart: opens the same Tier tab on the concave form
-        // (tool, theta, X/Y/Z, D/W) instead of the flat one. Handled in Rust
-        // (`EditorModel.add_concave_tier`), which also sets `inspector_concave_mode`.
-        CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 120px;
-            text: "+ Add Concave Tier";
-            hint: GuideModel.allows_concave_tier() ? "Open the Tier tab in Add mode for a concave tier -- a facet cut with a\ntool (cylinder, cone, circle, disc or sphere) instead of a flat lap." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_concave_tier();
-            clicked => { EditorModel.add_concave_tier(); }
-        }
-        Rectangle { horizontal-stretch: 1; }
-        if root.advanced: CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 68px;
-            text: "Adopt All";
-            hint: GuideModel.allows_tier_table() ? "Adopt every tier's imported meet at once, as one Undo step. See the glossary." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_tier_table();
-            clicked => { EditorModel.adopt_all(); }
-        }
-        // On-screen hint for the Ctrl/Shift+click multi-select gesture. Toggling it selects
-        // nothing: it only shows the checkbox column, where a plain click adds or removes a row.
-        CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 54px;
-            text: "Select";
-            lit: root.select_mode;
-            checkable: true;
-            hint: GuideModel.allows_tier_table() ? "Show a tick box column for choosing several tiers at once -- the\nsame group Ctrl+click and Shift+click build, without needing\nthe modifier key. From the keyboard, press Space on a row." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_tier_table();
-            clicked => { root.select_mode = !root.select_mode; }
-        }
-        HelpButton {
-            topic: HelpTopics.tier-table;
-            hint: "Open the manual page on reading the tier table";
-        }
-    }
-
-    // Quick-add buttons for three common first anchors. Each calls
-    // `EditorModel.save_tier` with `index -1` and a `ScaleReference`
-    // constraint pre-filled with reasonable starting mast values, so a
-    // first-time cutter has something solvable to adjust. Single-facet by
-    // design, matching `ConstraintTier::girdle` convention.
-    HorizontalLayout {
-        padding-left: 4px;
-        padding-right: 4px;
-        spacing: 6px;
-        Text { text: "Quick Add:"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.text; }
-        CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 46px;
-            text: "Table";
-            ink: Theme.accent-emerald;
-            hint: GuideModel.allows_tier_table() ? "Add a Table tier (0\u{b0}, pinned to an exact scale value) --\na starting anchor for the crown. See the glossary." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_tier_table() && !EditorModel.tier_name_taken(EditorModel.tiers, "Table");
-            clicked => { EditorModel.save_tier(-1, "0", 2, "0.32", "Table", ""); }
-        }
-        CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 46px;
-            text: "Girdle";
-            ink: Theme.accent-emerald;
-            hint: GuideModel.allows_tier_table() ? "Add a Girdle tier (90\u{b0}, pinned to an exact scale value = half-width) --\n90\u{b0} is required for a real girdle band. See the glossary." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_tier_table() && !EditorModel.tier_name_taken(EditorModel.tiers, "Girdle");
-            clicked => { EditorModel.save_tier(-1, "90", 2, "1", "Girdle", ""); }
-        }
-        CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 46px;
-            text: "Culet";
-            ink: Theme.accent-emerald;
-            hint: GuideModel.allows_tier_table() ? "Add a Culet tier (a flat pavilion facet, pinned to an exact scale\nvalue) -- a starting anchor for the pavilion. See the glossary." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_tier_table() && !EditorModel.tier_name_taken(EditorModel.tiers, "Culet");
-            clicked => { EditorModel.save_tier(-1, "-0", 2, "0.88", "Culet", ""); }
-        }
-        Rectangle { horizontal-stretch: 1; }
         // Toggles the "Generate steps..."/"Mirror to other block" panel below.
-        if root.advanced: CompactButton {
-            height: 24px;
-            font_size: 10px;
-            width: 100px;
-            text: "Steps / Mirror";
-            lit: root.generate_steps_open;
-            checkable: true;
-            hint: GuideModel.allows_tier_table() ? "Generate a step-cut ladder, or mirror the current tier to the opposite block." : GuideModel.locked_hint;
-            enabled: GuideModel.allows_tier_table();
-            clicked => { root.generate_steps_open = !root.generate_steps_open; }
+        if root.advanced: VerticalLayout {
+            alignment: center;
+            CompactButton {
+                height: 28px;
+                font_size: 11px;
+                width: 100px;
+                text: "Steps / Mirror";
+                lit: root.generate_steps_open;
+                checkable: true;
+                hint: GuideModel.allows_tier_table() ? "Generate a step-cut ladder, or mirror the current tier to the opposite block." : GuideModel.locked_hint;
+                enabled: GuideModel.allows_tier_table();
+                clicked => { root.generate_steps_open = !root.generate_steps_open; }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            HelpButton {
+                topic: HelpTopics.tier-table;
+                hint: "Open the manual page on reading the tier table";
+            }
         }
     }
 
-    // The Simple interface hides the Detach buttons: say so while a tier is detached.
+    // The Simple interface hides the Detach action: say so while a tier is detached.
     if !root.advanced && TierTableModel.any_detached(EditorModel.tiers): HorizontalLayout {
         padding-left: 4px;
         padding-right: 4px;
         AdvancedNote { }
     }
 
-    // The "Generate steps" ladder form and "Mirror to other block" buttons.
-    // Both call `EditorModel`, which uses `ConstraintTier::step_series` and
-    // `mirrored_to_other_block` in `pleochroma-cut-core`.
+    // The "Generate steps" ladder form and "Mirror to other block" buttons. Both call
+    // `EditorModel`, which uses `ConstraintTier::step_series` and `mirrored_to_other_block`.
     if root.advanced && root.generate_steps_open: VerticalLayout {
         padding-left: 4px;
         padding-right: 4px;
@@ -329,6 +486,9 @@ export component TierTableToolbar inherits VerticalLayout {
                 hint: "How many tiers to generate.";
                 reader_label: "Number of Tiers";
             }
+        }
+        HorizontalLayout {
+            spacing: 4px;
             step_indices_edit := TipField {
                 horizontal-stretch: 1;
                 min-width: 72px;
@@ -375,8 +535,8 @@ export component TierTableToolbar inherits VerticalLayout {
                 }
             }
         }
-        // Makes the ladder follow its first tier: every later tier gets a relation
-        // ("Step1 + 2", "Step1 + 4", ...), so editing the first tier moves them all.
+        // Makes the ladder follow its first tier: every later tier gets a relation, so editing the
+        // first tier moves them all.
         HorizontalLayout {
             spacing: 4px;
             Rectangle {
@@ -458,8 +618,7 @@ export component TierTableToolbar inherits VerticalLayout {
             enabled: GuideModel.allows_tier_table();
             clicked => { EditorModel.remove_multi_selected(); }
         }
-        // "Adopt all" restricted to the current multi-selection, freeing a
-        // Ctrl-clicked group for Optimize without disturbing other tiers.
+        // "Adopt all" restricted to the current multi-selection.
         if root.advanced: CompactButton {
             height: 24px;
             font_size: 10px;
@@ -469,12 +628,9 @@ export component TierTableToolbar inherits VerticalLayout {
             enabled: GuideModel.allows_tier_table();
             clicked => { EditorModel.adopt_selected(); }
         }
-        // A batch "offset angle by X" mini-form, reusing `nudge_angle` instead
-        // of adding a new callback. `root.keyboard_focus_index` is only a hint for
-        // the anchor: Rust (`TierTableModel.offset_selected`) uses it when it is a
-        // ticked row and otherwise the first ticked row, so the bar works without
-        // moving the cursor. The text goes through the same call, which reads a
-        // plain number or a small calculation and says in a toast when it cannot.
+        // A batch "offset angle by X" mini-form. `root.keyboard_focus_index` is only a hint for the
+        // anchor: Rust (`TierTableModel.offset_selected`) uses it when it is a ticked row and
+        // otherwise the first ticked row.
         offset_edit := TipField {
             width: 64px;
             placeholder: "deg";

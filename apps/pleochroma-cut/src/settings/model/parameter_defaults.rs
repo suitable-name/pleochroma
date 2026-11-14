@@ -111,6 +111,8 @@ impl AppSettings {
         self.render_width = d.render_width;
         self.render_height = d.render_height;
         self.max_bounces = d.max_bounces;
+        self.quality_preset = d.quality_preset;
+        self.custom_quality = d.custom_quality;
         self.local_preview_scale = d.local_preview_scale;
         self.live_compute_target = d.live_compute_target;
         self.local_compute_target = d.local_compute_target;
@@ -281,11 +283,14 @@ mod tests {
     #[test]
     fn resetting_the_render_tab_equals_the_default_for_every_field_it_owns() {
         use crate::settings::model::{LiveComputeTarget, LocalComputeTarget, LocalPreviewScale};
-        let mut s = AppSettings::default();
-        s.target_samples = 8;
-        s.render_width = 320;
-        s.render_height = 200;
-        s.max_bounces = 4;
+        let mut s = AppSettings {
+            target_samples: 8,
+            render_width: 320,
+            render_height: 200,
+            max_bounces: 4,
+            ..Default::default()
+        };
+        s.note_quality_edit();
         s.local_preview_scale = LocalPreviewScale::Half;
         s.live_compute_target = LiveComputeTarget::LocalOnly;
         s.local_compute_target = LocalComputeTarget::Cpu;

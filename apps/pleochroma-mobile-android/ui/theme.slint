@@ -1,54 +1,79 @@
-// Design tokens for the mobile app: a Material-3-like palette for dark and light,
-// state-layer opacities, the type scale, spacing, corner radii and elevation.
+// Design tokens for the mobile app: the desktop's dark palette (`ui-shared/palette.slint`, also
+// read by the desktop `Theme`) under the Material role names, plus the kit tokens, state-layer
+// opacities, the type scale, spacing, corner radii and elevation.
 //
-// `Theme.dark` follows the system scheme (`Palette.color-scheme`, which the Material
-// widget style fills from the platform) unless the preference forces dark or light
-// (`Shell.theme-choice`, pushed from the settings).
-import { Palette } from "std-widgets.slint";
+// The app is dark in both themes. The theme preference (`Shell.theme-choice`, pushed from the
+// settings) is 0 Dark or 1 High Contrast; High Contrast sets `PleoPalette.high-contrast`, which
+// switches every color token below to the desktop's high-contrast value.
+//
+// Contrast: `on-surface-variant` maps to the desktop's `text-secondary`, not `text-muted`
+// (3.4:1 on a card): body text keeps 4.5:1 or more on every surface. `text-muted` and
+// `outline` are for hints and borders only.
+import { PleoPalette } from "../../../ui-shared/palette.slint";
 import { Shell } from "models.slint";
 
 export global Theme {
-    out property <bool> dark: Shell.theme-choice == 1 ? true : (Shell.theme-choice == 2 ? false : Palette.color-scheme == ColorScheme.dark);
+    /// Whether the high-contrast palette is on: the theme preference's second choice.
+    out property <bool> high-contrast: PleoPalette.high-contrast;
+
+    // Shell.theme-choice -> palette. A `changed` handler does not run at start-up, but Rust
+    // pushes the stored choice after the window exists, and a High Contrast choice differs
+    // from the default 0.
+    property <bool> high-contrast-choice: Shell.theme-choice == 1;
+    changed high-contrast-choice => {
+        PleoPalette.high-contrast = root.high-contrast-choice;
+    }
 
     // Surfaces, from the page background up to the highest container.
-    out property <color> surface: dark ? #141218 : #fef7ff;
-    out property <color> surface-low: dark ? #1d1b20 : #f7f2fa;
-    out property <color> surface-container: dark ? #211f26 : #f3edf7;
-    out property <color> surface-high: dark ? #2b2930 : #ece6f0;
-    out property <color> surface-highest: dark ? #36343b : #e6e0e9;
-    out property <color> on-surface: dark ? #e6e0e9 : #1d1b20;
-    out property <color> on-surface-variant: dark ? #cac4d0 : #49454f;
+    out property <color> surface: PleoPalette.bg-darkest;
+    out property <color> surface-low: PleoPalette.bg-dark;
+    out property <color> surface-container: PleoPalette.bg-card;
+    out property <color> surface-high: PleoPalette.bg-card-hover;
+    out property <color> surface-highest: PleoPalette.bg-elevated;
+    out property <color> on-surface: PleoPalette.text-primary;
+    out property <color> on-surface-variant: PleoPalette.text-secondary;
 
-    // Accent roles.
-    out property <color> primary: dark ? #d0bcff : #6750a4;
-    out property <color> on-primary: dark ? #381e72 : #ffffff;
-    out property <color> primary-container: dark ? #4f378b : #eaddff;
-    out property <color> on-primary-container: dark ? #eaddff : #21005d;
-    out property <color> secondary-container: dark ? #4a4458 : #e8def8;
-    out property <color> on-secondary-container: dark ? #e8def8 : #1d192b;
+    // Kit tokens: the desktop's own names.
+    /// The translucent glass panel over a picture, and its hairline edge.
+    out property <color> glass-bg: PleoPalette.glass-bg;
+    out property <color> glass-edge: PleoPalette.glass-edge;
+    /// The cyan accent, and the dark fill under accent content.
+    out property <color> accent: PleoPalette.accent-cyan;
+    out property <color> accent-surface: PleoPalette.accent-cyan-surface;
+    /// Secondary text (6.3:1 on a card) and hint text (3.4:1: not for facts the cutter reads).
+    out property <color> text-secondary: PleoPalette.text-secondary;
+    out property <color> text-muted: PleoPalette.text-muted;
+
+    // Accent roles. Primary is the desktop's cyan; its containers use the cyan surface.
+    out property <color> primary: PleoPalette.accent-cyan;
+    out property <color> on-primary: PleoPalette.text-on-accent;
+    out property <color> primary-container: PleoPalette.accent-cyan-surface;
+    out property <color> on-primary-container: PleoPalette.accent-cyan-hover;
+    out property <color> secondary-container: PleoPalette.accent-cyan-surface;
+    out property <color> on-secondary-container: PleoPalette.accent-cyan-hover;
 
     // Lines and feedback.
-    out property <color> outline: dark ? #938f99 : #79747e;
-    out property <color> outline-variant: dark ? #49454f : #cac4d0;
-    out property <color> error: dark ? #f2b8b5 : #b3261e;
-    out property <color> on-error: dark ? #601410 : #ffffff;
-    out property <color> error-container: dark ? #601410 : #f9dedc;
-    out property <color> on-error-container: dark ? #f2b8b5 : #410e0b;
+    out property <color> outline: PleoPalette.text-muted;
+    out property <color> outline-variant: PleoPalette.border-medium;
+    out property <color> error: PleoPalette.danger;
+    out property <color> on-error: PleoPalette.text-on-accent;
+    out property <color> error-container: PleoPalette.danger-surface-hover;
+    out property <color> on-error-container: PleoPalette.danger;
     out property <color> scrim: #000000;
 
     // Verdict roles: good (success) and check (warning); problems use the error roles.
-    out property <color> success: dark ? #7fd69a : #1b7a3a;
-    out property <color> on-success: dark ? #0b3a1c : #ffffff;
-    out property <color> success-container: dark ? #1f3a2a : #c9efd3;
-    out property <color> on-success-container: dark ? #b9f0c8 : #0c3a1a;
-    out property <color> warning: dark ? #f0c24f : #a06a00;
-    out property <color> on-warning: dark ? #3d2e00 : #ffffff;
-    out property <color> warning-container: dark ? #4a3a12 : #ffe9a8;
-    out property <color> on-warning-container: dark ? #ffe08a : #3d2e00;
+    out property <color> success: PleoPalette.success;
+    out property <color> on-success: PleoPalette.text-on-accent;
+    out property <color> success-container: PleoPalette.badge-emerald-bg;
+    out property <color> on-success-container: PleoPalette.text-primary;
+    out property <color> warning: PleoPalette.accent-amber;
+    out property <color> on-warning: PleoPalette.text-on-accent;
+    out property <color> warning-container: PleoPalette.surface-warning;
+    out property <color> on-warning-container: PleoPalette.badge-amber-text;
 
     // Snackbar colors (inverted against the page).
-    out property <color> inverse-surface: dark ? #e6e0e9 : #322f35;
-    out property <color> on-inverse-surface: dark ? #322f35 : #f5eff7;
+    out property <color> inverse-surface: PleoPalette.text-primary;
+    out property <color> on-inverse-surface: PleoPalette.text-on-accent;
 
     // Verdict levels 0 (good), 1 (check) and 2 (problem); -1 is not judged. The container and
     // content roles fall back to the error roles for any other level, so callers guard -1.
@@ -107,7 +132,7 @@ export global Theme {
     out property <length> sheet-peek: 56px;
 
     // Elevation: shadow color and the blur/offset of levels 1 to 3.
-    out property <color> shadow: dark ? #000000b0 : #00000040;
+    out property <color> shadow: PleoPalette.modal-shadow;
     out property <length> shadow-blur-1: 3px;
     out property <length> shadow-blur-2: 8px;
     out property <length> shadow-blur-3: 16px;

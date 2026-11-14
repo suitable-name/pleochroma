@@ -259,14 +259,14 @@ fn tier_step(planned: &PlannedTier, number: usize, total: usize, gear: u32) -> G
         format!("Meets: {}", meets_text(planned)),
         format!("Name: {name}"),
         format!("Indices: {}", indices_line(planned, gear)),
-        "Click Add Tier.".to_owned(),
+        "Click Add This Tier.".to_owned(),
     ];
     GuideStep::new(
         format!("Add {} ({})", tier_label(planned), planned.role.label()),
         format!("Tier {number} of {total}. {}", planned.role.blurb()),
     )
     .actions(actions)
-    .check(format!("a {name} row in the tier table."))
+    .check(format!("a {name} row in the tier list."))
     .why(format!(
         "{} {}{}{}",
         planned.role.why(),
@@ -299,7 +299,7 @@ fn group_step(plan: &[PlannedTier], positions: &[usize], gear: u32) -> GuideStep
     };
     let mut actions = vec![
         "For each tier below: click + Add Tier, fill in the fields as listed, and click Add \
-         Tier."
+         This Tier."
             .to_owned(),
     ];
     for planned in &tiers {
@@ -397,7 +397,7 @@ fn concave_step(tier: &ConcaveTier, code: &str, number: usize, gear: u32) -> Gui
     };
     let [x, y, z] = tier.displacement;
     let mut actions = vec![
-        "Click + Add Concave Tier in the tier table's toolbar.".to_owned(),
+        "Open the Add Tier menu above the tier list and click Concave Tier.".to_owned(),
         format!("Name: {}", tier.name.trim()),
         format!("Angle (deg): {}", number_text(tier.angle_deg, 4)),
         format!("Indices: {typed}"),
@@ -418,11 +418,11 @@ fn concave_step(tier: &ConcaveTier, code: &str, number: usize, gear: u32) -> Gui
         actions.push(format!("Tool Angle (deg): {}", number_text(angle, 2)));
     }
     actions.push(format!(
-        "Reciprocating: {}",
+        "Stroke: {}",
         if tier.motion.word() == "reciprocating" {
-            "ticked"
+            "Back and Forth (reciprocating)"
         } else {
-            "unticked (plunge)"
+            "One Way (plunge)"
         }
     ));
     actions.push("Click Add Concave Tier.".to_owned());

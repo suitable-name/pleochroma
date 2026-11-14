@@ -32,6 +32,53 @@ pub struct LightingRow {
     pub title: String,
     /// One sentence about the rig.
     pub description: String,
+    /// The name under the rig's picture (`Light Tent`, `Grading Tray`).
+    pub short_name: String,
+    /// The picture of the shared `PleoRigThumb` (0 to 12 for the visible-light rigs, the order
+    /// of `LightingPreset::ALL`, as on the desktop).
+    pub kind: i32,
+}
+
+/// The short name of `preset` (the desktop's rig-gallery names).
+const fn short_name_of(preset: LightingPreset) -> &'static str {
+    match preset {
+        LightingPreset::LightTent => "Light Tent",
+        LightingPreset::IsoHemisphere => "Grading Tray",
+        LightingPreset::WhiteTray => "White Tray",
+        LightingPreset::ShopLights => "Jewelry Shop",
+        LightingPreset::WindowDaylight => "Window Daylight",
+        LightingPreset::DaylightDome => "Sky, No Sun",
+        LightingPreset::DaylightSun => "Sky + Sun",
+        LightingPreset::Daylight => "D65 Daylight",
+        LightingPreset::Incandescent => "Incandescent",
+        LightingPreset::IlluminantA => "Incandescent A",
+        LightingPreset::RingLights => "Ring Lights",
+        LightingPreset::DarkSpotlight => "Dark Spotlight",
+        LightingPreset::Aset => "Contrast View",
+        LightingPreset::UvLamp365 => "UV 365 nm",
+        LightingPreset::UvLamp395 => "UV 395 nm",
+    }
+}
+
+/// The `PleoRigThumb` kind of `preset`.
+const fn kind_of(preset: LightingPreset) -> i32 {
+    match preset {
+        LightingPreset::LightTent => 0,
+        LightingPreset::IsoHemisphere => 1,
+        LightingPreset::WhiteTray => 2,
+        LightingPreset::ShopLights => 3,
+        LightingPreset::WindowDaylight => 4,
+        LightingPreset::DaylightDome => 5,
+        LightingPreset::DaylightSun => 6,
+        LightingPreset::Daylight => 7,
+        LightingPreset::Incandescent => 8,
+        LightingPreset::IlluminantA => 9,
+        LightingPreset::RingLights => 10,
+        LightingPreset::DarkSpotlight => 11,
+        LightingPreset::Aset => 12,
+        LightingPreset::UvLamp365 => 13,
+        LightingPreset::UvLamp395 => 14,
+    }
 }
 
 /// The Title Case label of `preset`.
@@ -102,6 +149,8 @@ pub fn lighting_rows() -> Vec<LightingRow> {
             name: preset.label().to_owned(),
             title: title_of(preset).to_owned(),
             description: description_of(preset).to_owned(),
+            short_name: short_name_of(preset).to_owned(),
+            kind: kind_of(preset),
         })
         .collect()
 }

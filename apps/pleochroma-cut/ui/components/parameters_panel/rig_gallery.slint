@@ -1,0 +1,225 @@
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { KitIcon, KitIcons, KitIconButton, KitRigThumb } from "../kit/kit.slint";
+import { FadedScroll } from "parts.slint";
+
+// The "Change" button of the rig card. Its accessible name stays "Lighting Rig", the name of the
+// control it replaces.
+export component RigChangeButton inherits Rectangle {
+    in property <string> hint;
+    callback clicked();
+
+    height: 28px;
+    width: change_row.preferred-width;
+    border-radius: 8px;
+    background: change_touch.has-hover ? Theme.bg-card-hover : Theme.bg-card;
+    border-width: change_focus.has-focus ? 2px : 1px;
+    border-color: change_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Lighting Rig";
+    accessible-description: root.hint;
+    accessible-action-default => { root.clicked(); }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    change_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    change_row := HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 7px;
+        VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.grid; size: 14px; ink: Theme.text-primary; }
+        }
+        Text {
+            text: "Change";
+            font-size: 13px;
+            font-weight: 500;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+    }
+
+    change_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One rig of the gallery: its picture, short name and one-line blurb. The accessible name is the
+// rig's full name from `ViewportModel.lighting_options`, as the dropdown's entries had.
+component GalleryRow inherits Rectangle {
+    in property <string> name;
+    in property <string> full_name;
+    in property <string> blurb;
+    in property <int> kind;
+    in property <bool> on;
+    callback picked();
+
+    height: 50px;
+    border-radius: 10px;
+    background: row_touch.has-hover ? Theme.bg-card-hover : transparent;
+    border-width: root.on || row_focus.has-focus ? 2px : 1px;
+    border-color: row_focus.has-focus ? Theme.accent-cyan-hover : (root.on ? Theme.accent-cyan : Theme.border-subtle);
+
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.full_name;
+    accessible-description: root.blurb;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => { root.picked(); }
+
+    row_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    HorizontalLayout {
+        padding: 6px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            KitRigThumb { kind: root.kind; size: 38px; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.name;
+                font-size: 13px;
+                font-weight: root.on ? 700 : 500;
+                color: root.on ? Theme.text-primary : Theme.text-secondary;
+                overflow: elide;
+            }
+            Text {
+                text: root.blurb;
+                font-size: 11px;
+                color: Theme.text-muted;
+                overflow: elide;
+            }
+        }
+        if root.on: VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.check; size: 16px; ink: Theme.accent-cyan; }
+        }
+    }
+
+    row_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+// The rig gallery, a popover over the Lighting tab: every rig of `ViewportModel.lighting_options`
+// under its group heading (lit models, studio, analysis, ultraviolet). A pick selects the rig
+// (`lighting_changed`) and closes it; Escape or the close button close it too. The groups come in
+// runs, so a heading shows where the group changes.
+export component RigGallery inherits Rectangle {
+    callback closed();
+
+    background: Theme.surface-dialog;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: Theme.shadow-heavy;
+    drop-shadow-offset-y: 6px;
+
+    accessible-role: AccessibleRole.list;
+    accessible-label: "Lighting Rig";
+    accessible-description: "Pick a lighting rig. Escape closes the list.";
+
+    init => { gallery_focus.focus(); }
+
+    gallery_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.closed();
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            HorizontalLayout {
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Lighting Rig";
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+                KitIconButton {
+                    d: KitIcons.close;
+                    size: 24px;
+                    icon_size: 13px;
+                    label: "Close Lighting Rigs";
+                    hint: "Close the list and keep the rig as it is.";
+                    clicked => { root.closed(); }
+                }
+            }
+            FadedScroll {
+                vertical-stretch: 1;
+                tint: Theme.surface-dialog;
+                VerticalLayout {
+                    padding-right: 10px;
+                    // No spacing: the rows of a `for` with an empty `if` would still add it.
+                    spacing: 0px;
+                    for option[i] in ViewportModel.lighting_options: VerticalLayout {
+                        spacing: 0px;
+                        alignment: start;
+                        if i == 0 || ViewportModel.lighting_groups[i - 1] != ViewportModel.lighting_groups[i]: VerticalLayout {
+                            padding-top: i == 0 ? 2px : 12px;
+                            padding-bottom: 6px;
+                            Text {
+                                text: ViewportModel.lighting_groups[i] == 0 ? "LIT MODELS · light from all around"
+                                    : (ViewportModel.lighting_groups[i] == 1 ? "STUDIO · pinpoint lights, as in product photos"
+                                    : (ViewportModel.lighting_groups[i] == 2 ? "ANALYSIS · not scored by the metrics"
+                                    : "ULTRAVIOLET · 365 and 395 nm lamps"));
+                                font-size: 10px;
+                                font-weight: 700;
+                                letter-spacing: 0.6px;
+                                color: Theme.text-muted;
+                                overflow: elide;
+                            }
+                        }
+                        VerticalLayout {
+                            padding-bottom: 4px;
+                            GalleryRow {
+                                name: ViewportModel.lighting_short_names[i] != "" ? ViewportModel.lighting_short_names[i] : option;
+                                full_name: option;
+                                blurb: ViewportModel.lighting_blurbs[i];
+                                kind: ViewportModel.lighting_kinds[i];
+                                on: i == ViewportModel.selected_lighting_index;
+                                picked => {
+                                    ViewportModel.selected_lighting_index = i;
+                                    ViewportModel.lighting_changed(i);
+                                    root.closed();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

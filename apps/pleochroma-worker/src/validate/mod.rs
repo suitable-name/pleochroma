@@ -7,6 +7,7 @@
 //! bounce counts); [`validate_request`] catches the size/count half.
 
 use glam::Vec3;
+use pleochroma::optics::raytracer::MAX_CAMERA_PAN;
 use pleochroma_net::SceneState;
 
 /// Hard cap on `width * height` for a single scene, shared by `render`'s CLI dimensions
@@ -117,6 +118,19 @@ pub fn validate_scene(scene: &SceneState) -> Result<(), String> {
     ] {
         if !v.is_finite() {
             return Err(format!("scene.{name} must be finite (got {v})"));
+        }
+    }
+    for (name, v) in [
+        ("camera_pan[0]", scene.camera_pan[0]),
+        ("camera_pan[1]", scene.camera_pan[1]),
+    ] {
+        if !v.is_finite() {
+            return Err(format!("scene.{name} must be finite (got {v})"));
+        }
+        if v.abs() > MAX_CAMERA_PAN {
+            return Err(format!(
+                "scene.{name} must be within +/-{MAX_CAMERA_PAN} (got {v})"
+            ));
         }
     }
     // The tray's head-on reflectance `R0`: a fraction, 0 (matte tray) to 1 (mirror).

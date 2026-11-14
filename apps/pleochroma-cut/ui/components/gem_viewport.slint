@@ -1,28 +1,31 @@
 import { OpticalModel } from "../models/optical.slint";
 import { OpticalPanel } from "gem_viewport/optical_panel.slint";
 import { Theme } from "../theme.slint";
-import { LightingPresetItem } from "../types.slint";
 import { ExportModel } from "../models/export.slint";
 import { ViewportModel } from "../models/viewport.slint";
 import { SolidPreviewModel } from "../models/solid_preview.slint";
-import { SettingsModel } from "../models/settings.slint";
 import { TiltModel } from "../models/tilt.slint";
 import { EditorModel } from "../models/editor.slint";
-// The Material/Lighting selectors and action-button row -- see
-// `GemViewportToolbarActions`'s own doc comment
-// (`gem_viewport/toolbar_actions.slint`) for why this is split out.
+import { PhysicscolorModel } from "../models/physics_color.slint";
+import { KitGlass } from "kit/kit.slint";
+// The glass toolbar, top right -- see `GemViewportToolbarActions`'s own doc comment
+// (`gem_viewport/toolbar_actions.slint`).
 import { GemViewportToolbarActions } from "gem_viewport/toolbar_actions.slint";
+// The lighting menu and the View menu the toolbar opens.
+import { RigMenu, ViewMenu } from "gem_viewport/rig_menu.slint";
 // "Cut: After P2 (3 of 12)" with a "Show finished" button, while this picture is the Edit
 // tab's design cut back by the Cut slider -- see `LiveCutBadge`'s own doc comment.
 import { LiveCutBadge } from "gem_viewport/live_cut_badge.slint";
+import { PreviewBadge } from "material_chip.slint";
 import { LiveRenderProgress } from "gem_viewport/render_progress.slint";
-import { ModePill } from "pill_button.slint";
-import { HelpButton } from "help_button.slint";
-import { HelpTopics } from "../models/help.slint";
-// The crystal axis readouts of the metrics strip, and the watcher that keeps them current -- see
+import { StatusPill, TraceNoteChip } from "gem_viewport/status_pill.slint";
+import { ProblemBanner, ProblemState } from "gem_viewport/problem_banner.slint";
+import { LiveFigures } from "gem_viewport/live_figures.slint";
+import { GesturesButton } from "gem_viewport/gestures.slint";
+import { InfoChip, ViewSegment } from "gem_viewport/view_parts.slint";
+// The crystal axis readouts of the figures card, and the watcher that keeps them current -- see
 // `CrystalAxisModel` (`models/crystal_axis.slint`).
 import { CrystalAxisModel } from "../models/crystal_axis.slint";
-import { RenderEffectsModel } from "../models/render_effects.slint";
 import { CrystalAxisWatcher, CrystalAxisOverlay } from "solid_viewport/crystal_axis_overlay.slint";
 
 export component GemViewportView inherits Rectangle {
@@ -35,15 +38,33 @@ export component GemViewportView inherits Rectangle {
     property <length> last_mouse_x;
     property <length> last_mouse_y;
     property <bool> is_right_drag: false;
+    // The drag pans (`ViewportModel.camera_pan`) instead of orbiting or moving the light.
+    property <bool> is_pan_drag: false;
     property <bool> is_dragging: false;
     // The picture is the Edit tab's design, cut back by the Cut slider (which Live Render
     // follows): say so. A Library row on the viewport is always drawn whole, so no pill then.
     property <bool> cut_visible: EditorModel.enabled && ViewportModel.shows_editor_design && SolidPreviewModel.tier_cutoff != -1;
+    // Below about 1000 px the mode names shorten, the camera buttons fold into a menu, the
+    // analysis texts drop and the figures card folds. The toolbar needs a little more than that.
+    property <bool> narrow: root.width < 1040px;
+    // Which menu is open: 0 none, 1 the lighting menu, 2 the View menu.
+    property <int> menu: 0;
+    property <bool> traced: ViewportModel.live_view_mode == 1 || ViewportModel.live_view_mode == 2;
+    // The Ray-Traced disclaimer: in the mode's tooltip and the "Approximate" chip's.
+    property <string> ray_note: "Ray-Traced is an approximation: one index per color chain and averaged color; no polarization, doubling, haze, zoning, edge rounding or diffuse frost light. Energy past the bounce limit is omitted. Metrics use a separate analytic tracer."
+        + (ViewportModel.render_color_zone_swatches.length > 0 ? " This material's color pattern shows in Path-Traced views. Ray-Traced shows the base color." : "");
 
-    background: Theme.viewport-bg;
+    // The picture's own backdrop fills the view, so there are no bars beside the stone.
+    background: (ViewportModel.live_view_mode != 0 && ViewportModel.has_render) ? ViewportModel.render_backdrop_color : Theme.viewport-bg;
     border-radius: Theme.radius-md;
     border-width: 1px;
     border-color: Theme.border-subtle;
+
+    function close_menu() {
+        root.menu = 0;
+        // A save-name field that leaves the window while focused never runs its own focus handler.
+        EditorModel.text_focus = false;
+    }
 
     // Tells Rust when something the crystal axis depends on changed.
     CrystalAxisWatcher { }
@@ -79,8 +100,13 @@ export component GemViewportView inherits Rectangle {
                 //
                 // Captured at `down`, so pressing or releasing Shift mid-drag cannot switch the
                 // drag between orbit and light.
-                root.is_right_drag = (event.button == PointerEventButton.right)
-                    || event.modifiers.shift;
+                //
+                // The middle button pans, and so does Ctrl (Cmd on macOS) with the left button,
+                // the substitute for a mouse without a middle button. Captured at `down` too.
+                root.is_pan_drag = (event.button == PointerEventButton.middle)
+                    || (event.button == PointerEventButton.left && (event.modifiers.control || event.modifiers.meta));
+                root.is_right_drag = !root.is_pan_drag
+                    && ((event.button == PointerEventButton.right) || event.modifiers.shift);
                 root.is_dragging = true;
                 OpticalModel.invalidate();
                 ViewportModel.camera_drag_begin();
@@ -128,7 +154,9 @@ export component GemViewportView inherits Rectangle {
                 let dy = (touch_area.mouse-y - root.last_mouse_y) / 1px;
                 root.last_mouse_x = touch_area.mouse-x;
                 root.last_mouse_y = touch_area.mouse-y;
-                if (root.is_right_drag) {
+                if (root.is_pan_drag) {
+                    ViewportModel.camera_pan(dx, dy);
+                } else if (root.is_right_drag) {
                     ViewportModel.light_move(dx, dy);
                 } else {
                     ViewportModel.camera_orbit(dx, dy);
@@ -151,53 +179,9 @@ export component GemViewportView inherits Rectangle {
         // Dimmed to a bare silhouette while `ViewportModel.trace_refusal` is set --
         // see that property's own doc comment. Never hidden outright: a dimmed
         // last-good frame still orients the cutter better than a blank rectangle,
-        // while the banner below makes it unmistakable that the material is refused,
-        // not merely that this reflects the current design.
+        // while the banner (`ProblemBanner`) makes it unmistakable that the material is
+        // refused, not merely that this reflects the current design.
         opacity: ViewportModel.trace_refusal == "" ? 1.0 : 0.15;
-    }
-
-    // Material-refusal banner -- shown instead of trusting a render, export or tilt
-    // sweep that would otherwise trace the wrong stone (as Diamond, or as whatever
-    // the previous design's material was) -- see `ViewportModel.trace_refusal`'s own
-    // doc comment. Path-traced mode only: the Solid raster carries no material at
-    // all, so there is nothing wrong with it to warn about.
-    if (ViewportModel.live_view_mode == 1 || ViewportModel.live_view_mode == 2) && ViewportModel.trace_refusal != "": Rectangle {
-        x: 0;
-        y: 0;
-        width: 100%;
-        height: 100%;
-
-        VerticalLayout {
-            alignment: center;
-            padding: 32px;
-
-            Rectangle {
-                border-radius: Theme.radius-md;
-                background: Theme.accent-amber;
-
-                VerticalLayout {
-                    padding: 16px;
-                    spacing: 6px;
-
-                    Text {
-                        text: "Cannot trace this design";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: Theme.bg-darkest;
-                        horizontal-alignment: center;
-                        wrap: word-wrap;
-                    }
-
-                    Text {
-                        text: ViewportModel.trace_refusal;
-                        font-size: 12px;
-                        color: Theme.bg-darkest;
-                        horizontal-alignment: center;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-        }
     }
 
     // Optical diagnostic layer: a separate transparent image over the live render.
@@ -282,285 +266,140 @@ export component GemViewportView inherits Rectangle {
         live: true;
     }
 
-    // --- TOP CONTROLS OVERLAY (Mode Toggle, Material, Lighting, Settings & Metrics) ---
-    // Explicit `x`/`y`/`width`/`height`. A default-positioned layout child would pass its small
-    // maximum height and the toolbar's summed width up to the viewport and cap it at about 150px
-    // tall. An explicitly positioned child adds no constraints (see `app.slint`'s "Sizing notes").
-    VerticalLayout {
+    // The render's progress: a 2 px line along the bottom edge, growing from the left.
+    if ViewportModel.render_progress_visible && ViewportModel.live_view_mode != 0: LiveRenderProgress {
         x: 0px;
-        y: 0px;
-        width: 100%;
-        height: 100%;
-        padding: 12px;
-        spacing: 8px;
+        y: root.height - self.height;
+        width: root.width;
+    }
 
-        // --- Solid / Path-Traced / Ray-Traced mode toggle, top left of the viewport. It uses
-        // the same pill style as the Edit tab's toggle (`solid_viewport.slint`). Solid is the
-        // fast CPU raster and keeps the tracer off, so browsing stays cheap. The spectral tracer
-        // runs only for the design being inspected. See
-        // `gui::render::render_visibility::render_is_visible` for how the mode gates the tracer.
-        // The pills shrink toward their minimums (the label elides) in a narrow viewport.
-        HorizontalLayout {
-            spacing: 8px;
+    // --- The controls float on glass: the mode top left, the tools top right, the figures at
+    // the left, the render's own status bottom right. Every one has an explicit position, so none
+    // adds a size constraint to the viewport (see `app.slint`'s "Sizing notes").
 
-            ModePill {
-                preferred-width: 84px;
-                min-width: 52px;
+    // Top left: Solid / Path-Traced / Ray-Traced, in the same segment style as the Edit tab's.
+    // Solid is the fast CPU raster and keeps the tracer off, so browsing stays cheap. The spectral
+    // tracer runs only for the design being inspected. See
+    // `gui::render::render_visibility::render_is_visible` for how the mode gates the tracer.
+    // Below 1000 px the names show short ("Path", "Ray"); the accessible names stay whole.
+    KitGlass {
+        x: 12px;
+        y: 12px;
+        width: modes.preferred-width + 4px;
+        height: 36px;
+        modes := HorizontalLayout {
+            x: 2px;
+            padding: 2px;
+            spacing: 2px;
+            ViewSegment {
                 text: "Solid";
+                name: "Solid";
                 hint: "Flat-shaded quick picture of the solved stone. It is fast, and the spectral light tracer stays off while this is showing.";
-                selected: ViewportModel.live_view_mode == 0;
+                on: ViewportModel.live_view_mode == 0;
                 picked => { ViewportModel.live_view_mode = 0; }
             }
-
-            ModePill {
-                preferred-width: 110px;
-                min-width: 80px;
-                text: "Path-Traced";
+            ViewSegment {
+                text: root.narrow ? "Path" : "Path-Traced";
+                name: "Path-Traced";
                 hint: "The realistic picture: a spectral path tracer follows light through the stone. Turns the graphics-card or remote tracer on for this design.";
-                selected: ViewportModel.live_view_mode == 1;
+                on: ViewportModel.live_view_mode == 1;
                 picked => { ViewportModel.live_view_mode = 1; }
             }
-
-            ModePill {
-                preferred-width: 110px;
-                min-width: 80px;
-                text: "Ray-Traced";
-                hint: "Ray-Traced is an approximation: one index per color chain and averaged color; no polarization, doubling, haze, zoning, edge rounding or diffuse frost light. Energy past the bounce limit is omitted.";
-                selected: ViewportModel.live_view_mode == 2;
+            ViewSegment {
+                text: root.narrow ? "Ray" : "Ray-Traced";
+                name: "Ray-Traced";
+                hint: root.ray_note;
+                on: ViewportModel.live_view_mode == 2;
                 picked => { ViewportModel.live_view_mode = 2; }
             }
+        }
+    }
 
-            // Live Render follows the Edit tab's Cut slider; exports never do.
-            if root.cut_visible: LiveCutBadge { }
+    // Left: the chips under the mode segment, then the figures card. Path-Traced mode only has
+    // the figures, so only that mode shows them. A problem banner that would reach this column on
+    // a narrower view sits below it instead (`banner` below).
+    left_col := VerticalLayout {
+        x: 12px;
+        y: 54px;
+        width: min(380px, root.width - 24px);
+        height: self.preferred-height;
+        spacing: 6px;
+        alignment: start;
 
-            Rectangle { horizontal-stretch: 1; }
+        // Live Render follows the Edit tab's Cut slider; exports never do.
+        if root.cut_visible: HorizontalLayout { alignment: start; LiveCutBadge { } }
 
-            VerticalLayout {
-                alignment: center;
-                HelpButton {
-                    topic: HelpTopics.live-render;
-                    hint: "Open the manual page on the Live Render viewport";
-                }
+        // Shown while the picture uses a preview material instead of the design's own.
+        if ViewportModel.previewing: HorizontalLayout {
+            alignment: start;
+            PreviewBadge {
+                compact: true;
+                row_height: 28px;
+                name_max_width: 150px;
             }
         }
 
-        // A layout never shrinks below its children's minimum width. Without this wrapper a
-        // toolbar wider than the window would inflate the render column and push the image
-        // off-centre. Overflow is clipped here instead.
-        Rectangle {
-            min-width: 0px;
-            clip: true;
-            height: toolbar.preferred-height;
-            toolbar := HorizontalLayout {
-                // Material and Lighting selectors and the action buttons (see
-                // `gem_viewport/toolbar_actions.slint`). `compact` (below 1440px of viewport)
-                // drops labels that only decorate an icon or a toggle. `wrap` (below 980px)
-                // moves the tail, pause and Export, to a second row instead of clipping it. Both
-                // thresholds grow while the amber "Previewing" badge shows (290px for `compact`,
-                // 230px for `wrap`). The Optical Diagnostics and Turn 90° buttons add their width
-                // to both. Wrapped, the left row needs about 610px, under the 700px docking
-                // minimum.
-                GemViewportToolbarActions {
-                    compact: root.width < 1440px + (ViewportModel.previewing ? 290px : 0px);
-                    wrap: root.width < 980px + (ViewportModel.previewing ? 230px : 0px);
-                }
+        // "color data updated": the selected custom material's physics recipe was built with
+        // older catalogue data than this build has. It still renders from its stored bands --
+        // nothing is recolored silently; the Material Editor offers "Update to current data".
+        // Only in a build with the physics color editor (`physical-color`).
+        if PhysicscolorModel.ui_enabled && ViewportModel.selected_material_color_outdated: HorizontalLayout {
+            alignment: start;
+            InfoChip {
+                text: "Color Data Updated";
+                name: "Color data updated. This material's physics color recipe uses older color data.";
+                hint: "This material's physics color recipe uses older color data. It still renders from its stored color; open the Material Editor to update it.";
+                fill: Theme.surface-info;
+                edge: Theme.accent-cyan;
             }
         }
 
-        // Real-time five-number metrics HUD (brilliance, fire, scintillation, windowing,
-        // extinction). Only Path-Traced mode has these samples, so only that mode shows it. It
-        // sits in its own row under the actions, so neither squeezes the other.
+        if ViewportModel.live_view_mode == 2: HorizontalLayout {
+            alignment: start;
+            InfoChip {
+                text: "Approximate";
+                name: "Ray-Traced is approximate";
+                hint: root.ray_note;
+                edge: Theme.accent-amber;
+            }
+        }
+
         if ViewportModel.live_view_mode == 1: HorizontalLayout {
             alignment: start;
-
-            Rectangle {
-                min-width: 0px;
-                clip: true;
-                background: Theme.hud-surface;
-                border-radius: Theme.radius-sm;
-                border-width: hud_focus.has-focus ? 2px : 1px;
-                border-color: hud_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
-
-                accessible-role: AccessibleRole.button;
-                accessible-label: "Copy the Five Gemological Numbers";
-                accessible-description: "Brilliance " + Math.round(ViewportModel.brilliance_pct) + " percent, scintillation " + Math.round(ViewportModel.scintillation_pct) + " percent, windowing " + Math.round(ViewportModel.windowing_pct) + " percent, extinction " + Math.round(ViewportModel.extinction_pct) + " percent.";
-                accessible-action-default => { ViewportModel.copy_metrics(); }
-
-                hud_focus := FocusScope {
-                    key-pressed(event) => {
-                        if event.text == Key.Space || event.text == Key.Return {
-                            ViewportModel.copy_metrics();
-                            return accept;
-                        }
-                        return reject;
-                    }
-                }
-                hud_touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { ViewportModel.copy_metrics(); }
-                }
-                Tooltip { text: @markdown("Click to copy these five numbers. **Brilliance**: the share of light returned to the eye. **Fire**: how much rainbow color the stone throws. **Scintillation**: sparkle as the light or stone moves. **Windowing**: the share of the face that looks see-through. **Extinction**: the share that looks dead dark. For a stone with a crystal axis, **Axis** is the angle between that axis and the table normal, and **Doubling** is how far apart, in arc-minutes, the two images of a birefringent stone fall. See the glossary.\{RenderEffectsModel.figures_note_suffix}"); }
-
-                HorizontalLayout {
-                    padding-left: 10px;
-                    padding-right: 10px;
-                    padding-top: 6px;
-                    padding-bottom: 6px;
-                    spacing: 12px;
-
-                    HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: "Brilliance:"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-                        Text { text: Math.round(ViewportModel.brilliance_pct) + "%"; font-size: 11px; font-weight: 700; color: Theme.accent-emerald; }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: "Fire:"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-                        Text { text: Math.round(ViewportModel.fire_index * 100.0) / 100.0; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: "Scintillation:"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-                        Text { text: Math.round(ViewportModel.scintillation_pct) + "%"; font-size: 11px; font-weight: 700; color: Theme.accent-purple; }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: "Windowing:"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-                        Text { text: Math.round(ViewportModel.windowing_pct) + "%"; font-size: 11px; font-weight: 700; color: ViewportModel.windowing_pct > 10.0 ? Theme.accent-ruby : Theme.text-secondary; }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: "Extinction:"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-                        Text { text: Math.round(ViewportModel.extinction_pct) + "%"; font-size: 11px; font-weight: 700; color: ViewportModel.extinction_pct > 12.0 ? Theme.accent-amber : Theme.text-secondary; }
-                    }
-
-                    if CrystalAxisModel.axis_angle_text != "": HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: "Axis:"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-                        Text { text: CrystalAxisModel.axis_angle_text; font-size: 11px; font-weight: 700; color: Theme.accent-purple; }
-                    }
-
-                    if CrystalAxisModel.doubling_text != "": HorizontalLayout {
-                        spacing: 4px;
-                        Text { text: "Doubling:"; font-size: 11px; font-weight: 600; color: Theme.text-muted; }
-                        Text { text: CrystalAxisModel.doubling_text; font-size: 11px; font-weight: 700; color: Theme.accent-emerald; }
-                    }                }
-            }
-        }
-
-        // The Optical Diagnostics popover, toggled from the toolbar (`toolbar_actions.slint`). It
-        // sits under the metrics strip in this column, so it covers none of the values.
-        if ViewportModel.live_view_mode == 1 && OpticalModel.panel_open && !TiltModel.dialog_open && !ExportModel.is_open && !ViewportModel.material_editor_open: HorizontalLayout {
-            alignment: start;
-            OpticalPanel {
-                width: min(460px, root.width - 24px);
-                height: min(420px, max(160px, root.height - 240px));
-            }
-        }
-
-        // Pushes the hint badges to the bottom edge.
-        Rectangle { vertical-stretch: 1; }
-
-        // --- BOTTOM INTERACTION HINT BADGES ---
-        HorizontalLayout {
-            spacing: 6px;
-            alignment: center;
-
-            Rectangle {
-                background: Theme.hint-surface;
-                border-radius: Theme.radius-sm;
-                border-width: 1px;
-                border-color: Theme.border-subtle;
-                HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; spacing: 5px;
-                    // Centred by a layout of its own: a fixed-size Image in the row sits at the
-                    // top of its cell (`vertical-alignment` only places the picture inside the Image).
-                    VerticalLayout {
-                        alignment: center;
-                        Image { source: @image-url("../icons/mouse.svg"); colorize: Theme.hint-text; width: 10px; height: 10px; }
-                    }
-                    // Short labels below 640px: the long ones need about 470px and would run off a
-                    // narrow window.
-                    Text { text: root.width >= 640px ? "Left Drag: 360° Gem Orbit" : "Drag: Orbit"; font-size: 10px; font-weight: 600; color: Theme.hint-text; vertical-alignment: center; }
-                }
-            }
-
-            Rectangle {
-                background: Theme.hint-surface;
-                border-radius: Theme.radius-sm;
-                border-width: 1px;
-                border-color: Theme.border-subtle;
-                HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; spacing: 5px;
-                    VerticalLayout {
-                        alignment: center;
-                        Image { source: @image-url("../icons/lightbulb.svg"); colorize: Theme.hint-text; width: 10px; height: 10px; }
-                    }
-                    Text { text: root.width >= 640px ? "Right / Shift+Drag: Move Light" : "Right Drag: Light"; font-size: 10px; font-weight: 600; color: Theme.hint-text; vertical-alignment: center; }
-                }
-            }
-
-            Rectangle {
-                background: Theme.hint-surface;
-                border-radius: Theme.radius-sm;
-                border-width: 1px;
-                border-color: Theme.border-subtle;
-                HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; spacing: 5px;
-                    VerticalLayout {
-                        alignment: center;
-                        Image { source: @image-url("../icons/search.svg"); colorize: Theme.hint-text; width: 10px; height: 10px; }
-                    }
-                    Text { text: "Scroll: Zoom"; font-size: 10px; font-weight: 600; color: Theme.hint-text; vertical-alignment: center; }
-                }
-            }
-
-            // The HUD tip, dropped on a narrow viewport so the row keeps the three
-            // gesture badges whole.
-            if root.width >= 760px: Rectangle {
-                background: Theme.hint-surface;
-                border-radius: Theme.radius-sm;
-                border-width: 1px;
-                border-color: Theme.border-subtle;
-                HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; spacing: 5px;
-                    VerticalLayout {
-                        alignment: center;
-                        Image { source: @image-url("../icons/clipboard.svg"); colorize: Theme.hint-text; width: 10px; height: 10px; }
-                    }
-                    Text { text: "Click HUD: Copy Metrics"; font-size: 10px; font-weight: 600; color: Theme.hint-text; vertical-alignment: center; }
-                }
-            }
+            LiveFigures { narrow: root.narrow; }
         }
     }
 
-    if ViewportModel.live_view_mode == 2: Text {
-        x: 8px;
-        y: root.height - self.height - 8px;
-        width: root.width - 16px;
-        text: "Ray-Traced: approximate color and frost; one index per color chain. No polarization, doubling, haze, zoning or edge rounding; bounce-limited. Metrics use a separate analytic tracer."
-            + (ViewportModel.render_color_zone_swatches.length > 0 ? " This material's color pattern shows in Path-Traced views. Ray-Traced shows the base color." : "");
-        color: Theme.text-secondary;
-        font-size: 10px;
-        wrap: word-wrap;
+    // Top right: the tools.
+    toolbar := GemViewportToolbarActions {
+        x: root.width - self.width - 12px;
+        y: 12px;
+        narrow: root.narrow;
+        menu <=> root.menu;
     }
 
-    if ViewportModel.render_progress_visible && ViewportModel.live_view_mode != 0: LiveRenderProgress {
-        x: 8px;
-        y: root.height - self.height - (OpticalModel.enabled ? 80px : ViewportModel.live_view_mode == 2 ? 58px : 8px);
-        width: max(0px, root.width - 16px);
+    // One banner, top centre, for a refused material, a graphics problem or a stale picture. On a
+    // view too narrow to leave the left column free, it sits under that column.
+    if ProblemState.present: ProblemBanner {
+        x: (root.width - self.width) / 2;
+        y: root.width < 1500px ? left_col.y + left_col.height + 8px : 56px;
+        avail: root.width - 24px;
     }
 
-    // The gem material editor, the tilt-performance chart and the high-resolution export dialog
-    // are mounted at window size in `GlobalDialogsOverlay` (`components/app/global_dialogs.slint`),
-    // so the window's modal scrim covers them.
+    // The Optical Diagnostics popover, toggled from the toolbar. It sits under the toolbar on the
+    // right, clear of the figures card and the status pill.
+    if ViewportModel.live_view_mode == 1 && OpticalModel.panel_open && !TiltModel.dialog_open && !ExportModel.is_open && !ViewportModel.material_editor_open: OpticalPanel {
+        x: root.width - self.width - 12px;
+        y: 56px + (ProblemState.present && root.width < 1700px ? 110px : 0px);
+        width: min(460px, root.width - 24px);
+        height: min(420px, max(160px, root.height - 240px));
+    }
 
+    // The legend strip of the diagnostics, above the bottom row.
     if OpticalModel.enabled && ViewportModel.live_view_mode == 1: Rectangle {
-        x: 8px; y: root.height - self.height - 8px; width: root.width - 16px;
+        x: 12px;
+        y: root.height - self.height - 56px;
+        width: root.width - 24px;
         // Grows with its wrapped text instead of clipping the second line in a narrow window.
         height: max(64px, optical_strip.preferred-height);
         background: Theme.surface-dialog;
@@ -570,4 +409,54 @@ export component GemViewportView inherits Rectangle {
             Text { text: "Analytical light paths, ten-bounce estimate; absorption/scattering/advanced material effects are not reproduced."; color: Theme.text-primary; wrap:word-wrap; }
         }
     }
+
+    // Bottom right: the trace note and the render's status. It ends before the gestures button.
+    if ViewportModel.live_view_mode == 1 || (ViewportModel.live_view_mode == 2 && ViewportModel.render_progress_visible): HorizontalLayout {
+        x: 60px;
+        y: root.height - 48px;
+        width: root.width - 72px;
+        height: 36px;
+        spacing: 8px;
+        alignment: end;
+
+        if ViewportModel.live_view_mode == 1 && ViewportModel.trace_note != "": VerticalLayout {
+            alignment: center;
+            TraceNoteChip { }
+        }
+        StatusPill { narrow: root.narrow; }
+    }
+
+    // Bottom left: the mouse button and the gestures card. The card opens by itself once, and
+    // closes at the first drag in the view.
+    gestures := GesturesButton {
+        x: 12px;
+        y: root.height - 48px;
+        open_by_default: !ViewportModel.gestures_seen;
+        dragging: root.is_dragging;
+        dismissed => { ViewportModel.gestures_seen_set(true); }
+    }
+
+    // A click anywhere else closes an open menu.
+    if root.menu != 0: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        clicked => { root.close_menu(); }
+    }
+    if root.menu == 1: RigMenu {
+        x: min(max(12px, toolbar.x + 4px), root.width - self.width - 12px);
+        y: 54px;
+        max_h: root.height - 66px;
+        closed => { root.close_menu(); }
+    }
+    if root.menu == 2: ViewMenu {
+        x: toolbar.x + toolbar.width - self.width - 4px;
+        y: 54px;
+        closed => { root.close_menu(); }
+    }
+
+    // The gem material editor, the tilt-performance chart and the high-resolution export dialog
+    // are mounted at window size in `GlobalDialogsOverlay` (`components/app/global_dialogs.slint`),
+    // so the window's modal scrim covers them.
 }

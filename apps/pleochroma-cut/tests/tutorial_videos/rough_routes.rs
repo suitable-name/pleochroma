@@ -433,11 +433,8 @@ impl Film<'_> {
     fn narrow_library_for_rough_plan(&mut self) -> Result<(), String> {
         let library = self.ui.global::<pleochroma_cut::LibraryModel>();
         if self.ui.get_active_tab() != 0 {
-            let tab = targets::run(
-                &self.view(),
-                &crate::targets::Query::Tab("3D Spectral Preview"),
-            )
-            .ok_or("3D Spectral Preview tab is missing before library search")?;
+            let tab = targets::run(&self.view(), &crate::targets::Query::Tab("Live Render"))
+                .ok_or("Live Render place is missing before library search")?;
             self.click_and_invoke(&tab)?;
         }
         if library.get_panel_collapsed() {

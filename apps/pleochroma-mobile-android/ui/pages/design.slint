@@ -11,7 +11,7 @@
 // Without a design the page offers to start one. The tab components, their globals and
 // `DocumentModel` live under `ui/design/**`; this page only
 // places them.
-import { ProgressIndicator } from "std-widgets.slint";
+import { ProgressBar } from "../shell/inputs.slint";
 import { Theme } from "../theme.slint";
 import { Navigation } from "../navigation.slint";
 import { Icons } from "../icons.slint";
@@ -31,6 +31,7 @@ import { TiersModel } from "../design/tiers/tiers_model.slint";
 import { PropsModel } from "../design/props/props_model.slint";
 import { ViewportIcons } from "../design/viewport/viewport_icons.slint";
 import { DesignViewport } from "../design/viewport/design_viewport.slint";
+import { ViewportModel } from "../design/viewport/viewport_model.slint";
 import { TiersTab } from "../design/tiers/tiers_tab.slint";
 import { StoneTab } from "../design/props/stone_tab.slint";
 import { LightTab } from "../design/props/light_tab.slint";
@@ -42,77 +43,78 @@ import { VariantsModel, VariantsScreen } from "../design/variants.slint";
 import { OptimizeModel, OptimizeScreen } from "../design/optimization.slint";
 import { RetargetModel, RetargetScreen } from "../design/retarget.slint";
 
-// The verdict of the design as a small colored pill (good / check / problem).
-component VerdictChip inherits Rectangle {
-    property <color> tint: Theme.verdict-mark(PropsModel.verdict-level);
-
-    width: pill.width;
-    height: Theme.touch;
-    accessible-role: AccessibleRole.text;
-    accessible-label: "Verdict: " + PropsModel.verdict-text;
-
-    pill := Rectangle {
-        y: (parent.height - self.height) / 2;
-        width: min(label.preferred-width + 20px, Shell.window-class == 0 ? 104px : 132px);
-        height: 28px;
-        border-radius: 14px;
-        background: Theme.verdict-container(PropsModel.verdict-level);
-        border-width: 1px;
-        border-color: root.tint;
-
-        label := Text {
-            x: 10px;
-            width: parent.width - 20px;
-            height: parent.height;
-            text: PropsModel.verdict-text;
-            color: Theme.verdict-content(PropsModel.verdict-level);
-            font-size: Theme.text-label;
-            font-weight: 600;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-    }
-}
-
-// The Solve button: a 36 px pill inside a 48 px touch target; a progress bar replaces
-// the label while a solve runs.
+// The Solve button: its body solves, and its label is the state of the design. Not solved and
+// Stale are the call to action (filled cyan); Solved is quiet, a problem is red. A 48 px
+// touch target around a 40 px pill; a thin progress bar runs along the pill while a solve
+// runs.
 component SolveButton inherits Rectangle {
-    width: 84px;
+    // 0 nothing yet, 1 solving, 2 solved, 3 problem or failed, 4 stale.
+    property <int> kind: TiersModel.solving ? 1 : TiersModel.status-kind;
+    property <string> state-label: root.kind == 1 ? "Solving\u{2026}" : (root.kind == 2 ? "Solved" : (root.kind == 3 ? "Problem" : (root.kind == 4 ? "Stale" : "Not solved")));
+    property <bool> call-to-action: root.kind == 0 || root.kind == 4;
+
+    width: max(128px, label.preferred-width + 2 * Theme.space-lg + (root.kind == 2 ? 26px : 0px));
     height: Theme.touch;
     accessible-role: AccessibleRole.button;
     accessible-label: TiersModel.solving ? "Solving" : "Solve";
+    accessible-description: root.state-label;
     accessible-enabled: !TiersModel.solving;
+    accessible-action-default => {
+        if (!TiersModel.solving) {
+            TiersModel.solve();
+        }
+    }
 
-    Rectangle {
+    pill := Rectangle {
         y: (parent.height - self.height) / 2;
-        height: 36px;
-        border-radius: 18px;
-        background: TiersModel.solving ? Theme.secondary-container : Theme.primary;
+        height: 40px;
+        border-radius: 20px;
+        clip: true;
+        background: root.call-to-action ? Theme.accent : (root.kind == 1 ? Theme.accent-surface : (root.kind == 3 ? Theme.error-container : Theme.surface));
+        border-width: root.call-to-action ? 0px : 1px;
+        border-color: root.kind == 1 ? Theme.accent : (root.kind == 3 ? Theme.error : Theme.outline-variant);
 
-        if !TiersModel.solving: Text {
-            width: parent.width;
-            height: parent.height;
-            text: "Solve";
-            color: Theme.on-primary;
-            font-size: Theme.text-label-large;
-            font-weight: 500;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+        StateLayer {
+            pressed: touch.pressed;
+            hovered: touch.has-hover;
+            enabled: !TiersModel.solving;
+            border-radius: parent.border-radius;
         }
 
-        if TiersModel.solving: Rectangle {
-            x: 14px;
-            y: (parent.height - self.height) / 2;
-            width: parent.width - 28px;
+        HorizontalLayout {
+            alignment: center;
+            spacing: Theme.space-sm;
+
+            if root.kind == 2: Rectangle {
+                width: 18px;
+
+                Icon {
+                    source: Icons.check;
+                    tint: Theme.success;
+                    glyph: 18px;
+                }
+            }
+
+            label := Text {
+                text: root.state-label;
+                color: root.call-to-action ? Theme.on-primary : (root.kind == 1 ? Theme.accent : (root.kind == 3 ? Theme.on-error-container : Theme.on-surface));
+                font-size: Theme.text-label-large;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.kind == 1: Rectangle {
+            y: parent.height - 4px;
             height: 4px;
 
-            ProgressIndicator {
+            ProgressBar {
                 indeterminate: true;
             }
         }
     }
 
-    TouchArea {
+    touch := TouchArea {
         enabled: !TiersModel.solving;
         clicked => {
             TiersModel.solve();
@@ -120,53 +122,109 @@ component SolveButton inherits Rectangle {
     }
 }
 
-// The row at the top of the sheet / side pane: the solve status chip (a tap shows the
-// whole status line), the verdict, Solve.
-component StatusRow inherits Rectangle {
+// The separate check chip beside Solve: the verdict as a small colored pill ("1 check",
+// "No checks" when a solved design needs no look, "Not checked" before a solve). A tap opens
+// the Checks tab.
+component CheckChip inherits Rectangle {
+    callback clicked();
+
+    property <int> count: PropsModel.warnings.length;
+    property <string> text: root.count > 0 ? root.count + (root.count == 1 ? " check" : " checks") : PropsModel.checks-ready ? "No checks" : "Not checked";
+    property <color> tint: Theme.verdict-mark(PropsModel.verdict-level);
+
+    width: min(max(Theme.touch, label.preferred-width + 2 * Theme.space-md + 22px), 168px);
+    height: Theme.touch;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text + ", opens the Checks tab";
+    accessible-description: "Verdict: " + PropsModel.verdict-text;
+    accessible-action-default => { root.clicked(); }
+
+    pill := Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 40px;
+        border-radius: 20px;
+        background: Theme.verdict-container(PropsModel.verdict-level);
+        border-width: 1px;
+        border-color: root.tint;
+
+        StateLayer {
+            pressed: touch.pressed;
+            hovered: touch.has-hover;
+            border-radius: parent.border-radius;
+        }
+
+        label := Text {
+            x: Theme.space-md;
+            width: parent.width - 2 * Theme.space-md - 22px;
+            height: parent.height;
+            text: root.text;
+            color: Theme.verdict-content(PropsModel.verdict-level);
+            font-size: Theme.text-label-large;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Icon {
+            x: parent.width - self.width - Theme.space-md;
+            y: (parent.height - self.height) / 2;
+            source: Icons.chevron-right;
+            tint: Theme.verdict-content(PropsModel.verdict-level);
+            glyph: 18px;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// The solve row: the Solve button and the check chip.
+component SolveRow inherits Rectangle {
+    callback checks-clicked();
     height: Theme.touch;
 
     HorizontalLayout {
         padding-left: Theme.space-md;
-        padding-right: Theme.space-sm;
+        padding-right: Theme.space-md;
         spacing: Theme.space-sm;
-
-        Rectangle {
-            horizontal-stretch: 1;
-            accessible-role: AccessibleRole.button;
-            accessible-label: "Solve status: " + TiersModel.status-text;
-            accessible-action-default => {
-                Shell.show-info("Solve Status", TiersModel.status-text);
-            }
-
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                height: 32px;
-                border-radius: 16px;
-                background: TiersModel.status-problem ? Theme.error-container : Theme.surface-high;
-
-                Text {
-                    x: Theme.space-md;
-                    width: parent.width - 2 * Theme.space-md;
-                    height: parent.height;
-                    text: TiersModel.status-text;
-                    color: TiersModel.status-problem ? Theme.on-error-container : Theme.on-surface-variant;
-                    font-size: Theme.text-label;
-                    vertical-alignment: center;
-                    overflow: elide;
-                }
-            }
-
-            TouchArea {
-                enabled: TiersModel.status-text != "";
-                clicked => {
-                    Shell.show-info("Solve Status", TiersModel.status-text);
-                }
-            }
-        }
-
-        if PropsModel.verdict-text != "": VerdictChip { }
+        alignment: start;
 
         SolveButton { }
+
+        if PropsModel.verdict-text != "": CheckChip {
+            clicked => { root.checks-clicked(); }
+        }
+    }
+}
+
+// The solve status line ("Closed solid -- volume 0.1234 ... (solved in 0.05 s)"): two lines
+// at most; a tap shows all of it.
+component StatusLine inherits Rectangle {
+    height: Theme.touch;
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Solve status: " + TiersModel.status-text;
+    accessible-action-default => {
+        Shell.show-info("Solve Status", TiersModel.status-text);
+    }
+
+    Text {
+        x: Theme.space-md;
+        width: parent.width - 2 * Theme.space-md;
+        height: parent.height;
+        text: TiersModel.status-text;
+        color: TiersModel.status-problem ? Theme.error : Theme.text-secondary;
+        font-size: max(12px, Theme.text-label);
+        vertical-alignment: center;
+        wrap: word-wrap;
+        overflow: elide;
+    }
+
+    TouchArea {
+        enabled: TiersModel.status-text != "";
+        clicked => {
+            Shell.show-info("Solve Status", TiersModel.status-text);
+        }
     }
 }
 
@@ -195,94 +253,121 @@ component TabHost inherits Rectangle {
     }
 }
 
-// The Tiers / Stone / Light / Checks switcher. Unlike the shared `Segmented`, its four
-// segments are equal and always fill the width they are given; a label is elided when
-// its segment is too narrow for it.
+// The Tiers / Stone / Light / Checks buttons: four equal, separate 48 px buttons that always
+// fill the width they are given; the chosen one is a cyan-surface pill.
 component TabSwitcher inherits Rectangle {
     in property <int> current: 0;
     callback selected(int);
 
     property <[string]> options: ["Tiers", "Stone", "Light", "Checks"];
-    property <length> cell: root.width / 4;
 
     height: Theme.touch;
-    border-radius: Theme.touch / 2;
-    border-width: 1px;
-    border-color: Theme.outline;
-    clip: true;
 
-    for option[index] in root.options: Rectangle {
-        x: index * root.cell;
-        width: root.cell;
-        background: index == root.current ? Theme.secondary-container : transparent;
-        accessible-role: AccessibleRole.button;
-        accessible-label: option;
-        accessible-checkable: true;
-        accessible-checked: index == root.current;
+    HorizontalLayout {
+        spacing: Theme.space-xs;
 
-        StateLayer {
-            pressed: segment-touch.pressed;
-            hovered: segment-touch.has-hover;
-        }
+        for option[index] in root.options: Rectangle {
+            border-radius: Theme.radius-md;
+            background: index == root.current ? Theme.accent-surface : Theme.surface;
+            border-width: index == root.current ? 1px : 0px;
+            border-color: Theme.accent;
+            accessible-role: AccessibleRole.button;
+            accessible-label: option;
+            accessible-checkable: true;
+            accessible-checked: index == root.current;
+            accessible-action-default => { root.selected(index); }
 
-        // The divider between this segment and the previous one.
-        Rectangle {
-            x: 0px;
-            width: 1px;
-            background: index > 0 ? Theme.outline : transparent;
-        }
-
-        HorizontalLayout {
-            alignment: center;
-            spacing: Theme.space-xs;
-            padding-left: Theme.space-xs;
-            padding-right: Theme.space-xs;
-
-            // The check mark only when the segment is wide enough to keep its label.
-            if index == root.current && root.cell >= 100px: Rectangle {
-                width: 18px;
-
-                Icon {
-                    source: Icons.check;
-                    tint: Theme.on-secondary-container;
-                    glyph: 18px;
-                }
+            StateLayer {
+                pressed: segment-touch.pressed;
+                hovered: segment-touch.has-hover;
+                border-radius: parent.border-radius;
             }
 
             Text {
                 text: option;
-                color: index == root.current ? Theme.on-secondary-container : Theme.on-surface;
+                color: index == root.current ? Theme.accent : Theme.on-surface;
                 font-size: Theme.text-label-large;
                 font-weight: 500;
+                horizontal-alignment: center;
                 vertical-alignment: center;
                 overflow: elide;
             }
-        }
 
-        segment-touch := TouchArea {
-            clicked => {
-                root.selected(index);
+            segment-touch := TouchArea {
+                clicked => {
+                    root.selected(index);
+                }
             }
         }
     }
 }
 
-// The compact layout: the viewport above, the sheet over the lower part of the page.
+// The compact layout: the viewport above, the sheet over the lower part of the page. The
+// sheet's peek (about 130 px) holds the solve row and the four tab buttons; the half and
+// full detents add the status line and the tab's content below them.
 component CompactBody inherits Rectangle {
     in-out property <int> tab: 0;
     // The height of the whole Design page (this body and the top bar above it).
     in property <length> page-height: 0px;
 
+    // The peek: the drag handle, the solve row, the tab buttons and a little air.
+    property <length> peek: Theme.touch * 2 + 34px;
     // The half detent: the sheet covers about 55 % of the page, so a tier list shows as
     // many rows as the page allows, while the viewport keeps about 40 % of this body (at
     // least 35 % of the page). The two limits meet at 55 % on a typical phone.
-    property <length> sheet-half: min(max(root.page-height * 0.55, Theme.sheet-peek + 96px), max(root.height - root.page-height * 0.35, Theme.sheet-peek + 96px));
+    property <length> sheet-half: min(max(root.page-height * 0.55, root.peek + 96px), max(root.height - root.page-height * 0.35, root.peek + 96px));
     // The same as the share of this body the Sheet takes.
     property <float> sheet-share: root.height > 0px ? root.sheet-half / root.height : 0.55;
 
     // The viewport takes what the sheet leaves at the half detent, everything above the
     // peek bar while the sheet is folded down, and a 120 px strip while the sheet is full.
-    property <length> viewport-height: Shell.sheet-detent == 0 ? root.height - Theme.sheet-peek - Shell.page-inset-bottom : (Shell.sheet-detent == 1 ? root.height - root.sheet-half : 120px);
+    property <length> viewport-height: Shell.sheet-detent == 0 ? root.height - root.peek - Shell.page-inset-bottom : (Shell.sheet-detent == 1 ? root.height - root.sheet-half : 120px);
+
+    // The sheet's height is remembered per view mode for the session only (Solid half,
+    // Diagram and Render peek to begin with). Full is never remembered, so it is never
+    // restored: overlays that raise the sheet give it back and are not stored.
+    property <int> mode: ViewportModel.view-mode;
+    property <int> detent <=> Shell.sheet-detent;
+
+    function remember(mode: int, detent: int) {
+        if (mode == 0) {
+            ViewportModel.sheet-memory-solid = detent;
+        } else if (mode == 1) {
+            ViewportModel.sheet-memory-diagram = detent;
+        } else {
+            ViewportModel.sheet-memory-render = detent;
+        }
+    }
+
+    function recall(mode: int) -> int {
+        return mode == 0 ? ViewportModel.sheet-memory-solid : (mode == 1 ? ViewportModel.sheet-memory-diagram : ViewportModel.sheet-memory-render);
+    }
+
+    init => {
+        if (Shell.sheet-detent != 2) {
+            Shell.sheet-detent = root.recall(root.mode);
+        }
+    }
+
+    changed detent => {
+        if (root.detent != 2) {
+            root.remember(root.mode, root.detent);
+        }
+    }
+
+    changed mode => {
+        if (Shell.sheet-detent != 2) {
+            Shell.sheet-detent = root.recall(root.mode);
+        }
+    }
+
+    function open-tab(index: int) {
+        PropsModel.close-number();
+        root.tab = index;
+        if (Shell.sheet-detent == 0) {
+            Shell.sheet-detent = 1;
+        }
+    }
 
     DesignViewport {
         x: 0px;
@@ -293,35 +378,52 @@ component CompactBody inherits Rectangle {
 
     sheet := Sheet {
         title: "";
+        peek: root.peek;
         half-fraction: root.sheet-share;
         bottom-inset: Shell.page-inset-bottom;
         detent <=> Shell.sheet-detent;
 
         VerticalLayout {
-            padding-left: Theme.space-md;
-            padding-right: Theme.space-md;
             spacing: Theme.space-xs;
 
-            TabSwitcher {
-                current: root.tab;
-                selected(index) => {
-                    PropsModel.close-number();
-                    root.tab = index;
-                }
-            }
+            StatusLine { }
 
-            TabHost {
-                tab: root.tab;
+            VerticalLayout {
+                padding-left: Theme.space-md;
+                padding-right: Theme.space-md;
                 vertical-stretch: 1;
+
+                TabHost {
+                    tab: root.tab;
+                    vertical-stretch: 1;
+                }
             }
         }
     }
 
-    // The peek row rides on the sheet's header, so it follows the sheet up and down.
-    StatusRow {
+    // The peek rides on the sheet's top edge, so it follows the sheet up and down; it is
+    // drawn after the sheet, so its buttons take the touches and the gaps fall through to
+    // the sheet's drag strip.
+    VerticalLayout {
         x: 0px;
-        y: root.height - sheet.content-height - Theme.sheet-peek - Shell.page-inset-bottom + Theme.space-sm;
+        y: root.height - sheet.content-height - root.peek - Shell.page-inset-bottom + 14px;
         width: root.width;
+        height: Theme.touch * 2 + Theme.space-xs;
+        spacing: Theme.space-xs;
+
+        SolveRow {
+            checks-clicked => { root.open-tab(3); }
+        }
+
+        HorizontalLayout {
+            padding-left: Theme.space-md;
+            padding-right: Theme.space-md;
+
+            TabSwitcher {
+                current: root.tab;
+                selected(index) => { root.open-tab(index); }
+            }
+        }
     }
 }
 
@@ -340,9 +442,18 @@ component WideBody inherits Rectangle {
             collapsed <=> root.collapsed;
 
             VerticalLayout {
-                StatusRow { }
+                spacing: Theme.space-xs;
 
-                // Inset like the status row above, so the switcher sits inside the pane.
+                SolveRow {
+                    checks-clicked => {
+                        PropsModel.close-number();
+                        root.tab = 3;
+                    }
+                }
+
+                StatusLine { }
+
+                // Inset like the solve row above, so the buttons sit inside the pane.
                 HorizontalLayout {
                     padding-left: Theme.space-md;
                     padding-right: Theme.space-md;

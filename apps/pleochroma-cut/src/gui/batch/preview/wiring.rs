@@ -5,7 +5,8 @@
 
 use super::{
     engine::{
-        BatchContext, DesignAccum, LaneShared, LiveProgress, Tally, build_items, run_batch_lanes,
+        BatchContext, DesignAccum, LaneShared, LiveProgress, LocalGpu, Tally, build_items,
+        run_batch_lanes,
     },
     import_choice::{remember_choice, show_saved_choice},
     offer_quality::OfferRecount,
@@ -30,7 +31,6 @@ use crate::{
         model::{clamp_remote_preview_batch_size, effective_remote_batch_lanes},
     },
 };
-use pleochroma::renderer::gpu_backend::GpuBackend;
 use pleochroma_vault::db::sqlite::Database;
 use slint::{ComponentHandle, Model, Weak};
 use std::{
@@ -186,9 +186,6 @@ pub fn spawn_preview_batch(
         // Read ONCE for the whole batch, so every design resolves a material name against
         // the same custom-material list (`gui::batch::catalogue_material`).
         let custom_materials = load_custom_materials(&db);
-        // Acquired ONCE for the whole batch, not per item -- adapter acquisition and
-        // megakernel compilation are far too slow to repeat, same reasoning as
-        // `export_thread::run_export`'s own single `GpuBackend::acquire` call.
         let solid = settings.mode == PreviewMode::Solid;
         let ray_draft = settings.mode == PreviewMode::Ray;
         let engine = if ray_draft {
@@ -201,12 +198,6 @@ pub fn spawn_preview_batch(
         };
         let local_only =
             solid || ray_draft || !crate::bridge::render_thread::remote_allowed(engine);
-        // The solid pictures are drawn on the CPU, so no adapter is acquired for them.
-        let gpu = if solid || engine.is_ray() {
-            GpuBackend::disabled()
-        } else {
-            GpuBackend::acquire()
-        };
         // Shared by every local lane (via `BatchContext::gpu_retired`) so a
         // caught wgpu-fatal panic in any ONE of them retires `gpu` for the rest of the
         // batch, not just the lane it happened on -- see `engine::catch_local_render`'s
@@ -216,6 +207,25 @@ pub fn spawn_preview_batch(
         // Solid pictures are cheap enough that shipping scenes to a remote would cost
         // more than drawing them, so that mode never uses it.
         let remote_worker = if local_only { None } else { settings.worker };
+        // See `gui::batch::batch_queue::LanePlan`'s own doc comment for exactly what
+        // each `LiveComputeTarget` variant runs.
+        let target = if local_only {
+            LiveComputeTarget::LocalOnly
+        } else {
+            settings.live_compute_target
+        };
+        let plan = LanePlan::for_target(target, remote_worker.is_some());
+        // The local lanes' GPU, acquired once per batch: adapter acquisition and the
+        // megakernel compile are far too slow to repeat per picture (as in
+        // `export_thread::run_export`). A thread of its own acquires it, so the remote
+        // dispatchers and the first local pictures start at once; it is not joined, so a
+        // batch that finishes first never waits for the compile. Nothing is acquired when no
+        // local lane would use it: solid pictures, the Ray-Traced engine, `RemoteOnly`.
+        let gpu = Arc::new(LocalGpu::new());
+        if plan.run_local && !solid && !engine.is_ray() {
+            let gpu = Arc::clone(&gpu);
+            thread::spawn(move || gpu.acquire());
+        }
         let thumbnail_cache = settings.thumbnail_cache;
         let angle_table_entries = Mutex::new(BTreeSet::new());
         let ctx = BatchContext {
@@ -236,14 +246,6 @@ pub fn spawn_preview_batch(
         let tally = Tally::default();
         let progress = Mutex::new(LiveProgress::default());
 
-        // See `gui::batch::batch_queue::LanePlan`'s own doc comment for exactly what
-        // each `LiveComputeTarget` variant runs.
-        let target = if local_only {
-            LiveComputeTarget::LocalOnly
-        } else {
-            settings.live_compute_target
-        };
-        let plan = LanePlan::for_target(target, remote_worker.is_some());
         // Pre-set `true` when no remote lane will ever run at all, so the local lane's
         // own stop condition (`gui::batch::batch_queue`'s doc comment) is satisfied the
         // first time it finds nothing left to claim, with no spurious poll wait.
@@ -296,11 +298,12 @@ pub fn spawn_preview_batch(
             thumbnail_cache: &thumbnail_cache,
         };
 
-        // Every lane borrows `shared`/`gpu`/`remote_lane_done` by plain reference (no
-        // `Arc` needed) -- `std::thread::scope` (inside `run_batch_lanes`) guarantees
-        // every spawned thread is joined before that call returns, so those borrows
-        // never need to outlive it. Each lane gets its OWN cloned `Weak<MainWindow>`
-        // (owned, not borrowed) -- see `LaneShared`'s own doc comment for why.
+        // Every lane borrows `shared`/`gpu`/`remote_lane_done` by plain reference --
+        // `std::thread::scope` (inside `run_batch_lanes`) guarantees every spawned thread
+        // is joined before that call returns, so those borrows never need to outlive it.
+        // `gpu` sits in an `Arc` only for its unjoined acquisition thread. Each lane gets
+        // its OWN cloned `Weak<MainWindow>` (owned, not borrowed) -- see `LaneShared`'s
+        // own doc comment for why.
         run_batch_lanes(
             &shared,
             &gpu,

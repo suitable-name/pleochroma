@@ -85,7 +85,7 @@ fn interface_mode() -> Guide {
             "A hidden setting keeps its value and still applies.",
         )
         .actions([
-            "Simple hides the Tilt Curve and Save lighting buttons, the RI Override of the Stone tab, and the advanced rows of the Render & Output tab: library thumbnails, motion preview resolution, live and local compute, max ray bounces and the Tilt Performance Curve panel.",
+            "Simple hides the Tilt Curve button, the RI Override of the Stone tab, and the advanced rows of the Render tab: library thumbnails, motion preview resolution, live and local compute and max ray bounces. In Edit it also hides the Tune, Run, Trials and Variants parts of the Optimize and History tabs.",
             "When one of those settings is not at its default, the tab says Some advanced settings are in use.",
             "The command palette has Use the Simple Interface and Use the Advanced Interface as well.",
         ])

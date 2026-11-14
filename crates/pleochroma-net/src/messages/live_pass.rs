@@ -398,6 +398,7 @@ mod tests {
             head_shadow_deg: 16.0,
             frosted_planes: Vec::new(),
             effects: crate::scene::effects::SceneEffects::default(),
+            camera_pan: [0.0, 0.0],
         }
     }
 

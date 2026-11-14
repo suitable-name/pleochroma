@@ -660,6 +660,25 @@ impl GpuFrameRenderer {
         Ok(())
     }
 
+    /// Builds the live pipelines of `class` for a shader warm-up when this renderer runs live
+    /// passes of that class (the checks of [`Self::accumulate_live_turn_body`]); else nothing.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn warm_live_pipelines(&mut self, class: u32) -> Result<(), GpuFrameError> {
+        let runs_live = self.pipeline_kind == GpuPipelineKind::Megakernel
+            && self
+                .ctx
+                .device
+                .limits()
+                .max_storage_buffers_per_shader_stage
+                > MEGAKERNEL_STORAGE_BUFFERS
+            && (!super::material_class::uses_tray_variant(class)
+                || self.supports_tray_shadow_class(class, true));
+        if !runs_live {
+            return Ok(());
+        }
+        self.ensure_live_pipelines(class, false)
+    }
+
     /// Grows the reduced-output buffer to `pixels` pixels and creates the reduce uniform.
     fn ensure_live_buffers(&mut self, pixels: usize) {
         if self.live.reduce_params.is_none() {

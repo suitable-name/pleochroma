@@ -2,13 +2,16 @@ import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { ViewportModel } from "../../models/viewport.slint";
 import { EditorModel } from "../../models/editor.slint";
+import { LightingPresetItem } from "../../types.slint";
 import { IconButton } from "../icon_button.slint";
+import { KitIcon, KitIcons, KitIconButton, KitRigThumb, KitSection, KitSwitchRow } from "../kit/kit.slint";
+import { TextLink } from "../parameters_panel/parts.slint";
 
 // The one-line "name it and keep it" row of the Lighting tab: a text field that already holds a
 // suggested name (selected, so typing replaces it) and a check button. Used by the saved-lighting
-// list below and by the Camera block's "Save View as Saved Lighting..." (lighting plus camera
-// pose). The caller fills `name` with `ViewportModel.suggest_lighting_name()` before the row
-// appears, and clears it afterwards. Enter confirms, like the button.
+// section below, for a lighting alone and for a lighting with the camera pose. The caller fills
+// `name` with `ViewportModel.suggest_lighting_name()` before the row appears, and clears it
+// afterwards. Enter confirms, like the button.
 export component SaveNameRow inherits HorizontalLayout {
     in-out property <string> name;
     in property <string> placeholder: "Name this lighting...";
@@ -65,198 +68,349 @@ export component SaveNameRow inherits HorizontalLayout {
     }
 }
 
-// Saved lighting: the named looks you can bring back with one click. A saved lighting is a
-// complete look -- the lighting rig, the light direction, exposure, surface glare, backdrop, head
-// shadow and the HDR map, plus the camera distance -- but deliberately not the way you are turned
-// around the stone (only "Save View as Saved Lighting..." in the Camera block keeps that too), so
-// applying one never spins the gem out from under you. The Lighting tab mounts the "This design"
-// block (`DesignLightingSection`) as its own group after this one.
+// One button of a chip's options strip. `text` is what shows; `label` is the accessible name (the
+// old, longer name of the control when the text is shorter).
+component StripAction inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> danger: false;
+    in property <bool> checkable: false;
+    in property <bool> on: false;
+    callback clicked();
+
+    height: 26px;
+    width: strip_text.preferred-width + 20px;
+    border-radius: 6px;
+    background: root.on ? Theme.accent-cyan-surface : (strip_touch.has-hover ? (root.danger ? Theme.danger-surface-hover : Theme.bg-card-hover) : (root.danger ? Theme.danger-surface : Theme.bg-card));
+    border-width: strip_focus.has-focus ? 2px : 1px;
+    border-color: strip_focus.has-focus ? Theme.accent-cyan-hover : (root.danger ? Theme.danger-border : Theme.border-medium);
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.on;
+    accessible-action-default => { root.clicked(); }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    strip_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    strip_text := Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: root.danger ? Theme.danger : (root.on ? Theme.accent-cyan : Theme.text-secondary);
+        vertical-alignment: center;
+    }
+
+    strip_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A saved lighting as a chip: the rig's picture (a plain bulb while the rig is unknown, `kind` < 0),
+// a star when it is the design's own, the name and a "..." button for its options. Clicking the
+// name uses the lighting.
+component PresetChip inherits Rectangle {
+    in property <LightingPresetItem> item;
+    in property <int> index;
+    in property <int> kind: -1;
+    in property <bool> design: false;
+    in property <bool> menu_open: false;
+    callback apply();
+    callback options();
+
+    horizontal-stretch: 1;
+    height: 30px;
+    border-radius: 15px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: root.design ? Theme.accent-amber : (root.menu_open ? Theme.border-medium : Theme.border-subtle);
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 2px;
+        spacing: 2px;
+
+        use_area := Rectangle {
+            horizontal-stretch: 1;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Use Saved Lighting " + root.item.name;
+            accessible-action-default => { root.apply(); }
+
+            Tooltip { text: @markdown("Use this lighting: the rig, light, exposure, glare, backdrop, head shadow, environment map and camera distance it saved."); }
+
+            use_focus := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        root.apply();
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                VerticalLayout {
+                    alignment: center;
+                    if root.kind >= 0: KitRigThumb { kind: root.kind; size: 22px; }
+                    if root.kind < 0: KitIcon { d: KitIcons.bulb; size: 18px; ink: Theme.text-secondary; }
+                }
+                if root.design: VerticalLayout {
+                    alignment: center;
+                    KitIcon { d: KitIcons.star; size: 12px; ink: Theme.accent-amber; }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.item.name;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: use_touch.has-hover || use_focus.has-focus ? Theme.accent-cyan : (root.item.built_in ? Theme.text-secondary : Theme.text-primary);
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            use_touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.apply(); }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            KitIconButton {
+                d: KitIcons.more;
+                size: 24px;
+                icon_size: 14px;
+                active: root.menu_open;
+                label: "Saved Lighting Options " + root.item.name;
+                hint: "Rename, add to or take out of the export list, or delete this saved lighting.";
+                clicked => { root.options(); }
+            }
+        }
+    }
+}
+
+// Saved lighting: the named looks you can bring back with one click, as chips two to a row. A saved
+// lighting is a complete look -- the lighting rig, the light direction, exposure, surface glare,
+// backdrop, head shadow and the HDR map, plus the camera distance -- and applying one never spins
+// the gem out from under you. "Save Current..." opens the name row; its switch adds the camera pose
+// (the way you are turned around the stone and where it sits in the picture), so using that one
+// brings back the exact shot. A chip's "..." opens its options under the row: Rename and Delete
+// (your own only; the built-in ones refuse both) and "Usable for Export" (every one). The one the
+// open design remembers carries a star; the Lighting tab mounts the "This design" block
+// (`DesignLightingSection`) after this one.
 export component LightingPresetsSection inherits VerticalLayout {
     property <bool> adding_preset: false;
+    property <bool> with_pose: false;
     property <string> new_preset_name: "";
     property <int> renaming_index: -1;
     property <string> rename_text: "";
+    property <int> menu_index: -1;
+    property <LightingPresetItem> menu_item: ViewportModel.lighting_presets[root.menu_index];
 
     spacing: 6px;
-    HorizontalLayout {
-        spacing: 6px;
-        Text {
-            horizontal-stretch: 1;
-            text: "Click a name to use that lighting.";
-            font-size: 11px;
-            color: Theme.text-muted;
-            vertical-alignment: center;
-            wrap: word-wrap;
-        }
 
-        icon-button-adding-preset := IconButton {
-            icon: @image-url("../../icons/save.svg");
+    KitSection {
+        label: "SAVED LIGHTINGS";
+        Rectangle { horizontal-stretch: 1; }
+        TextLink {
+            text: root.adding_preset ? "Cancel" : "Save Current…";
+            size: 11px;
+            ink: Theme.accent-cyan;
             hint: root.adding_preset
                 ? "Cancel saving the lighting"
-                : "Save the lighting you see now (rig, light, exposure, glare, backdrop, head shadow and environment map) under a name. It does not keep the way you are turned around the stone; use Save view in the Camera block for that.";
-            checkable: true;
-            lit: root.adding_preset;
-            tint: Theme.accent-cyan;
+                : "Save the lighting you see now (rig, light, exposure, glare, backdrop, head shadow and environment map) under a name. Switch on the camera pose to keep the way you are turned around the stone too.";
             clicked => {
                 EditorModel.text_focus = false;
                 root.adding_preset = !root.adding_preset;
                 root.new_preset_name = root.adding_preset ? ViewportModel.suggest_lighting_name() : "";
+                root.with_pose = false;
             }
         }
     }
 
-    // Inline "save the current lighting under a name" row
-    if root.adding_preset: SaveNameRow {
-        name <=> root.new_preset_name;
-        confirm_hint: "Save the lighting under this name";
-        accepted(name) => {
-            ViewportModel.save_lighting_preset(name);
-            // The field leaves the window while focused, which drops its own focus handler.
-            EditorModel.text_focus = false;
-            root.adding_preset = false;
-            root.new_preset_name = "";
+    if root.adding_preset: VerticalLayout {
+        spacing: 2px;
+        SaveNameRow {
+            name <=> root.new_preset_name;
+            placeholder: root.with_pose ? "Name this view..." : "Name this lighting...";
+            field_label: root.with_pose ? "Name for the Saved View" : "Name for the Saved Lighting";
+            confirm_hint: root.with_pose ? "Save the lighting and the camera pose under this name" : "Save the lighting under this name";
+            accepted(name) => {
+                if root.with_pose {
+                    ViewportModel.save_view_preset(name);
+                } else {
+                    ViewportModel.save_lighting_preset(name);
+                }
+                // The field leaves the window while focused, which drops its own focus handler.
+                EditorModel.text_focus = false;
+                root.adding_preset = false;
+                root.with_pose = false;
+                root.new_preset_name = "";
+            }
+        }
+        KitSwitchRow {
+            label: "Include the camera pose";
+            on: root.with_pose;
+            toggled => { root.with_pose = !root.with_pose; }
         }
     }
 
-    // Saved-lighting rows: click the name to apply; pencil/check to rename (your own only);
-    // trash to delete (your own only). Built-in ones never show rename/delete since the Rust
-    // side refuses those operations on them anyway.
-    for preset[idx] in ViewportModel.lighting_presets: Rectangle {
-        height: 28px;
-        border-radius: Theme.radius-sm;
-        background: Theme.surface-sunken;
-        border-width: 1px;
-        border-color: Theme.border-dialog;
+    if ViewportModel.lighting_presets.length == 0: Text {
+        text: "No saved lightings yet.";
+        font-size: 11px;
+        color: Theme.text-muted;
+    }
 
-        HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 4px;
+    // Two chips per row: the even entry opens a row, the odd one is drawn by it (an empty layout,
+    // no height, in its own turn).
+    VerticalLayout {
+        spacing: 0px;
+        for preset[idx] in ViewportModel.lighting_presets: VerticalLayout {
             spacing: 4px;
+            padding-bottom: Math.mod(idx, 2) == 0 ? 6px : 0px;
 
-            rectangle-name := Rectangle {
-                horizontal-stretch: 1;
-                accessible-role: AccessibleRole.button;
-                accessible-label: "Use Saved Lighting "+ preset.name;
-                accessible-enabled: root.renaming_index != idx;
-                accessible-action-default => {
-                    if root.renaming_index != idx {
-                        ViewportModel.apply_lighting_preset(idx);
+            if Math.mod(idx, 2) == 0: HorizontalLayout {
+                spacing: 6px;
+                PresetChip {
+                    item: preset;
+                    index: idx;
+                    kind: ViewportModel.lighting_preset_kinds[idx];
+                    design: idx == ViewportModel.design_lighting_preset;
+                    menu_open: root.menu_index == idx;
+                    apply => { ViewportModel.apply_lighting_preset(idx); }
+                    options => {
+                        root.renaming_index = -1;
+                        EditorModel.text_focus = false;
+                        root.menu_index = root.menu_index == idx ? -1 : idx;
                     }
                 }
-
-                Tooltip { text: @markdown("Use this lighting: the rig, light, exposure, glare, backdrop, head shadow, environment map and camera distance it saved."); }
-
-                apply_focus := FocusScope {
-                    enabled: root.renaming_index != idx;
-                    key-pressed(event) => {
-                        if event.text == Key.Space || event.text == Key.Return {
-                            ViewportModel.apply_lighting_preset(idx);
-                            return accept;
-                        }
-                        return reject;
+                if idx + 1 < ViewportModel.lighting_presets.length: PresetChip {
+                    item: ViewportModel.lighting_presets[idx + 1];
+                    index: idx + 1;
+                    kind: ViewportModel.lighting_preset_kinds[idx + 1];
+                    design: idx + 1 == ViewportModel.design_lighting_preset;
+                    menu_open: root.menu_index == idx + 1;
+                    apply => { ViewportModel.apply_lighting_preset(idx + 1); }
+                    options => {
+                        root.renaming_index = -1;
+                        EditorModel.text_focus = false;
+                        root.menu_index = root.menu_index == idx + 1 ? -1 : idx + 1;
                     }
                 }
+                if idx + 1 >= ViewportModel.lighting_presets.length: Rectangle { horizontal-stretch: 1; }
+            }
 
-                apply_touch := TouchArea {
-                    enabled: root.renaming_index != idx;
-                    mouse-cursor: pointer;
-                    clicked => { ViewportModel.apply_lighting_preset(idx); }
-                }
+            // The options of the chip whose "..." is open, under its row.
+            if Math.mod(idx, 2) == 0 && (root.menu_index == idx || root.menu_index == idx + 1): Rectangle {
+                background: Theme.surface-sunken;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: Theme.border-dialog;
 
-                if root.renaming_index != idx: Text {
-                    x: 0px;
-                    width: parent.width;
-                    height: parent.height;
-                    overflow: elide;
-                    text: preset.name;
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: apply_touch.has-hover || apply_focus.has-focus ? Theme.accent-cyan : (preset.built_in ? Theme.text-secondary : Theme.text-primary);
-                    vertical-alignment: center;
-                }
-
-                if root.renaming_index == idx: Rectangle {
-                    height: 22px;
-                    background: Theme.surface-sunken;
-                    border-radius: 3px;
-                    border-width: 1px;
-                    border-color: Theme.accent-cyan;
-
-                    line-edit-name := LineEdit {
-                        width: 100%;
-                        height: 100%;
-                        text <=> root.rename_text;
-                        accessible-label: "New Name for Saved Lighting "+ preset.name;
-                        changed has-focus => { EditorModel.text_focus = self.has-focus; }
-                        accepted => {
-                            if (root.rename_text != "") {
-                                ViewportModel.rename_lighting_preset(idx, root.rename_text);
+                VerticalLayout {
+                    padding: 6px;
+                    spacing: 6px;
+                    Text {
+                        text: root.menu_item.name;
+                        font-size: 11px;
+                        color: Theme.text-muted;
+                        overflow: elide;
+                    }
+                    if root.renaming_index != root.menu_index: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        if !root.menu_item.built_in: StripAction {
+                            text: "Rename";
+                            label: "Rename this saved lighting";
+                            hint: "Give this saved lighting another name.";
+                            clicked => {
+                                root.renaming_index = root.menu_index;
+                                root.rename_text = root.menu_item.name;
                             }
-                            EditorModel.text_focus = false;
-                            root.renaming_index = -1;
+                        }
+                        StripAction {
+                            text: "Usable for Export";
+                            label: root.menu_item.export_usable
+                                ? "In the export dialog's list of lightings. Click to take it out."
+                                : "Add this lighting to the export dialog's list of lightings.";
+                            hint: root.menu_item.export_usable
+                                ? "In the export dialog's list of lightings. Click to take it out."
+                                : "Add this lighting to the export dialog's list of lightings.";
+                            checkable: true;
+                            on: root.menu_item.export_usable;
+                            clicked => { ViewportModel.toggle_preset_export_usable(root.menu_index, !root.menu_item.export_usable); }
+                        }
+                        if !root.menu_item.built_in: StripAction {
+                            text: "Delete";
+                            label: "Delete this saved lighting";
+                            hint: "Delete this saved lighting";
+                            danger: true;
+                            clicked => {
+                                ViewportModel.delete_lighting_preset(root.menu_index);
+                                root.menu_index = -1;
+                                root.renaming_index = -1;
+                            }
+                        }
+                    }
+                    if root.renaming_index == root.menu_index: HorizontalLayout {
+                        spacing: 6px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 26px;
+                            background: Theme.surface-sunken;
+                            border-radius: 3px;
+                            border-width: 1px;
+                            border-color: Theme.accent-cyan;
+
+                            line-edit-name := LineEdit {
+                                width: 100%;
+                                height: 100%;
+                                text <=> root.rename_text;
+                                accessible-label: "New Name for Saved Lighting " + root.menu_item.name;
+                                changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                                accepted => {
+                                    if root.rename_text != "" {
+                                        ViewportModel.rename_lighting_preset(root.menu_index, root.rename_text);
+                                    }
+                                    EditorModel.text_focus = false;
+                                    root.renaming_index = -1;
+                                }
+                            }
+                        }
+                        IconButton {
+                            width: 26px;
+                            height: 26px;
+                            icon: @image-url("../../icons/check.svg");
+                            hint: "Keep the new name";
+                            tint: Theme.accent-emerald;
+                            hover_fill: Theme.border-dialog;
+                            clicked => {
+                                if root.rename_text != "" {
+                                    ViewportModel.rename_lighting_preset(root.menu_index, root.rename_text);
+                                }
+                                EditorModel.text_focus = false;
+                                root.renaming_index = -1;
+                            }
                         }
                     }
                 }
-            }
-
-            // "Usable for export" toggle. Shown for every saved lighting, built-ins
-            // included (unlike rename/delete below): whether a lighting mood
-            // is worth re-rendering under is a matter of taste, not identity.
-            icon-button-export-usable := IconButton {
-                width: 20px;
-                height: 20px;
-                icon: @image-url("../../icons/save.svg");
-                glyph: 10px;
-                hint: preset.export_usable
-                    ? "In the export dialog's list of lightings. Click to take it out."
-                    : "Add this lighting to the export dialog's list of lightings.";
-                checkable: true;
-                lit: preset.export_usable;
-                tint: Theme.text-muted;
-                hover_fill: Theme.border-dialog;
-                clicked => { ViewportModel.toggle_preset_export_usable(idx, !preset.export_usable); }
-            }
-
-            if !preset.built_in && root.renaming_index != idx: IconButton {
-                width: 20px;
-                height: 20px;
-                icon: @image-url("../../icons/pencil.svg");
-                glyph: 10px;
-                hint: "Rename this saved lighting";
-                tint: Theme.text-muted;
-                hover_fill: Theme.border-dialog;
-                clicked => {
-                    root.renaming_index = idx;
-                    root.rename_text = preset.name;
-                }
-            }
-
-            if root.renaming_index == idx: IconButton {
-                width: 20px;
-                height: 20px;
-                icon: @image-url("../../icons/check.svg");
-                glyph: 10px;
-                hint: "Keep the new name";
-                tint: Theme.accent-emerald;
-                hover_fill: Theme.border-dialog;
-                clicked => {
-                    if (root.rename_text != "") {
-                        ViewportModel.rename_lighting_preset(idx, root.rename_text);
-                    }
-                    EditorModel.text_focus = false;
-                    root.renaming_index = -1;
-                }
-            }
-
-            if !preset.built_in && root.renaming_index != idx: IconButton {
-                width: 20px;
-                height: 20px;
-                icon: @image-url("../../icons/trash.svg");
-                glyph: 10px;
-                hint: "Delete this saved lighting";
-                tint: Theme.danger;
-                hover_fill: Theme.danger-surface-hover;
-                clicked => { ViewportModel.delete_lighting_preset(idx); }
             }
         }
     }

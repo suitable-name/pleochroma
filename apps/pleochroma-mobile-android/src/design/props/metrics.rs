@@ -17,7 +17,7 @@ use pleochroma_mobile_core::{
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::{HANDLE, Pushed, bind0, bind1, string_model};
-use crate::{AppWindow, PropsModel, design::Shared, push::toast};
+use crate::{AppWindow, PropsModel, ViewportModel, design::Shared, push::toast};
 
 /// What the last push wrote for the analysis surfaces.
 pub(super) struct AnalysisPushed {
@@ -44,6 +44,9 @@ pub(super) fn wire(window: &AppWindow, state: &Shared) {
     props.on_tilt_cancel(bind0(window, state, cancel_tilt));
     props.on_tilt_axis_picked(bind1(window, state, axis_picked));
     props.on_tilt_copy(bind0(window, state, copy_data));
+    window
+        .global::<ViewportModel>()
+        .on_figures_copy(bind0(window, state, copy_figures));
 
     let weak = window.as_weak();
     let notifier: Notifier = Arc::new(move || {
@@ -107,6 +110,30 @@ fn cancel_tilt(window: &AppWindow, state: &Shared) {
 fn axis_picked(window: &AppWindow, state: &Shared, _index: i32) {
     // The sheet already wrote the index into `tilt-axis`; the push reads it back.
     super::push(window, &state.borrow());
+}
+
+/// The figures card was tapped: the five numbers as "name<TAB>value" lines.
+fn copy_figures(window: &AppWindow, state: &Shared) {
+    let app = state.borrow();
+    let view = metrics_view(&app);
+    if view.rows.is_empty() {
+        toast::show(window, "Compute the metrics first.");
+        return;
+    }
+    let text = view
+        .rows
+        .iter()
+        .take(5)
+        .map(|row| format!("{}	{}", row.label, row.value))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    match app.platform().set_clipboard_text(&text) {
+        Ok(()) => toast::show(window, "Numbers copied."),
+        Err(error) => toast::show(window, &error.message),
+    }
 }
 
 /// "Copy Data": the whole sweep as a tab-separated table.

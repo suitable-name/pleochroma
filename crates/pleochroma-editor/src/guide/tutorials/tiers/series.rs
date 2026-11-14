@@ -291,8 +291,7 @@ fn tier_relations() -> Guide {
         )
         .actions([
             "Click the Pavilion Main row.",
-            "In the Tier tab, set Angle (deg) to =[Crown Main]+6.5",
-            "Click Save Tier.",
+            "In the Tier tab, set Angle (deg) to =[Crown Main]+6.5 and press Enter.",
         ])
         .check("Pavilion Main shows a link icon in the ANGLE column and reads 41.00.")
         .why("34.5 plus 6.5 is 41, and the tier keeps its pavilion side.")
@@ -377,12 +376,11 @@ fn arithmetic_in_fields() -> Guide {
     .step(
         GuideStep::new(
             "Calculate an angle",
-            "Any number field takes + - * / and brackets, worked out when you save.",
+            "Any number field takes + - * / and brackets, worked out when you press Enter or leave the field.",
         )
         .actions([
             "Click the Crown Main row.",
-            "In the Tier tab, set Angle (deg) to 34.5+0.3",
-            "Click Save Tier.",
+            "In the Tier tab, set Angle (deg) to 34.5+0.3 and press Enter.",
         ])
         .check("Crown Main reads 34.80.")
         .why("On a pavilion tier the field holds a plain number too, so write the sum the same way, for example 40-0.5: the tier keeps its side of the stone.")
@@ -397,8 +395,7 @@ fn arithmetic_in_fields() -> Guide {
         )
         .actions([
             "Click the Table row.",
-            "Meets: Exact Scale Value, Scale Value: 0.5-0.15",
-            "Click Save Tier.",
+            "Meets: Exact Scale Value (Scale segment), Scale Value: 0.5-0.15, then press Enter.",
         ])
         .check("the Table row's Meets column reads 0.35.")
         .why("A sum that cannot be worked out, such as 1/0, is refused with the reason under the field.")

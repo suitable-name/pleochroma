@@ -114,8 +114,8 @@ fn keep_trials() -> Guide {
             "A trial is the design as it is now, kept with its figures, so you can try something else and come back to it.",
         )
         .actions([
-            "Under the inspector's tabs the strip shows the figures of the design against the Baseline.",
-            "Click Keep as Trial, or press Ctrl+Shift+K.",
+            "The VS BASELINE card at the left of the Edit viewport shows the figures of the design against the Baseline (in the Advanced interface; Simple shows the figures alone).",
+            "Click Keep as Trial in the header of that card, or press Ctrl+Shift+K.",
         ])
         .check("a toast says Kept as Trial 1.")
         .why("Trials live in this session only: they are not saved with the design. A Baseline is set when a design opens, so the strip compares from the start.")
@@ -129,7 +129,7 @@ fn keep_trials() -> Guide {
             "Give the next trial something to differ in.",
         )
         .actions([
-            "Double-click the ANGLE cell of the Crown Main row in the tier table, or pick the row and press F2.",
+            "Double-click the angle of the Crown Main row in the tier list, or pick the row and press F2.",
             "Type 36 and press Enter.",
         ])
         .check("the Crown Main row shows 36.00.")
@@ -154,7 +154,7 @@ fn keep_trials() -> Guide {
             "The trials are listed in the History tab, next to the steps and the variants.",
         )
         .actions([
-            "Click History, the last tab at the top of the inspector below the tier table.",
+            "Click History, the last tab at the top of the inspector below the tier list.",
             "At the top of the tab, click Trials. Steps and Variants are the other views.",
         ])
         .check("a table with a Baseline line and the two trials under it, each with five figures.")
@@ -198,7 +198,7 @@ fn keep_trials() -> Guide {
         .actions([
             "Click the row of Trial 2, then click Set as Baseline.",
         ])
-        .check("a toast says Baseline set: Trial 2, and the figures strip now reads against it.")
+        .check("a toast says Baseline set: Trial 2, and the VS BASELINE card now reads against it.")
         .why("The Baseline lives in this session only. Compare to Current shows a trial and the design now side by side, Save as Variant... keeps a trial's design in the library, and Delete removes a trial.")
         .goal(event(events::SNAPSHOT_TAKEN), "a Baseline set from a trial")
         .highlight("history_tab")
@@ -233,7 +233,8 @@ fn tune_by_hand() -> Guide {
             "Tune goes through the tiers one at a time, so you can nudge each angle and keep what helps.",
         )
         .actions([
-            "Click Optimize, the third tab at the top of the inspector below the tier table.",
+            "Tune is part of the Advanced interface: if the Optimize tab shows no Tune view, click the half of the Simple | Advanced pill in the header that is not lit.",
+            "Click Optimize, the third tab at the top of the inspector below the tier list.",
             "At the top of the tab, click Tune. Search is the other view.",
         ])
         .check("a list headed Tiers (Tuning Order) with the pavilion main first.")
@@ -257,8 +258,8 @@ fn tune_by_hand() -> Guide {
             "Click the Pavilion Main row of the list. A title with the tier's name and angle appears over a row of nudge buttons.",
             "Click +0.1 to make the angle a tenth of a degree steeper.",
         ])
-        .check("the title reads 40.10 degrees, and the figures strip under the tabs shows what the nudge did.")
-        .why("A nudge is one undo step, like an angle typed in the tier table. -0.5, -0.1, +0.1 and +0.5 are the nudge buttons, and the angle box takes a number you type.")
+        .check("the title reads 40.10 degrees, and the FACE-UP figures in the viewport show what the nudge did.")
+        .why("A nudge is one undo step, like an angle typed in the tier list. -0.5, -0.1, +0.1 and +0.5 are the nudge buttons, and the angle box takes a number you type.")
         .goal(
             Goal::All(vec![
                 event(events::TUNE_NUDGED),
@@ -318,9 +319,10 @@ fn tune_by_hand() -> Guide {
             "Tune is the same tools in a smaller loop.",
         )
         .actions([
-            "The strip under the inspector's tabs shows the figures against the Baseline after every nudge. Set as Baseline in this view makes the design as it is now the new Baseline.",
+            "The VS BASELINE figures over the Edit viewport show the change against the Baseline after every nudge. Set as Baseline in this view makes the design as it is now the new Baseline.",
+            "Accept and Next accepts the picked tier and moves on in one click.",
             "The History tab's Trials view lists the two accepted tiers as trials with the origin Tune.",
-            "In the Advanced interface Tune also draws a small sweep of the picked tier's angle with a star on the best angle: a click on the chart or Jump to Best sets that angle. Pair With opens Two Tiers with the tier filled in, and the Up and Dn buttons reorder the list.",
+            "The small sweep of the picked tier's angle is folded until you ask for it: click Show sweep (or Jump to Best, which opens it). A star marks the best angle, and a click on the chart or Jump to Best sets that angle. Pair With opens Two Tiers with the tier filled in. Up and Dn on the picked row reorder the list, and so does Alt+Up and Alt+Down.",
         ])
         .why("The chart is drawn when the design settles. Out of Date says another tier changed since it was drawn; Recompute draws it again.")
         .allow(TOOLS),

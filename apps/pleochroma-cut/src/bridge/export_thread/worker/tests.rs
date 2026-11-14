@@ -33,7 +33,55 @@ fn render_accumulation_cpu_only_path_matches_render_batch_directly() {
         SceneSnapshot::capture(&Mutex::new(RenderContext::default())).expect("Diamond resolves");
     let (width, height, spp) = (8u32, 8u32, 4u32);
     let (cam_yaw, cam_pitch) = (0.3f32, 0.2f32);
+    let via_core = core_cpu_accumulation(&scene, (width, height, spp), (cam_yaw, cam_pitch));
 
+    let camera = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
+    let mut via_batch = vec![Vec3::ZERO; (width * height) as usize];
+    render_batch(width, height, spp, 0, &camera, &scene, &mut via_batch);
+
+    assert_eq!(
+        via_core, via_batch,
+        "the shared core's CPU-only path must be bit-identical to a direct \
+         render_batch call for the same scene/pose/seed"
+    );
+}
+
+/// The shared core traces the snapshot's pan: a panned scene equals `render_batch` with the
+/// panned camera and differs from the centred picture.
+#[test]
+fn render_accumulation_traces_the_snapshots_pan() {
+    let scene = SceneSnapshot::capture(&Mutex::new(RenderContext {
+        camera_pan: [0.3, -0.2],
+        ..RenderContext::default()
+    }))
+    .expect("Diamond resolves");
+    let (width, height, spp) = (8u32, 8u32, 4u32);
+    let (cam_yaw, cam_pitch) = (0.3f32, 0.2f32);
+    let via_core = core_cpu_accumulation(&scene, (width, height, spp), (cam_yaw, cam_pitch));
+
+    let centred = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
+        .with_roll(scene.camera_roll);
+    let panned = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
+        .with_roll(scene.camera_roll)
+        .with_pan(scene.camera_pan);
+    let mut via_panned = vec![Vec3::ZERO; (width * height) as usize];
+    render_batch(width, height, spp, 0, &panned, &scene, &mut via_panned);
+    let mut via_centred = vec![Vec3::ZERO; (width * height) as usize];
+    render_batch(width, height, spp, 0, &centred, &scene, &mut via_centred);
+
+    assert_eq!(via_core, via_panned, "the export draws the panned picture");
+    assert_ne!(via_core, via_centred, "and not the centred one");
+}
+
+/// The CPU-only accumulation (`ComputeTarget::LocalOnly`, `LocalComputeTarget::Cpu`) of `scene`
+/// at `(cam_yaw, cam_pitch)` through the shared core, from an all-zero buffer.
+fn core_cpu_accumulation(
+    scene: &SceneSnapshot,
+    (width, height, spp): (u32, u32, u32),
+    (cam_yaw, cam_pitch): (f32, f32),
+) -> Vec<Vec3> {
     let params = ExportParams {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         width,
@@ -45,7 +93,7 @@ fn render_accumulation_cpu_only_path_matches_render_batch_directly() {
     let mut carry = AccumulationCarry::default();
     let cancel = AtomicBool::new(false);
     let outcome = render_accumulation(
-        &scene,
+        scene,
         cam_yaw,
         cam_pitch,
         params,
@@ -57,23 +105,12 @@ fn render_accumulation_cpu_only_path_matches_render_batch_directly() {
         &cancel,
         |_| {},
     );
-    let via_core = match outcome {
+    match outcome {
         AccumulationOutcome::Completed(Accumulation { accum, .. }) => accum,
         AccumulationOutcome::Cancelled | AccumulationOutcome::Failed(_) => {
             panic!("expected a completed accumulation")
         }
-    };
-
-    let camera = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
-        .with_roll(scene.camera_roll);
-    let mut via_batch = vec![Vec3::ZERO; (width * height) as usize];
-    render_batch(width, height, spp, 0, &camera, &scene, &mut via_batch);
-
-    assert_eq!(
-        via_core, via_batch,
-        "the shared core's CPU-only path must be bit-identical to a direct \
-         render_batch call for the same scene/pose/seed"
-    );
+    }
 }
 
 /// Ray export parts with absolute AA tap indices sum to the whole render.

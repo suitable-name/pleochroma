@@ -12,7 +12,7 @@
 
 use super::{
     app_settings::{AppSettings, Backdrop},
-    clamp_tray_reflection,
+    clamp_camera_pan, clamp_tray_reflection,
     head_shadow::{DEFAULT_HEAD_SHADOW_DEG, clamp_head_shadow_deg},
     is_zero_reflection,
     surface_glare::{DEFAULT_SURFACE_GLARE, clamp_surface_glare},
@@ -93,6 +93,10 @@ pub struct LightingValues {
     /// Clockwise image-plane roll in radians. An older recorded camera pose uses zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_roll: Option<f32>,
+    /// Where the stone sits in the picture, `[x, y]` in image half-heights (x right, y up, in
+    /// the picture's axes). An older recorded camera pose is centred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_pan: Option<[f32; 2]>,
     /// Camera distance from the stone, if carried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_distance: Option<f32>,
@@ -126,6 +130,7 @@ impl LightingValues {
             camera_yaw: None,
             camera_pitch: None,
             camera_roll: None,
+            camera_pan: None,
             camera_distance: None,
         }
         .sanitised()
@@ -172,6 +177,10 @@ impl LightingValues {
         self.camera_yaw = self.camera_yaw.filter(|v| v.is_finite());
         self.camera_pitch = self.camera_pitch.filter(|v| v.is_finite());
         self.camera_roll = self.camera_roll.filter(|v| v.is_finite());
+        self.camera_pan = self
+            .camera_pan
+            .filter(|pan| pan.iter().all(|v| v.is_finite()))
+            .map(clamp_camera_pan);
         self.camera_distance = self.camera_distance.filter(|v| v.is_finite() && *v > 0.0);
         self
     }
@@ -190,6 +199,19 @@ impl LightingValues {
             }
             _ => None,
         }
+    }
+
+    /// The pan that goes with [`Self::camera_pose`]: the recorded one, or centred for an older
+    /// pose without one. Lighting-only values carry none, so applying them keeps the camera.
+    #[must_use]
+    pub const fn pose_pan(&self) -> Option<[f32; 2]> {
+        if self.camera_pose().is_none() {
+            return None;
+        }
+        Some(match self.camera_pan {
+            Some(pan) if pan[0].is_finite() && pan[1].is_finite() => pan,
+            _ => [0.0, 0.0],
+        })
     }
 
     /// Writes these values into the lighting fields of `app`. The camera is not written:
@@ -236,7 +258,10 @@ mod tests {
         };
         let restored: AppSettings =
             toml::from_str(&toml::to_string(&app).expect("write settings")).expect("read settings");
-        let mut preset = crate::settings::model::lighting_preset::built_in_presets().remove(0);
+        let mut preset = crate::settings::model::lighting_preset::built_in_presets()
+            .into_iter()
+            .find(|p| !p.stone_shadow)
+            .expect("a built-in without the Stone Shadow");
         preset.set_values(&LightingValues::from_app_settings(&restored));
         let row =
             LightingValues::from_json(&preset.values().to_json().expect("write design lighting"))
@@ -343,6 +368,7 @@ mod tests {
             camera_yaw: Some(0.25),
             camera_pitch: Some(0.75),
             camera_roll: Some(1.5),
+            camera_pan: Some([0.25, -0.5]),
             camera_distance: Some(2.5),
             ..LightingValues::default()
         };
@@ -350,6 +376,54 @@ mod tests {
         assert_eq!(LightingValues::from_json(&json), Ok(values.clone()));
         let newer = json.replacen('{', r#"{"a_future_field":[1,2,3],"#, 1);
         assert_eq!(LightingValues::from_json(&newer), Ok(values));
+    }
+
+    /// A recorded view brings its pan, an older recorded view without one centres the stone,
+    /// and lighting-only values carry no pan, so applying them keeps the camera.
+    #[test]
+    fn the_pan_goes_with_the_recorded_pose_and_an_older_pose_is_centred() {
+        let panned = LightingValues {
+            camera_yaw: Some(0.25),
+            camera_pitch: Some(0.75),
+            camera_pan: Some([0.4, -0.3]),
+            ..LightingValues::default()
+        };
+        assert_eq!(panned.pose_pan(), Some([0.4, -0.3]));
+
+        let older = r#"{"lighting_rig":"ISO hemisphere","light_yaw_deg":10.0,
+                        "light_pitch_deg":30.0,"exposure":1.0,
+                        "camera_yaw":0.25,"camera_pitch":0.75,"camera_roll":0.5}"#;
+        let older = LightingValues::from_json(older).expect("loads");
+        assert_eq!(older.camera_pan, None);
+        assert_eq!(older.pose_pan(), Some([0.0, 0.0]));
+
+        let lighting_only = LightingValues {
+            camera_pan: Some([0.4, -0.3]),
+            ..LightingValues::default()
+        };
+        assert_eq!(lighting_only.pose_pan(), None);
+        let json = LightingValues::default().to_json().expect("serialises");
+        assert!(!json.contains("camera_pan"), "{json}");
+    }
+
+    /// A damaged pan reads as none (the recorded pose is then centred) and one beyond what a
+    /// renderer takes is limited to it.
+    #[test]
+    fn a_damaged_pan_reads_as_none_and_a_wild_one_is_limited() {
+        let pose = |pan| {
+            LightingValues {
+                camera_yaw: Some(0.25),
+                camera_pitch: Some(0.75),
+                camera_pan: Some(pan),
+                ..LightingValues::default()
+            }
+            .sanitised()
+        };
+        let damaged = pose([f32::NAN, 0.5]);
+        assert_eq!(damaged.camera_pan, None);
+        assert_eq!(damaged.pose_pan(), Some([0.0, 0.0]));
+        let max = pleochroma::optics::raytracer::MAX_CAMERA_PAN;
+        assert_eq!(pose([40.0, -0.5]).camera_pan, Some([max, -0.5]));
     }
 
     /// The map rotation and its camera switch survive the settings file, a saved lighting

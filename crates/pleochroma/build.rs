@@ -148,7 +148,9 @@ const ZONING_PIECES: &[&str] = &[
 /// also the `KERNEL_SET_HASH` input order.
 ///
 /// `ScatterOriented`, `ZonedAbsorb` and `ArmUniEntryTransmit` are split off `Scatter`,
-/// `Surface` and `ArmUniEntry` to keep each kernel's browser compile time small.
+/// `Surface` and `ArmUniEntry` to keep each kernel's browser compile time small;
+/// `ArmUniEntryFinish` and `ArmUniInternalTransmit` are split off `ArmUniEntryTransmit` and
+/// `ArmUniInternal` because the Adreno 740 driver does not link those whole.
 const EW_KERNELS: &[(&str, &str)] = &[
     ("Generate", "ew_generate.wgsl"),
     ("Extend", "ew_extend.wgsl"),
@@ -161,7 +163,12 @@ const EW_KERNELS: &[(&str, &str)] = &[
     ("ArmTir", "ew_arm_tir.wgsl"),
     ("ArmUniEntry", "ew_arm_uni_entry.wgsl"),
     ("ArmUniEntryTransmit", "ew_arm_uni_entry_transmit.wgsl"),
+    ("ArmUniEntryFinish", "ew_arm_uni_entry_finish.wgsl"),
     ("ArmUniInternal", "ew_arm_uni_internal.wgsl"),
+    (
+        "ArmUniInternalTransmit",
+        "ew_arm_uni_internal_transmit.wgsl",
+    ),
     ("ArmGeneric", "ew_arm_generic.wgsl"),
     ("SplitResolve", "ew_split_resolve.wgsl"),
     ("Tail", "ew_tail.wgsl"),

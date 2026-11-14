@@ -22,7 +22,7 @@ use super::{
     super::{Piece, dialogs, existing_install},
     overlay_states::{Base, NONE, State, deny, edit_tab, inspector, live_tab, press},
     overlays, state_pieces,
-    states_reach::{library_list_open, scroll_scope, type_into},
+    states_reach::{library_list_open, type_into},
 };
 use crate::support::{
     Ctx, HarnessApp,
@@ -414,17 +414,21 @@ fn pending_apply_states() -> Vec<State> {
     ]
 }
 
-/// Gear (Custom), symmetry order, title and details, the printed proportions: each typed, then the
-/// four Apply buttons pressed.
+/// The Design sheet (opened with "Edit Design Settings"): gear (Other), title and details and the
+/// printed proportions typed (each field applies on Enter or when it is left, so there are no
+/// Apply buttons), then the symmetry order picked, which shows its inline confirm with "Apply
+/// Symmetry" and "Cancel Symmetry Change".
 fn design_settings_edited(a: &HarnessApp) {
     edit_tab(a);
     wait_settled(a);
     let editor = a.ui().global::<EditorModel>();
     editor.set_gear_index(6);
     pump(250);
+    // The sheet is a popup of the Design section: open it the way a user does.
+    let _ = press(a, "Edit Design Settings", None);
+    pump(300);
     let typed = [
         ("Custom Gear Teeth", "100"),
-        ("Symmetry Order", "4"),
         ("Design Title", "Harness title"),
         ("Extra Header Lines", "Harness note"),
         ("Footnotes", "Harness footnote"),
@@ -438,38 +442,23 @@ fn design_settings_edited(a: &HarnessApp) {
     for (label, text) in typed {
         let _ = type_into(a, label, text);
     }
-    // Apply Printed and Details first: Apply Gear opens a modal question and Apply Symmetry
-    // rebuilds the design.
-    for (label, id) in [
-        (
-            "Apply Printed",
-            "EditorDesignSettings::tip-button-printed-pending",
-        ),
-        (
-            "Apply Details",
-            "EditorDesignSettings::tip-button-meta-pending",
-        ),
-        (
-            "Apply Symmetry",
-            "EditorDesignSettings::tip-button-symmetry-pending",
-        ),
-    ] {
-        if press(a, label, None) {
-            coverage::record_site_id(id);
+    // The symmetry order "4" is a segment of the Symmetry Order group; the pick starts a change
+    // that shows its inline confirm. Cancel first (the next press, Apply, rebuilds the design).
+    if press(a, "4", None) {
+        pump(250);
+        if press(a, "Cancel Symmetry Change", None) {
+            pump(150);
         }
-    }
-    if press(a, "Apply Gear", None) {
-        // The gear change asks for a confirmation (the remap dialog); the answer is Cancel.
-        if wait_until(Duration::from_secs(3), || editor.get_gear_remap_open()) {
-            coverage::record_site_id("EditorDesignSettings::tip-button-gear-pending");
-            editor.invoke_gear_remap_cancel();
+        if press(a, "4", None) {
             pump(250);
+            let _ = press(a, "Apply Symmetry", None);
         }
     }
 }
 
-/// The Preform tab: shape sizes and the yield inputs typed, then Apply Yield Inputs and Apply
-/// Preform pressed (their reader labels say "changes not applied yet" while the marker is up).
+/// The Preform tab: shape sizes and the yield inputs typed, then Apply Preform pressed (its
+/// reader label says "changes not applied yet" while the marker is up). The yield inputs have no
+/// Apply button: Enter or leaving the field applies them.
 fn preform_edited(a: &HarnessApp) {
     inspector(a, 1);
     let typed = [
@@ -482,9 +471,6 @@ fn preform_edited(a: &HarnessApp) {
     ];
     for (label, text) in typed {
         let _ = type_into(a, label, text);
-    }
-    if press(a, "Apply Yield Inputs, changes not applied yet", None) {
-        coverage::record_site_id("PreformTab::tip-button-yield-pending");
     }
     if press(a, "Apply Preform, changes not applied yet", None) {
         coverage::record_site_id("PreformTab::tip-button-preform-pending");
@@ -673,71 +659,124 @@ fn concave_changed_under_draft(a: &HarnessApp) {
 // The tier table
 // ---------------------------------------------------------------------------------------------
 
-/// Every action a tier row can offer (Complete Orbit, Adopt, Pin, Detach or Reattach, Add Anchor)
-/// and the TIERS section header. The rows of a freshly solved template show few of them, so the
-/// state writes the row flags that make each one show (the model is `in`, Rust-owned, and the
-/// handlers behind the buttons work on the real design).
+/// Writes the row flags that make every row action show (the model is `in`, Rust-owned, and the
+/// handlers behind the menu items work on the real design): row 0 offers Adopt, Pin, Add Anchor,
+/// Complete Orbit and Detach, row 1 offers Reattach.
+fn prepare_action_rows(a: &HarnessApp) {
+    edit_tab(a);
+    wait_settled(a);
+    let editor = a.ui().global::<EditorModel>();
+    // Pin needs the mast of the design's last solve (`adopt::pinnable_mast`). The template's
+    // worker stores it before `solve_state` reads "solved", so wait for that state, not only for
+    // the solve to stop running.
+    let _ = wait_until(Duration::from_secs(15), || {
+        editor.get_solve_state().as_str() == "solved"
+    });
+    let count = editor.get_tiers().row_count();
+    // The section header folds the table and unfolds it again (two presses).
+    let header = format!("TIERS ({count})");
+    let _ = press(a, &header, None);
+    let _ = press(a, &header, None);
+    editor.set_tier_table_collapsed(false);
+    let rows: Vec<EditorTierItem> = editor
+        .get_tiers()
+        .iter()
+        .enumerate()
+        .map(|(index, mut row)| {
+            row.strategy_is_uncertain = false;
+            row.kind = 0;
+            match index % 3 {
+                0 => {
+                    row.constraint_kind = 0;
+                    row.needs_anchor = true;
+                    row.imported_meet_text = "meets tier 2".into();
+                    row.orbit_status = "3/4 orbit".into();
+                    row.orbit_incomplete = true;
+                    row.is_detached = false;
+                }
+                1 => {
+                    row.orbit_status = "orbit x4".into();
+                    row.orbit_incomplete = false;
+                    row.is_detached = true;
+                }
+                _ => {
+                    row.constraint_kind = 0;
+                    row.orbit_status = "orbit x4".into();
+                    row.orbit_incomplete = false;
+                    row.is_detached = false;
+                }
+            }
+            row
+        })
+        .collect();
+    editor.set_tiers(ModelRc::new(VecModel::from(rows)));
+    pump(400);
+}
+
+/// The "..." menu of a tier row ("Actions for Tier N"): every action a row can offer is an item of
+/// it (Adopt, Pin, Add Anchor, Complete orbit, Detach or Reattach, move, Duplicate, Add to
+/// Selection, Surface Finish, Delete), and its Surface Finish page; plus the tier list's own
+/// menu ("Tier List Menu": Adopt All, Select) and the Add Tier menu ("Add Tier Menu").
 fn tier_row_states() -> Vec<State> {
-    vec![State {
-        name: "Tier table, every row action",
-        base: Base::Design,
-        scope: Some("EditorTierTable"),
-        deny: NONE,
-        open: |a| {
-            edit_tab(a);
-            wait_settled(a);
-            let editor = a.ui().global::<EditorModel>();
-            // Pin needs the mast of the design's last solve (`adopt::pinnable_mast`). The
-            // template's worker stores it before `solve_state` reads "solved", so wait for that
-            // state, not only for the solve to stop running.
-            let _ = wait_until(Duration::from_secs(15), || {
-                editor.get_solve_state().as_str() == "solved"
-            });
-            let count = editor.get_tiers().row_count();
-            // The header folds the table and unfolds it again (two presses).
-            let header = format!("TIERS ({count})");
-            let _ = press(a, &header, None);
-            let _ = press(a, &header, None);
-            editor.set_tier_table_collapsed(false);
-            let rows: Vec<EditorTierItem> = editor
-                .get_tiers()
-                .iter()
-                .enumerate()
-                .map(|(index, mut row)| {
-                    row.strategy_is_uncertain = false;
-                    row.kind = 0;
-                    match index % 3 {
-                        0 => {
-                            row.constraint_kind = 0;
-                            row.needs_anchor = true;
-                            row.imported_meet_text = "meets tier 2".into();
-                            row.orbit_status = "3/4 orbit".into();
-                            row.orbit_incomplete = true;
-                            row.is_detached = false;
-                        }
-                        1 => {
-                            row.orbit_status = "orbit x4".into();
-                            row.orbit_incomplete = false;
-                            row.is_detached = true;
-                        }
-                        _ => {
-                            row.constraint_kind = 0;
-                            row.orbit_status = "orbit x4".into();
-                            row.orbit_incomplete = false;
-                            row.is_detached = false;
-                        }
-                    }
-                    row
-                })
-                .collect();
-            editor.set_tiers(ModelRc::new(VecModel::from(rows)));
-            pump(400);
-            // Adopt, Pin, Detach and Add Anchor are the right-hand columns of a table that
-            // scrolls sideways inside the dock; scrolled out of the clip they are not
-            // enumerated, so the table is scrolled to its right edge.
-            scroll_scope(a, "EditorTierTable", -4000.0, 0.0);
+    vec![
+        State {
+            name: "Tier table, row menu (Adopt, Pin, Add Anchor, Complete orbit, Detach)",
+            base: Base::Design,
+            scope: Some("EditorTierTable"),
+            deny: NONE,
+            open: |a| {
+                prepare_action_rows(a);
+                let _ = press(a, "Actions for Tier 1", None);
+                pump(250);
+            },
         },
-    }]
+        State {
+            name: "Tier table, row menu (Reattach)",
+            base: Base::Design,
+            scope: Some("EditorTierTable"),
+            deny: NONE,
+            open: |a| {
+                prepare_action_rows(a);
+                let _ = press(a, "Actions for Tier 2", None);
+                pump(250);
+            },
+        },
+        State {
+            name: "Tier table, row menu, Surface Finish page",
+            base: Base::Design,
+            scope: Some("EditorTierTable"),
+            deny: NONE,
+            open: |a| {
+                prepare_action_rows(a);
+                if press(a, "Actions for Tier 1", None) {
+                    let _ = press(a, "Surface Finish", None);
+                    pump(250);
+                }
+            },
+        },
+        State {
+            name: "Tier table, list menu",
+            base: Base::Design,
+            scope: Some("TierTableToolbar"),
+            deny: NONE,
+            open: |a| {
+                prepare_action_rows(a);
+                let _ = press(a, "Tier List Menu", None);
+                pump(250);
+            },
+        },
+        State {
+            name: "Tier table, Add Tier menu",
+            base: Base::Design,
+            scope: Some("TierTableToolbar"),
+            deny: NONE,
+            open: |a| {
+                prepare_action_rows(a);
+                let _ = press(a, "More Ways to Add a Tier", None);
+                pump(250);
+            },
+        },
+    ]
 }
 
 // ---------------------------------------------------------------------------------------------

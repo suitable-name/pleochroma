@@ -404,7 +404,7 @@ fn a_step_title_leads_with_the_tier_code() {
     // The learner still types the tier's own name.
     let table = &plan.guide.steps[4];
     assert!(table.actions.contains(&"Name: Table".to_owned()));
-    assert_eq!(table.check, "a Table row in the tier table.");
+    assert_eq!(table.check, "a Table row in the tier list.");
 }
 
 #[test]
@@ -463,8 +463,8 @@ fn a_tier_step_lists_what_to_type_and_waits_for_the_tier() {
         "{}",
         girdle.actions[4]
     );
-    assert_eq!(girdle.actions[5], "Click Add Tier.");
-    assert_eq!(girdle.check, "a Girdle row in the tier table.");
+    assert_eq!(girdle.actions[5], "Click Add This Tier.");
+    assert_eq!(girdle.check, "a Girdle row in the tier list.");
     assert_eq!(girdle.waiting, "tier Girdle at 90.0 with 16 indices");
     assert_eq!(girdle.highlight_target, "inspector_tier");
     assert_eq!(
@@ -1116,11 +1116,11 @@ fn a_concave_tier_has_its_own_step_between_the_pavilion_and_the_crown() {
     assert_eq!(guide.steps[6].title, "Add C1 Star (star)");
     assert!(matches!(concave.goal, Goal::ConcaveTiersAtLeast(1)));
     assert_eq!(concave.highlight_target, "tier_table");
-    // The button the step names must be one the Simple interface shows too: the tier
-    // table's, not the command bar's "+ Concave".
+    // The menu the step names must be one the Simple interface shows too: the Add Tier
+    // menu above the tier list, not the command bar's "+ Concave".
     assert_eq!(
         concave.actions[0],
-        "Click + Add Concave Tier in the tier table's toolbar."
+        "Open the Add Tier menu above the tier list and click Concave Tier."
     );
     assert!(
         concave
@@ -1145,7 +1145,7 @@ fn a_concave_tier_has_its_own_step_between_the_pavilion_and_the_crown() {
     assert!(
         concave
             .actions
-            .contains(&"Reciprocating: ticked".to_owned())
+            .contains(&"Stroke: Back and Forth (reciprocating)".to_owned())
     );
     assert!(concave.why.contains("cutting sheet"));
     let compare = step_titled(guide, COMPARE_STEP_TITLE);

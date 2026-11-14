@@ -9,7 +9,7 @@
 use super::types::{CameraPose, StoneGeometryBuf};
 use pleochroma::{
     geometry::stone_metrics::{SolidStatus, build_solid_mesh},
-    optics::raytracer::{DEFAULT_FOV_DEG, DEFAULT_POSE},
+    optics::raytracer::{DEFAULT_FOV_DEG, DEFAULT_POSE, MAX_CAMERA_PAN},
 };
 use std::f32::consts::FRAC_PI_2;
 
@@ -23,6 +23,7 @@ pub const RESET_POSE: CameraPose = CameraPose {
     yaw: DEFAULT_POSE.yaw,
     pitch: DEFAULT_POSE.pitch,
     distance: DEFAULT_POSE.distance,
+    pan: [0.0, 0.0],
 };
 
 /// The orbit camera's zoom clamp for a solid with the given bounding radius.
@@ -120,15 +121,36 @@ pub fn wrap_pitch(pitch: f32) -> f32 {
 /// Horizontal drag is inverted because the hand is on the gem, not on the camera;
 /// vertical keeps its sign. The pitch wraps ([`wrap_pitch`]). Deltas are first mapped
 /// through the image-plane roll, so a rolled view drags along the picture. Distance and
-/// roll are unchanged.
+/// roll and pan are unchanged.
 #[must_use]
 pub fn orbit_step(pose: CameraPose, dx: f32, dy: f32) -> CameraPose {
     let (dx, dy) = unroll_drag_delta(pose.roll, dx, dy);
     CameraPose {
-        roll: pose.roll,
         yaw: dx.mul_add(-0.008, pose.yaw),
         pitch: wrap_pitch(dy.mul_add(0.008, pose.pitch)),
-        distance: pose.distance,
+        ..pose
+    }
+}
+
+/// The pose after a pan drag of `(dx, dy)` logical pixels (y down).
+///
+/// The viewport is `width x height` logical pixels. The stone follows the pointer, clamped so
+/// its centre stays in the picture (`|x| <= width / height`, `|y| <= 1`) and within
+/// [`MAX_CAMERA_PAN`], the most a worker accepts. A non-positive size returns the pose
+/// unchanged.
+#[must_use]
+pub fn pan_pose(pose: CameraPose, dx: f32, dy: f32, width: f32, height: f32) -> CameraPose {
+    if width.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+        || height.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+    {
+        return pose;
+    }
+    let limit_x = (width / height).min(MAX_CAMERA_PAN);
+    let x = (2.0 * dx / height + pose.pan[0]).clamp(-limit_x, limit_x);
+    let y = (pose.pan[1] - 2.0 * dy / height).clamp(-1.0, 1.0);
+    CameraPose {
+        pan: [x, y],
+        ..pose
     }
 }
 
@@ -163,7 +185,7 @@ pub fn zoom_step(distance: f32, delta: f32, bounding_radius: f64) -> f32 {
 /// distance from the shown solid's `bounding_radius`, clamped to
 /// [`orbit_distance_bounds`]. `6` Turn 90 turns the stone a quarter turn about its
 /// vertical axis ([`turn_quarter_yaw`]), keeping tilt and zoom. Every view but Fit also
-/// clears any roll. Unknown kinds are Front.
+/// clears any roll and pan (Turn 90 and Fit keep the pan). Unknown kinds are Front.
 ///
 /// Fit assumes a picture at least as wide as tall (aspect 1, see
 /// [`fit_distance_for_view`]). The web and mobile callers draw the Solid picture at
@@ -196,6 +218,7 @@ pub fn standard_view(kind: i32, pose: CameraPose, bounding_radius: f64) -> Camer
         yaw,
         pitch,
         roll: 0.0,
+        pan: [0.0, 0.0],
         ..pose
     }
 }

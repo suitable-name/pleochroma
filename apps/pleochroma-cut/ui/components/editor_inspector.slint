@@ -5,25 +5,23 @@ import { CompareModel } from "../models/compare.slint";
 import { GuideModel } from "../models/guide.slint";
 import { GuideLockTip } from "guide_lock.slint";
 import { TipButton } from "compact_controls.slint";
-// The figures against the Baseline, under the tabs (state in models/baseline.slint).
-import { BaselineStrip, BaselineStripMetrics } from "editor_inspector/baseline_strip.slint";
 import { SectionHeader } from "section_header.slint";
 import { ConcaveFormData } from "../types.slint";
 import { TierFormTab } from "editor_inspector/tier_form_tab.slint";
 import { ConcaveFormTab } from "editor_inspector/concave_form_tab.slint";
 import { PreformTab } from "editor_inspector/preform_tab.slint";
 import { OptimizeTab } from "editor_inspector/optimize_tab.slint";
-import { ScheduleTab } from "editor_inspector/schedule_tab.slint";
 import { HistoryTab } from "editor_inspector/history_tab.slint";
 import { FormRowMetrics } from "editor_inspector/form_row.slint";
 import { ScrollFade } from "editor_inspector/scroll_fade.slint";
 import { InspectorTabPills } from "editor_inspector/tab_pills.slint";
 
 // The Edit sub-tab's inspector: a resizable dock panel below the tier table, with tabs for the
-// tier form, preform, optimize, schedule and history (see `app.slint`'s Edit-mode layout).
-// `EditorModel.inspector_tab` (0 = Tier, 1 = Preform, 2 = Optimize, 3 = Schedule, 4 = History)
-// is the open tab. The `SectionHeader` (title "INSPECTOR") carries the tab pills, so a tab stays
-// reachable while collapsed; picking one also expands the section.
+// tier form, preform, optimize and history (see `app.slint`'s Edit-mode layout).
+// `EditorModel.inspector_tab` (0 = Tier, 1 = Preform, 2 = Optimize, 4 = History; 3 was the
+// Schedule tab and is retired) is the open tab. The `SectionHeader` (title "INSPECTOR") carries
+// the tab bar, so a tab stays reachable while collapsed; picking one also expands the section.
+// The figures against the Baseline are on the Edit viewport's card, not here.
 //
 // The Tier tab's Save/Add Tier row is pinned outside the scrollable body, so it stays visible
 // even when the inspector is shorter than the form.
@@ -40,17 +38,15 @@ export component EditorInspector inherits Rectangle {
     property <bool> fills_dock: EditorModel.tier_table_collapsed && !EditorModel.inspector_collapsed;
     property <length> fixed_height: EditorModel.inspector_collapsed ? root.header_height : EditorModel.inspector_height;
     vertical-stretch: root.fills_dock ? 1 : 0;
-    // The least height the open tab needs: its header, the figures strip, a form area of
-    // `body_min` and, on the Tier tab, the pinned Save/Add Tier row. A shorter dock scrolls as a
-    // whole (`EditorView`'s `dock_scroll`) rather than squeezing the form.
+    // The least height the open tab needs: its header, a form area of `body_min` and, on the Tier
+    // tab, the pinned Save/Add Tier row. A shorter dock scrolls as a whole (`EditorView`'s
+    // `dock_scroll`) rather than squeezing the form.
     // The Tier form's body is taller (Angle and Meets with their labels need ~130 px).
-    property <length> body_min: EditorModel.inspector_tab == 4 ? 150px : (EditorModel.inspector_tab == 0 ? 130px : 96px);
-    // 8 px padding twice, the 24 px header row, the 6 px gaps around the strip and the body,
-    // and the 6 px gap plus 32 px of the Save/Add Tier row. The strip's height is fixed (rows and
-    // note line always reserved, `BaselineStripMetrics`), so this floor does not move while a
-    // score is worked out.
-    property <length> button_row_h: EditorModel.inspector_tab == 0 ? 38px : 0px;
-    property <length> content_min: 16px + 24px + 6px + BaselineStripMetrics.height + 6px + root.body_min + root.button_row_h;
+    property <length> body_min: EditorModel.inspector_tab == 4 ? 190px : (EditorModel.inspector_tab == 0 ? 150px : 120px);
+    // 8 px padding twice, the 24 px header row, the 6 px gap above the body, and the 6 px gap
+    // plus 32 px of the Save/Add Tier row.
+    property <length> button_row_h: 0px;
+    property <length> content_min: 16px + 24px + 6px + root.body_min + root.button_row_h;
     // The Optimize tab is long (objective, run settings, status, the candidate list with Preview,
     // Compare and Apply, the figures of the picked one). It does not scroll inside the inspector: the
     // inspector grows by what the tab needs beyond `body_min` and the dock scrolls as a whole, so
@@ -74,22 +70,20 @@ export component EditorInspector inherits Rectangle {
     property <bool> guide_highlighted: GuideModel.highlight_target == "inspector_tier" || GuideModel.highlight_target == "preform_tab";
     // Whether the worked-example guide leaves the CURRENT tab's group usable --
     // Tier: tier form, Preform: preform tab, Optimize: advanced, History: undo and
-    // redo. The read-only Schedule tab never locks.
+    // redo.
     property <bool> tab_unlocked: EditorModel.inspector_tab == 0 ? GuideModel.allows_tier_form()
         : EditorModel.inspector_tab == 1 ? GuideModel.allows_preform_tab()
         : EditorModel.inspector_tab == 2 ? GuideModel.allows_advanced()
         : EditorModel.inspector_tab == 4 ? GuideModel.allows_history()
         : true;
-    // Whether the Advanced interface shows. The Simple interface leaves out the Schedule tab
-    // (its pill and its body); each other tab hides its own advanced controls.
+    // Whether the Advanced interface shows. Each tab hides its own advanced controls.
     property <bool> advanced: GuideModel.shows_advanced();
     // The tab being shown, mirrored so a change can be answered here.
     property <int> tracked_inspector_tab: EditorModel.inspector_tab;
-    // Switching to the Simple interface while the Schedule tab is open (or a command that opens
-    // the Schedule tab while the Simple interface is on) lands on the Tier tab instead of an
-    // empty panel. The Schedule tab itself is never changed.
+    // The Schedule tab (3) is retired: a command that still opens it lands on the Tier tab
+    // instead of an empty panel.
     function leave_hidden_tab() {
-        if !root.advanced && EditorModel.inspector_tab == 3 {
+        if EditorModel.inspector_tab == 3 {
             EditorModel.inspector_tab = 0;
         }
     }
@@ -100,7 +94,6 @@ export component EditorInspector inherits Rectangle {
         ? (root.concave_loaded ? "Concave tier form" : "Tier form")
         : EditorModel.inspector_tab == 1 ? "Preform"
         : EditorModel.inspector_tab == 2 ? "Optimize"
-        : EditorModel.inspector_tab == 3 ? "Schedule"
         : "History";
     border-width: root.guide_highlighted ? 2px : 1px;
     border-color: root.guide_highlighted ? Theme.accent-cyan : Theme.border-subtle;
@@ -194,6 +187,11 @@ export component EditorInspector inherits Rectangle {
     // reported an angle-field error.
     property <bool> concave_angle_invalid: Math.abs(root.c_angle.to-float()) > 90
         || EditorModel.tier_form_error_field == "angle";
+    // What the concave form still lacks, said in words for the disabled Add/Save button's hint
+    // and the form's own note; empty when nothing is missing.
+    property <string> concave_missing: root.c_angle == "" ? "type the angle."
+        : (Math.abs(root.c_angle.to-float()) > 90 ? "the angle must be within 90 degrees."
+        : (root.c_indices == "" ? "type the index positions the tool is placed at." : ""));
     // Angle field invalid if > 90 degrees (locally checkable) or if Rust
     // reported an angle-field error.
     property <bool> angle_field_invalid: Math.abs(root.tier_angle.to-float()) > 90
@@ -551,6 +549,16 @@ export component EditorInspector inherits Rectangle {
         root.external_change_pending = false;
     }
 
+    // The concave form's Cancel: an "Add" draft goes back to the flat form, an edit of a saved
+    // tier is reloaded from the design (the draft is dropped either way).
+    function cancel_concave() {
+        if root.loaded_tier_index < 0 {
+            root.clear_form();
+        } else {
+            root.reload_from_design();
+        }
+    }
+
     // Commits whichever tier `loaded_tier_index` says the form represents,
     // not `EditorModel.selected_tier_index` directly. When dirty-warning is up,
     // they can disagree; reading the global could write to the wrong tier.
@@ -602,11 +610,6 @@ export component EditorInspector inherits Rectangle {
             spacing: 6px;
             vertical-stretch: 1;
 
-            // The figures of the design with their change since the Baseline, visible whichever
-            // inspector tab is open, so a cutter judging an angle change does not have to leave
-            // the tab.
-            BaselineStrip {}
-
             // Wrapped so the whole tab body can dim and explain itself while the
             // worked-example guide locks the current tab's group (the same
             // `GuideModel.allows_*()` helper as that tab's pill); each tab also
@@ -654,11 +657,14 @@ export component EditorInspector inherits Rectangle {
                     show_dirty_warning: root.show_dirty_warning;
                     show_external_change: root.show_external_change;
                     pending_load_index: root.pending_load_index;
+                    missing: root.concave_missing;
+                    can_save: !root.concave_angle_invalid && root.concave_missing == "" && GuideModel.allows_tier_form() && GuideModel.allows_concave_tier();
                     keep_draft => { root.keep_draft(); }
                     confirm_discard_and_load => { root.confirm_discard_and_load(); }
                     reload_from_design => { root.reload_from_design(); }
                     dismiss_external_change => { root.dismiss_external_change(); }
                     save_form => { root.save_form(); }
+                    cancel_form => { root.cancel_concave(); }
                 }
 
                 if EditorModel.inspector_tab == 0 && !root.concave_loaded: TierFormTab {
@@ -697,12 +703,6 @@ export component EditorInspector inherits Rectangle {
                     unlocked: GuideModel.allows_advanced();
                     optimize_preview_checked <=> root.optimize_preview_checked;
                 }
-
-                // --- The design's own cut order, built from its solved state
-                // (`Design::to_asc_schedule_from_solved`, the conversion behind "Export Edited
-                // .asc"). Read-only: the catalogue's copy actions are not wired here, so the
-                // export is the copyable form.
-                if EditorModel.inspector_tab == 3 && root.advanced: ScheduleTab { }
                 }
             }
                 // More below the edge: a fade, so a cut row reads as "scroll for more".
@@ -728,27 +728,9 @@ export component EditorInspector inherits Rectangle {
                 GuideLockTip { locked: !root.tab_unlocked; }
             } // tab body wrapper
 
-            // Button row pinned outside the scroll view above.
-            if EditorModel.inspector_tab == 0: HorizontalLayout {
-                spacing: 6px;
-                tip-button-concave-loaded := TipButton {
-                    text: root.concave_loaded
-                        ? (root.loaded_tier_index < 0 ? "Add Concave Tier" : "Save Concave Tier")
-                        : (root.loaded_tier_index < 0 ? "Add Tier" : "Save Tier");
-                    hint: root.loaded_tier_index < 0
-                        ? "Add the tier in the form to the design. It is one Undo step."
-                        : "Write the changes in the form onto the selected tier. It is one Undo\nstep; the table's mast and solve columns go stale until you Solve.";
-                    // Save button gated on angle_field_invalid (also covers
-                    // Rust-reported angle rejection). Other fields validated after save attempt.
-                    enabled: root.concave_loaded
-                        ? (!root.concave_angle_invalid && root.c_angle != "" && GuideModel.allows_tier_form() && GuideModel.allows_concave_tier())
-                        : (!root.angle_field_invalid && GuideModel.allows_tier_form());
-                    clicked => { root.save_form(); }
-                }
-                // There is no "New Tier" button here: arming the form for the next tier is
-                // the tier table's "+ Add Tier" (one home for that action; Escape also
-                // returns to Add mode).
-            }
+            // No pinned Save/Add row any more: a saved flat tier applies on Enter or when a field
+            // is left, a new flat tier has its own button in the form, and the concave form
+            // carries its own Add/Save button.
         }
     }
 }

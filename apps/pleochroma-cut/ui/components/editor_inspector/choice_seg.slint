@@ -1,0 +1,75 @@
+import { Theme } from "../../theme.slint";
+
+// A segmented choice that fills its row, with an accessible name per segment that can differ from
+// the short text drawn (the drawn "Vertex" is "Unspecified Vertex" for a screen reader and the
+// lesson routes). The caller moves `picked` in `selected`.
+export component ChoiceSeg inherits Rectangle {
+    // What is drawn, one entry per segment.
+    in property <[string]> labels;
+    // The accessible name of each segment (same length as `labels`); the drawn text when empty.
+    in property <[string]> reader_labels;
+    in property <int> picked;
+    in property <bool> enabled: true;
+    // The accessible name of the whole group.
+    in property <string> group_label;
+    in property <string> hint;
+    in property <length> font_size: 12px;
+    callback selected(int);
+
+    height: 32px;
+    border-radius: 8px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: root.group_label;
+    accessible-description: root.hint;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for name[i] in root.labels: Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            border-radius: 7px;
+            background: i == root.picked ? Theme.bg-elevated : ((touch.has-hover && root.enabled) ? Theme.bg-card-hover : transparent);
+            border-width: fs.has-focus ? 2px : 0px;
+            border-color: Theme.accent-cyan-hover;
+            accessible-role: AccessibleRole.radio-button;
+            accessible-label: i < root.reader_labels.length ? root.reader_labels[i] : name;
+            accessible-checkable: true;
+            accessible-checked: i == root.picked;
+            accessible-enabled: root.enabled;
+            accessible-action-default => {
+                if root.enabled {
+                    root.selected(i);
+                }
+            }
+            fs := FocusScope {
+                enabled: root.enabled;
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        root.selected(i);
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            Text {
+                text: name;
+                font-size: root.font_size;
+                font-weight: i == root.picked ? 700 : 500;
+                color: !root.enabled ? Theme.text-disabled : (i == root.picked ? Theme.text-primary : Theme.text-secondary);
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            touch := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                clicked => { root.selected(i); }
+            }
+        }
+    }
+}

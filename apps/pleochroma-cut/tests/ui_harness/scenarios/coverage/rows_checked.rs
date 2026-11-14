@@ -541,6 +541,21 @@ fn tier_name_taken(ui: &MainWindow) -> Result<(), String> {
     Ok(())
 }
 
+/// A pan drag of 40 logical pixels to the right moves the stone right of the centre.
+fn camera_pan_moves_the_stone(ui: &MainWindow) -> Result<(), String> {
+    let before = harness_support::camera_pan();
+    ui.global::<ViewportModel>().invoke_camera_pan(40.0, 0.0);
+    pump(100);
+    let after = harness_support::camera_pan();
+    if after[0] > 0.0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "a 40 px drag to the right left the pan at {after:?} (it was {before:?})"
+        ))
+    }
+}
+
 // The cancel callbacks: nothing is running, so nothing may change.
 
 fn solve_cancel(ui: &MainWindow) -> Result<(), String> {
@@ -588,6 +603,7 @@ const EDITOR_CHECKED: &[Row] = checked_rows!(Editor, true;
     TierTableModel.offset_selected => offset_selected;
     TierTableModel.rotate_tier => rotate_tier;
     EditorModel.facet_remove => facet_remove;
+    ViewportModel.camera_pan => camera_pan_moves_the_stone;
     EditorModel.solve_cancel => solve_cancel;
     ExportModel.cancel_export => cancel_export;
     ManipulateModel.drag_cancel => drag_cancel;

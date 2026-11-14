@@ -278,6 +278,7 @@ export global RoughPlanModel {
 
     callback set_base(int);
     in-out property <int> mesh_unit_index: 0;       // unit of a mesh file's numbers: 0 mm, 1 cm, 2 m, 3 inch, 4 um (the order of mesh_io::MeshUnit::ALL); kept for the session
+    in property <[string]> mesh_units: ["mm", "cm", "m", "inch", "\u{00B5}m"]; // the labels of the unit boxes, in the order of `mesh_unit_index` (mesh_io::MeshUnit::label; Rust never writes it)
     callback import_obj();                          // pick an OBJ, STL or PLY file; a closed mesh (or else its convex outline) becomes the rough
     in property <bool> inclusions_possible: false;  // every rough takes inclusions (a block, a cylinder and a pebble keep them beside their sizes); Rust pushes it with every model change
     in property <[string]> inclusion_rows;          // one line per inclusion of the rough ("Inclusion 1: 4.6 x 4.6 x 4.6 mm, 97.3 mm³"), in the order added

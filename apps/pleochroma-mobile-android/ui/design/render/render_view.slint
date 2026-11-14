@@ -13,7 +13,8 @@ export { RenderControls } from "render_controls.slint";
 
 // The rendered picture, centered and scaled to fit; a message while there is none.
 export component RenderPicture inherits Rectangle {
-    background: Theme.surface-low;
+    // The picture fills the view; its own backdrop color fills what the fit leaves over.
+    background: RenderModel.has-frame ? RenderModel.backdrop : Theme.surface-low;
     accessible-role: AccessibleRole.image;
     accessible-label: "Rendered picture";
 
@@ -36,8 +37,10 @@ export component RenderPicture inherits Rectangle {
         y: Theme.space-sm;
         width: 200px;
         height: 128px;
-        background: Theme.surface.with-alpha(0.78);
+        background: Theme.glass-bg;
         border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.glass-edge;
         accessible-role: AccessibleRole.text;
         accessible-label: "Light position: " + RenderModel.light-readout;
 
@@ -94,7 +97,7 @@ export component RenderPicture inherits Rectangle {
             height: 22px;
             text: RenderModel.light-readout;
             color: Theme.on-surface;
-            font-size: Theme.text-label;
+            font-size: max(12px, Theme.text-label);
             horizontal-alignment: center;
             vertical-alignment: center;
             overflow: elide;
@@ -106,7 +109,7 @@ export component RenderPicture inherits Rectangle {
         width: parent.width - 2 * Theme.space-lg;
         height: parent.height;
         text: RenderModel.status-text;
-        color: Theme.on-surface-variant;
+        color: Theme.text-secondary;
         font-size: Theme.text-body;
         horizontal-alignment: center;
         vertical-alignment: center;

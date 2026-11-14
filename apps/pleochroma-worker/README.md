@@ -731,6 +731,7 @@ With "Stone Shadow" off and "Tray Reflection" at 0, durable Ray-Traced jobs use 
 The shadow alone makes a still job use format 3; any job with "Tray Reflection" above 0 uses format 4, with or without the shadow.
 A job whose stone has color zones uses format 5 (the zones travel in the job file). Durable worker jobs never carry zones, so format 5 belongs to the desktop app's queue and its exported scripts; a Ray-Traced job never carries zones.
 A job lit by a turned HDR map (a map rotation above 0 or "Turns with the Camera" on) uses format 6, whatever else it carries; an unturned HDR job keeps its format.
+A job whose camera puts the stone off-centre (`SceneState::camera_pan` not `[0, 0]`) uses format 7, whatever else it carries, so an older reader refuses it instead of rendering the stone centred.
 
 The stone estimator travels with each scene (`SceneState::estimator`, protocol 42). The worker renders with the estimator the viewer sends, never with its own process default,
 on every CPU and GPU path (live view, final images, batches, jobs, live passes, tilt, the coordinator's lanes and `render`),
@@ -738,6 +739,8 @@ so a frame split between the viewer and workers runs one estimator. The apps sen
 reads as branching. Where exit collection does not apply (an HDR map, Daylight with a Sun, a non-ideal surface,
 the Tray Reflection, a stone with tools) the library renders branching on both engines. A worker's own path cache is not used
 for a scene that runs exit collection, and the hybrid calibration cache keeps the two estimators apart.
+
+The camera pan travels with each scene (`SceneState::camera_pan`, protocol 43): where the stone sits in the picture, in image half-heights (`[0, 0]` is centred). Every camera the worker builds from a scene applies it (`Camera::with_pan`, after the roll), on every CPU and GPU path, so a frame split between the viewer and workers is framed alike. A non-finite component or one beyond `MAX_CAMERA_PAN` (4.0) is refused.
 
 "Stone Shadow" is off by default. Workers build the map locally, once per request, at the quality the request's intent picks: Preview for a `RenderRequest` with the `Interactive` intent (the live viewport, whose samples are summed with the viewer's own Preview half) and Final for a `RenderRequest` with the `Batch` intent, final images, batch items, jobs and live passes (the adaptive export's chunks). The requesting render retains the map while tracing; the protocol carries only the setting. It requires studio lighting with a backdrop, and a stone that is closed: a request whose map cannot be built is refused with an error naming the reason, never rendered without the shadow. A graphics card that cannot sample the map leaves the render to the CPU. Beam tracing refuses the stone shadow (in a `beam` build; a worker without the feature refuses every beam-tile request), and the path cache declines it (the pass is still rendered, with the shadow, only without the cache).
 

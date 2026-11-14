@@ -17,7 +17,6 @@ import { CanvasMarker, CanvasPath, PhotoSlot, ReportRow } from "components/locat
 import { RetargetRowItem } from "components/retarget_dialog.slint";
 import { UndoRedoLabels } from "components/editor_command_bar.slint";
 import { GuideOverlayLayer } from "components/guide_panel.slint";
-import { TabViewPillRow } from "components/app/tab_pill_row.slint";
 import { GlobalDialogsOverlay } from "components/app/global_dialogs.slint";
 import { WindowQuestionDialogs } from "components/app/window_dialogs.slint";
 import { WindowState } from "components/app/window_state.slint";
@@ -85,6 +84,8 @@ import { ColorPatternModel, PatternZoneRow, PatternParamRow, PatternHandle, Patt
 import { UpdateModel } from "models/update.slint";
 import { RadvWorkaroundModel } from "models/radv_workaround.slint";
 import { UpdateBanner } from "components/update_banner.slint";
+import { ShaderCacheModel } from "models/shader_cache.slint";
+import { ShaderCacheCard } from "components/shader_cache_card.slint";
 import { SurfaceModel, SurfaceTick } from "models/surface.slint";
 import { FacetingMachineModel } from "models/faceting_machine.slint";
 
@@ -176,6 +177,8 @@ export {
     UpdateModel,
     // The RADV shader workaround's question, switch and restart -- see ui/models/radv_workaround.slint.
     RadvWorkaroundModel,
+    // The startup build of the GPU shader cache -- see ui/models/shader_cache.slint.
+    ShaderCacheModel,
     // Surface finish authoring (menu, inspector section, overlay) and the Faceting Machine preference
     // -- see ui/models/surface.slint, ui/models/faceting_machine.slint.
     SurfaceModel, SurfaceTick, FacetingMachineModel
@@ -327,6 +330,11 @@ export component MainWindow inherits Window {
                 title: "Export Edited .asc";
                 enabled: EditorModel.enabled && GuideModel.allows_file_ops();
                 activated => { EditorModel.export_asc(); }
+            }
+            MenuItem {
+                title: "Copy Cutting Schedule";
+                enabled: EditorModel.enabled && EditorModel.has_design && EditorModel.cutting_rows.length > 0;
+                activated => { CuttingTableModel.copy_rows(EditorModel.cutting_rows); }
             }
             // Experimental: the `.gcs` writer follows the published Gem Cut Studio 1.1 file description
             // (the command bar's entry carries the tooltip). Advanced: Simple leaves it out.
@@ -628,14 +636,9 @@ export component MainWindow inherits Window {
                         // comment for why it reads the WINDOW's width, not this
                         // column's).
                         window_width: root.width;
-                    }
-
-                    // Catalogue tab pills + the Live Render/Edit view pills --
-                    // see `TabViewPillRow`'s own doc comment
-                    // (`components/app/tab_pill_row.slint`) for why this is split out.
-                    TabViewPillRow {
-                        compact: root.width < 1200px;
-                        tight: root.width < 800px;
+                        // The places segment (Live Render, Edit, Cutting Instructions, Files &
+                        // Downloads) is at the header's right end; see `PlacesSegment`
+                        // (`components/app/tab_pill_row.slint`).
                         active_tab <=> root.active_tab;
                         active_tab_changed(v) => { root.active_tab_changed(v); }
                         render_view_tab <=> root.render_view_tab;
@@ -766,6 +769,14 @@ export component MainWindow inherits Window {
             close_confirm_can_save: root.close_confirm_can_save;
             close_confirm_save => { root.close_confirm_save(); }
             close_confirm_discard => { root.close_confirm_discard(); }
+        }
+
+        // The startup build of the GPU shader cache (`bridge::shader_cache`): bottom right, as high
+        // as the toast, under the dialogs' scrim (500) like the window's own content.
+        if ShaderCacheModel.visible: ShaderCacheCard {
+            z: 450;
+            x: parent.width - self.width - 16px;
+            y: parent.height - self.height - win_state.toast_bottom;
         }
 
         Toast {

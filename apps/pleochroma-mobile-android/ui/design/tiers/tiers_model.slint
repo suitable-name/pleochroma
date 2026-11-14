@@ -8,8 +8,10 @@
 // This file must not import `theme.slint` (nothing here draws).
 import { Shell } from "../../models.slint";
 
-// One row of the tier list. `pill-a`/`pill-b` are the (up to) two most important
-// badges, already chosen in Rust; a level is 0 good, 1 check, 2 problem, 3 info.
+// One row of the tier list, in cutting order. `margin` is the light-margin chip ("Safe
+// +16.6°", empty for a tier with none); `check` is what needs a look, in words (the solve
+// note and the manufacturability findings, empty for none). A level is 0 good, 1 check,
+// 2 problem, 3 info. `block` is the group: Crown, Pavilion or Girdle.
 export struct TierRowData {
     index: int,
     code: string,
@@ -19,10 +21,10 @@ export struct TierRowData {
     indices: string,
     mast: string,
     summary: string,
-    pill-a: string,
-    pill-a-level: int,
-    pill-b: string,
-    pill-b-level: int,
+    margin: string,
+    margin-level: int,
+    check: string,
+    check-level: int,
     selected: bool,
     multi: bool,
     stale: bool,
@@ -64,8 +66,16 @@ export global TiersModel {
     in property <int> status-kind: 0;
     in-out property <bool> select-mode: false;
     in property <int> multi-count: 0;
-    // Quick Add's three presets are shown while this is on.
+    // Quick Add's three presets are shown (under "Quick Add" in the Add menu) while this is on.
     in-out property <bool> quick-open: false;
+    // The open action menu: 0 none, 1 Add, 2 the "..." menu (Orbit, Mirror, Adopt All, Select).
+    in-out property <int> menu: 0;
+    // What the Checks tab's cards need beyond `PropsModel.warnings`, parallel to it: the card
+    // heading, the "Open <tier>" button's label (empty when the finding is not about a flat
+    // tier) and the list position of that tier's row (-1 for none).
+    in property <[string]> check-titles: [];
+    in property <[string]> check-open-labels: [];
+    in property <[int]> check-open-rows: [];
 
     callback row-tapped(int);
     callback row-long-pressed(int);
@@ -211,6 +221,8 @@ export global TiersModel {
     // The sheet left full height (the Back key, a drag down): close the overlays without
     // touching the detent again.
     public function dismiss-overlays() {
+        menu = 0;
+        quick-open = false;
         if (confirm-open) {
             confirm-open = false;
             confirm-result(false);

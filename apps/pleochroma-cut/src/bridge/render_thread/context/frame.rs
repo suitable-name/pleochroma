@@ -46,6 +46,8 @@ pub(in crate::bridge::render_thread) struct FrameInputs {
     pub(in crate::bridge::render_thread) yaw: f32,
     pub(in crate::bridge::render_thread) pitch: f32,
     pub(in crate::bridge::render_thread) camera_roll: f32,
+    /// See [`RenderContext::camera_pan`].
+    pub(in crate::bridge::render_thread) camera_pan: [f32; 2],
     pub(in crate::bridge::render_thread) distance: f32,
     pub(in crate::bridge::render_thread) light_yaw: f32,
     pub(in crate::bridge::render_thread) light_pitch: f32,
@@ -168,6 +170,7 @@ pub(in crate::bridge::render_thread) fn snapshot_frame_inputs(
         yaw: ctx.yaw,
         pitch: ctx.pitch,
         camera_roll: ctx.camera_roll,
+        camera_pan: ctx.camera_pan,
         distance: ctx.distance,
         light_yaw: ctx.light_yaw,
         light_pitch: ctx.light_pitch,

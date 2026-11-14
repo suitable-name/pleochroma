@@ -310,6 +310,13 @@ pub fn rough_planner_view_unsettled() -> Option<String> {
     crate::gui::harness_planner_view_unsettled()
 }
 
+/// The Rough Planner's 3D view state in one line (scene, frames, image area, picture size), for
+/// a screenshot report.
+#[must_use]
+pub fn rough_planner_view_report() -> String {
+    crate::gui::harness_planner_view_report()
+}
+
 /// A clone of the live locate window, or `None` when never created or closed.
 #[must_use]
 pub fn locate_window() -> Option<crate::LocateWindow> {
@@ -378,6 +385,17 @@ pub fn release_window_state() {
 #[must_use]
 pub fn camera_pose() -> (f32, f32, f32) {
     crate::gui::render::camera_handles::camera_pose().expect("camera not registered")
+}
+
+/// The pan of the active viewport: where the stone sits in the picture, `[x, y]` in image
+/// half-heights (x right, y up).
+///
+/// # Panics
+///
+/// Panics if the viewport camera handles have not been registered yet.
+#[must_use]
+pub fn camera_pan() -> [f32; 2] {
+    crate::gui::render::camera_handles::camera_pan().expect("camera not registered")
 }
 
 /// Reads the light direction (yaw and pitch in radians) after real viewport input.

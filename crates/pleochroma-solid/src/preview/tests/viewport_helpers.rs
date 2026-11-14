@@ -89,6 +89,7 @@ fn both_tracers_get_the_same_rolled_solid_edges_and_pick_geometry() {
 fn orbit_step_uses_the_desktop_signs_factor_and_wrap() {
     let pose = CameraPose {
         roll: 0.0,
+        pan: [0.0, 0.0],
         yaw: 1.0,
         pitch: 0.5,
         distance: 3.0,
