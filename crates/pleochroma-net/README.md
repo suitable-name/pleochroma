@@ -95,7 +95,8 @@ answers them. A listener refuses a `HELLO` of the wrong role with `ROLE_REFUSED`
 The first three fields of `HELLO` and `WELCOME` never change, so a peer on another
 protocol version is refused with a message naming both versions
 (`handshake::read_hello`, and the client's own check of the reply) rather than a
-decode error. **Every machine must run the same build.**
+decode error. **Every machine must run the same release** (the same version and protocol);
+builds of one release from different checkouts or machines pair normally.
 
 **Payload encodings.** The viewer lists what it can decode
 (`accept_encodings`); the server picks the first entry of its own preference the viewer

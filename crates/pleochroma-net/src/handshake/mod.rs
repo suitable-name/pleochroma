@@ -269,7 +269,7 @@ impl std::fmt::Display for Incompatible {
                 write!(
                     f,
                     "protocol version mismatch: this side speaks protocol v{local}, the peer speaks \
-                     v{remote} -- the viewer, coordinator and every worker must run the same build"
+                     v{remote} -- the viewer, coordinator and every worker must run the same pleochroma release"
                 )
             }
             Self::UnknownBuild => write!(

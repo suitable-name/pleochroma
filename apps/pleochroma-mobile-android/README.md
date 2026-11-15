@@ -5,8 +5,8 @@ The phone and tablet app: a touch-first [Slint](https://slint.dev) UI over
 Kotlin `NativeActivity` shim. The same UI also runs in a desktop window for development
 (the desktop preview, below).
 
-**Status.** Version 0.11.1 (versionCode 9). There is an internal testing track on Google Play,
-but no public Google Play listing yet. Anyone can build the app and install it on their own
+**Status.** Version 0.11.1 (versionCode 9), public on
+[Google Play](https://play.google.com/store/apps/details?id=com.indicatrixsuite.mobile). Anyone can also build the app and install it on their own
 Android phone or tablet: a debug APK from Android Studio or from `gradlew assembleDebug` plus
 `adb install` (see "Build and run"). The same UI also runs in a desktop window with the
 preview, no device needed.
