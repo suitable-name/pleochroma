@@ -496,6 +496,9 @@ pub struct RenderJobArgs {
     /// Override the frozen Tray Reflection (`--tray-reflection PERCENT`): the tray's head-on
     /// reflectance as a fraction in `0.0..=1.0` (the flag takes percent, `0` switches it off).
     pub tray_reflection: Option<f32>,
+    /// Override the frozen Stone Pose (`--stone-pose TILT,TURN[,SPIN]`): tilt, turn and spin in
+    /// degrees, as given (the job clamps them into the pose's ranges).
+    pub stone_pose: Option<[f32; 3]>,
     /// Override the frozen renderer (`--engine path|ray`).
     pub engine: Option<pleochroma::renderer::engine::RenderEngine>,
     /// Which command this is.

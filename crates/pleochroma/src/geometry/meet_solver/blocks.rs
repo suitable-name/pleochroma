@@ -65,24 +65,28 @@ mod tests {
                 indices: vec![],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -45.0,
                 indices: vec![],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 90.0,
                 indices: vec![],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -90.0,
                 indices: vec![],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec![],
+                pick: None,
             },
         ];
         let blocks = classify_blocks(&tiers);

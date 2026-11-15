@@ -158,10 +158,11 @@ const fn reworded_after(id: &'static str, needs: WebFeature) -> WebLesson {
 
 /// Every lesson of the learning path, once, in browser order, with its place on the web.
 ///
-/// The class counts are 11 `A`, 9 `B`, 42 `C` (including the two desktop-only color variant
-/// lessons) and 36 `D`; `tests.rs` pins them. The variants lesson and a design's own lighting
-/// are `C` because the browser stores both but has no screen for them. The one `D` lesson that
-/// needs an imported design (adopting imported meets) is offered only once the library exists.
+/// The class counts are 11 `A`, 9 `B`, 43 `C` (including the two desktop-only color variant
+/// lessons and the desktop-only corner pick) and 36 `D`; `tests.rs` pins them. The variants
+/// lesson and a design's own lighting are `C` because the browser stores both but has no
+/// screen for them. The one `D` lesson that needs an imported design (adopting imported meets)
+/// is offered only once the library exists.
 pub const WEB_LESSONS: &[WebLesson] = &[
     // Getting Started
     reworded("welcome-tour"),
@@ -186,6 +187,7 @@ pub const WEB_LESSONS: &[WebLesson] = &[
     run("tiers-mirror-to-other-block"),
     // Meets, Relations and Concave Tiers
     run("tiers-meets-named-facets"),
+    blocked("tiers-meets-pick-corner"),
     run("tiers-meets-mm-targets"),
     run("tiers-pin-to-mast"),
     reworded_after("tiers-adopt-imported-meets", WebFeature::Library),

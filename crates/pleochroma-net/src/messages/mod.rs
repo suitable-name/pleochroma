@@ -271,13 +271,15 @@ pub use zoning::{
 ///     `SceneState::estimator` (the stone estimator every engine of the frame runs). A viewer
 ///     and its workers must be replaced together.
 /// 43: `SceneState::camera_pan` appended after `estimator`. A viewer and its workers must be replaced together.
-pub const PROTOCOL_VERSION: u16 = 43;
+/// 44: `SceneState::stone_pose` (tilt, turn, spin in degrees) appended after `camera_pan`. A viewer
+///     and its workers must be replaced together.
+pub const PROTOCOL_VERSION: u16 = 44;
 
 #[cfg(test)]
 mod tests {
     #[test]
     /// Pins the constant so a bump is always a deliberate, reviewed edit.
     fn protocol_version_matches_constant() {
-        assert_eq!(super::PROTOCOL_VERSION, 43);
+        assert_eq!(super::PROTOCOL_VERSION, 44);
     }
 }

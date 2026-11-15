@@ -48,7 +48,7 @@ Material Editor's base templates.
 | Opal | Isotropic | 1.450 | — | Δn(F–C) ≈ 0.001 (deliberately minimal) | colorless body opal with no play-of-color; for the flashes of a precious opal use Precious Opal (White) or (Black) below |
 | Glass (N-BK7) | Isotropic | 1.517 | — | Abbe V_d ≈ 64.0 | colorless reference crown glass |
 | Glass (F2) | Isotropic | 1.620 | — | Abbe V_d ≈ 36.4 | colorless reference dense flint glass |
-| Rutile | Uniaxial (+) | 2.616 | +0.287 | Abbe V_d ≈ 8.5 | Pale straw yellow, as lab-grown rutile is (near-UV absorption edge); this renderer's most extreme birefringence built-in |
+| Rutile | Uniaxial (+) | 2.613 | +0.2957 | Abbe V_d ≈ 8.5 | Pale straw yellow, as lab-grown rutile is (near-UV absorption edge); this renderer's most extreme birefringence built-in |
 | Precious Opal (White) | Isotropic | 1.450 | — | Δn(F–C) ≈ 0.001 (deliberately minimal) | milky, translucent cream-white body (its haze is switched on with the material); the play-of-color of its patches is a choice of the design (Chapter 28) |
 | Precious Opal (Black) | Isotropic | 1.450 | — | Δn(F–C) ≈ 0.001 (deliberately minimal) | dark neutral body, which makes the play-of-color stand out (Chapter 28) |
 | Labradorite | Biaxial (+) | 1.5625 (indices 1.559, 1.5625, 1.567) | +0.0080 | Δn(B–G) ≈ 0.012 (a placeholder borrowed from moonstone; no measured value was found) | translucent olive-grey body (its light haze is switched on with the material), lamellae parallel to the table by default; the schiller, blue with some green, is a choice of the design, fixed in the crystal (Chapter 28) |

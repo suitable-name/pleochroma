@@ -225,6 +225,15 @@ export component ExportDialog inherits Rectangle {
                         // The material this export will use (read-only; the Stone tab changes it).
                         MaterialLine {}
 
+                        // The Live Render pose goes into every export and queued job, so say so
+                        // when the stone is not shown as designed.
+                        if SettingsModel.stone_pose_detail != "": WrappedNote {
+                            text: SettingsModel.stone_pose_detail;
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                            accessible-role: AccessibleRole.text;
+                        }
+
                         ExportOutputLocation {
                             out_width: root.effective_width;
                             out_height: root.effective_height;

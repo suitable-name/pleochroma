@@ -85,6 +85,17 @@ The Tier tab has these fields:
   The **QUICK ADD** items (Table, Girdle, Culet) and a row's **Add Anchor**
   menu item still make anchors in the Simple interface. Switch to Advanced to
   pick Exact Scale Value for any tier.
+- **Meet Point** — under the facet names, for a saved tier while Meets is
+  **Unspecified Vertex** or **Named Facet(s)**: which corner of the stone the
+  facet is cut to. It reads **Chosen by the solver** (Vertex) or **Shallowest
+  of the names** (Facets) until you pick a corner, with a **Pick in View**
+  button that starts the pick in the Solid view (Chapter 13, "Picking a Meet
+  Point"). Once a corner is picked, the row shows the names of the three
+  tiers that meet there (for example `P1 · P2 · G1`) and two buttons:
+  **Pick…** to choose another corner and **Clear** to forget it. While the
+  pick is running the row says **Picking in the view…** and the button is
+  **Cancel Pick**. "How the Meets Modes Choose a Corner," below, says what
+  the row means.
 - **Name** — the last field of the form: the facet's name, referenced by other
   tiers' "Named Facet(s)" field and shown in the tier list and cutting instructions.
 - **Indices** — which index position(s) on the gear this tier occupies.
@@ -152,6 +163,50 @@ strategy (with the same one-line explanation the tier table's own tooltip
 shows), its margin over the critical angle, its orbit shape, which other
 tiers it actually meets (by name, e.g. "meets tier 3 (C1)"), and its own
 manufacturability warning, if it has one.
+
+## How the Meets Modes Choose a Corner
+
+A cutter often asks: "How does the solver choose a vertex, and can I pick
+one?" A facet's plane has to stop somewhere, and the stone cut so far usually
+has more than one corner it could stop at. The three modes that point at
+corners decide it differently:
+
+- **Unspecified Vertex.** You name nothing, so the solver decides. It looks
+  at the corners of the stone cut so far, cuts the facet in past the point
+  where it first touches the stone, and stops at the first corner it reaches
+  after that. A first culet facet or a simple meet against whatever is there
+  needs nothing more.
+- **Named Facet(s).** You name the facets, for example `P1, P2, G1`. The
+  facet is cut until its plane reaches a corner where the named facets meet.
+  When those facets meet in only one corner, that is the answer. When they
+  meet in more than one (a symmetric set of facets often does), the solver
+  takes the **shallowest** of them, the one nearest the outside of the stone.
+- **A picked corner.** You click the corner in the Solid view. The facet is
+  then cut until its plane passes through exactly that corner, whatever the
+  shallowest rule would have chosen. Picking works with either of the two
+  modes above and moves Meets to **Named Facet(s)**, filling the names field
+  with the three tiers of the corner.
+
+So yes, you can pick one: use **Pick in View** on the **Meet Point** row, the
+**Pick Meet** pill in the viewport's **Show** menu, or the **M** key
+(Chapter 13, "Picking a Meet Point").
+
+A pick is stored as the three facets of the corner, not as a depth. If you
+later change the angle of one of those facets, the corner moves and the tier
+follows it. If the corner stops existing (one of its tiers is removed, or its
+facets no longer meet in one point), the row says **corner lost**, the tier
+goes back to the shallowest-of-the-names rule, and **Undo** brings the pick
+back. If an earlier tier cuts the corner away, the row says **corner cut
+away**: the tier still passes through that point, but there is no corner to
+stop at, and the cutting sheet says so (Chapter 11). **Pick Again** chooses
+another corner and **Clear** forgets the pick. Changing the Meets segment or
+the facet names in the form also clears the pick, in the same undo step. A
+duplicated or mirrored tier starts with no pick.
+
+Some tiers cannot take a pick: nothing is cut before the tier, it is the tier
+that sets the stone's size, or it is the only tier that sets the size of its
+block. **Pick Meet** is then unavailable, and its tooltip says which of
+these applies.
 
 ## The Angle Slider and the Typical Menu
 

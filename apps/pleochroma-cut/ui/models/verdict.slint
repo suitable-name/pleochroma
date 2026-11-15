@@ -41,6 +41,18 @@ export global VerdictModel {
     // reasons and their Fix buttons). Written by Slint only.
     in-out property <int> open_pulse: 0;
 
+    // The notice that an edit cut facets away (`components/solid_viewport/vanish_notice.slint`).
+    // Rust raises it when a verdict lands after an edit that made more facets vanish, and hides it
+    // on the next edit.
+    in property <bool> vanish_notice_shown: false;
+    // The sentence ("This cut away P2: all 4 of its facets.").
+    in property <string> vanish_notice_text: "";
+    // The tier row (counting from 0) "Select" selects, and its name for the button.
+    in property <int> vanish_notice_tier: -1;
+    in property <string> vanish_notice_tier_label: "";
+    // The notice's close cross was pressed.
+    callback vanish_notice_dismiss();
+
     // The Fix button of reason `index` was pressed. The Rust side asks for a confirmation
     // where the fix removes something, plans the fix on a worker, applies it as one undo
     // step and says what it did in a toast.

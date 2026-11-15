@@ -17,9 +17,9 @@ fn struct_sizes_match_documented_wgsl_layout() {
     assert_eq!(size_of::<CameraUniform>(), 112);
     assert_eq!(size_of::<DispersionParams>(), 112);
     assert_eq!(size_of::<GpuAbsorptionBand>(), 16);
-    // The zone table, the biaxial curves (80) and the inclusion block (224) are appended
+    // The zone table, the biaxial curves (80) and the inclusion block (304) are appended
     // (see `renderer::buffers::zoning`, `material` and `inclusions`).
-    assert_eq!(size_of::<GpuGemMaterial>(), 592 + 2128 + 80 + 224);
+    assert_eq!(size_of::<GpuGemMaterial>(), 592 + 2128 + 80 + 304);
     assert_eq!(size_of::<GpuTransportParams>(), 128);
     assert_eq!(size_of::<GpuWavefrontParams>(), 16);
 }

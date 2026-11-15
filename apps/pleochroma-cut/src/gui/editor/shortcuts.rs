@@ -240,6 +240,11 @@ pub const SHORTCUTS: &[Shortcut] = &[
         context: Context::Viewport,
     },
     Shortcut {
+        keys: "M",
+        action: "Pick the corner the selected tier is cut to, or leave pick mode (not in the Diagram view)",
+        context: Context::Viewport,
+    },
+    Shortcut {
         keys: "F",
         action: "While a slice tier is shown but not yet kept: flip which side of your line is cut away",
         context: Context::Viewport,
@@ -251,7 +256,7 @@ pub const SHORTCUTS: &[Shortcut] = &[
     },
     Shortcut {
         keys: "Esc",
-        action: "Cancel what is in progress, innermost first: a handle drag, a slice line being drawn, a slice tier not yet kept, Slice mode itself, an enlarged Diagram panel. With none of those, clear the tier selection.",
+        action: "Cancel what is in progress, innermost first: a handle drag, Pick mode, a slice line being drawn, a slice tier not yet kept, Slice mode itself, an enlarged Diagram panel. With none of those, clear the tier selection.",
         context: Context::Viewport,
     },
     Shortcut {

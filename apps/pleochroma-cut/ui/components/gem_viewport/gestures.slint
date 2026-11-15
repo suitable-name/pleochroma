@@ -1,5 +1,6 @@
 import { Theme } from "../../theme.slint";
 import { KitButton, KitGlass, KitIcon, KitIcons } from "../kit/kit.slint";
+import { WrappedNote } from "../export_dialog/wrapped_note.slint";
 
 // The mouse button at the bottom left of a viewport and the card of gestures it opens above it.
 // Shared by the Live Render and the Edit viewports.
@@ -17,6 +18,8 @@ export component GesturesButton inherits KitGlass {
         { k: "Scroll", v: "Zoom" },
         { k: "Click figures", v: "Copy them" },
     ];
+    // One more line under the list, for a gesture only this view has; empty adds nothing.
+    in property <string> extra_line: "";
     // True while the person drags in the view: an open card closes at once.
     in property <bool> dragging: false;
     in-out property <bool> open: false;
@@ -149,6 +152,12 @@ export component GesturesButton inherits KitGlass {
                     vertical-alignment: center;
                     overflow: elide;
                 }
+            }
+            if root.extra_line != "": WrappedNote {
+                text: root.extra_line;
+                font-size: 11px;
+                color: Theme.text-primary;
+                accessible-role: AccessibleRole.text;
             }
             HorizontalLayout {
                 alignment: end;

@@ -39,7 +39,7 @@ not shown.
 Increasing AA taps smooths boundaries; it does not restore those optical models.
 Ray-Traced needs no denoising. Metrics and tilt curves keep their existing model.
 
-Remote Ray-Traced work requires matching protocol-43 peers. Update the viewer,
+Remote Ray-Traced work requires matching protocol-44 peers. Update the viewer,
 coordinator and joined workers together if the handshake refuses an old version.
 The GPU path uses Vulkan, DX12 or Metal; OpenGL is not used on the desktop (a machine with
 only OpenGL renders on the CPU; setting the environment variable `WGPU_BACKEND=gl` tries it

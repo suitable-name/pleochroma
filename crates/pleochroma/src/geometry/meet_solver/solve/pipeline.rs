@@ -14,7 +14,7 @@ use super::{
         },
         phase1_cache::{CachedCandidate, Phase1Cache},
     },
-    context::SolveContext,
+    context::{PICK_CAUSE_RANGE, SolveContext},
 };
 
 /// A block or sweep count for [`SolveProgress`], saturating (the counts are tiny; the
@@ -38,6 +38,8 @@ pub(super) enum Origin {
     ConstructiveNamed,
     /// Constructive pass, rank-1 prior.
     ConstructiveRank1,
+    /// The point of a picked corner (`MeetTierInput::pick`).
+    ConstructivePicked,
     /// Per-block estimate (phase 2), not yet snapped to a vertex.
     Estimated,
     /// Estimate subsequently snapped to a vertex level by the refinement sweeps.
@@ -94,11 +96,40 @@ pub(in crate::geometry::meet_solver) struct PipelineResult {
     pub(super) origin: Vec<Origin>,
     pub(in crate::geometry::meet_solver) last_pick: Vec<Option<(usize, usize)>>,
     pub(super) named_cause: Vec<Option<&'static str>>,
+    /// Per tier with a pick the run could not use: why (starts from the context's
+    /// resolution causes, and adds the corners whose mast is out of range).
+    pub(super) pick_cause: Vec<Option<&'static str>>,
     pub(super) refine_sweeps: usize,
     pub(super) converged: bool,
 }
 
 impl SolveContext<'_> {
+    /// The mast that puts tier `i` through the point of its picked planes at the current
+    /// `mast` values: `max_j normals[i][j] . v`, where `v` is the point the three picked
+    /// planes meet in. The maximum over the tier's instances is the only mast at which the
+    /// corner survives the tier's own facets: with a smaller one, one of its facets would
+    /// cut the corner off before another reaches it.
+    ///
+    /// `None` when the tier has no usable pick, or the value is not finite, not above
+    /// `1e-9` or above the domination limit.
+    fn picked_mast(&self, i: usize, mast: &[f64]) -> Option<f64> {
+        let [(ta, ja), (tb, jb), (tc, jc)] = self.picks[i]?;
+        let (na, nb, nc) = (
+            self.normals[ta][ja],
+            self.normals[tb][jb],
+            self.normals[tc][jc],
+        );
+        let bc = nb.cross(nc);
+        let det = na.dot(bc);
+        // Cramer's rule for `n_k . v = mast[t_k]`.
+        let v = (bc * mast[ta] + nc.cross(na) * mast[tb] + na.cross(nb) * mast[tc]) / det;
+        let value = self.normals[i]
+            .iter()
+            .map(|n| n.dot(v))
+            .fold(f64::NEG_INFINITY, f64::max);
+        (value.is_finite() && value > 1e-9 && value <= self.domination_limit).then_some(value)
+    }
+
     // Phase 1 walks tiers in strict file order (Gauss-Seidel). `.asc` order is normally
     // the cutting order, and each tier's meet points lie on the arrangement of the tiers
     // before it. A free-running order was rejected: it gave a worse per-design success rate.
@@ -165,6 +196,8 @@ impl SolveContext<'_> {
         // Why a tier with resolved named refs nevertheless settled on the rank-1
         // prior in phase 1, for the report's detail string.
         let mut named_cause: Vec<Option<&'static str>> = vec![None; n];
+        // Why a tier's pick was not used, for the report (see `PipelineResult::pick_cause`).
+        let mut pick_cause: Vec<Option<&'static str>> = self.pick_cause.clone();
 
         // ---- Phase 1: constructive pass. ----
         let mut settled: Vec<bool> = is_anchor.clone();
@@ -206,8 +239,29 @@ impl SolveContext<'_> {
                 // A named tier waits for its references to settle (they usually
                 // do, on a later pass); after a pass with no progress,
                 // `named_release` lets it settle from geometry alone.
-                if !refs.is_empty() && refs_settled.len() < refs.len() && !named_release {
+                // A picked tier also waits for the three tiers of its corner.
+                let pick_settled = self.picks[i].map(|p| p.iter().all(|&(t, _)| settled[t]));
+                if ((!refs.is_empty() && refs_settled.len() < refs.len())
+                    || pick_settled == Some(false))
+                    && !named_release
+                {
                     continue;
+                }
+
+                // Picked corner: the tier's mast follows from the point its picked planes
+                // meet in, whatever the shallowest-level rule would choose. It takes no
+                // vertex-level pick, so the repair search leaves it alone.
+                if pick_settled == Some(true) {
+                    if let Some(value) = self.picked_mast(i, &mast) {
+                        mast[i] = value;
+                        origin[i] = Origin::ConstructivePicked;
+                        last_pick[i] = None;
+                        settled[i] = true;
+                        phase1_cache.add_tier(i, &normals[i], mast[i]);
+                        progress = true;
+                        continue;
+                    }
+                    pick_cause[i] = Some(PICK_CAUSE_RANGE);
                 }
 
                 // `phase1_cache` mirrors a fresh enumeration of blanks + every
@@ -361,6 +415,22 @@ impl SolveContext<'_> {
                 if is_anchor[i] {
                     continue;
                 }
+                // A picked corner is recomputed from the current masts, so the tier follows
+                // its facets between sweeps. A corner without a usable mast leaves the tier
+                // to the rules below.
+                if self.picks[i].is_some() {
+                    if let Some(value) = self.picked_mast(i, &mast) {
+                        new_mast[i] = value;
+                        origin[i] = Origin::ConstructivePicked;
+                        last_pick[i] = None;
+                        pick_cause[i] = None;
+                        continue;
+                    }
+                    pick_cause[i] = Some(PICK_CAUSE_RANGE);
+                    if origin[i] == Origin::ConstructivePicked {
+                        origin[i] = Origin::Refined;
+                    }
+                }
                 // Pre-sized: on large designs nearly every candidate is usable (~10^5 entries).
                 let mut usable: Vec<&CandidateVertex> = Vec::with_capacity(cands.len());
                 usable.extend(cands.iter().filter(|c| {
@@ -460,6 +530,7 @@ impl SolveContext<'_> {
             origin,
             last_pick,
             named_cause,
+            pick_cause,
             refine_sweeps,
             converged,
         })

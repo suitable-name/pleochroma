@@ -260,6 +260,7 @@ fn an_ideal_scene_passes_the_event_through_bit_for_bit() {
     let listed = SurfaceScene {
         facet_surfaces: &words,
         machine: FacetingMachine::DEFAULT,
+        scratch: super::ScratchBasis::MODEL,
         edge: EdgeAbrasion::NONE,
     };
     let event = begin_facet_surface(&query(&listed, &material, &LAMBDAS, 17));
@@ -276,6 +277,7 @@ fn the_polished_halo_is_drawn_with_the_scatter_fraction_and_stays_unbiased() {
     let scene = SurfaceScene {
         facet_surfaces: &words,
         machine: FacetingMachine::DEFAULT,
+        scratch: super::ScratchBasis::MODEL,
         edge: EdgeAbrasion::NONE,
     };
     let k = Vec3::new(0.3, -1.0, 0.1).normalize();
@@ -335,6 +337,7 @@ fn ground_facets_and_abraded_edges_take_the_ground_arm() {
     let scene = SurfaceScene {
         facet_surfaces: &words,
         machine: FacetingMachine::DEFAULT,
+        scratch: super::ScratchBasis::MODEL,
         edge: EdgeAbrasion::NONE,
     };
     let event = begin_facet_surface(&query(&scene, &material, &LAMBDAS, 3));
@@ -362,6 +365,7 @@ fn ground_facets_and_abraded_edges_take_the_ground_arm() {
     let banded = SurfaceScene {
         facet_surfaces: &[],
         machine: FacetingMachine::DEFAULT,
+        scratch: super::ScratchBasis::MODEL,
         edge: EdgeAbrasion {
             width: 0.01,
             alpha: 0.3,
@@ -377,4 +381,39 @@ fn ground_facets_and_abraded_edges_take_the_ground_arm() {
     assert!((event.ground.lobe.alpha_mean() - 0.3).abs() < 1e-3);
     near.hit_point = Vec3::new(0.0, 0.5, 0.0);
     assert_eq!(begin_facet_surface(&near).finish, FacetFinish::Polished);
+}
+
+/// A ground facet's direction across the scratches is taken against the scene's scratch basis,
+/// and the default basis is the unrotated stone's.
+#[test]
+fn the_scene_scratch_basis_turns_the_direction_across_the_scratches() {
+    use super::{ScratchBasis, sweep::scratch_direction_in};
+
+    let material = GemMaterial::new_custom("surface", 1.8, 0.02, 0.0, [0.0; 3]);
+    let words = [FacetSurface::ground(0.3, 2.0).with_custom_angle(0.0)];
+    let designed = SurfaceScene {
+        facet_surfaces: &words,
+        ..SurfaceScene::IDEAL
+    };
+    assert!(designed.scratch.is_model());
+    let across = begin_facet_surface(&query(&designed, &material, &LAMBDAS, 3))
+        .ground
+        .across
+        .expect("an anisotropic ground facet carries a direction across the scratches");
+    // The table of the designed stone: the scratches run along model +X.
+    assert!((across - Vec3::Y.cross(Vec3::X)).length() < 1e-6);
+
+    let r = glam::Mat3::from_rotation_z(0.9) * glam::Mat3::from_rotation_x(0.5);
+    let basis = ScratchBasis::new(r * Vec3::Y, r * Vec3::X);
+    let posed = SurfaceScene {
+        scratch: basis,
+        ..designed
+    };
+    let turned = begin_facet_surface(&query(&posed, &material, &LAMBDAS, 3))
+        .ground
+        .across
+        .expect("an anisotropic ground facet carries a direction across the scratches");
+    let want = Vec3::Y.cross(scratch_direction_in(Vec3::Y, 0.0, basis));
+    assert!((turned - want).length() < 1e-6);
+    assert!((turned - across).length() > 1e-2);
 }

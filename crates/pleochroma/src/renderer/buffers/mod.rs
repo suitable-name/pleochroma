@@ -47,7 +47,9 @@ mod zoning;
 pub use camera::{CameraUniform, GpuCameraParams, GpuHitRecord, GpuRay};
 pub use event_wavefront::*;
 pub use girdle_finish::{encode_facet_finishes, encode_facet_surfaces, facet_finish};
-pub use inclusions::{GpuInclusionBlock, STRUCTURE_ROWS, family_kind, structure_rows};
+pub use inclusions::{
+    GpuInclusionBlock, STRUCTURE_ROWS, family_kind, structure_lattice, structure_rows,
+};
 pub use material::{
     DispersionParams, GpuAbsorptionBand, GpuBiaxialCurves, GpuGemMaterial, MAX_ABSORPTION_BANDS,
     band_shape, crystal_system, dispersion_model_type, optical_character,

@@ -44,6 +44,7 @@ fn export_completes_via_hybrid_or_cpu_path() {
         facet_finishes: Vec::new(),
         env_map: None,
         hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),
+        stone_pose: pleochroma::render_setup::StonePose::IDENTITY,
         surface_glare: 1.0,
         head_shadow_deg: 16.0,
         stone_shadow: false,

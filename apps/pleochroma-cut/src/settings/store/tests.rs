@@ -392,6 +392,7 @@ fn save_then_load_round_trips_settings_and_presets() {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,

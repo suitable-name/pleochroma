@@ -80,7 +80,7 @@ pub(super) fn start_remote_render(
     // A material that does not resolve makes the capture fail, so the wrong stone is never
     // sent to a worker. The render loop shows the refusal; here the dispatch is skipped and
     // the next settle retries.
-    let Ok(snapshot) = SceneSnapshot::capture(render_ctx) else {
+    let Ok(snapshot) = capture_live(render_ctx) else {
         return;
     };
     let scene = scene_state_from_snapshot(&snapshot, width, height);
@@ -102,13 +102,21 @@ pub(super) fn start_remote_render(
         )
         .with_roll(snapshot.camera_roll)
         .with_pan(snapshot.camera_pan);
+        // The guides are the first hit of the stone the tracers draw: the posed stone while the
+        // scene carries a pose.
+        let posed_stone = (!snapshot.stone_pose.is_identity()).then(|| {
+            let posed = snapshot.posed().into_owned();
+            (posed.active_planes, posed.tools)
+        });
+        let (guide_planes, guide_tools) =
+            posed_stone.unwrap_or((snapshot.active_planes, snapshot.tools));
         let guide_key = GuideCache::key_for_camera(
             width,
             height,
             &guide_camera,
             StoneGeometry {
-                planes: &snapshot.active_planes,
-                tools: &snapshot.tools,
+                planes: &guide_planes,
+                tools: &guide_tools,
             },
             n_d,
         );
@@ -119,8 +127,8 @@ pub(super) fn start_remote_render(
         s.pending_guide_gen = Some(super::super::generation::spawn_guide_generation(
             guide_key,
             guide_camera,
-            snapshot.active_planes, // moved: `snapshot` isn't used again after this
-            snapshot.tools,
+            guide_planes, // moved: `snapshot` isn't used again after this
+            guide_tools,
             width,
             height,
             n_d,
@@ -258,6 +266,16 @@ pub(super) fn connection_is_stale(
     }
 }
 
+/// The scene a live chunk traces: [`SceneSnapshot::capture`] with the stone pose the Live Render
+/// tab shows ([`RenderContext::effective_stone_pose`]), so a settle while the Edit tab's traced
+/// mode is shown dispatches the stone as designed, as the local tracer draws it. An export takes
+/// the raw Live Render pose instead.
+fn capture_live(render_ctx: &Arc<Mutex<RenderContext>>) -> Result<SceneSnapshot, String> {
+    let mut snapshot = SceneSnapshot::capture(render_ctx)?;
+    snapshot.stone_pose = RenderContext::lock(render_ctx).effective_stone_pose();
+    Ok(snapshot)
+}
+
 /// Builds the fully resolved `pleochroma_net::SceneState` a remote worker renders from a
 /// local `SceneSnapshot` and the session's resolution. Every field is a resolved value,
 /// since the worker cannot look up names or ids (see `pleochroma_net::scene::SceneState`).
@@ -276,6 +294,8 @@ fn scene_state_from_snapshot(snapshot: &SceneSnapshot, width: u32, height: u32) 
         yaw: snapshot.yaw,
         camera_roll: snapshot.camera_roll,
         camera_pan: snapshot.camera_pan,
+        // The pose beside the planes as designed: the worker turns the stone itself.
+        stone_pose: snapshot.stone_pose.to_array(),
         // Off for a stone that is not closed, which the worker would refuse.
         stone_shadow: snapshot.remote_stone_shadow(),
         tray_reflection: snapshot.remote_tray_reflection(),
@@ -353,6 +373,31 @@ mod tests {
             scene_state_from_snapshot(&centred, 64, 64).camera_pan,
             [0.0, 0.0]
         );
+    }
+
+    /// The live chunks carry the pose the Live Render tab shows, and the stone as designed while
+    /// the Edit tab is shown; the planes stay as designed either way (the worker turns them).
+    #[test]
+    fn the_live_dispatch_scene_carries_the_stone_pose_of_the_live_tab_only() {
+        let pose = pleochroma::render_setup::StonePose {
+            tilt_deg: 60.0,
+            turn_deg: 30.0,
+            spin_deg: 5.0,
+        };
+        let planes = pleochroma::geometry::cuts::StandardGemCuts::standard_round_brilliant();
+        let scene_for = |live_tab_shown: bool| {
+            let ctx = Arc::new(Mutex::new(RenderContext {
+                stone_pose: pose,
+                live_tab_shown,
+                ..Default::default()
+            }));
+            let snapshot = capture_live(&ctx).expect("default resolves");
+            scene_state_from_snapshot(&snapshot, 64, 64)
+        };
+        let live = scene_for(true);
+        assert_eq!(live.stone_pose, pose.to_array());
+        assert_eq!(live.planes, planes, "the planes stay as designed");
+        assert_eq!(scene_for(false).stone_pose, [0.0, 0.0, 0.0]);
     }
 
     #[test]

@@ -149,6 +149,11 @@ fn meets() -> Vec<TableEntry> {
     let pin = "tiers-pin-to-mast";
     vec![
         recipe(
+            "tiers-meets-pick-corner",
+            "Pick the corner",
+            Perform::PickMeetCorner("Table".to_owned()),
+        ),
+        recipe(
             named,
             "Meet a named facet",
             Perform::Tier(TierEntry::of("Upper Girdle").meets(1, "Lower Girdle")),

@@ -30,7 +30,7 @@ pub enum QualityPreset {
 }
 
 impl<'de> Deserialize<'de> for QualityPreset {
-    /// Reads the snake_case names this type writes, and the display strings an older settings
+    /// Reads the `snake_case` names this type writes, and the display strings an older settings
     /// file carries ("High / Quality"): case-insensitive, judged by the text before the first
     /// `/`, with "fast" and "quality" as the old names of Draft and High. A spelling nobody
     /// knows loads as the default instead of rejecting the whole file; the shown preset is

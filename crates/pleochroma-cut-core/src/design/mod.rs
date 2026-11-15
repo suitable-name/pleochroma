@@ -66,7 +66,8 @@ pub use concave::{
 pub use construct::FreshDesignSpec;
 pub use cut_meets::{
     CutMeet, CutMeetAnchor, CutMeets, DEFAULT_SNAP_MAX_MOVE_FRACTION, MEET_TOLERANCE_FRACTION,
-    MeetTarget, SnapMove, SnapReport,
+    MeetPickBlock, MeetPickLoss, MeetPickState, MeetTarget, PickCorner, PickedFacet, SnapMove,
+    SnapReport, TierMeetPick, TierMeetPickMap,
 };
 pub use effects_spec::{EdgeAbrasionEffects, InclusionEffects, StructureEffects};
 pub(crate) use export::meet_name_is_asc_safe;
@@ -280,6 +281,20 @@ pub struct Design {
     /// `surface_facets` and their keys); `.asc` has no field for it. The faceting machine is a
     /// per-user preference and is not part of a design.
     pub tier_surfaces: TierSurfaceMap,
+    /// The corner each tier is cut to, keyed by the picking tier's [`TierId`] (like
+    /// [`Self::tier_targets`]): a tier absent from the map meets by its constraint alone -- see
+    /// [`TierMeetPick`]. A pick names three facet planes, so it follows its corner when angles
+    /// or sizes change, and it survives add, remove, move, rename and undo. Empty for every
+    /// design that has none, which keeps such a design's behavior (and its file's bytes and
+    /// version) unchanged. Real authored content, so it participates in `PartialEq`, by tier
+    /// position.
+    ///
+    /// Only [`crate::edit::Edit::SetTierMeetPick`] changes it (plus `RemoveTier`, which drops
+    /// the removed tier's own entry, and a gear remap, which moves the facet positions). The
+    /// solver receives a pick only while the tier's constraint is `MeetNamed` and names the
+    /// picked tiers (`Design::meet_pick_states` says how each one stands). Carried by the native
+    /// design file's tier records (`meet_pick`); `.asc` has no field for it.
+    pub tier_meet_picks: TierMeetPickMap,
     /// The per-design stone render effects (inclusion haze, crystal-axis orientation,
     /// frosted girdle, edge rounding) -- see [`StoneRenderEffects`]. Authored content,
     /// so it participates in `PartialEq`; changed only through
@@ -403,5 +418,6 @@ impl PartialEq for Design {
             && self.tier_relations_eq(other)
             && self.tier_frosting_eq(other)
             && self.tier_surface_eq(other)
+            && self.tier_meet_picks_eq(other)
     }
 }

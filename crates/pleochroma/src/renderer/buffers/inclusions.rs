@@ -6,16 +6,19 @@
 //! any offset: the domain structure of opal and labradorite (`structure`, with its seed and flag
 //! in `header`) and the abraded-edge band (`edge`).
 //!
-//! # Layout (224 bytes, at offset 2800 of the material)
+//! # Layout (304 bytes, at offset 2800 of the material)
 //!
 //! | Field | Offset | Content |
 //! |---|---|---|
-//! | `header` | 0 | `[family_count, structure_flag, domain_seed, flags]` |
+//! | `header` | 0 | `[family_count, structure_flag, domain_seed, lattice_posed]` |
 //! | `fam_dir` | 16 | per family: needle axis or platelet normal in `.xyz`, kind in `.w` |
 //! | `fam_params` | 80 | per family: `[sigma, p, lobe, rho]` |
 //! | `haze` | 144 | `[sigma_HG, g, 0, 0]`: the Henyey-Greenstein haze, set only with inclusions |
 //! | `structure` | 160 | three rows for the domain structure; zero when off |
 //! | `edge` | 208 | `[width, alpha, 0, 0]`: the abraded-edge band; zero when off |
+//! | `lattice` | 224 | three `[x, y, z, 0]` columns of the structure's `lattice_from_world`; zero unless posed |
+//! | `scratch_up` | 272 | `[up.x, up.y, up.z, posed]`: the up direction of a turned stone's scratches; zero as designed |
+//! | `scratch_side` | 288 | `[side.x, side.y, side.z, 0]`: the fallback direction on a facet facing along `up` |
 //!
 //! Every field is a `u32`/`f32` quad, so the Rust offsets are the WGSL ones (the struct's
 //! alignment is 16 and the whole block is a multiple of it); the asserts below pin them.
@@ -76,11 +79,26 @@ pub fn structure_rows(structure: &BraggStructure) -> [[f32; 4]; STRUCTURE_ROWS] 
     ]
 }
 
+/// The three columns of `structure.lattice_from_world`, each as `[x, y, z, 0]`.
+///
+/// `bragg_structure` in `transport_physics/12_bragg_domains.wgsl` rebuilds the matrix with
+/// `mat3x3`. Read only when `header[3]` (the posed flag) is nonzero.
+#[must_use]
+pub const fn structure_lattice(structure: &BraggStructure) -> [[f32; 4]; 3] {
+    let m = structure.lattice_from_world;
+    [
+        [m.x_axis.x, m.x_axis.y, m.x_axis.z, 0.0],
+        [m.y_axis.x, m.y_axis.y, m.y_axis.z, 0.0],
+        [m.z_axis.x, m.z_axis.y, m.z_axis.z, 0.0],
+    ]
+}
+
 /// The inclusion block, GPU-encoded. See the module documentation for the layout.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuInclusionBlock {
-    /// `[family_count, structure_flag, domain_seed, flags]`. `flags` is reserved (zero).
+    /// `[family_count, structure_flag, domain_seed, lattice_posed]`. `lattice_posed` is 1 when
+    /// the domain map is turned against the world (`lattice` is then read), otherwise 0.
     pub header: [u32; 4],
     /// World direction (`.xyz`, zero for random needles) and [`family_kind`] (`.w`).
     pub fam_dir: [[f32; 4]; MAX_FAMILIES],
@@ -93,6 +111,16 @@ pub struct GpuInclusionBlock {
     pub structure: [[f32; 4]; STRUCTURE_ROWS],
     /// `[width, alpha, 0, 0]`, the abraded-edge band; zero when off.
     pub edge: [f32; 4],
+    /// The columns of the domain map's `lattice_from_world` ([`structure_lattice`]); zero
+    /// unless the structure is posed.
+    pub lattice: [[f32; 4]; 3],
+    /// `[up.x, up.y, up.z, posed]`: the up direction the polishing scratches are measured against
+    /// (`ScratchBasis::up`), with `posed` 1 when the stone is turned. All zero for a stone as
+    /// designed, which the shader reads as model `+Y`.
+    pub scratch_up: [f32; 4],
+    /// `[side.x, side.y, side.z, 0]`: the direction the scratches take on a facet facing along
+    /// `up` (`ScratchBasis::side`). Read only when `scratch_up.w` is nonzero.
+    pub scratch_side: [f32; 4],
 }
 
 const _: () = {
@@ -102,7 +130,10 @@ const _: () = {
     assert!(offset_of!(GpuInclusionBlock, haze) == 144);
     assert!(offset_of!(GpuInclusionBlock, structure) == 160);
     assert!(offset_of!(GpuInclusionBlock, edge) == 208);
-    assert!(size_of::<GpuInclusionBlock>() == 224);
+    assert!(offset_of!(GpuInclusionBlock, lattice) == 224);
+    assert!(offset_of!(GpuInclusionBlock, scratch_up) == 272);
+    assert!(offset_of!(GpuInclusionBlock, scratch_side) == 288);
+    assert!(size_of::<GpuInclusionBlock>() == 304);
     assert!(MAX_FAMILIES == 4);
 };
 
@@ -129,6 +160,10 @@ impl GpuInclusionBlock {
         block.haze = [material.scattering_sigma_s, material.scattering_g, 0.0, 0.0];
         if let Some(structure) = set.structure() {
             block = block.with_structure(1, structure.seed, structure_rows(structure));
+            if structure.is_posed() {
+                block.header[3] = 1;
+                block.lattice = structure_lattice(structure);
+            }
         }
         block
     }

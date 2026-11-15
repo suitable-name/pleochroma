@@ -36,6 +36,7 @@ fn valid_scene() -> SceneState {
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     }
 }
 
@@ -602,6 +603,31 @@ fn rejects_a_non_finite_or_oversized_camera_pan_and_accepts_the_bound() {
         let mut scene = valid_scene();
         scene.camera_pan = pan;
         assert!(validate_scene(&scene).is_ok(), "{pan:?}");
+    }
+}
+
+#[test]
+fn refuses_a_non_finite_stone_pose_and_accepts_any_finite_one() {
+    for pose in [
+        [f32::NAN, 0.0, 0.0],
+        [0.0, f32::INFINITY, 0.0],
+        [0.0, 0.0, f32::NEG_INFINITY],
+    ] {
+        let mut scene = valid_scene();
+        scene.stone_pose = pose;
+        let err = validate_scene(&scene).unwrap_err();
+        assert!(err.contains("stone pose must be finite"), "{err}");
+    }
+    // Out-of-range finite values are clamped when the pose is applied, not refused.
+    for pose in [
+        [0.0, 0.0, 0.0],
+        [90.0, 45.0, 10.0],
+        [400.0, -30.0, 725.0],
+        [-5.0, 1.0e6, -1.0e6],
+    ] {
+        let mut scene = valid_scene();
+        scene.stone_pose = pose;
+        assert!(validate_scene(&scene).is_ok(), "{pose:?}");
     }
 }
 

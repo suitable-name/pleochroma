@@ -1,6 +1,7 @@
 //! Camera orbit/pan/zoom, light move/position/reset, and HDR environment-map load/clear
 //! callback wiring.
 
+use super::pose_camera::inverse_pose_camera;
 use crate::{
     MainWindow, SettingsModel, SolidPreviewModel, ViewportModel,
     bridge::render_thread::{RenderContext, load_env_map},
@@ -11,6 +12,7 @@ use crate::{
     },
     settings::{SettingsPersister, model::LightingValues},
 };
+use pleochroma::render_setup::StonePose;
 use pleochroma_solid::preview::{
     StoneGeometryBuf,
     camera::{orbit_step, pan_pose, unroll_drag_delta},
@@ -118,10 +120,12 @@ pub fn resubmit_at_current_pose(
     };
     if on_live_tab {
         // The Live Render tab shows the committed design only: a Slice tier that is not
-        // kept yet is an Edit-tab preview (see `request_redraw_committed_geometry`).
+        // kept yet is an Edit-tab preview (see `request_redraw_committed_geometry`). The Solid
+        // raster draws the stone as designed, so a Stone Pose reaches it as the camera turned by
+        // the inverse pose (`pose_camera`); the Edit tab's camera below never gets it.
         preview_state.request_redraw_committed_geometry(
             stone,
-            pose,
+            inverse_pose_camera(ctx.stone_pose, pose),
             size,
             view_mode,
             ctx.design_gear,
@@ -200,7 +204,11 @@ pub(in crate::gui) fn contained_request_size(
 /// (see [`contained_request_size`]); the solid raster fills the whole `viewport`, as does a
 /// traced picture before the render size is known.
 #[must_use]
-const fn pan_picture_size(traced: bool, viewport: (f32, f32), render: (u32, u32)) -> (f32, f32) {
+pub(super) const fn pan_picture_size(
+    traced: bool,
+    viewport: (f32, f32),
+    render: (u32, u32),
+) -> (f32, f32) {
     if !traced || render.0 == 0 || render.1 == 0 {
         return viewport;
     }
@@ -212,7 +220,7 @@ const fn pan_picture_size(traced: bool, viewport: (f32, f32), render: (u32, u32)
 /// The logical size of the 3D viewport on screen and whether it shows a traced picture: the
 /// Live Render viewport on the Live Render tab, the Edit tab's Solid viewport otherwise (the
 /// two are never mounted together).
-fn shown_viewport(ui: &MainWindow) -> ((f32, f32), bool) {
+pub(super) fn shown_viewport(ui: &MainWindow) -> ((f32, f32), bool) {
     let preview = ui.global::<SolidPreviewModel>();
     if ui.get_render_view_tab() == 0 {
         (
@@ -264,16 +272,20 @@ pub(in crate::gui) fn resubmit_live_solid(
         device_pixels(ui.global::<SolidPreviewModel>().get_live_viewport_width() * scale),
         device_pixels(ui.global::<SolidPreviewModel>().get_live_viewport_height() * scale),
     );
-    // Committed planes only: the Slice tool's provisional tier is an Edit-tab preview.
+    // Committed planes only: the Slice tool's provisional tier is an Edit-tab preview. A Stone
+    // Pose reaches the raster as the camera turned by the inverse pose (`pose_camera`).
     preview_state.request_redraw_committed_geometry(
         stone,
-        CameraPose {
-            roll: ctx.camera_roll,
-            yaw: ctx.yaw,
-            pitch: ctx.pitch,
-            distance: ctx.distance,
-            pan: ctx.camera_pan,
-        },
+        inverse_pose_camera(
+            ctx.stone_pose,
+            CameraPose {
+                roll: ctx.camera_roll,
+                yaw: ctx.yaw,
+                pitch: ctx.pitch,
+                distance: ctx.distance,
+                pan: ctx.camera_pan,
+            },
+        ),
         size,
         0,
         ctx.design_gear,
@@ -615,6 +627,9 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
 ) {
     setup_orbit_callback(ui, render_ctx, settings_store, preview_state);
     setup_pan_callback(ui, render_ctx, settings_store, preview_state);
+    // The Stone Pose controls and the Alt-drag / Ctrl+Shift-drag gesture, tested in the viewport
+    // before the pan.
+    super::stone_pose::setup_stone_pose_callbacks(ui, render_ctx, settings_store, preview_state);
 
     let render_ctx_zoom = render_ctx.clone();
     let settings_store_zoom = settings_store.clone();
@@ -694,7 +709,7 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
         settings.set_env_map_follows_camera(false);
     });
 
-    setup_reset_lighting_tab_callback(ui, render_ctx, settings_store);
+    setup_reset_lighting_tab_callback(ui, render_ctx, settings_store, preview_state);
 
     // Settings are loaded by now. The built-in stand-in is framed like Fit: at the default pose
     // distance the frame would cut it.
@@ -713,16 +728,19 @@ pub(in crate::gui) fn setup_camera_and_lighting_callbacks(
 /// every lighting field back to [`LightingValues::default`] -- the rig, light direction,
 /// exposure, surface glare, backdrop, head shadow, Stone Shadow, Tray Reflection and the HDR
 /// map (cleared: the lighting rig comes back) -- in the render context, the settings file and
-/// the controls. The camera pose is not lighting and stays. Like applying a saved lighting, it is
-/// a choice of the cutter's normal lighting, so a design's own remembered lighting that was
-/// showing is let go (it stays saved).
+/// the controls. The Stone Pose, which has its group on this tab, stands the stone as designed
+/// again; the camera pose is not lighting and stays (Reset Camera keeps the Stone Pose in turn).
+/// Like applying a saved lighting, it is a choice of the cutter's normal lighting, so a design's
+/// own remembered lighting that was showing is let go (it stays saved).
 fn setup_reset_lighting_tab_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     settings_store: &Arc<SettingsPersister>,
+    preview_state: &Arc<SolidPreviewState>,
 ) {
     let render_ctx = render_ctx.clone();
     let settings_store = settings_store.clone();
+    let preview_state = Arc::clone(preview_state);
     let ui_weak = ui.as_weak();
     ui.global::<ViewportModel>().on_reset_lighting_tab(move || {
         let Some(ui) = ui_weak.upgrade() else {
@@ -734,9 +752,17 @@ fn setup_reset_lighting_tab_callback(
             let mut ctx = RenderContext::lock(&render_ctx);
             super::lighting_presets::apply_values_to_context(&mut ctx, &values, rig);
             ctx.env_map = None;
+            super::stone_pose::stand_as_designed(&mut ctx);
             ctx.dirty = true;
+            // The Solid raster stands the stone as designed at once.
+            resubmit_at_current_pose(&ui, &ctx, &preview_state);
+            drop(ctx);
         }
-        settings_store.update(|s| values.write_into(&mut s.settings));
+        settings_store.update(|s| {
+            values.write_into(&mut s.settings);
+            s.settings.stone_pose = StonePose::IDENTITY.to_array();
+        });
+        super::stone_pose::push_stone_pose_to_controls(&ui, StonePose::IDENTITY, false);
         // The newest word on the lighting is the cutter's: nothing still on its way for the
         // open design (a lookup, an HDR decode) may land over the reset.
         super::design_lighting::normal_lighting_chosen();

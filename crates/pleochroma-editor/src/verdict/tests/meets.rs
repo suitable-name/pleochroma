@@ -11,14 +11,16 @@
 use super::{closed, out_of_order, windowing_entry};
 use crate::{
     loading::design_from_asc_text,
-    session::EditorSession,
+    session::{ANGLE_NUDGE_COALESCE_WINDOW, EditorSession},
     verdict::{
         CutAway, FixAction, FloatingTier, GirdleLevelFact, Level, MeetFacts, Reason, ReasonKind,
-        SnapOutcome, VerdictInputs, evaluate, gather, judge_snap, plan_fix,
+        SnapOutcome, VerdictInputs, evaluate, gather, judge_snap, meets::LostPick, plan_fix,
     },
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
-use pleochroma_cut_core::{Design, Edit, History};
+use pleochroma_cut_core::{
+    ConstraintTier, Design, Edit, History, PreformSpec, ScheduleMeta, TierId,
+};
 
 /// Pentalume, every mast as published, its tiers named `P1` ... `C3`, `T`.
 const PENTALUME: &str =
@@ -104,6 +106,7 @@ fn tiers_with_no_meet_point_are_one_check_in_millimetres() {
     inputs.tier_names = pentalume_names();
     inputs.mm_per_unit = Some(5.0);
     inputs.meets = Some(MeetFacts {
+        lost_picks: Vec::new(),
         floating: vec![
             floating(1, "P2", 0.024, true),
             floating(2, "P3", 0.052, false),
@@ -139,6 +142,7 @@ fn without_millimetres_a_miss_is_a_share_of_the_stones_size() {
     let mut inputs = closed();
     inputs.tier_names = pentalume_names();
     inputs.meets = Some(MeetFacts {
+        lost_picks: Vec::new(),
         floating: vec![
             floating(1, "P2", 0.024, true),
             floating(7, "C3", 0.01, true),
@@ -163,6 +167,7 @@ fn without_millimetres_a_miss_is_a_share_of_the_stones_size() {
 
     // One tier reads singular.
     inputs.meets = Some(MeetFacts {
+        lost_picks: Vec::new(),
         floating: vec![floating(8, "T", 0.02, false)],
         size: 2.0,
     });
@@ -179,6 +184,7 @@ fn without_millimetres_a_miss_is_a_share_of_the_stones_size() {
 fn the_snap_is_offered_only_when_a_tier_is_close_enough_to_move() {
     let mut inputs = closed();
     inputs.meets = Some(MeetFacts {
+        lost_picks: Vec::new(),
         floating: vec![
             floating(2, "P3", 0.052, false),
             floating(8, "T", 0.166, false),
@@ -198,6 +204,7 @@ fn the_snap_is_offered_only_when_a_tier_is_close_enough_to_move() {
 fn every_tier_meeting_or_no_closed_stone_gives_no_meet_reason() {
     let mut inputs = closed();
     inputs.meets = Some(MeetFacts {
+        lost_picks: Vec::new(),
         floating: Vec::new(),
         size: 2.0,
     });
@@ -209,6 +216,133 @@ fn every_tier_meeting_or_no_closed_stone_gives_no_meet_reason() {
     let verdict = evaluate(&inputs);
     assert!(reason_of(&verdict.reasons, ReasonKind::NoMeetPoint).is_none());
     assert_eq!(verdict.level, Level::Good);
+}
+
+fn lost(tier: usize, name: &str, names: &[&str]) -> LostPick {
+    LostPick {
+        tier,
+        name: name.to_string(),
+        names: names.iter().map(ToString::to_string).collect(),
+    }
+}
+
+#[test]
+fn a_lost_pick_is_told_inside_the_meet_point_reason() {
+    let mut inputs = closed();
+    inputs.tier_names = pentalume_names();
+    inputs.meets = Some(MeetFacts {
+        lost_picks: vec![lost(2, "P3", &["P1", "P2", "G1"])],
+        floating: Vec::new(),
+        size: 2.0,
+    });
+    let verdict = evaluate(&inputs);
+    assert_eq!(verdict.level, Level::Check);
+    let reason = reason_of(&verdict.reasons, ReasonKind::NoMeetPoint).expect("a meet reason");
+    assert_eq!(reason.level, Level::Check);
+    assert_eq!(
+        reason.text,
+        "P3: its picked corner no longer exists, so it meets the shallowest point of P1, P2 \
+         and G1."
+    );
+    assert_eq!(reason.tier, Some(2));
+    // Nothing to snap: a lost pick has no fix of its own.
+    assert_eq!(reason.fix, None);
+    assert_eq!(reason.confirm, None);
+
+    // Two lost picks are two sentences in the one reason.
+    inputs.meets = Some(MeetFacts {
+        lost_picks: vec![
+            lost(2, "P3", &["P1", "P2"]),
+            lost(4, "G2", &["G1", "P1", "P2"]),
+        ],
+        floating: Vec::new(),
+        size: 2.0,
+    });
+    let verdict = evaluate(&inputs);
+    let reason = reason_of(&verdict.reasons, ReasonKind::NoMeetPoint).expect("a meet reason");
+    assert_eq!(
+        reason.text,
+        "P3: its picked corner no longer exists, so it meets the shallowest point of P1 and P2. \
+         G2: its picked corner no longer exists, so it meets the shallowest point of G1, P1 \
+         and P2."
+    );
+}
+
+#[test]
+fn a_lost_pick_follows_the_floating_tiers_in_the_same_reason() {
+    let mut inputs = closed();
+    inputs.tier_names = pentalume_names();
+    inputs.meets = Some(MeetFacts {
+        lost_picks: vec![lost(2, "P3", &["P1", "G1"])],
+        floating: vec![floating(1, "P2", 0.024, true)],
+        size: 2.0,
+    });
+    let verdict = evaluate(&inputs);
+    let reason = reason_of(&verdict.reasons, ReasonKind::NoMeetPoint).expect("a meet reason");
+    assert_eq!(
+        reason.text,
+        "1 tier has no meet point: P2 (1.2 % of the stone's size off). A cutter has to set its \
+         depth by measurement. P3: its picked corner no longer exists, so it meets the \
+         shallowest point of P1 and G1."
+    );
+    // "Show" selects the floating tier first, and the snap is still offered for it.
+    assert_eq!(reason.tier, Some(1));
+    assert_eq!(reason.fix, Some(FixAction::SnapToMeets));
+}
+
+#[test]
+fn gather_reads_a_lost_pick_off_the_design() {
+    let mut session = EditorSession::with_history(
+        Design::new(
+            PreformSpec::block(2.0, 1.0, 4.0),
+            ScheduleMeta::standard_round_brilliant(),
+            ConstraintTier::standard_round_brilliant(),
+        ),
+        History::with_coalesce_window(ANGLE_NUDGE_COALESCE_WINDOW),
+    );
+    let solved = session.design.solve().expect("every tier is pinned");
+    let corner = session
+        .design
+        .pick_corners(&solved, 6)
+        .expect("the stone closes")
+        .into_iter()
+        .find(|corner| corner.tiers == [4, 5])
+        .expect("the girdle and the mains form a corner");
+    session
+        .pick_meet_corner(6, &corner)
+        .expect("the corner can be picked");
+
+    // A standing pick is not told.
+    let inputs = gathered(&session.design, 1.54);
+    let meets = inputs.meets.as_ref().expect("the stone closes");
+    assert!(meets.lost_picks.is_empty(), "{:?}", meets.lost_picks);
+
+    // A pick of a tier that is gone is.
+    let mut design = session.design.clone();
+    let mut stored = *design.tier_meet_pick(6).expect("the tier is picked");
+    stored.facets[0].tier = TierId(9_999);
+    let id = design.tier_id_at(6).expect("the tier has an id");
+    design.tier_meet_picks.insert(id, stored);
+    let inputs = gathered(&design, 1.54);
+    let meets = inputs.meets.as_ref().expect("the stone closes");
+    assert_eq!(
+        meets.lost_picks,
+        [lost(6, &design.tiers[6].name, &["Girdle", "Pavilion Main"])]
+    );
+    let verdict = evaluate(&inputs);
+    let reason = reason_of(&verdict.reasons, ReasonKind::NoMeetPoint).expect("a meet reason");
+    assert!(
+        reason.text.contains(
+            ": its picked corner no longer exists, so it meets the shallowest point of Girdle \
+             and Pavilion Main."
+        ),
+        "{}",
+        reason.text
+    );
+    // The reason selects the first tier its text names: a tier left floating by the changed
+    // corner comes first, the lost pick's own tier otherwise.
+    let first_named = meets.floating.first().map_or(6, |floating| floating.tier);
+    assert_eq!(reason.tier, Some(first_named));
 }
 
 #[test]
@@ -269,6 +403,7 @@ fn the_new_reasons_follow_the_cut_order_and_come_before_the_windowing() {
     inputs.warnings = vec![out_of_order(0, 2)];
     inputs.windowing = vec![windowing_entry(5, -1.0, false, true)];
     inputs.meets = Some(MeetFacts {
+        lost_picks: Vec::new(),
         floating: vec![floating(1, "P2", 0.024, true)],
         size: 2.0,
     });

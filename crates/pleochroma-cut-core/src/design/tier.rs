@@ -368,6 +368,7 @@ mod tests {
             indices: tier.indices.clone(),
             constraint: tier.constraint.clone(),
             names: vec![tier.name.clone()],
+            pick: None,
         };
         // The same tier authored at 0 degrees instead of 90.
         let zero_degree_mistake = MeetTierInput {

@@ -153,7 +153,7 @@ pub(super) fn pointer_to_pick(ui: &MainWindow, x: f32, y: f32) -> ScreenPoint {
 }
 
 /// `(generation, length)` of the cached solved masts, `None` before the first solve.
-fn solved_summary(ctx: &Shared) -> Option<(u64, usize)> {
+pub(super) fn solved_summary(ctx: &Shared) -> Option<(u64, usize)> {
     ctx.solid_last_solved
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -347,6 +347,11 @@ pub(super) fn target_for(
 /// they sit on one of its panels instead (see `diagram::place`). In Slice mode the only handles
 /// are the provisional tier's.
 fn place(ui: &MainWindow, ctx: &Shared) -> Option<Target> {
+    // Pick mode shows the stone as it is before the tier is cut: the tier's own handles would sit
+    // on a facet that is not there.
+    if super::meet_pick::is_armed() {
+        return None;
+    }
     let geometry = ctx
         .geometry
         .lock()

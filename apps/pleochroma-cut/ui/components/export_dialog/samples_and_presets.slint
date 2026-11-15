@@ -173,19 +173,20 @@ export component ExportSamplesAndPresets inherits VerticalLayout {
 
     // 3a'. Path Cache -- reuses the stone's light paths; greyed out with Ray-Traced, with the
     // reason. The size estimate and any "not used" reason arrive as progress notes, shown under
-    // the progress bar (`ExportModel.progress_note`).
-    PathCacheControls {
+    // the progress bar (`ExportModel.progress_note`). Shown only when the path cache can be used
+    // (`ExportModel.path_cache_available`); the saved choices are kept.
+    if ExportModel.path_cache_available : PathCacheControls {
         path_cache <=> ExportModel.path_cache;
         keep_cache <=> ExportModel.keep_path_cache;
-        available: ExportModel.path_cache_available;
         ray_traced: ExportModel.engine_index == 1;
         enabled: !ExportModel.is_exporting;
     }
 
     // 3a''. Beam Tracing (Faceted Stones): greyed out with Ray-Traced, with the reason. Notes
     // about a stone that cannot use beams arrive as progress notes (`ExportModel.progress_note`).
-    // Shown only in a build with the beam feature (`SettingsModel.beam_build`).
-    if SettingsModel.beam_build : BeamTracingControls {
+    // Shown only in a build with the beam feature (`SettingsModel.beam_build`) and only when
+    // beams can be used (`ExportModel.beam_available`).
+    if SettingsModel.beam_build && ExportModel.beam_available : BeamTracingControls {
         beam <=> ExportModel.beam;
         keep_beams <=> ExportModel.keep_beams;
         available: ExportModel.beam_available;

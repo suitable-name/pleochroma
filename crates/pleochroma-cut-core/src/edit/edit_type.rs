@@ -9,7 +9,8 @@ use crate::{
     crystal_axis::CrystalAxisPlan,
     design::{
         ConcaveTier, ConstraintTier, Design, StoneRenderEffects, TierFrosting, TierId,
-        TierRelation, TierSurface, TierTarget, compute_tier_labels, is_legacy_123_abc,
+        TierMeetPick, TierRelation, TierSurface, TierTarget, compute_tier_labels,
+        is_legacy_123_abc,
     },
     material::MaterialSelection,
     preform::PreformSpec,
@@ -17,6 +18,7 @@ use crate::{
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
 mod frosting_label;
+mod meet_pick_label;
 mod relation_labels;
 mod retarget_labels;
 mod surface_label;
@@ -161,6 +163,17 @@ pub enum Edit {
     SetTierSurface {
         index: usize,
         surface: Option<TierSurface>,
+    },
+    /// Sets (or, when `pick` is `None`, clears) the corner the tier currently at `index` is cut
+    /// to -- see [`crate::design::Design::tier_meet_picks`] and [`TierMeetPick`]. Keyed by
+    /// [`TierId`] under the hood, like `SetTierTarget`. Changes only the pick map: the tier's
+    /// constraint and target are separate edits, which
+    /// [`crate::design::Design::meet_pick_edit`] batches with this one. A pick changes the
+    /// solved mast, so [`crate::resolve::resolve_after_edit`] re-solves in full. Inverse: the
+    /// same variant holding the previous pick.
+    SetTierMeetPick {
+        index: usize,
+        pick: Option<TierMeetPick>,
     },
     /// Restores the removed tier's [`crate::design::TierId`] on undo.
     ///
@@ -332,6 +345,9 @@ impl Edit {
             }
             Self::SetTierSurface { index, surface } => {
                 surface_label::describe_surface(&tier_label_at(design, *index), surface.as_ref())
+            }
+            Self::SetTierMeetPick { index, pick } => {
+                meet_pick_label::describe_meet_pick(design, *index, pick.as_ref())
             }
             // Internal bookkeeping only -- see this variant's own doc comment.
             // `describe_batch` filters it out of a `RemoveTier` undo's own
@@ -527,6 +543,9 @@ fn describe_batch(edits: &[Edit], design: &Design) -> String {
         return label;
     }
     if let Some(label) = relation_labels::describe_relation_batch(edits, design) {
+        return label;
+    }
+    if let Some(label) = meet_pick_label::describe_meet_pick_batch(edits, design) {
         return label;
     }
     // `RestoreTierId` is `Design::apply_edit`'s own invisible bookkeeping step

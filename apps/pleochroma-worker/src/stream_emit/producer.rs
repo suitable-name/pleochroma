@@ -149,7 +149,8 @@ pub fn local_tracer(
     compute_mode: crate::cli::ComputeMode,
 ) -> impl FnOnce(ProducerSink) + Send + 'static {
     let job = TracerJob {
-        scene: request.scene.clone(),
+        // The pose is applied here, once per request, after validation.
+        scene: crate::render_core::pose::posed_scene(&request.scene).into_owned(),
         first_sample: request.first_sample,
         samples: request.samples,
         threads,

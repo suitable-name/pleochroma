@@ -460,3 +460,113 @@ fn the_new_built_ins_have_their_catalogue_and_optics() {
         );
     }
 }
+
+/// A stone turned by the identity keeps the structure and every lookup exactly: a point is not
+/// touched by any arithmetic and the domain is the one of the structure as designed.
+#[test]
+fn the_identity_pose_leaves_every_lookup_unchanged() {
+    use glam::Mat3;
+
+    let s = opal_structure(21);
+    assert!(!s.is_posed());
+    assert_eq!(s.lattice_from_world, Mat3::IDENTITY);
+    assert_eq!(s.rotated(Mat3::IDENTITY), s);
+    let same = s.rotated(Mat3::IDENTITY);
+    for i in 0..200i16 {
+        let x = f32::from(i);
+        let p = Vec3::new(
+            0.037f32.mul_add(x, -3.0),
+            0.011f32.mul_add(x, -1.0),
+            0.029f32.mul_add(-x, 1.3),
+        );
+        assert_eq!(s.to_lattice(p).to_array(), p.to_array());
+        assert_eq!(s.lattice_to_world(p).to_array(), p.to_array());
+        assert_eq!(domain_at(&same, p), domain_at(&s, p));
+    }
+}
+
+/// A point turned with the stone lands in the same domain, and that domain's normal is the
+/// original one turned by the same rotation (opal: random normals per domain).
+#[test]
+fn an_opal_domain_map_follows_a_rotated_stone() {
+    use glam::Mat3;
+
+    let s = opal_structure(77);
+    let r = Mat3::from_rotation_y(0.9) * Mat3::from_rotation_x(1.2) * Mat3::from_rotation_y(0.3);
+    let posed = s.rotated(r);
+    assert!(posed.is_posed());
+    assert_eq!(posed.normal, Vec3::ZERO, "an opal keeps its random normals");
+    for i in 0..300i32 {
+        let cell = [i % 7 - 3, i % 11 - 5, i % 13 - 6];
+        let p = seed_point(&s, cell);
+        let before = domain_at(&s, p);
+        let after = domain_at(&posed, r * p);
+        assert_eq!(after.cell, cell);
+        assert_eq!(after.id, before.id);
+        assert_eq!(after.active, before.active);
+        assert_eq!(after.lambda_b0_nm, before.lambda_b0_nm);
+        assert!(
+            (after.normal - r * before.normal).length() < 1e-5,
+            "{:?} against {:?}",
+            after.normal,
+            r * before.normal
+        );
+    }
+}
+
+/// A labradorite's shared lamella normal turns with the stone and every domain reports it.
+#[test]
+fn a_labradorite_normal_turns_with_the_stone() {
+    use glam::Mat3;
+
+    let normal = Vec3::new(0.0, 0.6, 0.8);
+    let lab = BraggStructure::new(9, 0.5, (470.0, 740.0), 0.06, 0.9, 0.5, 0.1, normal);
+    let r = Mat3::from_rotation_x(1.1) * Mat3::from_rotation_y(2.0);
+    let posed = lab.rotated(r);
+    assert!((posed.normal - r * normal).length() < 1e-6);
+    for i in 0..200i32 {
+        let cell = [i % 5 - 2, i % 9 - 4, i % 3 - 1];
+        let d = domain_at(&posed, r * seed_point(&lab, cell));
+        assert_eq!(d.cell, cell);
+        assert!((d.normal - r * normal).length() < 1e-6);
+    }
+}
+
+/// Two turns compose: `lattice_from_world` of the second turn is the first one times `r^T`, so the
+/// map follows the stone through both.
+#[test]
+fn successive_rotations_compose_in_the_lattice() {
+    use glam::Mat3;
+
+    let s = opal_structure(5);
+    let a = Mat3::from_rotation_z(0.5);
+    let b = Mat3::from_rotation_x(-0.8);
+    let twice = s.rotated(a).rotated(b);
+    let once = s.rotated(b * a);
+    for i in 0..100i32 {
+        let cell = [i % 7 - 3, i % 5 - 2, i % 11 - 5];
+        let p = b * (a * seed_point(&s, cell));
+        assert_eq!(domain_at(&twice, p).cell, cell);
+        assert_eq!(domain_at(&once, p).cell, cell);
+    }
+}
+
+/// The lattice never travels: a structure writes the text it wrote before the pose existed, and
+/// a posed one reads back unposed, since the pose is applied where the stone is rendered.
+#[cfg(feature = "serde")]
+#[test]
+fn the_lattice_is_never_serialized() {
+    use glam::Mat3;
+
+    let s = opal_structure(8);
+    let text = toml::to_string(&s).expect("a structure serializes");
+    assert!(!text.contains("lattice_from_world"), "{text}");
+    let back: BraggStructure = toml::from_str(&text).expect("an unposed structure reads back");
+    assert_eq!(back, s);
+
+    let posed = s.rotated(Mat3::from_rotation_y(0.6));
+    let text = toml::to_string(&posed).expect("a posed structure serializes");
+    assert!(!text.contains("lattice_from_world"), "{text}");
+    let back: BraggStructure = toml::from_str(&text).expect("a posed structure reads back");
+    assert_eq!(back, s);
+}

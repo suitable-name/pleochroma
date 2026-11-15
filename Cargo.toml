@@ -46,7 +46,7 @@ exclude = ["vendor"]
 # `crates/pleochroma-mobile-core`, its UI-free core (app state, compute threads, platform trait).
 
 [workspace.package]
-version = "0.11.0"
+version = "0.11.1"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Suitable-Name"]
@@ -169,19 +169,19 @@ log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
 
 # Workspace members
-pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.11.0" }
-pleochroma = { path = "crates/pleochroma", version = "0.11.0" }
-pleochroma-net = { path = "crates/pleochroma-net", version = "0.11.0" }
-pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.11.0" }
-pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.11.0" }
-pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.11.0" }
-pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.11.0" }
-pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.11.0" }
-pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.11.0" }
-pleochroma-update = { path = "crates/pleochroma-update", version = "0.11.0" }
-pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.11.0" }
-pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.11.0" }
-pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.11.0" }
+pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.11.1" }
+pleochroma = { path = "crates/pleochroma", version = "0.11.1" }
+pleochroma-net = { path = "crates/pleochroma-net", version = "0.11.1" }
+pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.11.1" }
+pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.11.1" }
+pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.11.1" }
+pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.11.1" }
+pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.11.1" }
+pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.11.1" }
+pleochroma-update = { path = "crates/pleochroma-update", version = "0.11.1" }
+pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.11.1" }
+pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.11.1" }
+pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.11.1" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

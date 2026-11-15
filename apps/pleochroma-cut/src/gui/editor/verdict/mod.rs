@@ -23,6 +23,15 @@
 //! request and every edit bumps [`Slot::serial`], so a result for an older design is dropped.
 //! [`Slot::tiers`] remembers the tiers the verdict describes, which is how a Fix refuses to
 //! run on a design that changed since (a reason names tiers by position).
+//!
+//! # The vanished-facet notice
+//!
+//! [`Slot::vanish_baseline`] is the facets that vanish as the last verdict of the open document
+//! counted them. When the next verdict counts more, [`finish`] raises the notice ("This cut away
+//! P2: ...") in the problem banner's slot. The baseline is frozen while a handle drag runs, so the
+//! notice appears once, when the drag ends. It is dropped when the document is replaced (the
+//! design epoch changes), so the first verdict of a document only sets it. [`mark_stale`], the
+//! notice's cross and the problem banner hide the notice.
 
 mod apply;
 mod present;
@@ -30,21 +39,26 @@ mod present;
 mod tests;
 mod work;
 
-use self::work::Job;
+use self::work::{Job, Outcome};
 use super::state::EditorState;
 use crate::{
-    EditorModel, MainWindow, VerdictModel, ViewportModel,
+    EditorModel, MainWindow, ManipulateModel, VerdictModel, ViewportModel,
     bridge::render_thread::RenderContext,
     gui::solid_preview::preview_state::{SolidLastSolved, SolidPreviewState},
 };
 use pleochroma::{geometry::meet_solver::SolvedTier, optics::LightingPreset};
 use pleochroma_cut_core::{ConstraintTier, Design};
-use pleochroma_editor::verdict::{FixAction, SolveFacts, Verdict, VerdictInputs, evaluate};
+use pleochroma_editor::verdict::{
+    FixAction, SolveFacts, VanishNotice, VanishSnapshot, Verdict, evaluate, vanish_notice,
+};
 use slint::{ComponentHandle, Timer, TimerMode};
 use std::{
     cell::RefCell,
     rc::Rc,
-    sync::{Arc, Mutex, TryLockError},
+    sync::{
+        Arc, Mutex, TryLockError,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -65,6 +79,9 @@ struct Services {
     render_ctx: Arc<Mutex<RenderContext>>,
     preview_state: Arc<SolidPreviewState>,
     solid_last_solved: SolidLastSolved,
+    /// The editor's design epoch: bumped whenever the open document is replaced (New, Open,
+    /// Load Selected). Reading it needs no borrow of the editor state.
+    design_epoch: Arc<AtomicU64>,
 }
 
 /// What the UI thread remembers of the latest verdict.
@@ -83,6 +100,11 @@ struct Slot {
     current: bool,
     /// A fix is being planned or applied.
     busy: bool,
+    /// The facets that vanish as the last verdict of the open document counted them; `None`
+    /// until the document's first verdict lands.
+    vanish_baseline: Option<VanishSnapshot>,
+    /// The design epoch the latest request and the baseline belong to.
+    epoch: u64,
 }
 
 thread_local! {
@@ -112,6 +134,7 @@ pub(super) fn setup_verdict(
             render_ctx: Arc::clone(render_ctx),
             preview_state: Arc::clone(preview_state),
             solid_last_solved: Arc::clone(solid_last_solved),
+            design_epoch: Arc::clone(&state.borrow().design_epoch),
         }));
     });
     let ui_weak = ui.as_weak();
@@ -120,6 +143,13 @@ pub(super) fn setup_verdict(
             apply::fix_reason(&ui, index);
         }
     });
+    let ui_weak = ui.as_weak();
+    ui.global::<VerdictModel>()
+        .on_vanish_notice_dismiss(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                present::set_vanish_notice(&ui, None);
+            }
+        });
 }
 
 /// A solve's numbers reached the panel: asks for a new verdict on `design`.
@@ -137,6 +167,13 @@ pub(super) fn on_solved(ui: &MainWindow, design: &Design, solved: Option<&[Solve
     if design.tiers.is_empty() {
         reset(ui);
         return;
+    }
+    // A replaced document starts its own baseline: its first verdict only sets it.
+    let epoch = services.design_epoch.load(Ordering::Relaxed);
+    if SLOT.with(|cell| cell.borrow().epoch) != epoch {
+        forget_vanish_baseline();
+        SLOT.with(|cell| cell.borrow_mut().epoch = epoch);
+        present::set_vanish_notice(ui, None);
     }
     let serial = SLOT.with(|cell| {
         let mut slot = cell.borrow_mut();
@@ -190,6 +227,13 @@ pub(super) fn mark_stale(ui: &MainWindow) {
     });
     DEBOUNCE.with(Timer::stop);
     present::set_stale(ui, true);
+    present::set_vanish_notice(ui, None);
+}
+
+/// Forgets the facets that vanish as the last verdict counted them, so the next verdict only
+/// sets the baseline again (the open document was replaced).
+pub(in crate::gui::editor) fn forget_vanish_baseline() {
+    SLOT.with(|cell| cell.borrow_mut().vanish_baseline = None);
 }
 
 /// Forgets the verdict and hides the badge (the design has no tiers).
@@ -198,6 +242,7 @@ fn reset(ui: &MainWindow) {
         let mut slot = cell.borrow_mut();
         slot.serial += 1;
         slot.verdict = None;
+        slot.vanish_baseline = None;
         slot.tiers.clear();
         slot.current = false;
     });
@@ -219,12 +264,12 @@ fn failure_text(solve_state: &str, status_text: &str) -> Option<String> {
 /// `had_solution` says whether the worker was given a mast list; without one the failure
 /// sentence is the editor's status line, which the background solve sets AFTER it pushes the
 /// numbers (the reason this is read here and not when the request is made).
-fn finish(ui: &MainWindow, serial: u64, had_solution: bool, inputs: Option<VerdictInputs>) {
+fn finish(ui: &MainWindow, serial: u64, had_solution: bool, outcome: Option<Outcome>) {
     if SLOT.with(|cell| cell.borrow().serial) != serial {
         return;
     }
     // The worker stopped unexpectedly: the verdict on screen stays, marked out of date.
-    let Some(mut inputs) = inputs else {
+    let Some((mut inputs, vanished)) = outcome else {
         return;
     };
     if inputs.is_empty() {
@@ -247,6 +292,43 @@ fn finish(ui: &MainWindow, serial: u64, had_solution: bool, inputs: Option<Verdi
         slot.current = true;
     });
     present::push_verdict(ui, &verdict);
+    // Only a design that closes has facets to count; one that does not solve keeps the baseline.
+    if inputs.solve == SolveFacts::Closed {
+        track_vanished(ui, vanished);
+    }
+}
+
+/// Compares `vanished`, the facets of the verdict that just landed, with the baseline: raises
+/// the notice when more facets vanish, hides it otherwise.
+fn track_vanished(ui: &MainWindow, vanished: VanishSnapshot) {
+    let dragging = ui.global::<ManipulateModel>().get_dragging();
+    let live_epoch = services().map(|services| services.design_epoch.load(Ordering::Relaxed));
+    let notice = SLOT.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        // A result for a document that has been replaced since its request counts for nothing.
+        if live_epoch != Some(slot.epoch) {
+            return None;
+        }
+        advance_baseline(&mut slot.vanish_baseline, vanished, dragging)
+    });
+    present::set_vanish_notice(ui, notice.as_ref());
+}
+
+/// Moves `baseline` to `after` and says what vanished on the way.
+///
+/// `None` while `dragging` (the baseline stays where the drag began, so the whole drag is one
+/// comparison), for the document's first verdict (it only sets the baseline), and when nothing
+/// new vanished.
+fn advance_baseline(
+    baseline: &mut Option<VanishSnapshot>,
+    after: VanishSnapshot,
+    dragging: bool,
+) -> Option<VanishNotice> {
+    if dragging {
+        return None;
+    }
+    let before = baseline.replace(after)?;
+    vanish_notice(&before, baseline.as_ref()?)
 }
 
 /// Whether a Fix may run against a design with `tiers`: the verdict on screen must describe

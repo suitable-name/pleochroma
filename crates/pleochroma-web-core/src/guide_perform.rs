@@ -304,6 +304,11 @@ fn collect(perform: &Perform, out: &mut Vec<Atom>) -> Result<(), Gap> {
             suffix: suffix.clone(),
         }),
         Perform::ClearRelation(_) => return Err(Gap::Relation),
+        Perform::PickMeetCorner(_) => {
+            return Err(Gap::Unknown(
+                "picking a meet corner is not in the browser".to_owned(),
+            ));
+        }
         Perform::TierNote { tier, text } => out.push(Atom::Note {
             tier: tier.clone(),
             text: text.clone(),

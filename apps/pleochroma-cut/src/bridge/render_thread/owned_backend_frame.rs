@@ -4,7 +4,7 @@ use super::{
     SurfaceScene, ToolPrimitive,
 };
 use pleochroma::{
-    optics::raytracer::surface::{EdgeAbrasion, FacetSurface, FacetingMachine},
+    optics::raytracer::surface::{EdgeAbrasion, FacetSurface, FacetingMachine, ScratchBasis},
     renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 use std::sync::Arc;
@@ -19,6 +19,8 @@ pub(in crate::bridge::render_thread) struct OwnedFrame {
     surfaces: Vec<FacetSurface>,
     machine: FacetingMachine,
     edge: EdgeAbrasion,
+    /// The directions the facet scratches run along: the stone's own, turned with its pose.
+    scratch: ScratchBasis,
     environment: EnvironmentSource<'static>,
     /// The frame's HDR map, the exposure it is lit at and its rotation (`environment` is then a
     /// placeholder).
@@ -95,6 +97,7 @@ impl OwnedFrame {
             surfaces: frame.surface.facet_surfaces.to_vec(),
             machine: frame.surface.machine,
             edge: frame.surface.edge,
+            scratch: frame.surface.scratch,
             environment,
             tray_shadow: frame.environment.tray_shadow().cloned(),
             hdr,
@@ -122,6 +125,7 @@ impl OwnedFrame {
                 facet_surfaces: &self.surfaces,
                 machine: self.machine,
                 edge: self.edge,
+                scratch: self.scratch,
             },
             material: &self.material,
             max_bounces: self.max_bounces,

@@ -26,7 +26,7 @@ use super::{
     facet_surface::FacetSurface,
     ggx::{GgxLobe, MIN_COSINE},
     ground::{GroundFrame, GroundParams},
-    sweep::{scratch_angle_deg, scratch_direction},
+    sweep::{scratch_angle_deg, scratch_direction_in},
     tis::{tis_reflection, tis_transmission},
     unit_draw,
 };
@@ -121,7 +121,7 @@ fn across_scratches(
         &scene.machine,
         unit_draw(rng_seed, bounce, SURFACE_SWEEP_STREAM),
     );
-    normal_out.cross(scratch_direction(normal_out, angle))
+    normal_out.cross(scratch_direction_in(normal_out, angle, scene.scratch))
 }
 
 /// The ground outcome for a facet whose surface is `surface`.

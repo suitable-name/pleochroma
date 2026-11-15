@@ -512,6 +512,14 @@ fn assemble(
             .filter(|(id, _)| new_ids.contains(id))
             .map(|(id, surface)| (*id, surface.clone()))
             .collect(),
+        // A picked corner is not in the text either: it follows its tier by id, and reads as
+        // dormant when the tier's G text no longer names the picked tiers.
+        tier_meet_picks: design
+            .tier_meet_picks
+            .iter()
+            .filter(|(id, _)| new_ids.contains(id))
+            .map(|(id, pick)| (*id, *pick))
+            .collect(),
     };
     let label_of = |id: TierId| {
         merged

@@ -662,3 +662,46 @@ fn asc_export_then_import_then_export_does_not_duplicate_concave_footnotes() {
 
 #[path = "tests/concave_footnotes.rs"]
 mod concave_footnotes;
+
+/// The round brilliant with its lower girdle (tier 6) cut to a corner of the girdle (tier 4) and
+/// the pavilion mains (tier 5), solved.
+fn brilliant_with_a_picked_lower_girdle() -> (Design, Vec<SolvedTier>) {
+    let mut design = Design::new(
+        PreformSpec::block(2.0, 1.0, 4.0),
+        ScheduleMeta::standard_round_brilliant(),
+        ConstraintTier::standard_round_brilliant(),
+    );
+    let solved = design.solve().expect("every tier is pinned");
+    let corner = design
+        .pick_corners(&solved, 6)
+        .expect("the stone closes")
+        .into_iter()
+        .find(|corner| corner.tiers == [4, 5])
+        .expect("the girdle and the pavilion mains form a corner");
+    let edit = design
+        .meet_pick_edit(6, &corner)
+        .expect("every tier at the corner is named");
+    design.apply_edit(edit).expect("the batch applies");
+    let solved = design.solve().expect("the picked design solves");
+    (design, solved)
+}
+
+/// The `.asc` export of a picked tier says what a named meet says and nothing more: the `G`
+/// text names the corner's tiers, and every mast and note equals the export of the same design
+/// without the pick.
+#[test]
+fn asc_export_of_a_picked_tier_is_the_named_meet() {
+    let (design, solved) = brilliant_with_a_picked_lower_girdle();
+    let schedule = design.to_asc_schedule_from_solved(&solved);
+    assert_eq!(schedule.tiers[6].notes, "Meet Girdle, Pavilion Main");
+
+    let mut unpicked = design;
+    unpicked.tier_meet_picks.clear();
+    let plain = unpicked.to_asc_schedule_from_solved(&solved);
+    assert_eq!(schedule.tiers.len(), plain.tiers.len());
+    for (picked, other) in schedule.tiers.iter().zip(&plain.tiers) {
+        assert_eq!(picked.mast, other.mast);
+        assert_eq!(picked.notes, other.notes);
+        assert_eq!(picked.indices, other.indices);
+    }
+}

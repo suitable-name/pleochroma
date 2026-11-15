@@ -845,6 +845,42 @@ The version falls back to what the relations and tiers need as soon as the
 design has a block or cylinder again (**Apply Preform** on the Preform tab,
 Chapter 4), and an older build can open it again.
 
+### Picked Meet Points and the File Version
+
+A tier whose Meet Point was picked in the Solid view (Chapter 4; Chapter 13,
+"Picking a Meet Point") is stored with a `meet_pick` key: the three facets of
+the corner, written under the tier as three `[[tiers.meet_pick]]` tables,
+each holding the stable id of the facet's tier (`tier = 4`) and the index
+position of the facet (`at = 12.0`). Because it is written against tier ids,
+renaming a tier never breaks a pick.
+
+The file's `version` becomes **5** **only when at least one tier has a
+picked corner**. A design without picks keeps the version it had (1 to 4) and
+its file is byte-for-byte what it was before picking existed; an older file
+opens unchanged with no picks. An **older build cannot open a version 5
+file**: it refuses it as saved by a newer version, because opening it would
+solve the tier by the shallowest rule and show a different stone without
+saying so. To hand a picked design to an older build, **Clear** the picks or
+export an `.asc`. A `meet_pick` that does not name exactly three facets, or
+names a tier the file does not hold, opens as no pick and adds a line to the
+notes shown on opening; it never stops the file from opening.
+
+**What `.asc` keeps.** The G field of the picked tier says `Meet P1, P2, G1`
+(the names of the corner's tiers), and the tier's solved depth is in the file
+as always, so other programs show the same stone. The three picked facets
+themselves are dropped. Opening that `.asc` again pins every tier to its
+depth; if you then adopt the meet as a meet again (Chapter 8), it is solved
+by the names alone, which may choose the other corner.
+
+**What `.gcs` keeps.** Nothing changes: the `.gcs` export writes the solved
+facets, which already include the effect of the pick, and the pick itself is
+not written.
+
+Undo, Redo, history and variants (Chapter 18) carry a pick like any other
+part of the design. The cutting sheet needs no new rule: a pick that is met
+prints "Meet P1, P2, G1" and one that is cut away prints the wording of a tier
+with no meet point.
+
 ## Next Steps
 
 Continue to Chapter 12 for a consolidated troubleshooting list and a

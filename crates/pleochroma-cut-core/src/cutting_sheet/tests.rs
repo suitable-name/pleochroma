@@ -914,3 +914,44 @@ fn diff_concave_tiers_reports_added_removed_and_changed_positions() {
     assert_eq!(added.len(), 1);
     assert!(added[0].before.is_none() && added[0].after.as_ref() == Some(&a));
 }
+
+/// The round brilliant with its lower girdle (tier 6) cut to a corner of the girdle (tier 4) and
+/// the pavilion mains (tier 5), solved.
+fn brilliant_with_a_picked_lower_girdle() -> (Design, Vec<SolvedTier>) {
+    let mut design = Design::new(
+        PreformSpec::block(2.0, 1.0, 4.0),
+        ScheduleMeta::standard_round_brilliant(),
+        ConstraintTier::standard_round_brilliant(),
+    );
+    let solved = design.solve().expect("every tier is pinned");
+    let corner = design
+        .pick_corners(&solved, 6)
+        .expect("the stone closes")
+        .into_iter()
+        .find(|corner| corner.tiers == [4, 5])
+        .expect("the girdle and the pavilion mains form a corner");
+    let edit = design
+        .meet_pick_edit(6, &corner)
+        .expect("every tier at the corner is named");
+    design.apply_edit(edit).expect("the batch applies");
+    let solved = design.solve().expect("the picked design solves");
+    (design, solved)
+}
+
+/// The sheet's instruction for a tier cut to a picked corner names the tiers at that corner,
+/// by their codes.
+#[test]
+fn the_instruction_of_a_picked_tier_names_the_corners_tiers() {
+    let (design, solved) = brilliant_with_a_picked_lower_girdle();
+    let codes = compute_tier_labels(&design.tiers);
+    let sheet = design.cutting_sheet(&solved);
+    let row = sheet
+        .rows
+        .iter()
+        .find(|row| row.code == codes[6].code)
+        .expect("the lower girdle has a row");
+    assert_eq!(
+        row.meet_instruction,
+        format!("Meet {}, {}", codes[4].code, codes[5].code)
+    );
+}

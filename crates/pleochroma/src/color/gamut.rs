@@ -39,10 +39,16 @@ pub fn project_to_gamut(xyz: Vec3, space: ColorSpace) -> Vec3 {
 /// The white-point fallback step is not itself clamped to `max`: every channel
 /// there is equal by construction, so a small overshoot (e.g. ACES's ~1.033
 /// highlight asymptote) is hue-neutral and left for `encode`'s final clamp.
+///
+/// The walk length `t` is solved exactly, not searched in steps. At constant luminance `L`
+/// the mapped linear RGB is `L * n(t) / y(t)`, where `n(t)`, the matrix applied to the
+/// chromaticity `(x, y, 1 - x - y)`, and `y(t)` are both linear in `t`. Each bound is
+/// therefore a linear inequality in `t`: `n_c(t) >= 0` for the floor and
+/// `max * y(t) - L * n_c(t) >= 0` for the ceiling. The result is the smallest `t` that
+/// meets all six. A stepped search would make a smooth chromaticity gradient jump by whole
+/// steps, which shows as contour bands in a deeply colored stone.
 #[must_use]
 pub fn project_to_gamut_bounded(xyz: Vec3, space: ColorSpace, max: f32) -> Vec3 {
-    const STEPS: u32 = 32;
-
     let sum = xyz.x + xyz.y + xyz.z;
     if !sum.is_finite() || sum <= 1e-6 {
         return Vec3::ZERO;
@@ -59,7 +65,7 @@ pub fn project_to_gamut_bounded(xyz: Vec3, space: ColorSpace, max: f32) -> Vec3 
         return linear;
     }
 
-    // Walk toward the white point, taking the smallest step in range.
+    // Walk toward the white point, as far as the bounds below require and no further.
     let (white_x, white_y) = space.white_point_xy();
 
     let mapped_xyz_for_t = |t: f32| -> Vec3 {
@@ -80,16 +86,37 @@ pub fn project_to_gamut_bounded(xyz: Vec3, space: ColorSpace, max: f32) -> Vec3 
         }
     };
 
-    let mut resolved = space.xyz_to_linear(mapped_xyz_for_t(1.0)).max(Vec3::ZERO);
-    for i in 0..=STEPS {
-        let t = i as f32 / STEPS as f32;
-        let candidate = space.xyz_to_linear(mapped_xyz_for_t(t));
-        if in_range(candidate) {
-            resolved = candidate;
-            break;
+    // Per-channel numerators `n(t)` at the color (t = 0) and at the white point (t = 1).
+    let n0 = space.xyz_to_linear(Vec3::new(x, y, 1.0 - x - y));
+    let n1 = space.xyz_to_linear(Vec3::new(white_x, white_y, 1.0 - white_x - white_y));
+    let capped = max < f32::MAX;
+    let mut t = 0.0_f32;
+    for c in 0..3 {
+        t = t.max(first_nonnegative(n0[c], n1[c]));
+        if capped {
+            let h0 = (-luminance).mul_add(n0[c], max * y);
+            let h1 = (-luminance).mul_add(n1[c], max * white_y);
+            t = t.max(first_nonnegative(h0, h1));
         }
     }
-    resolved
+    if t <= 1.0 {
+        // Rounding can leave the limiting channel a few ULPs outside its bound.
+        return space
+            .xyz_to_linear(mapped_xyz_for_t(t))
+            .clamp(Vec3::ZERO, Vec3::splat(max));
+    }
+    space.xyz_to_linear(mapped_xyz_for_t(1.0)).max(Vec3::ZERO)
+}
+
+/// The smallest `t >= 0` with `g0 + (g1 - g0) * t >= 0`, or infinity when no such `t` exists.
+fn first_nonnegative(g0: f32, g1: f32) -> f32 {
+    if g0 >= 0.0 {
+        0.0
+    } else if g1 > g0 {
+        -g0 / (g1 - g0)
+    } else {
+        f32::INFINITY
+    }
 }
 
 /// Tone-mapped luminance from which an over-bright color starts to blend toward white under
@@ -114,7 +141,7 @@ pub const KEEP_COLOR_WHITE: f32 = 1.0;
 /// [`KEEP_COLOR_KNEE`] the result blends smoothly (smoothstep) toward the luminance-keeping
 /// rule, and from [`KEEP_COLOR_WHITE`] on the color keeps its luminance and mixes with the grey
 /// of that luminance just enough to fit, the same straight path toward white as
-/// [`project_to_gamut_bounded`] (solved exactly instead of in 32 steps).
+/// [`project_to_gamut_bounded`].
 ///
 /// The luminance is `xyz.y`. The grey of luminance `L` is `(L, L, L)`: every [`ColorSpace`]
 /// maps its own white to linear `(1, 1, 1)` at `Y = 1`.

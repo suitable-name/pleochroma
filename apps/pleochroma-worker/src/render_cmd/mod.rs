@@ -105,6 +105,8 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
     }
 
     validate::validate_scene(&scene)?;
+    // The picture is traced from the posed scene.
+    render_core::pose::apply_pose(&mut scene);
 
     // An HDR scene names its map only by content hash and size (see
     // `pleochroma_net::scene::HdrEnvironment`); the bytes come only over the network
@@ -246,6 +248,7 @@ mod tests {
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         };
         let path = dir.join("scene.json");
         std::fs::write(&path, serde_json::to_string(&scene).unwrap()).unwrap();
@@ -388,6 +391,7 @@ mod tests {
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         };
         scene.environment =
             pleochroma_net::scene::SceneEnvironment::Hdr(pleochroma_net::scene::HdrEnvironment {
@@ -455,6 +459,7 @@ mod tests {
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         };
         scene.planes[0].normal = [0.0, 0.0, 0.0];
         let scene_path = dir.join("scene.json");

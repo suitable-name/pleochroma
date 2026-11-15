@@ -291,7 +291,8 @@ mod tests {
     fn denoised_output_is_pinned_to_the_pre_move_gui_code() {
         // Under the default highlight rule (`HighlightRule::KeepColor`). Background pixels
         // (negative facet id) pass through unfiltered; the sRGB encode rounds to nearest.
-        const PINNED: u64 = 0x50f9_945c_3ecd_b2a7;
+        // Pinned with the exact gamut walk (`gamut::project_to_gamut_bounded`).
+        const PINNED: u64 = 0xe69b_333f_9a39_7df9;
         let planes = StandardGemCuts::standard_round_brilliant();
         let camera = Camera::new(PIN_POSE.0, PIN_POSE.1, PIN_POSE.2, 42.0);
         let accum = pin_accum();

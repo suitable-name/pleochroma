@@ -3,6 +3,7 @@ import { EditorTierItem } from "../../types.slint";
 import { Theme } from "../../theme.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
+import { ManipulateModel } from "../../models/manipulate.slint";
 import { RelationModel } from "../../models/relation.slint";
 import { CriticalAngleBar } from "../critical_angle_bar.slint";
 import { FormRow, FormRowMetrics } from "form_row.slint";
@@ -39,6 +40,62 @@ import { ChoiceSeg } from "choice_seg.slint";
 // Keyboard: every field and button takes Tab. The facet chips are one Tab stop (a row of
 // chips would otherwise be dozens of stops): Left and Right move along them, Enter detaches or
 // reattaches the chosen facet (Advanced) and Delete removes it.
+// The chip of the Meet Point row. `tone`: 0 plain muted text, 1 plain cyan text (pick mode is on),
+// 2 green pill (a corner is picked), 3 amber pill with a warning mark (the pick is lost or cut
+// away), 4 neutral pill (the pick is not in use).
+component MeetChip inherits Rectangle {
+    in property <string> text;
+    in property <int> tone: 0;
+
+    property <bool> pill: root.tone >= 2;
+    property <color> ink: root.tone == 1 ? Theme.accent-cyan : (root.tone == 2 ? Theme.success : (root.tone == 3 ? Theme.accent-amber : Theme.text-secondary));
+
+    horizontal-stretch: 1;
+    min-width: 0px;
+    height: 26px;
+    border-radius: 13px;
+    border-width: root.pill ? 1px : 0px;
+    border-color: root.tone == 4 ? Theme.border-subtle : root.ink;
+    background: root.tone == 2 ? root.ink.transparentize(0.85) : (root.tone == 3 ? Theme.surface-warning : transparent);
+
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    HorizontalLayout {
+        padding-left: root.pill ? 10px : 0px;
+        padding-right: root.pill ? 10px : 0px;
+        spacing: 6px;
+        alignment: root.pill ? center : start;
+        if root.tone == 3: VerticalLayout {
+            alignment: center;
+            Image {
+                source: @image-url("../../icons/warning.svg");
+                colorize: root.ink;
+                width: 12px;
+                height: 12px;
+                image-fit: contain;
+            }
+        }
+        if root.tone == 2: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 6px;
+                height: 6px;
+                border-radius: 3px;
+                background: root.ink;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: root.pill ? 600 : 400;
+            color: root.ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
 export component TierFormTab inherits VerticalLayout {
     // `false` while the worked-example guide locks this tab's group (see
     // `GuideAllow`, `models/guide.slint`); every input and button below ANDs it
@@ -216,6 +273,16 @@ export component TierFormTab inherits VerticalLayout {
     // note: Rust pushes them for `EditorModel.selected_tier_index`) describe the tier this form
     // shows. See `TierFacetsSection`.
     property <bool> selection_is_loaded: root.loaded_tier_index == EditorModel.selected_tier_index;
+
+    // The Meet Point row shows for the selected saved tier while Meets is Vertex or Facets.
+    property <bool> meet_pick_shown: root.has_loaded_tier && root.selection_is_loaded && root.tier_constraint_kind <= 1;
+    // Pick mode is on for the tier this form shows.
+    property <bool> picking: ManipulateModel.pick_mode && root.selection_is_loaded;
+    // The loaded tier's name for the row's tooltips; "tier N" while it has none.
+    property <string> pick_tier_name: root.has_loaded_tier
+        ? (EditorModel.tiers[root.loaded_tier_index].name != "" ? EditorModel.tiers[root.loaded_tier_index].name : "tier \{root.loaded_tier_index + 1}")
+        : "";
+    property <string> pick_hint: "Show the stone as it is before \{root.pick_tier_name} is cut and click the corner \{root.pick_tier_name} should meet. Shortcut: M.";
 
     // --- Apply on leave -----------------------------------------------------------------------
     // A saved tier takes a field's text when the field is left; Enter does too. A new tier (Add
@@ -589,6 +656,53 @@ export component TierFormTab inherits VerticalLayout {
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
+        }
+    }
+    // The Meet Point row: which corner of the stone this tier is cut to. Saved tiers only, while Meets
+    // is Vertex or Facets (a picked corner replaces the shallowest-of-the-names rule). The chip, the
+    // state and the note are pushed by Rust for the selected tier (`EditorModel.meet_pick_*`);
+    // the buttons arm pick mode in the Solid view or forget the pick.
+    if root.meet_pick_shown: FormRow {
+        label: "Meet Point";
+        tooltip: "Which corner this facet is cut to. Pick it in the view when the named facets meet in more than one corner. See the glossary.";
+        MeetChip {
+            text: root.picking ? "Picking in the view\u{2026}" : EditorModel.meet_pick_chip;
+            tone: root.picking ? 1 : (EditorModel.meet_pick_state == 1 ? 2 : (EditorModel.meet_pick_state >= 3 ? 3 : (EditorModel.meet_pick_state == 2 ? 4 : 0)));
+        }
+        if root.picking: TipButton {
+            enabled: root.unlocked;
+            text: "Cancel Pick";
+            hint: "Leave pick mode. Nothing changes. Shortcut: Escape.";
+            primary: true;
+            clicked => {
+                ManipulateModel.pick_mode = false;
+                ManipulateModel.pick_toggled();
+            }
+        }
+        if !root.picking: TipButton {
+            enabled: root.unlocked && ManipulateModel.pick_available;
+            text: EditorModel.meet_pick_state == 0 ? "Pick in View" : (EditorModel.meet_pick_state >= 3 ? "Pick Again" : "Pick\u{2026}");
+            reader_label: EditorModel.meet_pick_state == 0 ? "Pick Meet Point in View" : (EditorModel.meet_pick_state >= 3 ? "Pick Meet Point Again" : "Pick Meet Point");
+            hint: ManipulateModel.pick_available ? root.pick_hint : ManipulateModel.pick_blocked_reason;
+            primary: EditorModel.meet_pick_state >= 3;
+            clicked => {
+                ManipulateModel.pick_mode = true;
+                ManipulateModel.pick_toggled();
+            }
+        }
+        if !root.picking && EditorModel.meet_pick_state != 0: TipButton {
+            enabled: root.unlocked;
+            text: "Clear";
+            reader_label: "Clear Picked Meet Point";
+            hint: "Forget the picked corner. \{root.pick_tier_name} keeps its named facets and meets their shallowest point.";
+            clicked => { EditorModel.meet_pick_clear(root.loaded_tier_index); }
+        }
+    }
+    if root.meet_pick_shown && EditorModel.meet_pick_note != "": HorizontalLayout {
+        padding-left: FormRowMetrics.field_start;
+        WrapNote {
+            text: EditorModel.meet_pick_note;
+            ink: EditorModel.meet_pick_state >= 3 ? Theme.accent-amber : Theme.text-muted;
         }
     }
     // Red border for an invalid index (off the gear, repeated, or not a number).

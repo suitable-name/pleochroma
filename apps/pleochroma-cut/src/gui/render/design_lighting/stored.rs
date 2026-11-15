@@ -23,7 +23,7 @@ pub(super) use crate::settings::model::{FORMAT_VERSION, LightingValues, PITCH_RA
 impl LightingValues {
     /// The lighting the live view shows right now. `env_map_path` is the HDR map in use,
     /// which the render context holds only as decoded pixels (see [`env_path_for_capture`]).
-    /// The camera pose is not part of a design's lighting.
+    /// The camera pose and the Stone Pose are not part of a design's lighting.
     pub(super) fn from_live(ctx: &RenderContext, env_map_path: Option<String>) -> Self {
         Self {
             version: FORMAT_VERSION,
@@ -43,6 +43,7 @@ impl LightingValues {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             camera_distance: None,
         }
         .sanitised()

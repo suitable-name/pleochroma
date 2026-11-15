@@ -22,7 +22,8 @@ import { StatusPill, TraceNoteChip } from "gem_viewport/status_pill.slint";
 import { ProblemBanner, ProblemState } from "gem_viewport/problem_banner.slint";
 import { LiveFigures } from "gem_viewport/live_figures.slint";
 import { GesturesButton } from "gem_viewport/gestures.slint";
-import { InfoChip, ViewSegment } from "gem_viewport/view_parts.slint";
+import { InfoChip, PoseChip, ViewSegment } from "gem_viewport/view_parts.slint";
+import { SettingsModel } from "../models/settings.slint";
 // The crystal axis readouts of the figures card, and the watcher that keeps them current -- see
 // `CrystalAxisModel` (`models/crystal_axis.slint`).
 import { CrystalAxisModel } from "../models/crystal_axis.slint";
@@ -40,6 +41,9 @@ export component GemViewportView inherits Rectangle {
     property <bool> is_right_drag: false;
     // The drag pans (`ViewportModel.camera_pan`) instead of orbiting or moving the light.
     property <bool> is_pan_drag: false;
+    // The drag poses the stone (`ViewportModel.stone_pose_drag`) instead of orbiting, panning or
+    // moving the light.
+    property <bool> is_pose_drag: false;
     property <bool> is_dragging: false;
     // The picture is the Edit tab's design, cut back by the Cut slider (which Live Render
     // follows): say so. A Library row on the viewport is always drawn whole, so no pill then.
@@ -64,6 +68,17 @@ export component GemViewportView inherits Rectangle {
         root.menu = 0;
         // A save-name field that leaves the window while focused never runs its own focus handler.
         EditorModel.text_focus = false;
+    }
+
+    // Ends the drag that is running; a second call does nothing.
+    function end_drag() {
+        if (root.is_dragging) {
+            root.is_dragging = false;
+            if (root.is_pose_drag) {
+                ViewportModel.stone_pose_drag_end();
+            }
+            ViewportModel.camera_drag_end();
+        }
     }
 
     // Tells Rust when something the crystal axis depends on changed.
@@ -101,20 +116,27 @@ export component GemViewportView inherits Rectangle {
                 // Captured at `down`, so pressing or releasing Shift mid-drag cannot switch the
                 // drag between orbit and light.
                 //
+                // The left button with Alt, or with Ctrl (Cmd) and Shift, poses the stone: it is
+                // tested before the pan, which Ctrl with the left button would otherwise be.
+                // Alt alone is not enough because some Linux window managers take Alt-drag to move
+                // the window. Captured at `down` too.
+                root.is_pose_drag = event.button == PointerEventButton.left
+                    && (event.modifiers.alt || ((event.modifiers.control || event.modifiers.meta) && event.modifiers.shift));
                 // The middle button pans, and so does Ctrl (Cmd on macOS) with the left button,
                 // the substitute for a mouse without a middle button. Captured at `down` too.
-                root.is_pan_drag = (event.button == PointerEventButton.middle)
-                    || (event.button == PointerEventButton.left && (event.modifiers.control || event.modifiers.meta));
-                root.is_right_drag = !root.is_pan_drag
+                root.is_pan_drag = !root.is_pose_drag
+                    && ((event.button == PointerEventButton.middle)
+                        || (event.button == PointerEventButton.left && (event.modifiers.control || event.modifiers.meta)));
+                root.is_right_drag = !root.is_pan_drag && !root.is_pose_drag
                     && ((event.button == PointerEventButton.right) || event.modifiers.shift);
                 root.is_dragging = true;
                 OpticalModel.invalidate();
                 ViewportModel.camera_drag_begin();
-            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
-                if (root.is_dragging) {
-                    root.is_dragging = false;
-                    ViewportModel.camera_drag_end();
+                if (root.is_pose_drag) {
+                    ViewportModel.stone_pose_drag_begin();
                 }
+            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                root.end_drag();
             } else if (event.kind == PointerEventKind.move && !root.is_dragging) {
                 // A plain hover: `moved` below only fires while a button is held, so the
                 // Optical Diagnostics readout would otherwise never follow the pointer.
@@ -131,15 +153,13 @@ export component GemViewportView inherits Rectangle {
         // editor, the Tilt Curve dialog): whenever Slint's own pressed state drops,
         // the drag is over.
         changed pressed => {
-            if (!self.pressed && root.is_dragging) {
-                root.is_dragging = false;
-                ViewportModel.camera_drag_end();
+            if (!self.pressed) {
+                root.end_drag();
             }
         }
         changed enabled => {
-            if (!self.enabled && root.is_dragging) {
-                root.is_dragging = false;
-                ViewportModel.camera_drag_end();
+            if (!self.enabled) {
+                root.end_drag();
             }
         }
         moved => {
@@ -154,7 +174,9 @@ export component GemViewportView inherits Rectangle {
                 let dy = (touch_area.mouse-y - root.last_mouse_y) / 1px;
                 root.last_mouse_x = touch_area.mouse-x;
                 root.last_mouse_y = touch_area.mouse-y;
-                if (root.is_pan_drag) {
+                if (root.is_pose_drag) {
+                    ViewportModel.stone_pose_drag(dx, dy);
+                } else if (root.is_pan_drag) {
                     ViewportModel.camera_pan(dx, dy);
                 } else if (root.is_right_drag) {
                     ViewportModel.light_move(dx, dy);
@@ -354,6 +376,16 @@ export component GemViewportView inherits Rectangle {
             }
         }
 
+        // The stone stands in a Stone Pose: one click stands it as designed.
+        if SettingsModel.stone_pose_chip != "": HorizontalLayout {
+            alignment: start;
+            PoseChip {
+                text: SettingsModel.stone_pose_chip;
+                hint: "Stand the stone as designed";
+                clicked => { SettingsModel.stone_pose_reset(); }
+            }
+        }
+
         if ViewportModel.live_view_mode == 2: HorizontalLayout {
             alignment: start;
             InfoChip {
@@ -433,6 +465,7 @@ export component GemViewportView inherits Rectangle {
         y: root.height - 48px;
         open_by_default: !ViewportModel.gestures_seen;
         dragging: root.is_dragging;
+        extra_line: "Alt+drag or Ctrl+Shift+drag: tilt and turn the stone on the tray";
         dismissed => { ViewportModel.gestures_seen_set(true); }
     }
 

@@ -37,7 +37,7 @@ struct GpuBiaxialCurves {
     gamma_b: vec4<f32>,
 }
 
-// `renderer::buffers::GpuInclusionBlock` (224 bytes), appended at offset 2800.
+// `renderer::buffers::GpuInclusionBlock` (304 bytes), appended at offset 2800.
 struct GpuInclusionBlock {
     header: vec4<u32>,
     fam_dir: array<vec4<f32>, 4>,
@@ -45,6 +45,9 @@ struct GpuInclusionBlock {
     haze: vec4<f32>,
     structure: array<vec4<f32>, 3>,
     edge: vec4<f32>,
+    lattice: array<vec4<f32>, 3>,
+    scratch_up: vec4<f32>,
+    scratch_side: vec4<f32>,
 }
 
 struct GpuGemMaterial {
@@ -144,4 +147,9 @@ fn main() {
         output_material.inclusions.structure[i] = input_material.inclusions.structure[i];
     }
     output_material.inclusions.edge = input_material.inclusions.edge;
+    for (var i: u32 = 0u; i < 3u; i = i + 1u) {
+        output_material.inclusions.lattice[i] = input_material.inclusions.lattice[i];
+    }
+    output_material.inclusions.scratch_up = input_material.inclusions.scratch_up;
+    output_material.inclusions.scratch_side = input_material.inclusions.scratch_side;
 }

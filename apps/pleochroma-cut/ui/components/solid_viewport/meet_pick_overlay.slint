@@ -1,0 +1,116 @@
+import { Theme } from "../../theme.slint";
+import { ManipulateModel } from "../../models/manipulate.slint";
+
+// One ring of Pick mode: a cyan ring with a centre dot for a corner the selected tier can meet,
+// grey for a corner whose tier has no name, a filled green one for the corner the tier is already
+// cut to. The lit ring (hover or keyboard) is larger and amber. Sizes follow
+// `ManipulateModel.handle_scale`, as the handle markers do, and so does the hit radius in Rust.
+component PickRing inherits Rectangle {
+    in property <int> kind: 0;
+    in property <bool> lit: false;
+    in property <length> cx;
+    in property <length> cy;
+
+    property <length> d: (root.lit ? 22px : 14px) * ManipulateModel.handle_scale;
+    property <color> ink: root.kind == 1 ? Theme.text-muted : (root.kind == 2 ? Theme.success : (root.lit ? Theme.accent-amber : Theme.accent-cyan));
+
+    // Centred on the corner.
+    x: root.cx - root.d / 2;
+    y: root.cy - root.d / 2;
+    width: root.d;
+    height: root.d;
+    border-radius: root.d / 2;
+    border-width: 2px * ManipulateModel.handle_scale;
+    border-color: root.ink;
+    background: root.kind == 2 ? root.ink.transparentize(0.55) : Theme.bg-darkest.transparentize(0.5);
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 4px * ManipulateModel.handle_scale;
+        height: 4px * ManipulateModel.handle_scale;
+        border-radius: self.width / 2;
+        background: root.kind == 2 ? Theme.text-primary : root.ink;
+    }
+}
+
+// The plate beside a ring: the corner's tier names (or "{tier} meets here") over a second line.
+// It sits right of the ring and flips to the left near the right edge of the view.
+component PickPlate inherits Rectangle {
+    in property <bool> shown: false;
+    in property <int> kind: 0;
+    in property <length> cx;
+    in property <length> cy;
+    in property <length> room_w;
+    in property <length> room_h;
+    in property <string> label;
+    in property <string> sub;
+
+    property <length> r: 11px * ManipulateModel.handle_scale;
+    property <color> edge: root.kind == 1 ? Theme.text-muted : (root.kind == 2 ? Theme.success : Theme.accent-amber);
+
+    visible: root.shown;
+    width: max(plate_label.preferred-width, plate_sub.preferred-width) + 16px;
+    height: root.sub == "" ? 24px : 38px;
+    x: root.cx + root.r + 8px + root.width <= root.room_w - 4px ? root.cx + root.r + 8px : max(4px, root.cx - root.r - 8px - root.width);
+    y: max(4px, min(root.room_h - root.height - 4px, root.cy - root.height / 2));
+    background: Theme.glass-bg;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: root.edge;
+
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.sub == "" ? root.label : root.label + ". " + root.sub;
+
+    VerticalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        alignment: center;
+        plate_label := Text {
+            text: root.label;
+            font-size: 11px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            overflow: elide;
+        }
+        plate_sub := Text {
+            visible: root.sub != "";
+            height: root.sub == "" ? 0px : self.preferred-height;
+            text: root.sub;
+            font-size: 10px;
+            color: Theme.text-secondary;
+            overflow: elide;
+        }
+    }
+}
+
+// The corners of Pick mode, drawn over the stone (`ManipulateModel.pick_rings`, logical viewport
+// coordinates). Purely presentational: no TouchArea, so every pointer event still reaches
+// `SolidViewportView`'s `drag_area` underneath. Plates come after all rings so the lit one is on top.
+export component MeetPickOverlay inherits Rectangle {
+    // Explicit geometry, like `ManipulateOverlay`: an overlay positioned by default would
+    // propagate its constraints to the viewport (see `app.slint`'s "Sizing notes").
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+
+    for ring[i] in ManipulateModel.pick_rings: PickRing {
+        cx: ring.x;
+        cy: ring.y;
+        kind: ring.kind;
+        lit: i == ManipulateModel.pick_lit;
+    }
+    for ring[i] in ManipulateModel.pick_rings: PickPlate {
+        shown: i == ManipulateModel.pick_lit || ring.kind == 2;
+        kind: ring.kind;
+        cx: ring.x;
+        cy: ring.y;
+        room_w: root.width;
+        room_h: root.height;
+        label: ring.label;
+        sub: ring.sub;
+    }
+}

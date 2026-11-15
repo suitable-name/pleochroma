@@ -114,15 +114,18 @@ the angle cell (or press F2 on the selected row) to edit it in place.
 ## The Solid viewport
 
 The Edit tab's Solid viewport (Chapter 13) has its own keys, active once you
-have clicked into the viewport. The first four belong to the Slice tool:
+have clicked into the viewport. The first five belong to the Slice and Pick
+Meet tools (Chapter 13); while pick mode is on, the arrow keys step from
+corner to corner and Enter chooses the lit one:
 
 <!-- SHORTCUTS_VIEWPORT:BEGIN -->
 | Shortcut | Action |
 | --- | --- |
 | S | Turn the Slice tool on or off (not in the Diagram view, and not while a handle or a slice line is being dragged) |
+| M | Pick the corner the selected tier is cut to, or leave pick mode (not in the Diagram view) |
 | F | While a slice tier is shown but not yet kept: flip which side of your line is cut away |
 | Enter | While a slice tier is shown but not yet kept: keep it as one undo step |
-| Esc | Cancel what is in progress, innermost first: a handle drag, a slice line being drawn, a slice tier not yet kept, Slice mode itself, an enlarged Diagram panel. With none of those, clear the tier selection. |
+| Esc | Cancel what is in progress, innermost first: a handle drag, Pick mode, a slice line being drawn, a slice tier not yet kept, Slice mode itself, an enlarged Diagram panel. With none of those, clear the tier selection. |
 | Up / Down | Select the previous/next tier |
 | Page Up / Page Down | Select the tier 10 places back/forward |
 | Shift (while dragging a handle) | Switch the angle and depth handles to their fine snapping step |
@@ -174,8 +177,9 @@ the exception; the palette lists actions, not the buttons inside a dialog.
 The 3D viewport's camera and light controls (Chapter 2) are mouse
 gestures — left-drag to orbit, middle-drag or Ctrl+left-drag (Cmd on macOS) to move the
 stone within the picture, right-drag or Shift+left-drag to move the
-light (or to turn the HDR map, when one is loaded), scroll to zoom — not keyboard shortcuts.
-Reset Camera and the named views (Front, Top) centre the stone again. The Edit tab's Solid
+light (or to turn the HDR map, when one is loaded), Alt+left-drag or Ctrl+Shift+left-drag to
+tilt and turn the stone on the tray (vertical = tilt, horizontal = turn), scroll to zoom — not keyboard shortcuts.
+Reset Camera and the named views (Front, Top) centre the stone again; they keep its Stone Pose. The Edit tab's Solid
 viewport (Chapter 13) shares that same orbit/pan/zoom camera with the Live
 Render tab in its Solid/Path-Traced/Solid + Path-Traced/Ray-Traced modes; its Diagram mode instead
 drags to pan and scrolls to zoom its own image, with a Reset View button
@@ -188,7 +192,7 @@ angle and depth snapping to its fine step, and **Escape** cancels the drag
 and restores the design; with nothing being dragged, Escape clears the
 selection as usual.
 
-The Solid viewport's own keys, including the Slice tool's S, F, Enter and Esc,
+The Solid viewport's own keys, including the Slice tool's S, F, Enter and Esc and the Pick Meet tool's M,
 are in "The Solid Viewport" table above.
 
 ## Next Steps

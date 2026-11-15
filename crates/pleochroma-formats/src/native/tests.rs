@@ -791,6 +791,55 @@ fn tier_target_round_trips_through_toml_text() {
     );
 }
 
+// --- Meet picks ---
+
+/// A [`TierTable::meet_pick`] survives a serialize/parse round trip, is written as one
+/// `[[tiers.meet_pick]]` table per facet, and an older file
+/// without the key reads as an empty pick.
+#[test]
+fn meet_pick_round_trips_through_toml_text() {
+    let mut native = sample_file();
+    native.tiers = vec![
+        tier("P3", NativeMeetConstraint::MeetExisting)
+            .with_tier_id(Some(3))
+            .with_meet_pick(vec![
+                MeetPickFacetTable { tier: 4, at: 12.0 },
+                MeetPickFacetTable { tier: 5, at: 18.0 },
+                MeetPickFacetTable { tier: 2, at: 12.0 },
+            ]),
+        tier("P4", NativeMeetConstraint::MeetExisting).with_tier_id(Some(4)),
+    ];
+    native.version = native.needed_version();
+    let text = write(&native);
+    assert!(text.contains("tier = 4"), "{text}");
+    assert_eq!(text.matches("[[tiers.meet_pick]]").count(), 3, "{text}");
+    let parsed = read(&text);
+    assert_eq!(parsed, native);
+    assert_eq!(
+        parsed.tiers[0].meet_pick,
+        vec![
+            MeetPickFacetTable { tier: 4, at: 12.0 },
+            MeetPickFacetTable { tier: 5, at: 18.0 },
+            MeetPickFacetTable { tier: 2, at: 12.0 },
+        ]
+    );
+    assert!(parsed.tiers[1].meet_pick.is_empty());
+    assert_eq!(write(&parsed), text);
+
+    // A file written before the key existed reads as no pick.
+    let old = read(&hand_written(4, BLOCK_PREFORM, ""));
+    assert!(old.tiers[0].meet_pick.is_empty());
+}
+
+/// A design without a pick serializes exactly as it did before the key existed.
+#[test]
+fn a_file_without_a_pick_serializes_without_the_key() {
+    let text = write(&sample_file());
+    assert!(!text.contains("meet_pick"));
+    assert!(text.starts_with("format = \"pleochroma-design\"\nversion = 1\n"));
+    assert_eq!(write(&read(&text)), text);
+}
+
 /// The SHA-256 helper the attachments use gives the known digest of the empty input
 /// and of `abc` (lowercase hex).
 #[test]

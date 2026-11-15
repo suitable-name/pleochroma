@@ -22,15 +22,46 @@ fn appended_blocks_sit_at_the_documented_offsets() {
     assert_eq!(offset_of!(GpuGemMaterial, zones), 592);
     assert_eq!(offset_of!(GpuGemMaterial, biaxial_curves), 2720);
     assert_eq!(offset_of!(GpuGemMaterial, inclusions), 2800);
-    assert_eq!(size_of::<GpuGemMaterial>(), 3024);
+    assert_eq!(size_of::<GpuGemMaterial>(), 3104);
     assert_eq!(size_of::<GpuBiaxialCurves>(), 80);
-    assert_eq!(size_of::<GpuInclusionBlock>(), 224);
+    assert_eq!(size_of::<GpuInclusionBlock>(), 304);
     assert_eq!(offset_of!(GpuInclusionBlock, fam_dir), 16);
     assert_eq!(offset_of!(GpuInclusionBlock, fam_params), 80);
     assert_eq!(offset_of!(GpuInclusionBlock, haze), 144);
     assert_eq!(offset_of!(GpuInclusionBlock, structure), 160);
     assert_eq!(offset_of!(GpuInclusionBlock, edge), 208);
+    assert_eq!(offset_of!(GpuInclusionBlock, lattice), 224);
+    assert_eq!(offset_of!(GpuInclusionBlock, scratch_up), 272);
+    assert_eq!(offset_of!(GpuInclusionBlock, scratch_side), 288);
     assert_eq!(STRUCTURE_ROWS, 3);
+}
+
+/// An unposed structure leaves the flag word and the lattice columns zero; a posed one sets the
+/// flag and writes the columns of `lattice_from_world`.
+#[test]
+fn a_posed_structure_encodes_its_lattice_columns() {
+    use super::structure_rows;
+    use crate::optics::inclusions::bragg::BraggStructure;
+    use glam::Mat3;
+
+    let opal = BraggStructure::new(3, 0.2, (450.0, 650.0), 0.05, 0.8, 0.5, 0.03, Vec3::ZERO);
+    let plain = GpuInclusionBlock::encode(&GemMaterial::diamond().with_structure(opal));
+    assert_eq!(plain.header, [0, 1, 3, 0]);
+    assert_eq!(plain.lattice, [[0.0; 4]; 3]);
+
+    let r = Mat3::from_rotation_y(0.7) * Mat3::from_rotation_x(0.4);
+    let posed = opal.rotated(r);
+    let block = GpuInclusionBlock::encode(&GemMaterial::diamond().with_structure(posed));
+    assert_eq!(block.header, [0, 1, 3, 1]);
+    assert_eq!(block.structure, structure_rows(&opal));
+    for (column, axis) in block.lattice.iter().zip([
+        r.transpose().x_axis,
+        r.transpose().y_axis,
+        r.transpose().z_axis,
+    ]) {
+        assert_eq!(&column[..3], &axis.to_array());
+        assert_eq!(column[3], 0.0);
+    }
 }
 
 /// A material with neither feature leaves the bytes in front of the appended blocks unchanged

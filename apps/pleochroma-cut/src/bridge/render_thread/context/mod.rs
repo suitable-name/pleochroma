@@ -38,6 +38,7 @@ use pleochroma::{
         materials::GemMaterial,
         raytracer::{LightingPreset, surface::FacetingMachine},
     },
+    render_setup::StonePose,
     renderer::env_map::{EnvironmentMap, HdrOrientation},
 };
 use pleochroma_net::scene::effects::SceneEffects;
@@ -129,6 +130,21 @@ pub struct RenderContext {
     /// restarts accumulation (local and remote); the plane is cheap and resolved once per scene
     /// generation (`TrayMirrorPlan` in the render worker).
     pub tray_reflection: f32,
+    /// The stone's pose on the tray (`AppSettings::stone_pose`): tilt, turn and spin in degrees,
+    /// the identity being the stone as designed. Part of the Live Render camera pose and read
+    /// only through [`Self::effective_stone_pose`], which gives the identity while the Edit tab
+    /// is shown; the render loop applies it to the planes, tools and material it traces, and
+    /// the exports and render jobs carry it as it is (`SceneSnapshot::stone_pose`).
+    pub stone_pose: StonePose,
+    /// Whether the Live Render tab is the one shown (`render_view_tab == 0`), kept by
+    /// `gui::render::render_visibility::recompute_tab_visible`. The Edit tab never shows the
+    /// stone posed, and its traced modes share this render loop, so the loop learns the tab here.
+    pub live_tab_shown: bool,
+    /// Whether a pose drag or a pose slider is held: the Stone Shadow starts no new build while
+    /// it is, and for 250 ms after it is released. Written by the Live Render viewport's pose
+    /// gesture and the Lighting tab's pose sliders. Not a scene field: `scene_identity` ignores
+    /// it.
+    pub pose_drag_held: bool,
     /// Progressive-accumulation target for the live image. The render loop stops once local
     /// plus (while combining) the live epoch's remote samples reach it, and a settled
     /// epoch's shared cursor covers exactly `[0, target_samples)`. Passed through
@@ -460,7 +476,27 @@ pub enum PlanesOwner {
     },
 }
 
+/// The pose the render loop and the scene identity use: `pose` clamped while the Live Render
+/// tab is shown, the identity on the Edit tab (`live_tab_shown` false), which always shows the
+/// stone as designed.
+#[must_use]
+pub fn live_render_pose(live_tab_shown: bool, pose: StonePose) -> StonePose {
+    if live_tab_shown {
+        pose.clamped()
+    } else {
+        StonePose::IDENTITY
+    }
+}
+
 impl RenderContext {
+    /// [`Self::stone_pose`] as the Live Render tab shows it ([`live_render_pose`]): the traced
+    /// picture, the shadow, the mirror, the Solid view's camera and the scene identity read this,
+    /// not the raw field.
+    #[must_use]
+    pub fn effective_stone_pose(&self) -> StonePose {
+        live_render_pose(self.live_tab_shown, self.stone_pose)
+    }
+
     /// Whether a write tagged `new_owner` may overwrite the slot's current owner. Every
     /// writer uses this one rule.
     ///

@@ -392,6 +392,7 @@ Usage: pleochroma-cli render JOB.job.json [--out FILE.png] [--local cpu|gpu|cpu+
                              [--contribute-local] [--quiet] [--material NAME]
                              [--color-pattern NAME] [--color-variant KEY] [--highlights whiten|keep-color] [--meter]
                              [--stone-shadow on|off] [--tray-reflection PERCENT]
+                             [--stone-pose TILT,TURN[,SPIN]]
                              [--raw-out FILE.plraw] [--progress-raw FOLDER] [--sample-offset N]
 @ADAPTIVE_USAGE_RENDER@
                              [--path-cache] [--persist-cache] [--cache-dir FOLDER]
@@ -433,7 +434,11 @@ It renders with the app's own engine, so the picture is the one the app would ha
                           glancing views reflect more. Studio lights with a backdrop only.
                           Written to the job as format 4 (format 5 with color zones, 6 with
                           a turned HDR map). Not for tilt-video.
-  --engine path|ray     Replace the job renderer: spectral Path Traced or deterministic Ray Traced.
+  --stone-pose TILT,TURN[,SPIN]
+                          Stand the stone on the tray in this pose: TILT 0 to 180 degrees
+                          (90 stands the table upright), TURN and SPIN 0 to 360. Written to
+                          the job as format 8. Not for tilt-video.
+  --engine path|ray    Replace the job renderer: spectral Path Traced or deterministic Ray Traced.
                           Ray uses the job AA tap count; its tint follows the absorption spectrum.
   --local ENGINES         The engines of this computer: cpu, gpu or cpu+gpu (default cpu+gpu).
                           gpu needs a build with the gpu feature; without it everything renders
@@ -1110,6 +1115,19 @@ mod tests {
         let render = text(Topic::Render);
         assert!(render.contains("--stone-shadow on|off"));
         assert!(render.contains("--tray-reflection PERCENT"));
+        assert!(
+            render.contains("[--stone-pose TILT,TURN[,SPIN]]"),
+            "the usage block lacks the flag"
+        );
+        let pose_flat = render.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            pose_flat.contains(
+                "Stand the stone on the tray in this pose: TILT 0 to 180 degrees (90 stands \
+                 the table upright), TURN and SPIN 0 to 360. Written to the job as format 8. \
+                 Not for tilt-video."
+            ),
+            "{pose_flat}"
+        );
         assert!(
             render.contains("[--tray-reflection PERCENT]"),
             "the usage block lacks the flag"

@@ -14,12 +14,16 @@
 //!   `arm_offset + asin(1 / x)`, clamped, which is [`FacetingMachine::angle_at_radius_deg`] with
 //!   the contact point held outside the arm's line.
 //!
+//! The directions the scratches are measured against ([`ScratchBasis`]) go into the block's two
+//! scratch rows: `scratch_up = [up.xyz, 1]` and `scratch_side = [side.xyz, 0]`. A stone as designed
+//! leaves both rows zero, and the shader then runs the unrotated arithmetic.
+//!
 //! An ideal scene touches nothing: the material block stays zero and the words are the plain
 //! finish words, so such a frame is byte-identical to one without this module.
 
 use crate::optics::raytracer::{
     FacetFinish,
-    surface::{EdgeAbrasion, FacetSurface, FacetingMachine, SurfaceScene},
+    surface::{EdgeAbrasion, FacetSurface, FacetingMachine, ScratchBasis, SurfaceScene},
 };
 
 use super::{GpuGemMaterial, encode_facet_surfaces};
@@ -29,6 +33,7 @@ use super::{GpuGemMaterial, encode_facet_surfaces};
 pub struct GpuSurfaceScene {
     facet_surfaces: Vec<FacetSurface>,
     machine: FacetingMachine,
+    scratch: ScratchBasis,
     edge: EdgeAbrasion,
 }
 
@@ -39,6 +44,7 @@ impl GpuSurfaceScene {
         Self {
             facet_surfaces: scene.facet_surfaces.to_vec(),
             machine: scene.machine,
+            scratch: scene.scratch,
             edge: scene.edge,
         }
     }
@@ -80,8 +86,9 @@ impl GpuSurfaceScene {
         encode_facet_surfaces(&self.facet_surfaces, finishes, num_planes)
     }
 
-    /// `material` with the edge band and the machine written into its inclusion block; unchanged
-    /// for an ideal scene.
+    /// `material` with the edge band, the machine and the scratch basis written into its inclusion
+    /// block; unchanged for an ideal scene. A basis other than [`ScratchBasis::MODEL`] fills the
+    /// two scratch rows.
     #[must_use]
     pub fn apply_to_material(&self, mut material: GpuGemMaterial) -> GpuGemMaterial {
         if self.is_ideal() {
@@ -97,8 +104,17 @@ impl GpuSurfaceScene {
         ];
         block.haze[2] = a;
         block.haze[3] = b;
+        if !self.scratch.is_model() {
+            block.scratch_up = scratch_row(self.scratch.up, 1.0);
+            block.scratch_side = scratch_row(self.scratch.side, 0.0);
+        }
         material
     }
+}
+
+/// One scratch row: `v` in `.xyz` and `w` in `.w`.
+const fn scratch_row(v: glam::Vec3, w: f32) -> [f32; 4] {
+    [v.x, v.y, v.z, w]
 }
 
 /// The `(a, b)` of the module documentation. `(0, 0)` for a zero mast distance (an arm through
@@ -162,6 +178,8 @@ mod tests {
         let material = scene.apply_to_material(zeroed_material());
         assert_eq!(material.inclusions.edge, [0.0; 4]);
         assert_eq!(material.inclusions.haze, [0.0; 4]);
+        assert_eq!(material.inclusions.scratch_up, [0.0; 4]);
+        assert_eq!(material.inclusions.scratch_side, [0.0; 4]);
         // Surfaces that are all ideal are as good as none.
         let listed = GpuSurfaceScene::from_scene(&SurfaceScene {
             facet_surfaces: &[FacetSurface::IDEAL; 3],
@@ -245,6 +263,7 @@ mod tests {
         let scene = GpuSurfaceScene::from_scene(&SurfaceScene {
             facet_surfaces: &[],
             machine,
+            scratch: ScratchBasis::MODEL,
             edge: EdgeAbrasion {
                 width: 0.02,
                 alpha: 0.3,
@@ -258,5 +277,35 @@ mod tests {
         // The other slots of the block are not touched.
         assert_eq!(material.inclusions.haze[..2], [0.0, 0.0]);
         assert_eq!(material.inclusions.header, [0; 4]);
+        // A stone as designed leaves the scratch rows zero: the shader runs the unrotated code.
+        assert_eq!(material.inclusions.scratch_up, [0.0; 4]);
+        assert_eq!(material.inclusions.scratch_side, [0.0; 4]);
+    }
+
+    #[test]
+    fn a_turned_stones_scratch_basis_lands_in_the_two_scratch_rows() {
+        let basis = ScratchBasis::new(
+            glam::Vec3::new(0.0, 0.0, 1.0),
+            glam::Vec3::new(1.0, 0.0, 0.0),
+        );
+        let polish = [FacetSurface::polished(2.5, 2.0)];
+        let scene = GpuSurfaceScene::from_scene(&SurfaceScene {
+            facet_surfaces: &polish,
+            scratch: basis,
+            ..SurfaceScene::IDEAL
+        });
+        let material = scene.apply_to_material(zeroed_material());
+        assert_eq!(material.inclusions.scratch_up, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(material.inclusions.scratch_side, [1.0, 0.0, 0.0, 0.0]);
+        // The rows sit apart from the machine and the edge slots.
+        assert_eq!(material.inclusions.edge[3], 0.0);
+        assert_eq!(material.inclusions.header, [0; 4]);
+        // An ideal scene stays zero whatever the basis.
+        let ideal = GpuSurfaceScene::from_scene(&SurfaceScene {
+            scratch: basis,
+            ..SurfaceScene::IDEAL
+        });
+        let untouched = ideal.apply_to_material(zeroed_material());
+        assert_eq!(untouched.inclusions.scratch_up, [0.0; 4]);
     }
 }

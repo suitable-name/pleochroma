@@ -94,6 +94,7 @@ pub fn tiny_scene() -> SceneState {
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     }
 }
 
@@ -148,6 +149,7 @@ pub(super) fn heavier_scene() -> SceneState {
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     }
 }
 

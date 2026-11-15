@@ -69,8 +69,8 @@ pub use selection::TierIndexMap;
 pub use history_view::{HistorySnapshot, JumpFailure, JumpOutcome};
 pub use relations::{ClearedRelation, RelationNotice, RelationRefusal, SessionEditError};
 pub use tier_ops::{
-    DetachOutcome, DuplicateOutcome, GeneratedSeries, InlineAngle, MirrorOutcome, MovedTier,
-    RemoveTierError, RemovedTier, selection_after_remove,
+    DetachOutcome, DuplicateOutcome, GeneratedSeries, InlineAngle, MeetPickError, MirrorOutcome,
+    MovedTier, RemoveTierError, RemovedTier, selection_after_remove,
 };
 
 /// The coalescing window every session's [`History`] is built with (via

@@ -62,6 +62,7 @@ impl Design {
             tier_relations: BTreeMap::new(),
             tier_frosting: BTreeMap::new(),
             tier_surfaces: BTreeMap::new(),
+            tier_meet_picks: BTreeMap::new(),
             render_effects: super::render_effects::StoneRenderEffects::default(),
             crystal_axis_plan: None,
             file_extras: None,
@@ -99,6 +100,7 @@ impl Design {
             tier_relations: BTreeMap::new(),
             tier_frosting: BTreeMap::new(),
             tier_surfaces: BTreeMap::new(),
+            tier_meet_picks: BTreeMap::new(),
             render_effects: super::render_effects::StoneRenderEffects::default(),
             crystal_axis_plan: None,
             file_extras: None,
@@ -218,6 +220,7 @@ impl Design {
             // `Design::apply_imported_frosting`.)
             tier_frosting: BTreeMap::new(),
             tier_surfaces: BTreeMap::new(),
+            tier_meet_picks: BTreeMap::new(),
             render_effects: super::render_effects::StoneRenderEffects::default(),
             crystal_axis_plan: None,
             file_extras: None,

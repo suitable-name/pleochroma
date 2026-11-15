@@ -1,0 +1,408 @@
+template: Standard Round Brilliant	0	3fe570a3d70a3d71
+template: Standard Round Brilliant	1	3ff0000000000000
+template: Standard Round Brilliant	2	3fe64a27013a5d1e
+template: Standard Round Brilliant	3	3fec681c14d51dce
+template: Standard Round Brilliant	4	3fe61aaf54f81a66
+template: Standard Round Brilliant	5	3fe362f59a3730d8
+template: Standard Round Brilliant	6	3fe189427e303c3e
+template: Standard Round Brilliant	7	3fd6a7ff51afbc3d
+template: Round Brilliant -- Shallow Pavilion	0	3fe42abe20e74ac3
+template: Round Brilliant -- Shallow Pavilion	1	3ff0000000000000
+template: Round Brilliant -- Shallow Pavilion	2	3fe53eddaa7dd4d1
+template: Round Brilliant -- Shallow Pavilion	3	3fe9973467cb1c4a
+template: Round Brilliant -- Shallow Pavilion	4	3fe61aaf54f81a66
+template: Round Brilliant -- Shallow Pavilion	5	3fe362f59a3730d8
+template: Round Brilliant -- Shallow Pavilion	6	3fe189427e303c3e
+template: Round Brilliant -- Shallow Pavilion	7	3fd6a7ff51afbc3d
+template: Round Brilliant -- Deep Pavilion	0	3fe674c42ffdb613
+template: Round Brilliant -- Deep Pavilion	1	3ff0000000000000
+template: Round Brilliant -- Deep Pavilion	2	3fe7182f2ae1814a
+template: Round Brilliant -- Deep Pavilion	3	3feef4d48beda05d
+template: Round Brilliant -- Deep Pavilion	4	3fe61aaf54f81a66
+template: Round Brilliant -- Deep Pavilion	5	3fe362f59a3730d8
+template: Round Brilliant -- Deep Pavilion	6	3fe189427e303c3e
+template: Round Brilliant -- Deep Pavilion	7	3fd6a7ff51afbc3d
+template: Simple Teaching Design	0	3fe6666666666666
+template: Simple Teaching Design	1	3ff0000000000000
+template: Simple Teaching Design	2	3fd3333333333333
+template: Rich Teaching Design	0	3fe6666666666666
+template: Rich Teaching Design	1	3ff0000000000000
+template: Rich Teaching Design	2	3fe3333333333333
+template: Rich Teaching Design	3	3fd3333333333333
+template: Oval Brilliant	0	3ff0000000000000
+template: Oval Brilliant	1	3ff0ef9db22d0e56
+template: Oval Brilliant	2	3ff3020c49ba5e35
+template: Oval Brilliant	3	3ff4dfa43fe5c91d
+template: Oval Brilliant	4	3ff599999999999a
+template: Oval Brilliant	5	3fe99ad9b2abc5c7
+template: Oval Brilliant	6	3fe7f44bbfc2ca62
+template: Oval Brilliant	7	3fe6ec451ded00c3
+template: Oval Brilliant	8	3fe5f93ae7b2a30d
+template: Oval Brilliant	9	3fee245948a4da2e
+template: Oval Brilliant	10	3feecbc2ae6d0e95
+template: Oval Brilliant	11	3fed82dbc18b7581
+template: Oval Brilliant	12	3fe6cadc5ab33df0
+template: Oval Brilliant	13	3fe55bc039a3c4f3
+template: Oval Brilliant	14	3fe7b61787b9157c
+template: Oval Brilliant	15	3fe907a8048947c2
+template: Oval Brilliant	16	3fe94f0595f58156
+template: Oval Brilliant	17	3fe90b3a087920a6
+template: Oval Brilliant	18	3fe930b6161f380e
+template: Oval Brilliant	19	3fe05fa4adc40c29
+template: Oval Brilliant	20	3fe357eb02301e09
+template: Oval Brilliant	21	3fd773b32090fead
+template: Cushion Brilliant	0	3ff0000000000000
+template: Cushion Brilliant	1	3ff273eab367a0f9
+template: Cushion Brilliant	2	3ff3504816f0068e
+template: Cushion Brilliant	3	3fe7afa33143a70f
+template: Cushion Brilliant	4	3fe6f7721ec82606
+template: Cushion Brilliant	5	3fe91d0cb11ce8a0
+template: Cushion Brilliant	6	3fea215baee75023
+template: Cushion Brilliant	7	3fe6dc1ff6b46a8e
+template: Cushion Brilliant	8	3fe548ed259fc55f
+template: Cushion Brilliant	9	3fe9594034c515f2
+template: Cushion Brilliant	10	3fe60db8aea7d0ac
+template: Cushion Brilliant	11	3fe0504ec865fc36
+template: Cushion Brilliant	12	3fd60142ad843b1c
+template: Emerald Step Cut	0	3ff0000000000000
+template: Emerald Step Cut	1	3ff6666666666666
+template: Emerald Step Cut	2	3ff74e3bcd35a858
+template: Emerald Step Cut	3	3ff0267b4c5b73f6
+template: Emerald Step Cut	4	3fef6fb9b1462d9a
+template: Emerald Step Cut	5	3ff0ca69a9a03b36
+template: Emerald Step Cut	6	3fe73fea6fb73668
+template: Emerald Step Cut	7	3fef90bc9b57d83c
+template: Emerald Step Cut	8	3ff0667a7f7abafc
+template: Emerald Step Cut	9	3fe6b4aec36467ec
+template: Emerald Step Cut	10	3ff0121fc097a9f0
+template: Emerald Step Cut	11	3fe6d5f6eab9335f
+template: Emerald Step Cut	12	3fe9234ab8038584
+template: Emerald Step Cut	13	3fe49161a182dda6
+template: Emerald Step Cut	14	3ff0375759a9c032
+template: Emerald Step Cut	15	3fe610eefffd11bd
+template: Emerald Step Cut	16	3fe7002ae9010128
+template: Emerald Step Cut	17	3fef72be3856f326
+template: Emerald Step Cut	18	3fe41e867fd86b10
+template: Emerald Step Cut	19	3fe8bceba953710a
+template: Emerald Step Cut	20	3fe5739daeb09406
+template: Emerald Step Cut	21	3fd5bfb1187c144c
+template: Princess Cut	0	3ff0000000000000
+template: Princess Cut	1	3ff4cccccccccccd
+template: Princess Cut	2	3fec9713f0222259
+template: Princess Cut	3	3fe5a874feca9edf
+template: Princess Cut	4	3fec1e5edb8fc85a
+template: Princess Cut	5	3feaf53f03fbbf08
+template: Princess Cut	6	3fe31346ec15fc22
+template: Princess Cut	7	3fe9e494869d3e99
+template: Princess Cut	8	3fe071fb7fa1c23f
+template: Princess Cut	9	3fd6ccf7a7d496be
+pinned: pentalume	0	3fe6d18f0505c47e
+pinned: pentalume	1	3fe884a854f6e307
+pinned: pentalume	2	3fe974cbc326b6c2
+pinned: pentalume	3	3ff0000000000000
+pinned: pentalume	4	3ff2147ae147ae14
+pinned: pentalume	5	3fe3058bc5c55404
+pinned: pentalume	6	3fe341fed2d5ac36
+pinned: pentalume	7	3fe44ee6c9647303
+pinned: pentalume	8	3fd6666666666666
+pinned: cams_portuguese	0	3ff12c083126e979
+pinned: cams_portuguese	1	3fe97bf1e8e60807
+pinned: cams_portuguese	2	3fe5d20afa2f05a7
+pinned: cams_portuguese	3	3fe4e48e8a71de6a
+pinned: cams_portuguese	4	3fe4c7a398201cd6
+pinned: cams_portuguese	5	3fec6c61522a6f3f
+pinned: cams_portuguese	6	3feb564302b40f67
+pinned: cams_portuguese	7	3fea9db22d0e5604
+pinned: cams_portuguese	8	3fe605143bf72713
+pinned: iris	0	3fe597bb73083559
+pinned: iris	1	3fe5c74d9c6b0532
+pinned: iris	2	3fe665abc0e38a7e
+pinned: iris	3	3fe683dddb1209ee
+pinned: iris	4	3fe7398201cd5f9a
+pinned: iris	5	3fe8a52ef911cf35
+pinned: iris	6	3fe7d8d5842b734b
+pinned: iris	7	3feb3022dd7a99fa
+pinned: iris	8	3fea6de97d06bbdc
+pinned: iris	9	3ff0000000000000
+pinned: iris	10	3fe3015c209246bf
+pinned: iris	11	3fe39a437824d4cc
+pinned: iris	12	3fe3cf95d4e8fb01
+pinned: iris	13	3fe44f8f8a4c1ebd
+pinned: iris	14	3fe13cfb3311a544
+pinned: iris	15	3fe129d627bf61aa
+pinned: iris	16	3fd5fcf80dc33722
+pinned: crackotto_step	0	3feb47d19b12c077
+pinned: crackotto_step	1	3febc2ac8d67313d
+pinned: crackotto_step	2	3fec6b09431fba5b
+pinned: crackotto_step	3	3fee01157ec252cb
+pinned: crackotto_step	4	3fed4e89758a1acc
+pinned: crackotto_step	5	3fea8909c44ef9e3
+pinned: crackotto_step	6	3fe96b89405b0eef
+pinned: crackotto_step	7	3fe89b45fc38a030
+pinned: crackotto_step	8	3fe82c2e91e3c2b3
+pinned: crackotto_step	9	3fe836243ece9cdc
+pinned: crackotto_step	10	3fe8d57dc5fe7c72
+pinned: crackotto_step	11	3fea31cc35a32509
+pinned: crackotto_step	12	3fec354744b815dc
+pinned: crackotto_step	13	3fe961dae66b0384
+pinned: crackotto_step	14	3fe9c5f17bd8be73
+pinned: crackotto_step	15	3fea4f1af5a4b251
+pinned: crackotto_step	16	3feb75eccbf0aed4
+pinned: crackotto_step	17	3feb087254dc255a
+pinned: crackotto_step	18	3fe8c66dd84aaf51
+pinned: crackotto_step	19	3fe7ddd5c91fc416
+pinned: crackotto_step	20	3fe7342aa9f7b5af
+pinned: crackotto_step	21	3fe6d9a989d1a57a
+pinned: crackotto_step	22	3fe6e1c6b459e44d
+pinned: crackotto_step	23	3fe7639890db041d
+pinned: crackotto_step	24	3fe87f5b09bbeb7e
+pinned: crackotto_step	25	3fea15b2d4d4024b
+pinned: crackotto_step	26	3fe82bcbd0a37109
+pinned: crackotto_step	27	3fe87e0096a8ce6b
+pinned: crackotto_step	28	3fe8eea89a129050
+pinned: crackotto_step	29	3fea066e53c5a4e5
+pinned: crackotto_step	30	3fe986e2e30ead98
+pinned: crackotto_step	31	3fe7ac2394afa4f4
+pinned: crackotto_step	32	3fe6ed19ceb32be7
+pinned: crackotto_step	33	3fe661beec8f5fda
+pinned: crackotto_step	34	3fe61769430f9f2f
+pinned: crackotto_step	35	3fe61e1350eaa92c
+pinned: crackotto_step	36	3fe688b3882d3598
+pinned: crackotto_step	37	3fe771c3819f7cdd
+pinned: crackotto_step	38	3fe7d13e006bb5b1
+pinned: crackotto_step	39	3fe8169558415f9c
+pinned: crackotto_step	40	3fe8759bfe4dce3f
+pinned: crackotto_step	41	3fe95ac9d5769487
+pinned: crackotto_step	42	3fe8f603925bb7b7
+pinned: crackotto_step	43	3fe765901cee225d
+pinned: crackotto_step	44	3fe6c46beab4bf3a
+pinned: crackotto_step	45	3fe64ee007921a9f
+pinned: crackotto_step	46	3fe6102c6d9c3ab4
+pinned: crackotto_step	47	3fe615cb7e6e1a0f
+pinned: crackotto_step	48	3fe66fbbefdac3db
+pinned: crackotto_step	49	3fe73452b833b894
+pinned: crackotto_step	50	3fe2aa6711871101
+pinned: crackotto_step	51	3fe817e990d2cb94
+pinned: crackotto_step	52	3fe88b5bc8fe8c0d
+pinned: crackotto_step	53	3fe92991336e9762
+pinned: crackotto_step	54	3feaa72095ccb072
+pinned: crackotto_step	55	3fe9ff591671b173
+pinned: crackotto_step	56	3fe764a322846453
+pinned: crackotto_step	57	3fe6585a647a7df5
+pinned: crackotto_step	58	3fe594a66ab85aa5
+pinned: crackotto_step	59	3fe52c421d86ce91
+pinned: crackotto_step	60	3fe5359e0711972c
+pinned: crackotto_step	61	3fe5cb5b685b8913
+pinned: crackotto_step	62	3fe712a873d209ce
+pinned: crackotto_step	63	3fe8f70d27b0c90b
+pinned: crackotto_step	64	3fe6a132b0008e45
+pinned: crackotto_step	65	3fe70ca64bd99d40
+pinned: crackotto_step	66	3fe79fe705de106c
+pinned: crackotto_step	67	3fe9030a360edab9
+pinned: crackotto_step	68	3fe866e10a9c6628
+pinned: crackotto_step	69	3fe5fa56681694c2
+pinned: crackotto_step	70	3fe500a1bb7c177e
+pinned: crackotto_step	71	3fe44a7b28c03d9d
+pinned: crackotto_step	72	3fe3e9517d4b2f53
+pinned: crackotto_step	73	3fe3f2077efa5bfc
+pinned: crackotto_step	74	3fe47d66526f6390
+pinned: crackotto_step	75	3fe5ae0907909813
+pinned: crackotto_step	76	3fe770e2861c8f2d
+pinned: crackotto_step	77	3fe59ed9ca6137a8
+pinned: crackotto_step	78	3fe5ffa978b4c79d
+pinned: crackotto_step	79	3fe6845549de7063
+pinned: crackotto_step	80	3fe7c44d9cebde8b
+pinned: crackotto_step	81	3fe7379b2c96b6e6
+pinned: crackotto_step	82	3fe5088377186552
+pinned: crackotto_step	83	3fe42788eb209fde
+pinned: crackotto_step	84	3fe3836beadfb258
+pinned: crackotto_step	85	3fe32be15a4d7e63
+pinned: crackotto_step	86	3fe333ba877ade18
+pinned: crackotto_step	87	3fe3b14c4882fb9d
+pinned: crackotto_step	88	3fe4c3c46016c10d
+pinned: crackotto_step	89	3fe659f8af53c01c
+pinned: crackotto_step	90	3fe507f3cf70153c
+pinned: crackotto_step	91	3fe55bbd502d140a
+pinned: crackotto_step	92	3fe5ce8feb1a14d4
+pinned: crackotto_step	93	3fe6e37c716aa667
+pinned: crackotto_step	94	3fe66106959b5d3e
+pinned: crackotto_step	95	3fe474f3115a1a7e
+pinned: crackotto_step	96	3fe3b854d066e034
+pinned: crackotto_step	97	3fe330c8afdca70a
+pinned: crackotto_step	98	3fe2e9545211c5a5
+pinned: crackotto_step	99	3fe2f01f31f46ed2
+pinned: crackotto_step	100	3fe35ccc4ea2a55c
+pinned: crackotto_step	101	3fe44a57ace525df
+pinned: crackotto_step	102	3fe5a9e642ea8b4f
+pinned: rbc_445	0	3fe3b83cf82df98d
+pinned: rbc_445	1	3fe4563f4712b915
+pinned: rbc_445	2	3fed335f3d7d3911
+pinned: rbc_445	3	3feecac174a9f608
+pinned: rbc_445	4	3fe32bb0320c6ca0
+pinned: rbc_445	5	3fe4a2a86bc47439
+pinned: rbc_445	6	3fe476b8cebe13a1
+pinned: rbc_445	7	3fe400c2f3851d61
+pinned: rbc_445	8	3fe3fe2addfa1bba
+pinned: rbc_445	9	3fe339abd3021b0d
+pinned: rbc_445	10	3fe201ceac75ea3d
+pinned: rbc_445	11	3fda0808825a8dc0
+pinned: surface_round	0	3ff0000000000000
+pinned: surface_round	1	3fe3333333333333
+pinned: surface_round	2	3fe199999999999a
+pinned: surface_round	3	3fdccccccccccccd
+pinned: surface_round	4	3fd999999999999a
+pinned: edit_round	0	3ff0000000000000
+pinned: edit_round	1	3fe3333333333333
+pinned: edit_round	2	3fe199999999999a
+pinned: edit_round	3	3fdccccccccccccd
+pinned: edit_round	4	3fd999999999999a
+meet: pentalume	0	3fe6d18f0505c47e
+meet: pentalume	1	3fe8ea96ba7f71f0
+meet: pentalume	2	3fe9274e078e5f32
+meet: pentalume	3	3ff0000000000000
+meet: pentalume	4	3ff1192a492bf29b
+meet: pentalume	5	3fe3058bc5c55404
+meet: pentalume	6	3fe3decd7b1de6b3
+meet: pentalume	7	3fe4184bf9581075
+meet: pentalume	8	3fd90c0629f1db80
+meet: cams_portuguese	0	3ff12c083126e979
+meet: cams_portuguese	1	3fe97bf1e8e60807
+meet: cams_portuguese	2	3fe5d20559b94fe2
+meet: cams_portuguese	3	3fe4e48febb611ee
+meet: cams_portuguese	4	3fe4c7a661ae39ad
+meet: cams_portuguese	5	3fec6c61522a6f3f
+meet: cams_portuguese	6	3feb563c5d20e3d7
+meet: cams_portuguese	7	3fea9dace396a680
+meet: cams_portuguese	8	3fe6051850dc4200
+meet: iris	0	3fe597bb73083559
+meet: iris	1	3fee11455a3619a1
+meet: iris	2	3fee5cf62c0f2d3f
+meet: iris	3	3feea48fa830cbcd
+meet: iris	4	3fef67877c6f9265
+meet: iris	5	3fee40ed50b3b141
+meet: iris	6	3fed3558cc5a8c7b
+meet: iris	7	3feca82eed3897f8
+meet: iris	8	3fec347ebe7861f2
+meet: iris	9	3ff0000000000000
+meet: iris	10	3fe3015c209246bf
+meet: iris	11	3fe93cdb8ea1df3d
+meet: iris	12	3fe6e7f8abf94afb
+meet: iris	13	3feb87f20d112c44
+meet: iris	14	3fe96649b4a875f0
+meet: iris	15	3fe56c71e9a9dfc7
+meet: iris	16	3fdc722db945f990
+meet: crackotto_step	0	3feb47d19b12c077
+meet: crackotto_step	1	3fea685427d50de4
+meet: crackotto_step	2	3fe9420f0375c52a
+meet: crackotto_step	3	3fe206a95cb44a5c
+meet: crackotto_step	4	3fd4ecc4145f882d
+meet: crackotto_step	5	3f193d2c0bf6caff
+meet: crackotto_step	6	3fb47fdb4b6730cd
+meet: crackotto_step	7	3fc44f93b16b63fe
+meet: crackotto_step	8	3fce0650758aeed5
+meet: crackotto_step	9	3fd39cba17f6bc57
+meet: crackotto_step	10	3fd7e0c56dc00770
+meet: crackotto_step	11	3fdbbc4ba95cdf47
+meet: crackotto_step	12	3fdf1e53885e86af
+meet: crackotto_step	13	3fe961dae66b0384
+meet: crackotto_step	14	3fe820cd5d79e93a
+meet: crackotto_step	15	3fe731107d263a34
+meet: crackotto_step	16	3fe139e32ddb736f
+meet: crackotto_step	17	3fd6468c3b667c1d
+meet: crackotto_step	18	3fb4ea80817bd58c
+meet: crackotto_step	19	3fa803ad983dc4aa
+meet: crackotto_step	20	3fbc660f25d5b43d
+meet: crackotto_step	21	3fc61d7c69e77861
+meet: crackotto_step	22	3fcd9ce9cedf4f72
+meet: crackotto_step	23	3fd2482e1dd5db98
+meet: crackotto_step	24	3fd56cb3ef51ab31
+meet: crackotto_step	25	3fd817d14f2eed78
+meet: crackotto_step	26	3fe59abf624650ce
+meet: crackotto_step	27	3fe5053438e7e7c6
+meet: crackotto_step	28	3fe440607a5493d7
+meet: crackotto_step	29	3fdf0ba1457020b3
+meet: crackotto_step	30	3fd4b3a44ba46a31
+meet: crackotto_step	31	3fbacd60aa228660
+meet: crackotto_step	32	3f9ecd4cb3b1983b
+meet: crackotto_step	33	3fb52b31d5952b22
+meet: crackotto_step	34	3fc1161549332343
+meet: crackotto_step	35	3fc73e96306db3d7
+meet: crackotto_step	36	3fccf42013a76903
+meet: crackotto_step	37	3fd10ed888debee1
+meet: crackotto_step	38	3fe31e76458bc599
+meet: crackotto_step	39	3fe2a051b15d327b
+meet: crackotto_step	40	3fe1fa3ae95b52fc
+meet: crackotto_step	41	3fdbca87d66fb7de
+meet: crackotto_step	42	3fd340c7a49afc64
+meet: crackotto_step	43	3fbdc5a248721330
+meet: crackotto_step	44	3fab51aa8e0a3faa
+meet: crackotto_step	45	3fb040564199b8e5
+meet: crackotto_step	46	3fbb3859a3952360
+meet: crackotto_step	47	3fc2cdf61e267604
+meet: crackotto_step	48	3fc79ec63f7e3613
+meet: crackotto_step	49	3fcbf98534a30ee5
+meet: crackotto_step	50	3fc2086a4bf4fbc0
+meet: crackotto_step	51	3fe817e990d2cb94
+meet: crackotto_step	52	3fe745e762da9f6c
+meet: crackotto_step	53	3fe6316217bb4029
+meet: crackotto_step	54	3fdecb51210671cd
+meet: crackotto_step	55	3fd094631744b5a1
+meet: crackotto_step	56	3fb7497b6aca9b55
+meet: crackotto_step	57	3fc04b7ab6583379
+meet: crackotto_step	58	3fc4ddcf6728c867
+meet: crackotto_step	59	3fcd98cd3ed1f219
+meet: crackotto_step	60	3fd31f025c89f196
+meet: crackotto_step	61	3fd720ffecf6ad9d
+meet: crackotto_step	62	3fdac0e7650ceb72
+meet: crackotto_step	63	3fddeeb734aa601e
+meet: crackotto_step	64	3fe5acaae5de84be
+meet: crackotto_step	65	3fe4e93341387223
+meet: crackotto_step	66	3fe3e7d4b54c4f3b
+meet: crackotto_step	67	3fdb292dd041e5d2
+meet: crackotto_step	68	3fcbdc829dbd6779
+meet: crackotto_step	69	3fc07fdabf676e40
+meet: crackotto_step	70	3fc4d47707b3bb86
+meet: crackotto_step	71	3fc915bc8ff6a9a7
+meet: crackotto_step	72	3fcd3110128516e2
+meet: crackotto_step	73	3fd222410abb8bc6
+meet: crackotto_step	74	3fd5dd28eca07ee4
+meet: crackotto_step	75	3fd93cb9498891b6
+meet: crackotto_step	76	3fdc322505976112
+meet: crackotto_step	77	3fe2b8cebf4d840b
+meet: crackotto_step	78	3fe208b2aab9d18c
+meet: crackotto_step	79	3fe120d14b2b27f9
+meet: crackotto_step	80	3fd6dbe2ee9f8e13
+meet: crackotto_step	81	3fc5e10a685b16ba
+meet: crackotto_step	82	3fc4f3489dcf7344
+meet: crackotto_step	83	3fc8d9d1802a807b
+meet: crackotto_step	84	3fccaf39a54e6c80
+meet: crackotto_step	85	3fd0315b21aec11e
+meet: crackotto_step	86	3fd1f208c98a0521
+meet: crackotto_step	87	3fd40f93d628a799
+meet: crackotto_step	88	3fd719889e1067e6
+meet: crackotto_step	89	3fd9c3ec2eb1167a
+meet: crackotto_step	90	3fde9df07d92439a
+meet: crackotto_step	91	3fdd6d19c51e150e
+meet: crackotto_step	92	3fdbdbc1198f76c7
+meet: crackotto_step	93	3fd1fea59a157f40
+meet: crackotto_step	94	3fbe4c3c58e0199c
+meet: crackotto_step	95	3fc92f94262f527f
+meet: crackotto_step	96	3fcc74e989601052
+meet: crackotto_step	97	3fcfa7722d46620d
+meet: crackotto_step	98	3fd163f539c6bc57
+meet: crackotto_step	99	3fd2e846e933a990
+meet: crackotto_step	100	3fd4501cf51be935
+meet: crackotto_step	101	3fd59598189cf0f1
+meet: crackotto_step	102	3fd6f3886563714a
+meet: rbc_445	0	3fe3b83cf82df98d
+meet: rbc_445	1	3fe724b3d1ce73a4
+meet: rbc_445	2	3fed335f3d7d3911
+meet: rbc_445	3	3ff14215493f481f
+meet: rbc_445	4	3fe32bb02de0c3c0
+meet: rbc_445	5	3fe6adb55013a067
+meet: rbc_445	6	3fe7671737478fdc
+meet: rbc_445	7	3fe400c2f3851d61
+meet: rbc_445	8	3fe5cc63dcfc15a0
+meet: rbc_445	9	3fe339abd196beee
+meet: rbc_445	10	3fe492bde0d93196
+meet: rbc_445	11	3fe4653602560020

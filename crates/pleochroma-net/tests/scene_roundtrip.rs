@@ -23,12 +23,14 @@ const REFLECTION_TAIL: usize = size_of::<f32>();
 const ORIENTATION_TAIL: usize = size_of::<f32>() + 1;
 /// The `estimator`: one postcard varint byte (0 branching, 1 exit collection).
 const ESTIMATOR_TAIL: usize = 1;
-/// The `camera_pan`: two `f32`, the last bytes of the wire form.
+/// The `camera_pan`: two `f32`, written just before the pose.
 const PAN_TAIL: usize = 2 * size_of::<f32>();
+/// The `stone_pose`: three `f32`, the last bytes of the wire form.
+const POSE_TAIL: usize = 3 * size_of::<f32>();
 /// The bytes written after `camera_roll`: the shadow byte, the reflectance, the orientation,
-/// the estimator and the pan.
+/// the estimator, the pan and the pose.
 const AFTER_ROLL_TAIL: usize =
-    SHADOW_BYTE + REFLECTION_TAIL + ORIENTATION_TAIL + ESTIMATOR_TAIL + PAN_TAIL;
+    SHADOW_BYTE + REFLECTION_TAIL + ORIENTATION_TAIL + ESTIMATOR_TAIL + PAN_TAIL + POSE_TAIL;
 
 fn sample_scene() -> SceneState {
     // Alexandrite has both absorption bands and biaxial_delta_beta_alpha = Some(..) --
@@ -78,6 +80,7 @@ fn sample_scene() -> SceneState {
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     }
 }
 
@@ -166,7 +169,8 @@ fn scene_state_with_and_without_fluorescence_round_trips_through_postcard() {
     // The emitter list is followed on the wire by `head_shadow_deg` (an f32), the empty
     // frosted-plane list (one zero length byte), the engine (three bytes), the default effects
     // record, `camera_roll` (f32), `stone_shadow` (one byte), `tray_reflection` (f32),
-    // `hdr_orientation` (five bytes), `estimator` (one byte) and `camera_pan` (eight bytes).
+    // `hdr_orientation` (five bytes), `estimator` (one byte), `camera_pan` (eight bytes) and
+    // `stone_pose` (twelve bytes).
     let tail = postcard::to_allocvec(&glowing.fluorescence).unwrap();
     let emitters_end = bytes.len() - EFFECTS_TAIL - ROLL_TAIL - AFTER_ROLL_TAIL - 8;
     assert_eq!(
@@ -229,8 +233,12 @@ fn a_v39_scene_byte_layout_does_not_decode_as_v40() {
 #[test]
 fn a_v40_scene_byte_layout_does_not_decode_as_v41() {
     let bytes = postcard::to_allocvec(&sample_scene()).unwrap();
-    let v40 =
-        &bytes[..bytes.len() - REFLECTION_TAIL - ORIENTATION_TAIL - ESTIMATOR_TAIL - PAN_TAIL];
+    let v40 = &bytes[..bytes.len()
+        - REFLECTION_TAIL
+        - ORIENTATION_TAIL
+        - ESTIMATOR_TAIL
+        - PAN_TAIL
+        - POSE_TAIL];
     assert!(
         postcard::from_bytes::<SceneState>(v40).is_err(),
         "the old layout must not decode as a scene"
@@ -240,7 +248,8 @@ fn a_v40_scene_byte_layout_does_not_decode_as_v41() {
     mirrored.tray_reflection = 0.04;
     let mirrored_bytes = postcard::to_allocvec(&mirrored).unwrap();
     assert_eq!(mirrored_bytes.len(), bytes.len(), "same layout");
-    let reflection_end = mirrored_bytes.len() - ORIENTATION_TAIL - ESTIMATOR_TAIL - PAN_TAIL;
+    let reflection_end =
+        mirrored_bytes.len() - ORIENTATION_TAIL - ESTIMATOR_TAIL - PAN_TAIL - POSE_TAIL;
     assert_eq!(
         &mirrored_bytes[reflection_end - REFLECTION_TAIL..reflection_end],
         &0.04_f32.to_le_bytes()
@@ -270,7 +279,7 @@ fn a_v41_scene_byte_layout_does_not_decode_as_v42() {
 
     let plain = sample_scene();
     let bytes = postcard::to_allocvec(&plain).unwrap();
-    let orientation_end = bytes.len() - ESTIMATOR_TAIL - PAN_TAIL;
+    let orientation_end = bytes.len() - ESTIMATOR_TAIL - PAN_TAIL - POSE_TAIL;
     assert_eq!(
         &bytes[orientation_end - ORIENTATION_TAIL..orientation_end],
         &[0, 0, 0, 0, 0]
@@ -288,7 +297,7 @@ fn a_v41_scene_byte_layout_does_not_decode_as_v42() {
     };
     let turned_bytes = postcard::to_allocvec(&turned).unwrap();
     assert_eq!(turned_bytes.len(), bytes.len(), "same layout");
-    let turned_end = turned_bytes.len() - ESTIMATOR_TAIL - PAN_TAIL;
+    let turned_end = turned_bytes.len() - ESTIMATOR_TAIL - PAN_TAIL - POSE_TAIL;
     let tail = &turned_bytes[turned_end - ORIENTATION_TAIL..turned_end];
     assert_eq!(&tail[..4], &2.5_f32.to_le_bytes());
     assert_eq!(tail[4], 1);
@@ -652,7 +661,7 @@ fn camera_roll_round_trips_and_legacy_json_defaults_to_zero() {
     assert_ne!(changed, scene, "roll changes remote scene identity");
 }
 
-/// The camera pan is the last eight wire bytes (two `f32`). A scene without it does not decode,
+/// The camera pan is the eight wire bytes before the pose (two `f32`). A scene without it does not decode,
 /// a set pan survives postcard and JSON, a centred one leaves the JSON key out, and JSON without
 /// the key reads as centred.
 #[test]
@@ -661,7 +670,7 @@ fn v43_appends_the_camera_pan_as_the_last_bytes() {
     assert_eq!(plain.camera_pan, [0.0, 0.0]);
     let bytes = postcard::to_allocvec(&plain).unwrap();
     assert!(
-        postcard::from_bytes::<SceneState>(&bytes[..bytes.len() - PAN_TAIL]).is_err(),
+        postcard::from_bytes::<SceneState>(&bytes[..bytes.len() - PAN_TAIL - POSE_TAIL]).is_err(),
         "the layout without the pan must not decode as a scene"
     );
     assert!(
@@ -676,12 +685,13 @@ fn v43_appends_the_camera_pan_as_the_last_bytes() {
     panned.camera_pan = [0.375, -1.25];
     let panned_bytes = postcard::to_allocvec(&panned).unwrap();
     assert_eq!(panned_bytes.len(), bytes.len(), "same layout");
-    let tail = &panned_bytes[panned_bytes.len() - PAN_TAIL..];
+    let pan_end = panned_bytes.len() - POSE_TAIL;
+    let tail = &panned_bytes[pan_end - PAN_TAIL..pan_end];
     assert_eq!(&tail[..4], &0.375_f32.to_le_bytes());
     assert_eq!(&tail[4..], &(-1.25_f32).to_le_bytes());
     assert_eq!(
-        &panned_bytes[..panned_bytes.len() - PAN_TAIL],
-        &bytes[..bytes.len() - PAN_TAIL]
+        &panned_bytes[..panned_bytes.len() - PAN_TAIL - POSE_TAIL],
+        &bytes[..bytes.len() - PAN_TAIL - POSE_TAIL]
     );
     let decoded: SceneState = postcard::from_bytes(&panned_bytes).unwrap();
     assert_eq!(decoded, panned);
@@ -702,6 +712,72 @@ fn v43_appends_the_camera_pan_as_the_last_bytes() {
         "an old scene.json reads as centred"
     );
     assert_ne!(plain, panned, "the pan changes remote scene identity");
+}
+
+/// The stone pose is the last twelve wire bytes (three `f32`). A scene without it does not
+/// decode, a set pose survives postcard and JSON, an identity one leaves the JSON key out, and
+/// JSON without the key reads as identity.
+#[test]
+fn v44_appends_the_stone_pose_as_the_last_bytes() {
+    let plain = sample_scene();
+    assert_eq!(plain.stone_pose, [0.0, 0.0, 0.0]);
+    let bytes = postcard::to_allocvec(&plain).unwrap();
+    assert!(
+        postcard::from_bytes::<SceneState>(&bytes[..bytes.len() - POSE_TAIL]).is_err(),
+        "the layout without the pose must not decode as a scene"
+    );
+    assert!(
+        serde_json::to_value(&plain)
+            .unwrap()
+            .get("stone_pose")
+            .is_none(),
+        "an identity scene's JSON has no key"
+    );
+
+    let mut posed = sample_scene();
+    posed.stone_pose = [40.0, 135.5, 270.25];
+    let posed_bytes = postcard::to_allocvec(&posed).unwrap();
+    assert_eq!(posed_bytes.len(), bytes.len(), "same layout");
+    let tail = &posed_bytes[posed_bytes.len() - POSE_TAIL..];
+    assert_eq!(&tail[..4], &40.0_f32.to_le_bytes());
+    assert_eq!(&tail[4..8], &135.5_f32.to_le_bytes());
+    assert_eq!(&tail[8..], &270.25_f32.to_le_bytes());
+    assert_eq!(
+        &posed_bytes[..posed_bytes.len() - POSE_TAIL],
+        &bytes[..bytes.len() - POSE_TAIL]
+    );
+    let decoded: SceneState = postcard::from_bytes(&posed_bytes).unwrap();
+    assert_eq!(decoded, posed);
+    assert_eq!(decoded.stone_pose[1].to_bits(), 135.5_f32.to_bits());
+
+    let mut json = serde_json::to_value(&posed).unwrap();
+    assert!(json.get("stone_pose").is_some());
+    assert_eq!(
+        serde_json::from_value::<SceneState>(json.clone()).unwrap(),
+        posed
+    );
+    json.as_object_mut().unwrap().remove("stone_pose");
+    assert_eq!(
+        serde_json::from_value::<SceneState>(json)
+            .unwrap()
+            .stone_pose,
+        [0.0, 0.0, 0.0],
+        "an old scene.json reads as identity"
+    );
+    assert_ne!(plain, posed, "the pose changes remote scene identity");
+}
+
+/// A pose is never silently turned into a finite value by the wire: a non-finite component
+/// survives the decode untouched, so the worker's validation can refuse it.
+#[test]
+fn a_non_finite_stone_pose_component_reaches_the_decoder_unchanged() {
+    let mut scene = sample_scene();
+    scene.stone_pose = [f32::NAN, 10.0, f32::INFINITY];
+    let bytes = postcard::to_allocvec(&scene).unwrap();
+    let decoded: SceneState = postcard::from_bytes(&bytes).unwrap();
+    assert!(decoded.stone_pose[0].is_nan());
+    assert_eq!(decoded.stone_pose[1], 10.0);
+    assert!(decoded.stone_pose[2].is_infinite());
 }
 
 /// A custom material's own inclusions (stored families and play-of-color structure) travel in
@@ -801,7 +877,7 @@ fn v42_appends_the_estimator_before_the_pan() {
     let plain = sample_scene();
     assert_eq!(plain.estimator, Estimator::Branching);
     let bytes = postcard::to_allocvec(&plain).unwrap();
-    let estimator_at = bytes.len() - PAN_TAIL - ESTIMATOR_TAIL;
+    let estimator_at = bytes.len() - PAN_TAIL - POSE_TAIL - ESTIMATOR_TAIL;
     assert_eq!(bytes[estimator_at], 0);
     assert!(
         postcard::from_bytes::<SceneState>(&bytes[..estimator_at]).is_err(),

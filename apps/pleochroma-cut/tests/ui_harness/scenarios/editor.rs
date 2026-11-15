@@ -13,7 +13,9 @@ use crate::support::{
     Ctx, HarnessApp,
     app::{pump, wait_until},
 };
-use pleochroma_cut::{EditorModel, HistoryModel, MainWindow, RawTextModel, TemplateGalleryModel};
+use pleochroma_cut::{
+    EditorModel, HistoryModel, MainWindow, RawTextModel, TemplateGalleryModel, VerdictModel,
+};
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
 use uiprobe::AccessibleRole;
@@ -212,6 +214,11 @@ pub fn scenarios() -> Vec<Scenario> {
             name: "solve_and_verdict",
             seed: existing_install,
             run: solve_and_verdict,
+        },
+        Scenario {
+            name: "vanished_facet_notice",
+            seed: existing_install,
+            run: vanished_facet_notice,
         },
         Scenario {
             name: "edit_as_text_round_trip",
@@ -430,6 +437,132 @@ fn solve_and_verdict(ctx: &mut Ctx<'_>) {
     );
     ctx.check_health("Solve");
     ctx.sweep_main_at_sizes("Edit tab after Solve");
+}
+
+/// An edit that cuts facets away shows the notice in the problem banner's slot; Undo hides it, and
+/// so does its cross. Proves the notice appears once the verdict lands, names a tier, leaves on
+/// Undo, comes back on Redo and leaves on its cross.
+///
+/// The edit sets the first pavilion tier near vertical: it is cut after the girdle tiers, so its
+/// plane takes their facets away.
+fn vanished_facet_notice(ctx: &mut Ctx<'_>) {
+    show_edit_tab(ctx.app);
+    let created = create_template(ctx.app, Card::First);
+    if !ctx.expect(
+        created,
+        "template-design",
+        "no design could be created from a template",
+    ) {
+        return;
+    }
+    let ui = ctx.app.ui().clone_strong();
+    let editor = ui.global::<EditorModel>();
+    let verdict = ui.global::<VerdictModel>();
+    ctx.wait_for(
+        "the new design's first solve ends",
+        Duration::from_secs(30),
+        || !editor.get_solve_running(),
+    );
+    // The first verdict of the document only sets the baseline.
+    ctx.wait_for("the first verdict lands", Duration::from_secs(30), || {
+        verdict.get_level() >= 0 && !verdict.get_stale()
+    });
+    ctx.expect(
+        !verdict.get_vanish_notice_shown(),
+        "notice-not-at-open",
+        "the notice is showing for a design that was just opened",
+    );
+
+    let tiers = editor.get_tiers();
+    let pavilion = (0..tiers.row_count())
+        .filter_map(|i| tiers.row_data(i).map(|row| (i, row)))
+        .find(|(_, row)| row.name.to_lowercase().contains("pavilion"))
+        .map(|(i, _)| i);
+    let Some(row) = pavilion else {
+        ctx.expect(
+            false,
+            "notice-tier",
+            "the template has no tier named Pavilion",
+        );
+        return;
+    };
+    let steep = if tier_angle(&ui, row).starts_with('-') {
+        "-85"
+    } else {
+        "85"
+    };
+    editor.invoke_inline_set_angle(i32::try_from(row).unwrap_or(0), steep.into());
+    pump(100);
+    ctx.expect(
+        !verdict.get_vanish_notice_shown(),
+        "notice-waits-for-verdict",
+        "the notice showed before the verdict of the edit landed",
+    );
+    let shown = ctx.wait_for("the notice appears", Duration::from_secs(30), || {
+        verdict.get_vanish_notice_shown()
+    });
+    if !ctx.expect(
+        shown,
+        "notice-shown",
+        "an edit that cut facets away raised no notice",
+    ) {
+        return;
+    }
+    ctx.expect(
+        verdict
+            .get_vanish_notice_text()
+            .starts_with("This cut away")
+            && verdict.get_vanish_notice_tier() >= 0
+            && !verdict.get_vanish_notice_tier_label().is_empty(),
+        "notice-words",
+        format!(
+            "text {:?}, tier {}, label {:?}",
+            verdict.get_vanish_notice_text(),
+            verdict.get_vanish_notice_tier(),
+            verdict.get_vanish_notice_tier_label()
+        ),
+    );
+    pump(200);
+    ctx.check_health("vanished-facet notice");
+    ctx.sweep_main_at_sizes("Edit tab with the vanished-facet notice");
+
+    // Undo takes the edit back and hides the notice at once.
+    undo(ctx.app);
+    ctx.expect(
+        !verdict.get_vanish_notice_shown(),
+        "notice-hidden-by-undo",
+        "the notice is still showing after Undo",
+    );
+    ctx.wait_for(
+        "the verdict after Undo lands",
+        Duration::from_secs(30),
+        || !verdict.get_stale(),
+    );
+    ctx.expect(
+        !verdict.get_vanish_notice_shown(),
+        "notice-not-raised-by-undo",
+        "Undo raised the notice",
+    );
+
+    // Redo cuts the facets away again; the cross dismisses the notice.
+    redo(ctx.app);
+    let again = ctx.wait_for("the notice returns", Duration::from_secs(30), || {
+        verdict.get_vanish_notice_shown()
+    });
+    if ctx.expect(
+        again,
+        "notice-after-redo",
+        "Redo of the edit raised no notice",
+    ) {
+        verdict.invoke_vanish_notice_dismiss();
+        pump(100);
+        ctx.expect(
+            !verdict.get_vanish_notice_shown(),
+            "notice-hidden-by-cross",
+            "the notice is still showing after its cross",
+        );
+    }
+    ctx.check_health("vanished-facet notice dismissed");
 }
 
 /// Edit as Text: opens it, applies the unchanged text, then a broken text. Proves the unchanged

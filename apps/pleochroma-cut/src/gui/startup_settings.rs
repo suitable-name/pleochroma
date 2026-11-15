@@ -203,6 +203,8 @@ fn apply_loaded_render_context(
     ctx.camera_roll = crate::gui::render::camera_lighting::wrap_pitch(s.camera_roll);
     // Limited to what a renderer accepts; a damaged component centres the stone on that axis.
     ctx.camera_pan = crate::settings::model::clamp_camera_pan(s.camera_pan);
+    // The Stone Pose stored with the camera pose, limited to its ranges.
+    ctx.stone_pose = pleochroma::render_setup::StonePose::from_array(s.stone_pose);
     // Clamped with the live orbit camera's bounds. This runs once at startup, before any
     // design has changed the live bounding radius, so the default radius is the live value.
     let (min_distance, max_distance) = crate::gui::render::camera_lighting::orbit_distance_bounds(
@@ -257,6 +259,21 @@ fn apply_loaded_render_context(
 /// `SettingsModel`/`LibraryModel`/`SolidPreviewModel`/
 /// `EditorModel`/`ViewportModel` property this settings load restores. Split out
 /// purely to keep that function under clippy's function-length lint.
+/// The HDR map's turn (sanitized as the render loop reads it) and its follow-the-camera switch.
+fn apply_loaded_env_map_mirrors(ui: &MainWindow, s: &crate::settings::model::AppSettings) {
+    ui.global::<SettingsModel>().set_env_map_yaw_deg(
+        pleochroma::renderer::env_map::HdrOrientation {
+            yaw: s.env_map_yaw_deg.to_radians(),
+            follows_camera: false,
+        }
+        .sanitized()
+        .yaw
+        .to_degrees(),
+    );
+    ui.global::<SettingsModel>()
+        .set_env_map_follows_camera(s.env_map_follows_camera);
+}
+
 fn apply_loaded_ui_mirrors(
     ui: &MainWindow,
     s: &crate::settings::model::AppSettings,
@@ -298,17 +315,12 @@ fn apply_loaded_ui_mirrors(
     ui.global::<SettingsModel>().set_tray_reflection_pct(
         crate::settings::model::percent_from_tray_reflection(s.tray_reflection),
     );
-    ui.global::<SettingsModel>().set_env_map_yaw_deg(
-        pleochroma::renderer::env_map::HdrOrientation {
-            yaw: s.env_map_yaw_deg.to_radians(),
-            follows_camera: false,
-        }
-        .sanitized()
-        .yaw
-        .to_degrees(),
+    crate::gui::render::stone_pose::push_stone_pose_to_controls(
+        ui,
+        pleochroma::render_setup::StonePose::from_array(s.stone_pose),
+        false,
     );
-    ui.global::<SettingsModel>()
-        .set_env_map_follows_camera(s.env_map_follows_camera);
+    apply_loaded_env_map_mirrors(ui, s);
     // (The stone effects and width controls show the open design's values, not the file's.)
     ui.global::<SettingsModel>()
         .set_local_preview_scale_index(local_preview_scale_index(s.local_preview_scale));

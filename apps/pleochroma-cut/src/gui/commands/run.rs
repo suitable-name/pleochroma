@@ -169,6 +169,15 @@ pub fn toggle_slice_mode(ui: &MainWindow) {
     manipulate.invoke_slice_toggled();
 }
 
+/// Turns the Solid viewport's pick mode for the selected tier's meet corner on or off, like its
+/// pill and the M key.
+pub fn toggle_pick_meet(ui: &MainWindow) {
+    show_edit_view(ui);
+    let manipulate = ui.global::<ManipulateModel>();
+    manipulate.set_pick_mode(!manipulate.get_pick_mode());
+    manipulate.invoke_pick_toggled();
+}
+
 /// Turns snapping of the angle and depth handles on or off, like the Snap pill.
 pub fn toggle_snap(ui: &MainWindow) {
     let manipulate = ui.global::<ManipulateModel>();

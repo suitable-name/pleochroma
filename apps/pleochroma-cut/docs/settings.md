@@ -152,6 +152,19 @@ cannot run it; Ray-Traced GPU rendering always runs it. Tilt views and videos om
 the tray reflection."). Remote workers build the mirror themselves
 (`SceneState::tray_reflection`, protocol 41).
 
+### Stone Pose
+
+`stone_pose` is `[tilt, turn, spin]` in degrees, default `[0.0, 0.0, 0.0]` (the stone as
+designed). The "STONE POSE" group in the Lighting & Environment tab, the Alt+drag and
+Ctrl+Shift+drag gestures in the Live Render view, **Face the Camera** and **Product Shot** set
+it; the Live Render view, exports and queued jobs draw the stone in it. Tilt is limited to
+`0.0..=180.0` on load, turn and spin are wrapped into `0.0..360.0`, and a component that is
+not a number loads `0.0`. The Edit tab, tilt views and tilt videos, the metrics and the
+catalogue previews always show the stone as designed. It persists globally, so the stone is
+posed again after a restart, and the Lighting tab's **Reset this tab** sets it back to
+`[0.0, 0.0, 0.0]`; **Reset Camera** leaves it. Remote workers draw the same pose
+(`SceneState::stone_pose`, protocol 44).
+
 ### Head Shadow
 
 `head_shadow_deg` (`0.0..=30.0`, default `16.0`) is the angular radius, in degrees, of
@@ -219,9 +232,12 @@ build), so applying a saved lighting sets the whole look. They also carry the ma
 (`env_map_yaw_deg`, `env_map_follows_camera`, defaults `0` and `false`), which reaches fan-out
 exports, render jobs (format 6 for a turned HDR scene), remote renders and tilt videos the way
 the live view uses it. A lighting saved with the camera view (`camera_yaw`, `camera_pitch`,
-`camera_roll`) also carries `camera_pan`; applying a view saved before the pan existed centres
-the stone, and applying a lighting saved without the camera leaves the camera, pan included,
-where it is. A newly saved lighting is
+`camera_roll`) also carries `camera_pan` and `stone_pose`; applying a view saved before the pan
+existed centres the stone, and applying a lighting saved without the camera leaves the camera,
+pan included, where it is. The stone pose follows the same rule as the camera: a lighting saved
+without the camera pose leaves the current stone pose alone, a lighting with a camera pose but
+no `stone_pose` (the built-in Grading tray, a view saved before the pose existed) stands the
+stone as designed, and a design's own stored lighting never holds one. A newly saved lighting is
 named "<rig> - <date>" by default.
 
 ### Interface Preferences
@@ -238,7 +254,7 @@ Edit > Preferences... (Ctrl+Comma) writes these top-level keys; the
 | `high_contrast` | `true` / `false` | `false` |
 | `large_handles` | `true` / `false` | `false` |
 | `adaptive_viewport` | `true` / `false`: Adaptive Sampling in the Viewport; every build reads and writes it, only a build with the optional `adaptive-sampling` feature shows or uses it | `false` |
-| `path_cache_viewport` | `true` / `false`: Speed Up Still Views With a Path Cache; read and written as before, but not used while the app renders with exit collection (the box is greyed out with a note) | `false` |
+| `path_cache_viewport` | `true` / `false`: Speed Up Still Views With a Path Cache; read and written as before, but not used while the app renders with exit collection (the switch is not shown then) | `false` |
 | `instant_lighting` | `true` / `false`: Instant Lighting Changes in the Ray-Traced View | `false` |
 | `beam_viewport` | `true` / `false`: Beam Tracing in Still Views; every build reads and writes it, only a build with the retired `beam` feature shows or uses it, and the Path-Traced view ignores it under exit collection | `false` |
 | `beam_instant_lighting` | `true` / `false`: Instant Lighting Changes With Beams; counts only while `beam_viewport` is `true`; same rule as `beam_viewport` | `false` |
@@ -413,4 +429,4 @@ Ray-Traced is an explicit view choice; startup still opens the Live Render tab i
 
 `thumbnail_backdrop` (`"Grey"` by default; `"White"` or `"Black"`) is the tray catalogue thumbnails are rendered on, independent of the live view's `backdrop`. It is part of the preview fingerprint (`backdrop=grey`), so changing it marks cached thumbnails outdated once. Set through **Thumbnail Backdrop** in Advanced Render & Output or the preview offer's Picture Quality block.
 
-The still export and tilt-video dialogs each remember their own `engine` alongside their other output settings. Both default to Path-Traced; switching to Ray-Traced exposes Anti-Aliasing (1, 4, 8 or 16 taps, initially 16) and Fire. This choice is independent of the live view and thumbnail renderer. Output jobs freeze the engine and its AA/Fire settings: Path-Traced jobs with no shadow and no reflection remain format 1 and Ray-Traced jobs use format 2; the shadow alone makes a job use format 3, and any job with "Tray Reflection" above 0 uses format 4, with or without the shadow (a stone with color zones makes a Path-Traced job format 5, a turned HDR map format 6, and an off-centre stone (`camera_pan` not `[0.0, 0.0]`) format 7, whatever else it holds). Local, Remote and Both compute choices work for both renderers with protocol-43 workers. Ray-Traced output never denoises or adds optical overlays; metric-curve annotations on tilt videos still use the independent analytical tracer.
+The still export and tilt-video dialogs each remember their own `engine` alongside their other output settings. Both default to Path-Traced; switching to Ray-Traced exposes Anti-Aliasing (1, 4, 8 or 16 taps, initially 16) and Fire. This choice is independent of the live view and thumbnail renderer. Output jobs freeze the engine and its AA/Fire settings: Path-Traced jobs with no shadow and no reflection remain format 1 and Ray-Traced jobs use format 2; the shadow alone makes a job use format 3, and any job with "Tray Reflection" above 0 uses format 4, with or without the shadow (a stone with color zones makes a Path-Traced job format 5, a turned HDR map format 6, and an off-centre stone (`camera_pan` not `[0.0, 0.0]`) format 7, whatever else it holds). Local, Remote and Both compute choices work for both renderers with protocol-44 workers. Ray-Traced output never denoises or adds optical overlays; metric-curve annotations on tilt videos still use the independent analytical tracer.

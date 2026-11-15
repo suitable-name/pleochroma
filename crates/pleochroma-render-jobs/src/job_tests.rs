@@ -1,6 +1,7 @@
 use super::{
     test_support::{
-        curves, hdr_scene, panned_still_job, still_job, turned_hdr_still_job, video_job,
+        curves, hdr_scene, panned_still_job, posed_still_job, still_job, turned_hdr_still_job,
+        video_job,
     },
     *,
 };
@@ -880,6 +881,44 @@ fn a_panned_job_requires_format_seven() {
         format_for(&turned),
         6,
         "centred, the map's format shows again"
+    );
+}
+
+/// A stone pose needs format 8 whatever else the job holds: it wins over a pan's format 7, an
+/// identity pose leaves the lower formats alone, and a file that still says format 7 is refused.
+#[test]
+fn a_posed_job_requires_format_eight() {
+    let mut job = posed_still_job();
+    assert_eq!(format_for(&job), 8);
+    assert_eq!(job.format, 8);
+    assert_eq!(job.validate(), Ok(()));
+    job.format = 7;
+    assert!(message(&job).contains("format 7"));
+
+    let mut panned = panned_still_job();
+    assert_eq!(format_for(&panned), 7);
+    panned.scene.stone_pose = [0.0, 0.0, 10.0];
+    assert_eq!(
+        format_for(&panned),
+        8,
+        "the pose's format wins over the pan"
+    );
+    panned.scene.stone_pose = [0.0, 0.0, 0.0];
+    assert_eq!(
+        format_for(&panned),
+        7,
+        "unposed, the pan's format shows again"
+    );
+
+    let mut plain = still_job();
+    assert_eq!(format_for(&plain), 1, "the identity pose keeps format 1");
+    plain.scene.stone_pose = [0.0, 45.0, 0.0];
+    assert_eq!(format_for(&plain), 8, "a turn alone is a pose");
+    assert!(
+        !crate::codec::to_text(&still_job())
+            .unwrap()
+            .contains("stone_pose"),
+        "an unposed job writes no stone_pose key"
     );
 }
 

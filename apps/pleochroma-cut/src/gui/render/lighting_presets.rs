@@ -13,7 +13,9 @@ use crate::{
         model::{LightingValues, PITCH_RANGE_RAD, percent_from_surface_glare},
     },
 };
-use pleochroma::{optics::LightingPreset, renderer::env_map::EnvironmentMap};
+use pleochroma::{
+    optics::LightingPreset, render_setup::StonePose, renderer::env_map::EnvironmentMap,
+};
 use slint::{ComponentHandle, SharedString};
 use std::{
     sync::{Arc, Mutex},
@@ -189,6 +191,7 @@ fn setup_save_lighting_preset_callback(
                 camera_pitch: None,
                 camera_roll: None,
                 camera_pan: None,
+                stone_pose: None,
                 env_map_path: fields.env_map_path,
                 export_usable: false,
                 surface_glare: fields.surface_glare,
@@ -218,8 +221,9 @@ fn setup_save_lighting_preset_callback(
 
 /// The "Save as preset" viewport save: captures the full view, the lighting fields of
 /// [`setup_save_lighting_preset_callback`] plus the camera yaw, pitch, roll and pan as
-/// `Some(..)`, so applying the preset restores the exact shot. A camera pose is part of a
-/// preset only here; see `settings::model::LightingPreset`.
+/// `Some(..)`, so applying the preset restores the exact shot, plus the Stone Pose when the
+/// stone is posed. A camera pose is part of a preset only here; see
+/// `settings::model::LightingPreset`.
 fn setup_save_view_preset_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -231,9 +235,15 @@ fn setup_save_view_preset_callback(
     ui.global::<ViewportModel>()
         .on_save_view_preset(move |name: SharedString| {
             let fields = read_common_view_fields(&render_ctx_save, &settings_store_save);
-            let (camera_yaw, camera_pitch, camera_roll, camera_pan) = {
+            let (camera_yaw, camera_pitch, camera_roll, camera_pan, stone_pose) = {
                 let ctx = RenderContext::lock(&render_ctx_save);
-                (ctx.yaw, ctx.pitch, ctx.camera_roll, ctx.camera_pan)
+                (
+                    ctx.yaw,
+                    ctx.pitch,
+                    ctx.camera_roll,
+                    ctx.camera_pan,
+                    ctx.stone_pose.to_array(),
+                )
             };
             let preset = SavedLightingPreset {
                 name: name.to_string(),
@@ -247,6 +257,7 @@ fn setup_save_view_preset_callback(
                 camera_pitch: Some(camera_pitch),
                 camera_roll: Some(camera_roll),
                 camera_pan: Some(camera_pan),
+                stone_pose: LightingValues::recorded_stone_pose(stone_pose),
                 env_map_path: fields.env_map_path,
                 export_usable: false,
                 surface_glare: fields.surface_glare,
@@ -354,7 +365,7 @@ fn setup_apply_lighting_preset_callback(
             // `gui::camera_lighting::setup_environment_map_callbacks`.
             let env_map_result = preset.env_map_path.as_deref().map(load_env_map);
 
-            {
+            let applied_pose = {
                 let mut ctx = RenderContext::lock(&render_ctx_apply);
                 if matches!(env_map_result, Some(Err(_))) {
                     keep_current_turn(&mut values, &ctx);
@@ -380,7 +391,8 @@ fn setup_apply_lighting_preset_callback(
                 apply_camera_pose(&mut ctx, &values);
                 apply_environment(&mut ctx, env_map_result.as_ref());
                 ctx.dirty = true;
-            }
+                ctx.stone_pose
+            };
 
             settings_store_apply
                 .update(|s| persist_preset_values(s, &values, &preset, env_map_result.as_ref()));
@@ -394,14 +406,18 @@ fn setup_apply_lighting_preset_callback(
             }
 
             push_lighting_values_to_controls(&ui, &values, lighting_preset);
+            // A view with a camera pose can change the Stone Pose; the STONE POSE group and the
+            // Live view chip show the pose now in effect.
+            super::stone_pose::push_stone_pose_to_controls(&ui, applied_pose, false);
             show_environment_result(&ui, &preset, env_map_result.as_ref());
             show_toast(&ui, &format!("Applied lighting '{}'", preset.name), "info");
         });
 }
 
 /// Sets the camera pose when `values` carries one (a pose without a roll gets zero roll, one
-/// without a pan centres the stone); otherwise the current pose, pan included, is kept.
-const fn apply_camera_pose(ctx: &mut RenderContext, values: &LightingValues) {
+/// without a pan centres the stone, one without a Stone Pose stands the stone as designed);
+/// otherwise the current pose, pan and Stone Pose included, is kept.
+fn apply_camera_pose(ctx: &mut RenderContext, values: &LightingValues) {
     if let Some((yaw, pitch, roll)) = values.camera_pose() {
         ctx.yaw = yaw;
         ctx.pitch = pitch.clamp(-1.48, 1.48);
@@ -409,6 +425,9 @@ const fn apply_camera_pose(ctx: &mut RenderContext, values: &LightingValues) {
     }
     if let Some(pan) = values.pose_pan() {
         ctx.camera_pan = pan;
+    }
+    if let Some(pose) = values.pose_stone_pose() {
+        ctx.stone_pose = StonePose::from_array(pose);
     }
 }
 
@@ -464,7 +483,8 @@ pub(in crate::gui) fn push_lighting_values_to_controls(
 }
 
 /// Writes an applied saved lighting into the settings file, so the applied look survives a
-/// restart. The camera pose and distance only when the preset carries them; the environment
+/// restart. The camera pose, Stone Pose and distance only when the preset carries a camera
+/// view (a view without a Stone Pose stores the stone as designed); the environment
 /// path follows `env_map_result` exactly as the render context does ([`apply_environment`]).
 fn persist_preset_values(
     s: &mut SettingsFile,
@@ -493,6 +513,9 @@ fn persist_preset_values(
     }
     if let Some(pan) = values.pose_pan() {
         s.settings.camera_pan = pan;
+    }
+    if let Some(pose) = values.pose_stone_pose() {
+        s.settings.stone_pose = StonePose::from_array(pose).to_array();
     }
     match (env_map_result, preset.env_map_path.as_ref()) {
         (Some(Ok(_)), Some(path)) => s.settings.env_map_path.clone_from(path),
@@ -715,6 +738,75 @@ mod tests {
         };
         super::persist_preset_values(&mut file, &view, &preset, None);
         assert_eq!(file.settings.camera_pan, [-0.3, 0.2]);
+    }
+
+    /// A saved view brings its Stone Pose, a view recorded without one stands the stone as
+    /// designed, and a lighting-only apply keeps the current pose.
+    #[test]
+    fn saved_stone_pose_applies_and_a_view_without_one_stands_the_stone_as_designed() {
+        use pleochroma::render_setup::StonePose;
+        let posed = StonePose::from_array([90.0, 30.0, 10.0]);
+        let mut ctx = RenderContext {
+            stone_pose: posed,
+            ..Default::default()
+        };
+        let mut values = LightingValues {
+            camera_yaw: Some(0.6),
+            camera_pitch: Some(0.45),
+            stone_pose: Some([45.0, 10.0, 0.0]),
+            ..Default::default()
+        };
+        apply_camera_pose(&mut ctx, &values);
+        assert_eq!(ctx.stone_pose, StonePose::from_array([45.0, 10.0, 0.0]));
+        values.stone_pose = None;
+        apply_camera_pose(&mut ctx, &values);
+        assert_eq!(ctx.stone_pose, StonePose::IDENTITY, "an older view");
+        values.camera_yaw = None;
+        ctx.stone_pose = posed;
+        apply_camera_pose(&mut ctx, &values);
+        assert_eq!(ctx.stone_pose, posed, "lighting-only keeps the pose");
+    }
+
+    /// The Grading tray carries a camera pose and no Stone Pose, so applying it stands a posed
+    /// stone as designed; a built-in mood leaves the pose alone.
+    #[test]
+    fn applying_the_grading_tray_clears_the_stone_pose_and_a_mood_keeps_it() {
+        use pleochroma::render_setup::StonePose;
+        let posed = StonePose::from_array([90.0, 30.0, 10.0]);
+        for preset in crate::settings::model::built_in_presets() {
+            let mut ctx = RenderContext {
+                stone_pose: posed,
+                ..Default::default()
+            };
+            apply_camera_pose(&mut ctx, &preset.values().sanitised());
+            if preset.name == "Grading tray" {
+                assert_eq!(ctx.stone_pose, StonePose::IDENTITY);
+            } else {
+                assert_eq!(ctx.stone_pose, posed, "{}", preset.name);
+            }
+        }
+    }
+
+    /// What the settings file reopens with: the applied view's Stone Pose, the stone as designed
+    /// for a view recorded without one, and a lighting-only apply leaves the file's pose alone.
+    #[test]
+    fn applying_a_saved_view_persists_its_stone_pose() {
+        let mut file = crate::settings::SettingsFile::default();
+        file.settings.stone_pose = [90.0, 30.0, 10.0];
+        let preset = crate::settings::model::built_in_presets().remove(0);
+        super::persist_preset_values(&mut file, &preset.values(), &preset, None);
+        assert_eq!(file.settings.stone_pose, [90.0, 30.0, 10.0]);
+        let mut view = LightingValues {
+            camera_yaw: Some(0.6),
+            camera_pitch: Some(0.45),
+            stone_pose: Some([45.0, 10.0, 0.0]),
+            ..Default::default()
+        };
+        super::persist_preset_values(&mut file, &view, &preset, None);
+        assert_eq!(file.settings.stone_pose, [45.0, 10.0, 0.0]);
+        view.stone_pose = None;
+        super::persist_preset_values(&mut file, &view, &preset, None);
+        assert_eq!(file.settings.stone_pose, [0.0, 0.0, 0.0]);
     }
 
     #[test]

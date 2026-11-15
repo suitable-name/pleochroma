@@ -5,7 +5,7 @@ use super::adaptive_view;
 use super::{
     FirstHitSnapshot, MaterialOverrides, MaterialSources, RenderContext, context, display_thread,
     engine, frame_helpers, gpu_backend, interactive, live_split, local_preview, metrics_worker,
-    pacing, remote_lane, reshade_view, tray_shadow_worker, viewport_cache,
+    pacing, posed_stone, remote_lane, reshade_view, tray_shadow_worker, viewport_cache,
 };
 #[cfg(feature = "beam")]
 use super::{ray_beams, still_beams};
@@ -23,11 +23,13 @@ use interactive::{PassBudget, PassClaim};
 use local_preview::{DragGesture, PreviewState, RenderPhase};
 use metrics_worker::{MetricsWorker, SharedGeometry, push_if_changed, push_if_fresh};
 use pleochroma::{
-    geometry::plane::GpuFacetPlane,
+    geometry::{plane::GpuFacetPlane, tool::ToolPrimitive},
     optics::{
         fluorescence::Fluorescence,
         materials::GemMaterial,
-        raytracer::{Camera, DEFAULT_FOV_DEG, EnvironmentSource, FacetFinish},
+        raytracer::{
+            Camera, DEFAULT_FOV_DEG, EnvironmentSource, FacetFinish, surface::ScratchBasis,
+        },
     },
 };
 use pleochroma_net::scene::effects::SceneEffects;
@@ -213,6 +215,10 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
         // Recomputed only when the active design's geometry actually changes.
         let mut girdle_cache = GirdleFinishCache::new();
         let mut stone_width_cache = StoneWidthCache::new();
+        // The Stone Shadow's pause around a pose drag, and the posed stone of the traced frame
+        // (turned once per scene generation).
+        let mut pose_hold = posed_stone::PoseDragHold::default();
+        let mut traced_pose = posed_stone::PosedFrameCache::default();
         // Denoise+tonemap+push runs on a dedicated thread. This loop keeps copies
         // of `ui_weak`/`update_metrics` for the metrics-only push on the suspended
         // path, which bypasses `display` so invisible tabs don't pay for
@@ -248,6 +254,8 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                 head_shadow_deg,
                 stone_shadow,
                 tray_reflection,
+                stone_pose,
+                pose_drag_held,
                 target_samples,
                 max_bounces,
                 exposure,
@@ -337,9 +345,17 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                         std::borrow::Cow::Borrowed(_) => material,
                         std::borrow::Cow::Owned(traced) => traced,
                     };
+                    // The shadow of the stone as it stands on the tray: the pose turns the planes,
+                    // tools and traced material after the material is resolved.
+                    let (planes, tools, material) = posed_stone::posed_shadow_stone(
+                        stone_pose,
+                        &active_planes,
+                        &active_tools,
+                        material,
+                    );
                     tray_shadow_worker::Planned::new(tray_shadow_worker::Request {
-                        planes: Arc::clone(&active_planes),
-                        tools: Arc::clone(&active_tools),
+                        planes,
+                        tools,
                         material,
                         preset: lighting_preset,
                         yaw: light_yaw,
@@ -353,8 +369,12 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
             let shadow_request = shadow_plan.as_ref().and_then(|(_, plan)| plan.as_ref());
             // A hidden, paused, exporting or unresolved view traces nothing, so it starts no new
             // build either (the ready map stays). A remote render does not count: it needs the map.
+            // A held pose drag starts none either, nor does the quarter second after its release;
+            // the Tray Reflection below has nothing to build and stays live.
+            let pose_settled = pose_hold.builds_allowed(pose_drag_held, Instant::now());
             let shadow_builds_allowed =
-                !(paused || !tab_visible || export_active || material_unresolved.is_some());
+                !(paused || !tab_visible || export_active || material_unresolved.is_some())
+                    && pose_settled;
             let remote_shadow = remote_active_snapshot
                 || live_epoch_snapshot.is_some()
                 || matches!(
@@ -394,12 +414,15 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                             .with_hdr_rotation(hdr_orientation.rotation_for(yaw))
                     },
                 );
+                // The plane follows the stone as it stands on the tray: its lowest vertex.
+                let (mirror_planes, mirror_tools) =
+                    posed_stone::posed_geometry(stone_pose, &active_planes, &active_tools);
                 let (mirror, refusal) = match pleochroma::render_setup::tray_mirror_for(
                     tray_reflection,
                     scope,
                     pleochroma::geometry::tool::StoneGeometry {
-                        planes: &active_planes,
-                        tools: &active_tools,
+                        planes: &mirror_planes,
+                        tools: &mirror_tools,
                     },
                 ) {
                     Ok(mirror) => (mirror, None),
@@ -1048,6 +1071,42 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                 .with_tray_shadow(shadow_map.as_deref())
                 .with_tray_mirror(tray_mirror);
 
+            // The design's render physics: the silk and play-of-color on the traced
+            // material, the facet surfaces and abraded edge as the surface input. The
+            // metrics above score the plain material (with the frosted facets and girdle,
+            // but not the silk, surfaces or rounding), and Ray-Traced ignores the lot.
+            let no_effects = SceneEffects::default();
+            let effects = if engine.is_ray() {
+                &no_effects
+            } else {
+                &scene_effects
+            };
+            let traced_mat = effects.apply_to_material(&current_mat);
+            // The stone as it stands on the tray (Live Render tab only): everything traced from
+            // here on reads the posed planes, tools and material, and the scratch directions of
+            // the surface finish turn with it. The metrics above keep the stone as designed.
+            let posed = traced_pose.get(
+                scene_generation,
+                stone_pose,
+                (&active_planes[..], &active_tools[..]),
+                &traced_mat,
+            );
+            let (frame_planes, frame_tools, frame_material): (
+                &[GpuFacetPlane],
+                &[ToolPrimitive],
+                &GemMaterial,
+            ) = posed.as_deref().map_or_else(
+                || (&active_planes[..], &active_tools[..], &*traced_mat),
+                |stone| (&stone.planes[..], &stone.tools[..], &stone.material),
+            );
+            let facet_surfaces = effects.surfaces();
+            let mut frame_surface = effects.surface_scene(&facet_surfaces);
+            if let Some(stone) = posed.as_deref()
+                && effects.has_surface()
+            {
+                frame_surface.scratch = ScratchBasis::new(stone.up, stone.side);
+            }
+
             // The frame a Ray-Traced view traces; only the instant-lighting code reads it.
             let ray_view = RayView {
                 width,
@@ -1056,13 +1115,15 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                 pitch,
                 distance,
                 camera: &camera,
-                planes: &active_planes,
-                tools: &active_tools,
+                planes: frame_planes,
+                tools: frame_tools,
                 fluorescence: fluorescence
                     .as_deref()
                     .unwrap_or_else(|| Fluorescence::none()),
                 facet_finishes,
-                material: &current_mat,
+                material: posed
+                    .as_deref()
+                    .map_or(&current_mat, |stone| &stone.material),
                 max_bounces,
                 environment,
             };
@@ -1095,18 +1156,6 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
             if let Some((sample_offset, frame_spp)) = local_claim {
                 let mut claim = PassClaim::new(live_epoch.as_deref(), sample_offset, frame_spp);
                 let pass_start = Instant::now();
-                // The design's render physics: the silk and play-of-color on the traced
-                // material, the facet surfaces and abraded edge as the surface input. The
-                // metrics above score the plain material (with the frosted facets and girdle,
-                // but not the silk, surfaces or rounding), and Ray-Traced ignores the lot.
-                let no_effects = SceneEffects::default();
-                let effects = if engine.is_ray() {
-                    &no_effects
-                } else {
-                    &scene_effects
-                };
-                let traced_mat = effects.apply_to_material(&current_mat);
-                let facet_surfaces = effects.surfaces();
                 let backend_frame = BackendFrame {
                     width,
                     height,
@@ -1114,14 +1163,14 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                     pitch,
                     distance,
                     camera: &camera,
-                    planes: &active_planes,
-                    tools: &active_tools,
+                    planes: frame_planes,
+                    tools: frame_tools,
                     fluorescence: fluorescence
                         .as_deref()
                         .unwrap_or_else(|| Fluorescence::none()),
                     facet_finishes,
-                    surface: effects.surface_scene(&facet_surfaces),
-                    material: &traced_mat,
+                    surface: frame_surface,
+                    material: frame_material,
                     max_bounces,
                     environment,
                     spp: frame_spp,

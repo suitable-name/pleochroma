@@ -506,6 +506,7 @@ fn scene(hash: Option<[u8; 32]>) -> SceneState {
         yaw: 0.4,
         camera_roll: 0.0,
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
         stone_shadow: false,
         tray_reflection: 0.0,
         hdr_orientation: pleochroma::renderer::env_map::HdrOrientation::default(),

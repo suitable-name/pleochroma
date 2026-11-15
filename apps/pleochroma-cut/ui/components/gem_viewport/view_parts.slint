@@ -129,6 +129,50 @@ export component ToolToggle inherits Rectangle {
     }
 }
 
+// The chip under the mode segment while the stone is posed ("Stone Pose · tilted 75°"). It is a
+// button: a click stands the stone as designed.
+export component PoseChip inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    callback clicked();
+
+    height: 24px;
+    width: pose_text.preferred-width + 20px;
+    border-radius: 12px;
+    background: pose_touch.has-hover ? Theme.accent-cyan-surface : Theme.hint-surface;
+    border-width: pose_focus.has-focus ? 2px : 1px;
+    border-color: pose_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: true;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-action-default => { root.clicked(); }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    pose_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    pose_text := Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: Theme.text-primary;
+        vertical-alignment: center;
+    }
+    pose_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 // A small read-only chip under the mode segment ("Approximate", "Color Data Updated").
 export component InfoChip inherits Rectangle {
     in property <string> text;

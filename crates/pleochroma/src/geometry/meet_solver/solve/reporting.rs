@@ -38,7 +38,12 @@ impl SolveContext<'_> {
                     || "no vertex pick".to_string(),
                     |(li, nl)| format!("level {li} of {nl}"),
                 );
-                match result.origin[i] {
+                let mut solved = match result.origin[i] {
+                    Origin::ConstructivePicked => SolvedTier {
+                        mast,
+                        strategy: SolveStrategy::DependencyOrder,
+                        detail: self.picked_corner_detail(i),
+                    },
                     Origin::Anchor => SolvedTier {
                         mast,
                         strategy: SolveStrategy::ScaleReference,
@@ -87,9 +92,44 @@ impl SolveContext<'_> {
                         strategy: SolveStrategy::Failed,
                         detail: "no vertex and no estimate; mast is the scale prior".to_string(),
                     },
+                };
+                if result.origin[i] != Origin::ConstructivePicked
+                    && let Some(cause) = result.pick_cause[i]
+                {
+                    solved.detail.push_str(" (picked corner not usable: ");
+                    solved.detail.push_str(cause);
+                    solved.detail.push(')');
                 }
+                solved
             })
             .collect()
+    }
+
+    /// The report text of tier `i` solved to its picked corner, e.g.
+    /// `picked corner (P1@12, P2@18, G1@12)`.
+    fn picked_corner_detail(&self, i: usize) -> String {
+        let Some(pick) = &self.tiers[i].pick else {
+            return "picked corner".to_string();
+        };
+        let facets: Vec<String> = pick
+            .planes
+            .iter()
+            .map(|plane| {
+                let tier = &self.tiers[plane.tier];
+                let name = tier
+                    .names
+                    .first()
+                    .map_or_else(|| format!("tier {}", plane.tier + 1), Clone::clone);
+                if tier.indices.is_empty() {
+                    name
+                } else if plane.index.fract() == 0.0 {
+                    format!("{name}@{:.0}", plane.index)
+                } else {
+                    format!("{name}@{}", plane.index)
+                }
+            })
+            .collect();
+        format!("picked corner ({})", facets.join(", "))
     }
 
     /// External combined-deviation score of one mast configuration against the

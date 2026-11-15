@@ -14,7 +14,9 @@
 //
 // The structure travels in the inclusion block (`renderer::buffers::structure_rows`): header.z is
 // the seed, row 0 = [cell_size, lambda_low, lambda_high, purity], row 1 = [coverage, mosaic,
-// kappa, majorant], row 2 = [normal xyz, 0] (zero normal: a random one per domain).
+// kappa, majorant], row 2 = [normal xyz, 0] (zero normal: a random one per domain). A stone
+// posed in the world adds header.w (nonzero: the domain map is turned) and the three columns of
+// `lattice_from_world` (`GpuInclusionBlock::lattice`).
 //
 // Ported here (not in `transport_bounce`) so the megakernel, both wavefronts and Tier 2's
 // standalone kernel call the SAME function objects. Nothing in this file reads `material`.
@@ -60,13 +62,26 @@ struct BraggStructure {
     // -ln(1 - R0) / cell_size, and its majorant over every domain, direction and wavelength.
     kappa: f32,
     majorant: f32,
-    // The shared lattice normal, or zero for a random normal per domain.
+    // The shared lattice normal (a world direction), or zero for a random normal per domain.
     normal: vec3<f32>,
+    // Nonzero when the domain map is turned against the world: a point is looked up at
+    // `lattice * p` and a random normal is turned back by the transpose. Zero keeps the
+    // unposed arithmetic exactly.
+    posed: u32,
+    // `lattice_from_world`, the columns of the matrix.
+    lattice: mat3x3<f32>,
 }
 
-// The structure from the inclusion block's seed (`header.z`) and its three rows.
-fn bragg_structure(seed: u32, r0: vec4<f32>, r1: vec4<f32>, r2: vec4<f32>) -> BraggStructure {
-    return BraggStructure(seed, r0.x, r0.y, r0.z, r0.w, r1.x, r1.y, r1.z, r1.w, r2.xyz);
+// The structure from the inclusion block's seed (`header.z`), its three rows, the posed flag
+// (`header.w`) and the three columns of `lattice_from_world` (`lattice` rows, `.xyz`).
+fn bragg_structure(
+    seed: u32, r0: vec4<f32>, r1: vec4<f32>, r2: vec4<f32>,
+    posed: u32, l0: vec4<f32>, l1: vec4<f32>, l2: vec4<f32>,
+) -> BraggStructure {
+    return BraggStructure(
+        seed, r0.x, r0.y, r0.z, r0.w, r1.x, r1.y, r1.z, r1.w, r2.xyz,
+        posed, mat3x3<f32>(l0.xyz, l1.xyz, l2.xyz),
+    );
 }
 
 // domains::Domain without its id and cell (nothing on the GPU reads them).
@@ -134,13 +149,21 @@ fn bragg_domain_of_cell(st: BraggStructure, cell: vec3<i32>) -> BraggDomain {
         let ph = bragg_unit_float(bragg_cell_hash(cell, seed, BRAGG_SALT_NORMAL_B));
         let r = sqrt(max(1.0 - z * z, 0.0));
         normal = vec3<f32>(r * bragg_cos_tau(ph), r * bragg_sin_tau(ph), z);
+        if (st.posed != 0u) {
+            normal = transpose(st.lattice) * normal;
+        }
     }
     return BraggDomain(on, lambda_b0, normal);
 }
 
 // domains::domain_at: the domain with the nearest seed point among the 27 cells around `p`
 // (a tie goes to the cell met first in the fixed x, y, z loop order).
-fn bragg_domain_at(st: BraggStructure, p: vec3<f32>) -> BraggDomain {
+fn bragg_domain_at(st: BraggStructure, p_world: vec3<f32>) -> BraggDomain {
+    // The point in the domain map's own coordinates; `p_world` itself when not posed.
+    var p = p_world;
+    if (st.posed != 0u) {
+        p = st.lattice * p_world;
+    }
     let home = vec3<i32>(floor(p / st.cell_size));
     var best = home;
     var best_d2: f32 = 3.0e38;

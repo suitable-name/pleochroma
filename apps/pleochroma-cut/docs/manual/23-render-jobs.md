@@ -17,7 +17,7 @@ You can add a job from two places:
 
 A job also freezes **Renderer**, and either the Path-Traced sample count or the
 Ray-Traced AA tap count and Fire option. Ray-Traced stills and tilt-video frames
-finish after their fixed taps and use no denoiser. Local, GPU and protocol-43
+finish after their fixed taps and use no denoiser. Local, GPU and protocol-44
 remote routes honor the frozen engine. Later viewport or output-setting changes
 do not replace it.
 
@@ -37,6 +37,10 @@ The job supplies the same engine, shadow and reflection settings to a remote wor
 A job of a stone moved within the picture (Chapter 2) uses `format: 7` whatever else it holds:
 it keeps the move as `camera_pan`, and an older reader refuses the job instead of drawing the
 stone in the middle. A job of a centred stone keeps its format.
+A job of a stone in a Stone Pose (Chapter 2) uses `format: 8`, which wins over `format: 7` and
+every other format: it keeps the pose as `stone_pose`, `[tilt, turn, spin]` in degrees, and an
+older reader refuses the job instead of drawing the stone as designed. A job of an unposed
+stone leaves the key out and keeps its format. A tilt-video job never carries a pose.
 
 The shadow requires a studio light and a backdrop. HDR maps, As Lit,
 "Contrast view (ASET-style)" and tilt videos cannot use it. The renderer builds a Final
@@ -191,11 +195,12 @@ pleochroma-cli tilt-video FILE.job.json
 | `--path-cache` | Ask for the path cache: the stone is shaded from its stored light paths, a preview with approximate facet edges. It is used only together with `--persist-cache`; alone, the picture is drawn as without it and a note says so. A job that was saved with Path Cache ticked asks for it without this option. This run renders with the branching estimator, which the path cache needs, and says so. |
 | `--persist-cache` | Also keep the cache on disk for later renders of the same view. It turns the path cache on. For a tilt video it keeps the cache of every frame. |
 | `--cache-dir FOLDER` | Keep the caches in another folder than the one Preferences shows. |
+| `--stone-pose TILT,TURN[,SPIN]` | `render` only: stand the stone on the tray in this pose, in degrees: TILT 0 to 180 (90 stands the table upright), TURN and SPIN 0 to 360 (a value outside the range is clamped or wrapped). The job is saved as format 8. `tilt-video` refuses it. A value that is not two or three numbers is refused with "--stone-pose takes TILT,TURN or TILT,TURN,SPIN in degrees". |
 | `--highlights whiten` or `keep-color` | How colors too bright for the screen are shown. `keep-color` (the default) keeps their hue and saturation and dims them; only light brighter than white turns white. `whiten` keeps their brightness and makes them paler, so a bright ruby can look pink. With a remote worker, `whiten` needs `--transfer full`. |
 
 Adaptive sampling does not combine with `--engine ray`, or with a remote worker for now (`--compute local`). The path cache does not combine with `--engine ray` either. The options above win over what the job file says. A job saved with adaptive sampling or the path cache, and a run without these options, uses the job's own choice. A standard build, without the `adaptive-sampling` feature, renders a job saved with adaptive sampling at the job's own samples per pixel, with the note "Adaptive sampling off: this build has no adaptive sampling."
 
-`--material`, `--color-pattern`, `--color-variant`, `--highlights whiten` and the adaptive sampling options (only in a build with the `adaptive-sampling` feature) make a different picture than the job describes. The first three, and `--engine ray`, also drop the color zones of the job file (the Ray-Traced engine renders the base color), and the job's format follows. A tilt video run with any of them needs its own `--out-dir`: the folder of the plain run belongs to another job.
+`--material`, `--color-pattern`, `--color-variant`, `--stone-pose`, `--highlights whiten` and the adaptive sampling options (only in a build with the `adaptive-sampling` feature) make a different picture than the job describes. The first three, and `--engine ray`, also drop the color zones of the job file (the Ray-Traced engine renders the base color), and the job's format follows. A tilt video run with any of them needs its own `--out-dir`: the folder of the plain run belongs to another job.
 
 The tool prints one line on standard output: the path of the finished file (for a video, the MP4 or GIF, or the frame folder when no video could be made). Progress, notes and the line `wrote PATH` go to standard error.
 

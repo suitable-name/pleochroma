@@ -3,7 +3,11 @@
 use super::{Shared, crystal_axis_overlay::view_of};
 use crate::{
     CrystalAxisModel, MainWindow, SolidPreviewModel, ViewportModel,
-    bridge::render_thread::RenderContext, gui::render::crystal_axis_ui,
+    bridge::render_thread::RenderContext,
+    gui::{
+        render::{crystal_axis_ui, pose_camera::inverse_pose_camera},
+        solid_preview::preview_state::CameraPose,
+    },
 };
 use glam::Vec3;
 use pleochroma::optics::raytracer::{Camera, DEFAULT_FOV_DEG};
@@ -87,9 +91,22 @@ pub(super) fn refresh(ui: &MainWindow, shared: &Shared) {
         return;
     }
     let (size, offset) = contain(viewport, image);
-    let camera = Camera::new(render.yaw, render.pitch, render.distance, DEFAULT_FOV_DEG)
-        .with_roll(render.camera_roll)
-        .with_pan(render.camera_pan);
+    // The axes are in the stone's own frame and the marker lies over the picture the Live Render
+    // tab shows. With a Stone Pose that picture is the stone turned in front of the camera, which
+    // is the unrotated stone seen by the camera turned by the inverse pose.
+    let pose = inverse_pose_camera(
+        render.stone_pose,
+        CameraPose {
+            yaw: render.yaw,
+            pitch: render.pitch,
+            roll: render.camera_roll,
+            distance: render.distance,
+            pan: render.camera_pan,
+        },
+    );
+    let camera = Camera::new(pose.yaw, pose.pitch, pose.distance, DEFAULT_FOV_DEG)
+        .with_roll(pose.roll)
+        .with_pan(pose.pan);
     // The shown radius can come from the last Solid frame, so cap the marker
     // length by the current camera distance.
     let length = shown_length
@@ -150,6 +167,37 @@ mod tests {
         assert_eq!(upright[0].0, upright[1].0);
         assert!((turned[0].1 - turned[1].1).abs() < 1e-3);
         assert!(turned[1].0 > turned[0].0);
+    }
+
+    /// With a Stone Pose the marker lies on the posed stone: a point of the axis in the stone's
+    /// frame, seen by the inverse-pose camera, lands where the pose carries it in the plain camera.
+    #[test]
+    fn marker_of_a_posed_stone_lies_on_the_posed_stone() {
+        let size = ScreenSize::new(600.0, 500.0);
+        let pose = pleochroma::render_setup::StonePose {
+            tilt_deg: 70.0,
+            turn_deg: 25.0,
+            spin_deg: 10.0,
+        };
+        let live = CameraPose {
+            yaw: 0.4,
+            pitch: 0.3,
+            roll: 0.2,
+            distance: 2.4,
+            pan: [0.1, 0.05],
+        };
+        let plain = Camera::new(live.yaw, live.pitch, live.distance, DEFAULT_FOV_DEG)
+            .with_roll(live.roll)
+            .with_pan(live.pan);
+        let turned = inverse_pose_camera(pose, live);
+        let marker = Camera::new(turned.yaw, turned.pitch, turned.distance, DEFAULT_FOV_DEG)
+            .with_roll(turned.roll)
+            .with_pan(turned.pan);
+        let axis = Vec3::new(0.3, 0.8, -0.2).normalize() * 0.5;
+        let on_stone = project(&plain, pose.rotation() * axis, size).unwrap();
+        let drawn = project(&marker, axis, size).unwrap();
+        assert!((on_stone.x - drawn.x).abs() < 0.5, "{on_stone:?} {drawn:?}");
+        assert!((on_stone.y - drawn.y).abs() < 0.5, "{on_stone:?} {drawn:?}");
     }
 
     #[test]

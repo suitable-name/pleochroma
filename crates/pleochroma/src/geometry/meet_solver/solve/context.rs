@@ -4,8 +4,8 @@
 use glam::DVec3;
 
 use super::super::{
-    BLANK_DOMINATION_FACTOR, DEFAULT_PLAUSIBLE_SCALE, MAX_PLANES, MeetConstraint, MeetTierInput,
-    SolveStrategy, SolvedTier,
+    BLANK_DOMINATION_FACTOR, DEFAULT_PLAUSIBLE_SCALE, MAX_PLANES, MeetConstraint, MeetPick,
+    MeetTierInput, PICK_INDEX_TOL, PICK_MIN_DET, SolveStrategy, SolvedTier,
     blocks::{Block, classify_blocks, tier_sides},
     candidates::tier_normals,
     names::MeetNameResolver,
@@ -35,6 +35,57 @@ pub(in crate::geometry::meet_solver) struct SolveContext<'a> {
     pub(super) scale_norm: f64,
     pub(super) domination_limit: f64,
     pub(in crate::geometry::meet_solver) total_planes: usize,
+    /// Per tier: the three `(tier, instance)` planes of a usable pick, or `None`.
+    pub(super) picks: Vec<Option<[(usize, usize); 3]>>,
+    /// Per tier with a pick that is not usable: why, for the report.
+    pub(super) pick_cause: Vec<Option<&'static str>>,
+}
+
+/// Why a pick that names a facet that is not in the input cannot be used.
+pub(super) const PICK_CAUSE_MISSING: &str = "a picked facet does not exist";
+/// Why a pick whose planes are (nearly) dependent cannot be used.
+pub(super) const PICK_CAUSE_PARALLEL: &str = "the picked facets do not meet in one point";
+/// Why a pick whose corner gives no usable mast cannot be used.
+pub(super) const PICK_CAUSE_RANGE: &str = "the picked point is out of range";
+
+/// Finds the instance of tier `tier` whose index-wheel position is `index` (modulo the
+/// gear). A tier without indices has the single instance `0`.
+fn pick_instance(tier: &MeetTierInput, gear: f64, index: f64) -> Option<usize> {
+    if tier.indices.is_empty() {
+        return Some(0);
+    }
+    if !index.is_finite() {
+        return None;
+    }
+    tier.indices.iter().position(|&candidate| {
+        let diff = (candidate - index).rem_euclid(gear);
+        diff.min(gear - diff) <= PICK_INDEX_TOL
+    })
+}
+
+/// Resolves tier `i`'s pick to `(tier, instance)` planes, or the reason it is unusable.
+fn resolve_pick(
+    i: usize,
+    pick: &MeetPick,
+    tiers: &[MeetTierInput],
+    normals: &[Vec<DVec3>],
+    gear: f64,
+) -> Result<[(usize, usize); 3], &'static str> {
+    let mut planes = [(0usize, 0usize); 3];
+    for (slot, plane) in planes.iter_mut().zip(&pick.planes) {
+        if plane.tier >= tiers.len() || plane.tier == i {
+            return Err(PICK_CAUSE_MISSING);
+        }
+        let instance =
+            pick_instance(&tiers[plane.tier], gear, plane.index).ok_or(PICK_CAUSE_MISSING)?;
+        *slot = (plane.tier, instance);
+    }
+    let [a, b, c] = planes.map(|(t, j)| normals[t][j]);
+    let det = a.dot(b.cross(c)).abs();
+    if det.is_nan() || det < PICK_MIN_DET {
+        return Err(PICK_CAUSE_PARALLEL);
+    }
+    Ok(planes)
 }
 
 /// Rounds a strictly positive, finite scale to the nearest power of two. Other input
@@ -115,6 +166,24 @@ impl<'a> SolveContext<'a> {
         let domination_limit = BLANK_DOMINATION_FACTOR * (scale_prior / scale_norm);
 
         let total_planes = 6 + normals.iter().map(Vec::len).sum::<usize>();
+
+        // A pick is honoured only for a tier that is solved by meets. An unusable one
+        // leaves the tier solved as if it had none, and records why.
+        let gear = f64::from(gear_teeth_abs.max(1));
+        let mut picks: Vec<Option<[(usize, usize); 3]>> = vec![None; tiers.len()];
+        let mut pick_cause: Vec<Option<&'static str>> = vec![None; tiers.len()];
+        for (i, t) in tiers.iter().enumerate() {
+            let Some(pick) = &t.pick else {
+                continue;
+            };
+            if is_anchor[i] {
+                continue;
+            }
+            match resolve_pick(i, pick, tiers, &normals, gear) {
+                Ok(planes) => picks[i] = Some(planes),
+                Err(cause) => pick_cause[i] = Some(cause),
+            }
+        }
         Self {
             tiers,
             normals,
@@ -125,6 +194,8 @@ impl<'a> SolveContext<'a> {
             scale_norm,
             domination_limit,
             total_planes,
+            picks,
+            pick_cause,
         }
     }
 

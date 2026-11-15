@@ -226,7 +226,10 @@ fn handle_tilt_curves_request_inner<S: Read + Write + TimeoutRead>(
     );
 
     let mut axes: Vec<AxisTiltCurves> = Vec::with_capacity(TILT_CURVE_AXIS_COUNT);
-    let scene = &request.scene;
+    // The curves belong to the stone as designed: a pose is ignored, like the shadow and the
+    // reflection, which a tilt request does not carry into the sweep either.
+    let designed = crate::render_core::pose::without_pose(&request.scene);
+    let scene = &*designed;
     // The curves are scored under the scene's own lighting preset and light pose, the
     // radiance the same scene renders with (the stone's optics never see the exposure).
     let environment =
@@ -409,6 +412,7 @@ mod tests {
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         }
     }
 

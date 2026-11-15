@@ -1,16 +1,16 @@
 //! `Serialize` for [`SceneState`]: every field, in declaration order, except that the default
 //! render-effects record, a `false` `stone_shadow`, a `0.0` `tray_reflection`, an unturned
-//! `hdr_orientation`, a `Branching` `estimator` and a centred `camera_pan` are left out of
-//! human-readable output.
+//! `hdr_orientation`, a `Branching` `estimator`, a centred `camera_pan` and an identity
+//! `stone_pose` are left out of human-readable output.
 //!
 //! The wire form (postcard) is positional: a reader decodes by field count, so every field is
 //! always written there, the default record's bytes, the shadow flag's byte, the
 //! reflection's four bytes, the orientation's five, the estimator's one and the pan's eight
-//! included. A JSON job file or a debug dump has no such need, and a scene without effects, a
+//! and the pose's twelve included. A JSON job file or a debug dump has no such need, and a scene without effects, a
 //! stone shadow, a tray reflection, a turned HDR map, the exit collection estimator or a pan
 //! (almost every scene) reads better, and stays byte-identical to a file written before the
 //! fields existed, without an `"effects"` object or a `"stone_shadow"` / `"tray_reflection"` /
-//! `"hdr_orientation"` / `"estimator"` / `"camera_pan"` key. The decoding side is the derived
+//! `"hdr_orientation"` / `"estimator"` / `"camera_pan"` / `"stone_pose"` key. The decoding side is the derived
 //! one: `#[serde(default)]` on each field reads a file without it.
 
 use serde::ser::{Serialize, SerializeStruct, Serializer};
@@ -28,7 +28,9 @@ impl Serialize for SceneState {
         let skip_estimator =
             serializer.is_human_readable() && self.estimator == Estimator::Branching;
         let skip_pan = serializer.is_human_readable() && self.camera_pan == [0.0, 0.0];
-        let fields = 28
+        let skip_pose = serializer.is_human_readable() && self.stone_pose == [0.0, 0.0, 0.0];
+        let fields = 29
+            - usize::from(skip_pose)
             - usize::from(skip_effects)
             - usize::from(skip_shadow)
             - usize::from(skip_reflection)
@@ -88,6 +90,11 @@ impl Serialize for SceneState {
         } else {
             state.serialize_field("camera_pan", &self.camera_pan)?;
         }
+        if skip_pose {
+            state.skip_field("stone_pose")?;
+        } else {
+            state.serialize_field("stone_pose", &self.stone_pose)?;
+        }
         state.end()
     }
 }
@@ -128,6 +135,7 @@ mod tests {
             engine: pleochroma::renderer::engine::EngineSpec::default(),
             effects,
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         }
     }
 
@@ -167,8 +175,8 @@ mod tests {
         );
         let bytes = postcard::to_allocvec(&plain).expect("plain wire");
         // The shadow byte sits before the reflection's four bytes, the orientation's five,
-        // the estimator's one and the pan's eight.
-        assert_eq!(bytes[bytes.len() - 19], 0);
+        // the estimator's one and the pan's eight and the pose's twelve.
+        assert_eq!(bytes[bytes.len() - 31], 0);
         plain.stone_shadow = true;
         let shadowed = serde_json::to_string(&plain).expect("shadow JSON");
         assert!(shadowed.contains("\"stone_shadow\":true"));
@@ -177,10 +185,10 @@ mod tests {
             plain
         );
         let shadow_bytes = postcard::to_allocvec(&plain).expect("shadow wire");
-        assert_eq!(shadow_bytes[shadow_bytes.len() - 19], 1);
+        assert_eq!(shadow_bytes[shadow_bytes.len() - 31], 1);
         assert_eq!(
-            &bytes[..bytes.len() - 19],
-            &shadow_bytes[..shadow_bytes.len() - 19]
+            &bytes[..bytes.len() - 31],
+            &shadow_bytes[..shadow_bytes.len() - 31]
         );
         assert_eq!(
             postcard::from_bytes::<SceneState>(&shadow_bytes).expect("shadow wire"),
@@ -201,7 +209,7 @@ mod tests {
         );
         let bytes = postcard::to_allocvec(&plain).expect("plain wire");
         assert_eq!(
-            &bytes[bytes.len() - 18..bytes.len() - 14],
+            &bytes[bytes.len() - 30..bytes.len() - 26],
             &0.0_f32.to_le_bytes()
         );
         plain.tray_reflection = 0.25;
@@ -214,12 +222,12 @@ mod tests {
         let mirror_bytes = postcard::to_allocvec(&plain).expect("mirror wire");
         assert_eq!(mirror_bytes.len(), bytes.len(), "same layout");
         assert_eq!(
-            &mirror_bytes[mirror_bytes.len() - 18..mirror_bytes.len() - 14],
+            &mirror_bytes[mirror_bytes.len() - 30..mirror_bytes.len() - 26],
             &0.25_f32.to_le_bytes()
         );
         assert_eq!(
-            &bytes[..bytes.len() - 18],
-            &mirror_bytes[..mirror_bytes.len() - 18]
+            &bytes[..bytes.len() - 30],
+            &mirror_bytes[..mirror_bytes.len() - 30]
         );
         assert_eq!(
             postcard::from_bytes::<SceneState>(&mirror_bytes).expect("mirror wire"),
@@ -242,7 +250,7 @@ mod tests {
             plain
         );
         let bytes = postcard::to_allocvec(&plain).expect("plain wire");
-        assert_eq!(&bytes[bytes.len() - 14..bytes.len() - 9], &[0, 0, 0, 0, 0]);
+        assert_eq!(&bytes[bytes.len() - 26..bytes.len() - 21], &[0, 0, 0, 0, 0]);
 
         for orientation in [
             HdrOrientation {
@@ -270,12 +278,12 @@ mod tests {
 
             let turned_bytes = postcard::to_allocvec(&plain).expect("turned wire");
             assert_eq!(turned_bytes.len(), bytes.len(), "same layout");
-            let tail = &turned_bytes[turned_bytes.len() - 14..turned_bytes.len() - 9];
+            let tail = &turned_bytes[turned_bytes.len() - 26..turned_bytes.len() - 21];
             assert_eq!(&tail[..4], &orientation.yaw.to_le_bytes());
             assert_eq!(tail[4], u8::from(orientation.follows_camera));
             assert_eq!(
-                &bytes[..bytes.len() - 14],
-                &turned_bytes[..turned_bytes.len() - 14]
+                &bytes[..bytes.len() - 26],
+                &turned_bytes[..turned_bytes.len() - 26]
             );
             let wire: SceneState = postcard::from_bytes(&turned_bytes).expect("turned wire");
             assert_eq!(wire, plain);
@@ -331,7 +339,7 @@ mod tests {
     fn postcard_carries_the_estimator_before_the_pan() {
         let mut plain = scene(SceneEffects::default());
         let branching = postcard::to_allocvec(&plain).expect("branching wire");
-        assert_eq!(branching[branching.len() - 9], 0);
+        assert_eq!(branching[branching.len() - 21], 0);
         assert_eq!(
             postcard::from_bytes::<SceneState>(&branching).expect("branching wire"),
             plain
@@ -339,10 +347,10 @@ mod tests {
         plain.estimator = Estimator::ExitCollection;
         let collect = postcard::to_allocvec(&plain).expect("collect wire");
         assert_eq!(collect.len(), branching.len(), "same layout");
-        assert_eq!(collect[collect.len() - 9], 1);
+        assert_eq!(collect[collect.len() - 21], 1);
         assert_eq!(
-            &branching[..branching.len() - 9],
-            &collect[..collect.len() - 9]
+            &branching[..branching.len() - 21],
+            &collect[..collect.len() - 21]
         );
         assert_eq!(
             postcard::from_bytes::<SceneState>(&collect).expect("collect wire"),
@@ -362,7 +370,7 @@ mod tests {
             plain
         );
         let bytes = postcard::to_allocvec(&plain).expect("plain wire");
-        assert_eq!(&bytes[bytes.len() - 8..], &[0_u8; 8]);
+        assert_eq!(&bytes[bytes.len() - 20..bytes.len() - 12], &[0_u8; 8]);
 
         plain.camera_pan = [0.5, -0.25];
         let panned = serde_json::to_string(&plain).expect("pan JSON");
@@ -374,16 +382,61 @@ mod tests {
         let pan_bytes = postcard::to_allocvec(&plain).expect("pan wire");
         assert_eq!(pan_bytes.len(), bytes.len(), "same layout");
         assert_eq!(
-            &pan_bytes[pan_bytes.len() - 8..pan_bytes.len() - 4],
+            &pan_bytes[pan_bytes.len() - 20..pan_bytes.len() - 16],
             &0.5_f32.to_le_bytes()
         );
         assert_eq!(
-            &pan_bytes[pan_bytes.len() - 4..],
+            &pan_bytes[pan_bytes.len() - 16..pan_bytes.len() - 12],
             &(-0.25_f32).to_le_bytes()
         );
-        assert_eq!(&bytes[..bytes.len() - 8], &pan_bytes[..pan_bytes.len() - 8]);
+        assert_eq!(
+            &bytes[..bytes.len() - 20],
+            &pan_bytes[..pan_bytes.len() - 20]
+        );
         assert_eq!(
             postcard::from_bytes::<SceneState>(&pan_bytes).expect("pan wire"),
+            plain
+        );
+    }
+
+    /// The appended pose is the last twelve wire bytes and is omitted from plain JSON at
+    /// identity; a JSON scene without the key reads as identity.
+    #[test]
+    fn json_leaves_out_the_identity_pose_and_keeps_a_set_one() {
+        let mut plain = scene(SceneEffects::default());
+        let before = serde_json::to_string(&plain).expect("plain JSON");
+        assert!(!before.contains("stone_pose"), "{before}");
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&before)
+                .expect("legacy JSON")
+                .stone_pose,
+            [0.0, 0.0, 0.0]
+        );
+        let bytes = postcard::to_allocvec(&plain).expect("plain wire");
+        assert_eq!(&bytes[bytes.len() - 12..], &[0_u8; 12]);
+
+        plain.stone_pose = [35.0, 120.5, 270.0];
+        let posed = serde_json::to_string(&plain).expect("pose JSON");
+        assert!(
+            posed.contains("\"stone_pose\":[35.0,120.5,270.0]"),
+            "{posed}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SceneState>(&posed).expect("pose JSON"),
+            plain
+        );
+        let pose_bytes = postcard::to_allocvec(&plain).expect("pose wire");
+        assert_eq!(pose_bytes.len(), bytes.len(), "same layout");
+        assert_eq!(
+            &pose_bytes[pose_bytes.len() - 12..pose_bytes.len() - 8],
+            &35.0_f32.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[..bytes.len() - 12],
+            &pose_bytes[..pose_bytes.len() - 12]
+        );
+        assert_eq!(
+            postcard::from_bytes::<SceneState>(&pose_bytes).expect("pose wire"),
             plain
         );
     }

@@ -458,12 +458,14 @@ mod tests {
                 indices: vec![0.0, 1.0, 2.0, 3.0],
                 constraint: MeetConstraint::ScaleReference(1.0),
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -0.0,
                 indices: vec![],
                 constraint: MeetConstraint::ScaleReference(0.5),
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 45.0,
@@ -471,6 +473,7 @@ mod tests {
                 // Estimated anchor, deliberately 29% below the true mast `s`.
                 constraint: MeetConstraint::ScaleReference(0.5),
                 names: vec![],
+                pick: None,
             },
         ];
         let targets = ExternalProportions {
@@ -508,18 +511,21 @@ mod tests {
                 indices: vec![0.0, 1.0, 2.0, 3.0],
                 constraint: MeetConstraint::ScaleReference(1.0),
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -0.0,
                 indices: vec![],
                 constraint: MeetConstraint::ScaleReference(0.5),
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 45.0,
                 indices: vec![0.0, 1.0, 2.0, 3.0],
                 constraint: MeetConstraint::ScaleReference(s),
                 names: vec![],
+                pick: None,
             },
         ];
         let targets = ExternalProportions {

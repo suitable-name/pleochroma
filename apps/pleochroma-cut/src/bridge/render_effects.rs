@@ -124,6 +124,7 @@ pub fn design_scene_effects(
         edge: EdgeSpec::from_abrasion(&effects.edge_abrasion()),
         // The material's own set rides in only with a captured scene (`scene_snapshot`).
         material_inclusions: None,
+        scratch: pleochroma::optics::raytracer::surface::ScratchBasis::MODEL,
     };
     if scene.has_surface() {
         scene.machine = MachineSpec::from_machine(machine);

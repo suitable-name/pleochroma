@@ -17,7 +17,7 @@ extension. Every command that takes a design takes several: see [Several designs
 
 | Command | What it does |
 |---|---|
-| `info` | Name, gear, symmetry, preform (shape, size and offset), material and the tier list. Does not solve. |
+| `info` | Name, gear, symmetry, preform (shape, size and offset), material and the tier list; a tier cut to a picked corner ends its meet column with the corner's three facets. Does not solve. |
 | `solve` | Solves every tier, checks that the facets enclose a stone, lists the manufacturability warnings. `--out` saves the design as `.psdd` (this converts `.asc`, `.gem` and `.gcs`). |
 | `metrics` | Table-up windowing, brilliance, extinction, fire and scintillation, the proportions and the yield. `--tilt` also averages the tilt performance. |
 | `validate` | The warnings and the overall Good, Check or Problem verdict of the editor's status strip. |
@@ -395,17 +395,22 @@ PICTURE OPTIONS
                                reflectance of the surface under the stone, from 0 (off) to 100 (a
                                mirror); needs a studio light with a backdrop (Tilt videos do not
                                show the tray reflection yet)
+  --stone-pose TILT,TURN[,SPIN]
+                               `render` only: stand the stone on the tray in this pose: TILT 0 to
+                               180 degrees (90 stands the table upright), TURN and SPIN 0 to 360;
+                               written to the job as format 8
 ```
 
-- `--material`, `--color-pattern`, `--color-variant`, `--highlights whiten`, `--stone-shadow` and
-  `--tray-reflection` change the picture, so the job gets a token of its own: a tilt video needs its own `--out-dir`
+- `--material`, `--color-pattern`, `--color-variant`, `--highlights whiten`, `--stone-shadow`,
+  `--tray-reflection` and `--stone-pose` change the picture, so the job gets a token of its own: a tilt video needs its own `--out-dir`
   (the plain run's folder is another job's), and a later run with the same options resumes its
   frames. The highlight rule is `pleochroma::color::HighlightRule`, set process-wide while the job
   runs.
 - `--stone-shadow on|off` sets the job's Stone Shadow, and the job's file format follows it
   (format 3 with the shadow alone, the engine's own format without it and without the Tray
   Reflection; a reflection above 0 makes it format 4 either way, except that a stone with color
-  zones makes it format 5, a turned HDR map format 6 and an off-centre camera format 7). The map
+  zones makes it format 5, a turned HDR map format 6, an off-centre camera format 7 and a stone
+  pose format 8). The map
   is computed at Final
   quality before the first sample; the path cache (and beam tracing, in a `beam` build) cannot
   serve a stone with the shadow, so it renders without them and a note says why.
@@ -414,7 +419,7 @@ PICTURE OPTIONS
   fraction (`4` is stored as `0.04`). About 4 looks like black acrylic or glass on the Black
   backdrop; glancing views reflect more. The job's file format follows it: format 4 when the
   value is above 0 (format 5 when the stone has color zones, format 6 with a turned HDR map,
-  format 7 with an off-centre camera),
+  format 7 with an off-centre camera, format 8 with a stone pose),
   so an older reader refuses the file. It works together with the Stone
   Shadow. The path cache and beam tracing (in a build with the `beam` feature) cannot serve it
   ("Path cache off: the tray reflection needs paths the cache does not keep." and "Beam tracing
@@ -423,6 +428,12 @@ PICTURE OPTIONS
   traced on the CPU on this graphics card."); Ray-Traced GPU rendering always runs it. Without a studio
   light with a backdrop the message is "Tray reflection needs a studio light with a
   backdrop."; tilt videos do not show the reflection.
+- `--stone-pose TILT,TURN[,SPIN]` stands the stone on the tray in a pose, in degrees: tilt 0 to
+  180 (clamped; 90 stands the table upright), turn and spin 0 to 360 (wrapped). The tray, the
+  lights and the camera stay where they are, and the tray drops to the stone's lowest point.
+  The job's file format becomes 8 (an older reader refuses it) whatever else it holds, and a
+  pose of `0,0,0` leaves the job as it was. Not for `tilt-video`. A value that is not two or three
+  numbers is refused: "--stone-pose takes TILT,TURN or TILT,TURN,SPIN in degrees".
 - A run renders with exit collection, the estimator of the apps. `--path-cache`,
   `--persist-cache` or any `--beam*` flag make that run render with the branching estimator,
   which they need, with one note on standard error ("Estimator: branching for this run (the path

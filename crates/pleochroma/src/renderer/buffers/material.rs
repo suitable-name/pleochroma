@@ -193,7 +193,7 @@ pub mod optical_character {
 /// rounding scalars sit at 388..400. Then come the third band set (400..536),
 /// `absorption_path_scale` (536), the extraordinary-ray curve (540..592, padded to 16-byte
 /// alignment), the zone table (592..2720, see `renderer::buffers::zoning`),
-/// [`GpuBiaxialCurves`] (2720..2800) and the inclusion block (2800..3024).
+/// [`GpuBiaxialCurves`] (2720..2800) and the inclusion block (2800..3104).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuGemMaterial {
@@ -332,11 +332,11 @@ const _: () = {
     assert!(offset_of!(GpuGemMaterial, extraordinary_param_b) == 576);
     // The zone table is 2128 bytes (see `renderer::buffers::zoning`).
     assert!(offset_of!(GpuGemMaterial, zones) == 592);
-    assert!(size_of::<GpuGemMaterial>() == 592 + 2128 + 80 + 224);
+    assert!(size_of::<GpuGemMaterial>() == 592 + 2128 + 80 + 304);
     // The biaxial curves follow the zone table; the inclusion block closes the struct.
     assert!(offset_of!(GpuGemMaterial, biaxial_curves) == 2720);
     assert!(offset_of!(GpuGemMaterial, inclusions) == 2800);
-    assert!(size_of::<GpuGemMaterial>() == 3024);
+    assert!(size_of::<GpuGemMaterial>() == 3104);
     assert!(size_of::<GpuGemMaterial>().is_multiple_of(16));
     assert!(offset_of!(GpuBiaxialCurves, types) == 0);
     assert!(offset_of!(GpuBiaxialCurves, alpha_a) == 16);

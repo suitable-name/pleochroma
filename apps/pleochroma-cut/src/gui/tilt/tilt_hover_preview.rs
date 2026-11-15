@@ -263,6 +263,8 @@ fn serve(
             return;
         }
     };
+    // The hover preview shows the stone as designed, tipped about its own axis.
+    scene.clear_stone_pose();
     if cancelled() || RenderContext::lock(ctx).scene_generation() != generation {
         return;
     }

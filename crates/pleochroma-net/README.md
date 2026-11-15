@@ -61,7 +61,7 @@ it.
 
 ## Protocol version and message set
 
-`messages::PROTOCOL_VERSION: u16 = 43` (see its doc comment for the history). Three protocols share one authenticated
+`messages::PROTOCOL_VERSION: u16 = 44` (see its doc comment for the history). Three protocols share one authenticated
 connection: **render** (offload sample tracing), **tilt curves** (offload one design's
 full tilt-performance sweep), and **library** (read a design catalogue). A peer may
 serve any subset, and — for a viewer — consume all three.
@@ -433,9 +433,15 @@ with; the variant order is part of the wire format, so new variants are appended
 picture, in image half-heights, `x` to the right and `y` up in the picture's own axes (after the
 roll); `[0.0, 0.0]` is the centred camera. The eye moves parallel to the image plane
 (`Camera::with_pan`), so the stone is off-centre and seen from a slightly shifted point of view. It
-is the last eight wire bytes (two `f32`), added in protocol 43; a JSON scene or job written before
-the field has no key and reads as centred. A worker refuses a non-finite component or one whose
-magnitude exceeds `MAX_CAMERA_PAN` (4.0).
+is the eight wire bytes (two `f32`) before the pose, added in protocol 43; a JSON scene or job
+written before the field has no key and reads as centred. A worker refuses a non-finite component
+or one whose magnitude exceeds `MAX_CAMERA_PAN` (4.0).
+
+`stone_pose` is the stone's pose on the tray in degrees, `[tilt, turn, spin]`
+(`pleochroma::render_setup::StonePose`); `[0.0, 0.0, 0.0]` is the stone as designed. It is the last
+twelve wire bytes (three `f32`), added in protocol 44; a JSON scene or job leaves the key out at
+identity, and one written before the field reads as identity. A worker refuses a non-finite
+component and clamps the rest into the pose ranges (tilt 0 to 180, turn and spin 0 to 360).
 
 A viewer stores a material as a name plus a list of custom materials loaded from
 its own local SQLite database, and stores a diagram as an id looked up against

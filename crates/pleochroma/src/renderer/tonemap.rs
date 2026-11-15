@@ -429,12 +429,13 @@ mod tests {
     /// The hashes are those of [`pre_move_export_tonemap`].
     #[test]
     fn tonemap_accumulation_output_is_pinned() {
-        // Pinned with the sRGB encode's final 8-bit quantisation at round-to-nearest.
+        // Pinned with the sRGB encode's final 8-bit quantisation at round-to-nearest and the
+        // exact gamut walk (`gamut::project_to_gamut_bounded`).
         const PINNED: [(ColorSpace, u64); 4] = [
-            (ColorSpace::Srgb, 0x74aa_b8aa_51e1_87e5),
-            (ColorSpace::DisplayP3, 0xdcf9_71d4_dbd5_c9d9),
-            (ColorSpace::Rec2020, 0x4855_a258_e239_8cf4),
-            (ColorSpace::AcesCg, 0x1f4f_8288_d988_9085),
+            (ColorSpace::Srgb, 0x5dbf_cf4c_40d1_e876),
+            (ColorSpace::DisplayP3, 0xb1f3_9121_50b0_fb5b),
+            (ColorSpace::Rec2020, 0x7a77_a795_e391_16e5),
+            (ColorSpace::AcesCg, 0xcae3_4b44_248c_244d),
         ];
         let (width, height) = (8_u32, 5_u32);
         let accum = irregular_colors((width * height) as usize, 0x1357_9bdf);

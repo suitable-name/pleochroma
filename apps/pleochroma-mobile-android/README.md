@@ -5,7 +5,7 @@ The phone and tablet app: a touch-first [Slint](https://slint.dev) UI over
 Kotlin `NativeActivity` shim. The same UI also runs in a desktop window for development
 (the desktop preview, below).
 
-**Status.** Version 0.11.0 (versionCode 6). There is an internal testing track on Google Play,
+**Status.** Version 0.11.1 (versionCode 9). There is an internal testing track on Google Play,
 but no public Google Play listing yet. Anyone can build the app and install it on their own
 Android phone or tablet: a debug APK from Android Studio or from `gradlew assembleDebug` plus
 `adb install` (see "Build and run"). The same UI also runs in a desktop window with the
@@ -50,7 +50,7 @@ apps/pleochroma-mobile-android/
   android/                    the Gradle project (Kotlin side, manifest, cargo-ndk task)
 ```
 
-Package and application id: `com.indicatrixsuite.mobile`. versionName 0.11.0, versionCode 6,
+Package and application id: `com.indicatrixsuite.mobile`. versionName 0.11.1, versionCode 9,
 minSdk 28, targetSdk 37, compileSdk 37, ABI `arm64-v8a`.
 
 ## One-time setup (Windows)

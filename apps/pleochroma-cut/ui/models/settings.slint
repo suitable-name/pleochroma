@@ -34,6 +34,19 @@ export global SettingsModel {
     // tray under the stone in the path-traced view and exports. Studio lights with a backdrop
     // only; the Lighting tab dims the slider elsewhere.
     in-out property <float> tray_reflection_pct: 0.0;
+    // The Stone Pose (degrees): how the stone stands on the tray in the Live Render view and the
+    // exports. Tilt 0-180 (0 = the stone as designed), turn and spin 0-360. Rust keeps them in
+    // step with the render context and the settings file (`gui::render::stone_pose`); the
+    // Lighting tab's STONE POSE group edits them.
+    in-out property <float> stone_tilt_deg: 0.0;
+    in-out property <float> stone_turn_deg: 0.0;
+    in-out property <float> stone_spin_deg: 0.0;
+    // The Live view's chip text while the stone is posed ("Stone Pose · tilted 75°"), empty for
+    // the stone as designed.
+    in property <string> stone_pose_chip: "";
+    // The export dialog's line ("Stone Pose: tilt 75°, turn 30°, spin 0°"), empty for the stone
+    // as designed.
+    in property <string> stone_pose_detail: "";
     // Surface glare, percent (0-100, default 100 = unscaled): the share of the white
     // mirror image of the light kept in the path-traced view and exports. Built-in
     // lighting presets only; the Parameters panel greys it out for an HDR map.
@@ -188,6 +201,18 @@ export global SettingsModel {
     // Carries the snapped percent (0-100); `settings::model::tray_reflection_from_percent`
     // limits the reflectance Rust derives from it.
     callback tray_reflection_changed(float);
+    // Tilt, turn and spin in degrees as the controls show them, and whether a slider is still
+    // being dragged (`live`: the Stone Shadow waits; a field entry or a slider release is not
+    // live). Rust clamps them and applies the pose (`gui::render::stone_pose`).
+    callback stone_pose_changed(float, float, float, bool);
+    // Face the Camera: turns the table to the eye, keeps the spin.
+    callback stone_face_camera();
+    // Product Shot: the stone faces a camera at 15 degrees elevation, framed with the mirror
+    // image below. The argument tells whether the Tray Reflection can show here (a studio light
+    // or lit model with a backdrop), for the toast.
+    callback stone_product_shot(bool);
+    // Stands the stone as designed.
+    callback stone_pose_reset();
     // Carries the snapped percent (0-100); `settings::model::clamp_surface_glare` limits
     // the fraction Rust derives from it.
     callback surface_glare_changed(float);

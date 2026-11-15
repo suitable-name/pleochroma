@@ -1,0 +1,84 @@
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { VerdictModel } from "../../models/verdict.slint";
+import { KitButton, KitGlass, KitIcon, KitIconButton, KitIcons } from "../kit/kit.slint";
+import { ProblemBannerState } from "problem_banner.slint";
+
+// Says in words that the last edit cut facets away ("This cut away P2: all 4 of its facets."), top centre
+// under the toolbar in the problem banner's slot, in amber. It holds "Select <tier>", "Undo" and a close
+// cross. It is not a problem of the stone, so it never blocks anything and the problem banner takes the
+// slot first.
+//
+// The words and the tier come from `VerdictModel` (`gui::editor::verdict` works them out when a verdict
+// lands after an edit); the next edit, the cross and the problem banner hide it.
+export global VanishNoticeState {
+    // Shown while Rust holds a notice and the problem banner does not take the slot.
+    out property <bool> shown: VerdictModel.vanish_notice_shown && EditorModel.enabled && !ProblemBannerState.shown;
+    out property <length> banner_height: 52px;
+}
+
+export component VanishNotice inherits KitGlass {
+    // The room the notice has (the viewport's width less its margins).
+    in property <length> room: 760px;
+
+    height: 44px;
+    width: min(root.room, lay.preferred-width + 8px);
+    background: Theme.surface-warning;
+    border-color: Theme.accent-amber;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Facets were cut away";
+    accessible-description: VerdictModel.vanish_notice_text;
+
+    lay := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 6px;
+        spacing: 10px;
+        VerticalLayout { alignment: center; KitIcon { d: KitIcons.warn; size: 16px; ink: Theme.accent-amber; } }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: VerdictModel.vanish_notice_text;
+            font-size: 12px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            alignment: center;
+            KitButton {
+                text: "Select " + VerdictModel.vanish_notice_tier_label;
+                h: 28px;
+                hint: "Select this tier in the tier list.";
+                clicked => {
+                    EditorModel.selected_tier_index = VerdictModel.vanish_notice_tier;
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            KitButton {
+                text: "Undo";
+                kind: 1;
+                h: 28px;
+                enabled: EditorModel.can_undo;
+                hint: "Take back the edit that cut it away. Ctrl+Z does the same.";
+                clicked => {
+                    EditorModel.undo();
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            KitIconButton {
+                d: KitIcons.close;
+                label: "Dismiss";
+                hint: "Dismiss this message";
+                size: 28px;
+                icon_size: 14px;
+                clicked => {
+                    VerdictModel.vanish_notice_dismiss();
+                }
+            }
+        }
+    }
+}

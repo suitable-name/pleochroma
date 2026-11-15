@@ -120,7 +120,7 @@ pub fn gather(
     // it is cut, and a girdle that tiers cut into.
     inputs.meets = design
         .cut_meets(solved)
-        .map(|meets| meet_facts(design, &meets));
+        .map(|meets| meet_facts(design, &meets, solved));
     let girdle_level = design.girdle_level(solved);
     inputs.girdle_level = girdle_level
         .as_ref()

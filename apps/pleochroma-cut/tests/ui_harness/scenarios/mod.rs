@@ -18,6 +18,7 @@ mod editor;
 mod files;
 mod library;
 mod main_window;
+mod meet_pick;
 mod rough_planner;
 mod secondary_windows;
 mod shortcuts;
@@ -122,6 +123,7 @@ pub fn all() -> Vec<Piece> {
     all.extend(main_window::pieces());
     all.extend(library::pieces());
     all.extend(editor::scenarios().into_iter().map(Piece::from));
+    all.extend(meet_pick::scenarios().into_iter().map(Piece::from));
     all.extend(files::scenarios().into_iter().map(Piece::from));
     all.extend(dialogs::scenarios().into_iter().map(Piece::from));
     all.extend(shortcuts::scenarios().into_iter().map(Piece::from));

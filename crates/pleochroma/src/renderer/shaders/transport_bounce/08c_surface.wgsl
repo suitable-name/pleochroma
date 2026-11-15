@@ -111,7 +111,7 @@ fn surface_begin(
     if (surface_unit_draw(rng_seed, bounce, SURFACE_HALO_STREAM) >= p_hero) {
         return result;
     }
-    let across = surf_across_scratches(w, surface_machine(), n_out, rng_seed, bounce);
+    let across = surf_across_scratches(w, surface_machine(), material.inclusions.scratch_up, material.inclusions.scratch_side, n_out, rng_seed, bounce);
     let frame = ground_frame_new(n_side, across, true);
     var wi = ground_to_local(frame, to_eye);
     wi.z = max(wi.z, SURF_MIN_COSINE);
@@ -160,7 +160,7 @@ fn surface_ground_params(
         if (inside_before) {
             n_out = -normal;
         }
-        gp.across = surf_across_scratches(word, surface_machine(), n_out, rng_seed, bounce);
+        gp.across = surf_across_scratches(word, surface_machine(), material.inclusions.scratch_up, material.inclusions.scratch_side, n_out, rng_seed, bounce);
         gp.has_across = true;
     }
     return gp;
@@ -203,7 +203,7 @@ fn surface_finish_event(
     // The outgoing masking of a halo direction; 1 for the specular branch.
     var masking: f32 = 1.0;
     if (halo) {
-        let across = surf_across_scratches(word, surface_machine(), n_out, seed0, bounce);
+        let across = surf_across_scratches(word, surface_machine(), material.inclusions.scratch_up, material.inclusions.scratch_side, n_out, seed0, bounce);
         let frame = ground_frame_new(n_side, across, true);
         let along = dot(frame.n, (*s).k);
         var right_side = along < 0.0;

@@ -759,8 +759,13 @@ fn split_planes(
 }
 
 mod geometry;
+mod pick;
 mod reanchor;
 
+pub use pick::{
+    MeetPickBlock, MeetPickLoss, MeetPickState, PickCorner, PickedFacet, TierMeetPick,
+    TierMeetPickMap,
+};
 pub use reanchor::MeetTarget;
 
 #[cfg(test)]

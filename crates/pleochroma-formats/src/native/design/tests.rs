@@ -1,7 +1,7 @@
 use super::*;
 use crate::native::{
-    ConcaveTierTable, MaterialTable, NativeMeetConstraint, NativePreformShape, PreformTable,
-    TierTable,
+    ConcaveTierTable, MaterialTable, MeetPickFacetTable, NativeMeetConstraint, NativePreformShape,
+    PreformTable, TierTable,
 };
 use std::path::Path;
 
@@ -62,13 +62,16 @@ fn reserializing_a_parsed_file_is_byte_identical() {
 #[test]
 fn a_too_new_version_is_refused_before_the_body_is_read() {
     // The body is garbage a v1 reader could not parse; the version error wins.
-    let text = "format = \"pleochroma-design\"\nversion = 5\n[preform]\nshape = 7\n";
-    match parse(text) {
-        Err(DesignFileError::UnsupportedVersion {
-            found: 5,
-            supported,
-        }) => {
-            assert_eq!(supported, DESIGN_VERSION_PLANES);
+    let text = format!(
+        "format = \"pleochroma-design\"\nversion = {}\n[preform]\nshape = 7\n",
+        DESIGN_VERSION_MEET_PICKS + 1
+    );
+    match parse(&text) {
+        Err(DesignFileError::UnsupportedVersion { found, supported })
+            if found == i64::from(DESIGN_VERSION_MEET_PICKS + 1) =>
+        {
+            assert_eq!(supported, DESIGN_VERSION_MEET_PICKS);
+            assert_eq!(supported, 5);
         }
         other => panic!("expected UnsupportedVersion, got {other:?}"),
     }
@@ -325,17 +328,20 @@ fn relations_and_concave_tiers_share_version_3() {
 }
 
 #[test]
-fn versions_1_to_4_are_all_accepted_and_5_is_not() {
-    for version in 1..=DESIGN_VERSION_PLANES {
+fn versions_1_to_5_are_all_accepted_and_6_is_not() {
+    for version in 1..=DESIGN_VERSION_MEET_PICKS {
         let text = to_string(&sample()).expect("serializes");
         let other = text.replacen("version = 1", &format!("version = {version}"), 1);
         assert!(parse(&other).is_ok(), "version {version}");
     }
     let text = to_string(&sample()).expect("serializes");
-    let newer = text.replacen("version = 1", "version = 5", 1);
+    let newer = text.replacen("version = 1", "version = 6", 1);
     assert!(matches!(
         parse(&newer),
-        Err(DesignFileError::UnsupportedVersion { found: 5, .. })
+        Err(DesignFileError::UnsupportedVersion {
+            found: 6,
+            supported: 5
+        })
     ));
 }
 
@@ -388,6 +394,96 @@ fn a_plane_set_preform_keeps_the_highest_version_with_concave_tiers_and_relation
     // Without the plane set the same document drops back to the relations' version.
     related.preform = sample().preform;
     assert_eq!(related.needed_version(), DESIGN_VERSION_RELATIONS);
+}
+
+/// `sample()` whose second tier carries a meet pick.
+fn picked_sample() -> DesignFile {
+    let mut file = sample();
+    file.tiers[1] = file.tiers[1].clone().with_meet_pick(vec![
+        MeetPickFacetTable { tier: 0, at: 0.0 },
+        MeetPickFacetTable { tier: 0, at: 24.0 },
+        MeetPickFacetTable { tier: 1, at: 12.0 },
+    ]);
+    file.version = file.needed_version();
+    file
+}
+
+#[test]
+fn a_meet_pick_makes_the_file_version_5_and_round_trips() {
+    let file = picked_sample();
+    assert_eq!(file.version, DESIGN_VERSION_MEET_PICKS);
+    let text = to_string(&file).expect("serializes");
+    assert!(text.starts_with("format = \"pleochroma-design\"\nversion = 5\n"));
+    assert_eq!(text.matches("[[tiers.meet_pick]]").count(), 3, "{text}");
+    let parsed = parse(&text).expect("parses own output");
+    assert_eq!(parsed, file);
+    assert!(parsed.tiers[0].meet_pick.is_empty());
+    assert_eq!(parsed.tiers[1].meet_pick.len(), 3);
+    assert_eq!(to_string(&parsed).expect("serializes"), text);
+}
+
+#[test]
+fn needed_version_is_5_exactly_when_a_pick_exists_and_combines_with_the_rest() {
+    assert_eq!(sample().needed_version(), DESIGN_VERSION);
+    assert_eq!(picked_sample().needed_version(), DESIGN_VERSION_MEET_PICKS);
+
+    // An empty pick list is no pick.
+    let mut empty = picked_sample();
+    empty.tiers[1].meet_pick.clear();
+    assert_eq!(empty.needed_version(), DESIGN_VERSION);
+
+    // Concave tiers keep the pick's version.
+    let concave = picked_sample().with_concave_tiers(vec![concave_tier("P8")]);
+    assert_eq!(concave.version, DESIGN_VERSION_MEET_PICKS);
+    let text = to_string(&concave).expect("serializes");
+    assert_eq!(parse(&text).expect("parses own output"), concave);
+
+    // Relations keep the pick's version; without the pick they drop to version 3.
+    let mut related = picked_sample();
+    related.tiers[0] = related.tiers[0]
+        .clone()
+        .with_angle_relation(Some("@1 - 2".to_string()));
+    assert_eq!(related.needed_version(), DESIGN_VERSION_MEET_PICKS);
+    related.tiers[1].meet_pick.clear();
+    assert_eq!(related.needed_version(), DESIGN_VERSION_RELATIONS);
+
+    // A plane-set preform keeps the pick's version; without the pick it is version 4.
+    let mut planes = planes_sample();
+    planes.tiers[1] = picked_sample().tiers[1].clone();
+    assert_eq!(planes.needed_version(), DESIGN_VERSION_MEET_PICKS);
+    planes.tiers[1].meet_pick.clear();
+    assert_eq!(planes.needed_version(), DESIGN_VERSION_PLANES);
+}
+
+#[test]
+fn a_version_6_header_is_refused_with_supported_5() {
+    let text = to_string(&picked_sample()).expect("serializes");
+    let newer = text.replacen("version = 5", "version = 6", 1);
+    assert!(matches!(
+        parse(&newer),
+        Err(DesignFileError::UnsupportedVersion {
+            found: 6,
+            supported: 5
+        })
+    ));
+    assert!(matches!(
+        check_header(&newer),
+        Err(DesignFileError::UnsupportedVersion {
+            found: 6,
+            supported: 5
+        })
+    ));
+}
+
+#[test]
+fn a_file_without_a_pick_never_writes_the_key_and_keeps_its_bytes() {
+    let text = to_string(&sample()).expect("serializes");
+    assert!(!text.contains("meet_pick"));
+    assert!(text.starts_with("format = \"pleochroma-design\"\nversion = 1\n"));
+    assert_eq!(
+        to_string(&parse(&text).expect("parses")).expect("serializes"),
+        text
+    );
 }
 
 #[test]

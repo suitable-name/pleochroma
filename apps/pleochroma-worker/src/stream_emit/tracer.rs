@@ -330,7 +330,9 @@ pub fn trace_range(
     let state = Arc::new(Mutex::new(SharedState::new(pixel_count)));
     let (progress_tx, _progress_rx) = mpsc::channel();
     let job = TracerJob {
-        scene: scene.clone(),
+        // The job's scene is held as received (a joined worker poses its own copy), so each
+        // chunk poses it here.
+        scene: render_core::pose::posed_scene(scene).into_owned(),
         first_sample,
         samples,
         threads,

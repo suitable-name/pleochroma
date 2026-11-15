@@ -32,6 +32,123 @@ use pleochroma_editor::manipulate::{
 };
 use std::collections::BTreeSet;
 
+/// The armed pick mode the exit tests start from: tier 5, generation 7, epoch 2, slider parked
+/// on 3.
+const fn armed_pick() -> super::meet_pick::Armed {
+    super::meet_pick::Armed {
+        tier: 5,
+        generation: 7,
+        epoch: 2,
+        parked: 3,
+    }
+}
+
+/// Nothing has changed since [`armed_pick`].
+const fn unchanged() -> super::meet_pick::Now {
+    super::meet_pick::Now {
+        diagram: false,
+        selected: Some(5),
+        generation: 7,
+        epoch: 2,
+        cutoff: 3,
+    }
+}
+
+#[test]
+fn arming_parks_the_cut_slider_before_the_tier_and_cancel_puts_it_back() {
+    use super::{
+        meet_pick::{Exit, parked_cutoff, restored_cutoff},
+        slice::tier_step,
+    };
+    use crate::gui::solid_preview::cut_slider::MODEL_ROUGH;
+
+    let design = Design::new(
+        PreformSpec::block(2.0, 1.0, 2.0),
+        ScheduleMeta::standard_round_brilliant(),
+        ConstraintTier::standard_round_brilliant(),
+    );
+    for tier in 0..design.tiers.len() {
+        let step = tier_step(&design, tier).expect("every tier is a flat step");
+        let expected = if step == 0 {
+            MODEL_ROUGH
+        } else {
+            i32::try_from(step - 1).expect("a small step")
+        };
+        assert_eq!(parked_cutoff(&design, tier), Some(expected), "tier {tier}");
+    }
+    assert_eq!(parked_cutoff(&design, design.tiers.len()), None);
+
+    // Cancel and a pick put the saved position back; so does an edit from elsewhere.
+    for exit in [Exit::Cancel, Exit::Picked, Exit::Selection, Exit::Edited] {
+        assert_eq!(restored_cutoff(exit, 3, 3, -1), Some(-1), "{exit:?}");
+    }
+    // Nothing to do when the slider already stood there.
+    assert_eq!(restored_cutoff(Exit::Cancel, 3, 3, 3), None);
+    // A new design starts uncut, and a slider the user moved stays where it was put.
+    assert_eq!(restored_cutoff(Exit::Replaced, 3, 3, -1), None);
+    assert_eq!(restored_cutoff(Exit::SliderMoved, 4, 3, -1), None);
+    assert_eq!(restored_cutoff(Exit::Cancel, 4, 3, -1), None);
+}
+
+#[test]
+fn pick_mode_ends_for_each_change_it_cannot_survive_and_for_nothing_else() {
+    use super::meet_pick::{Exit, pending_exit};
+
+    let armed = armed_pick();
+    assert_eq!(pending_exit(&armed, &unchanged()), None);
+
+    let mut now = unchanged();
+    now.selected = Some(4);
+    assert_eq!(pending_exit(&armed, &now), Some(Exit::Selection));
+    now.selected = None;
+    assert_eq!(pending_exit(&armed, &now), Some(Exit::Selection));
+
+    let mut now = unchanged();
+    now.diagram = true;
+    assert_eq!(pending_exit(&armed, &now), Some(Exit::Diagram));
+
+    let mut now = unchanged();
+    now.generation = 8;
+    assert_eq!(pending_exit(&armed, &now), Some(Exit::Edited));
+
+    let mut now = unchanged();
+    now.epoch = 3;
+    now.generation = 9;
+    assert_eq!(
+        pending_exit(&armed, &now),
+        Some(Exit::Replaced),
+        "a replacement wins over the edit count it carries"
+    );
+
+    let mut now = unchanged();
+    now.cutoff = -1;
+    assert_eq!(pending_exit(&armed, &now), Some(Exit::SliderMoved));
+}
+
+#[test]
+fn the_armed_row_sentence_names_the_tiers_and_counts_the_corners() {
+    use super::meet_pick::armed_note;
+
+    let names = |list: &[&str]| list.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        armed_note(&names(&["P1", "P2"]), Some(9)),
+        "Click a ringed corner in the view. P1 and P2 meet in 9 corners; the pick says which \
+         one."
+    );
+    assert_eq!(
+        armed_note(&names(&["P1"]), Some(1)),
+        "Click a ringed corner in the view. P1 has 1 corner; the pick says which one."
+    );
+    assert_eq!(
+        armed_note(&names(&["P1", "P2"]), None),
+        "Click a ringed corner in the view."
+    );
+    assert_eq!(
+        armed_note(&[], Some(4)),
+        "Click a ringed corner in the view."
+    );
+}
+
 /// Asserts two pixel pairs agree to well under a hundredth of a pixel.
 fn assert_close(actual: (f32, f32), expected: (f32, f32)) {
     assert!(

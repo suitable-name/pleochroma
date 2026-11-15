@@ -340,6 +340,7 @@ mod tests {
             indices: indices.to_vec(),
             constraint: MeetConstraint::MeetExisting,
             names: names.iter().map(|s| (*s).to_string()).collect(),
+            pick: None,
         }
     }
 

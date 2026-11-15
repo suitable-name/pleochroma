@@ -5,12 +5,17 @@
 
 use super::MaterialResolution;
 use crate::{
-    design::{ConstraintTier, Design, RelationError, TierFrosting, TierId, TierRelation},
+    design::{
+        ConstraintTier, Design, PickedFacet, RelationError, TierFrosting, TierId, TierMeetPick,
+        TierRelation,
+    },
     native::convert::{
         concave_tier_from_table, meet_constraint_from_native, tier_target_from_native,
     },
 };
-use pleochroma_formats::native::{ConcaveTierTable, NativeTierTarget, TierTable};
+use pleochroma_formats::native::{
+    ConcaveTierTable, MeetPickFacetTable, NativeTierTarget, TierTable,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The [`MaterialResolution`] of `name`, by exact built-in name (see that type for the
@@ -138,6 +143,60 @@ pub(in crate::native) fn apply_tier_frosting(design: &mut Design, raw: &[(bool, 
             design.tier_frosting.insert(id, frosting);
         }
     }
+}
+
+/// [`raw_tier_ids_from_native`]'s counterpart for [`TierTable::meet_pick`]: per tier, the
+/// saved facets of its picked corner (empty when it has none).
+pub(in crate::native) fn raw_tier_meet_picks_from_native(
+    native_tiers: &[TierTable],
+) -> Vec<Vec<MeetPickFacetTable>> {
+    native_tiers.iter().map(|t| t.meet_pick.clone()).collect()
+}
+
+/// Restores `design.tier_meet_picks` from `raw` (captured via
+/// [`raw_tier_meet_picks_from_native`] before the `tiers` array was consumed), keyed by each
+/// tier's id. A pick that does not hold exactly three facets, names a tier id the file does not
+/// hold, or has a non-finite position loads as no pick; each such pick adds one sentence to the
+/// returned notes. Must run after [`apply_tier_ids_and_targets`].
+pub(in crate::native) fn apply_tier_meet_picks(
+    design: &mut Design,
+    raw: &[Vec<MeetPickFacetTable>],
+) -> Vec<String> {
+    design.tier_meet_picks.clear();
+    let known: BTreeSet<u64> = design.tier_ids.iter().map(|id| id.0).collect();
+    let mut notes = Vec::new();
+    for (index, (saved, &id)) in raw.iter().zip(&design.tier_ids).enumerate() {
+        if saved.is_empty() {
+            continue;
+        }
+        let reason = if saved.len() != 3 {
+            Some("it does not name exactly three facets")
+        } else if saved.iter().any(|facet| !known.contains(&facet.tier)) {
+            Some("it names a tier the file does not hold")
+        } else if saved.iter().any(|facet| !facet.at.is_finite()) {
+            Some("a facet position is not a number")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            let name = design.tiers.get(index).map_or("", |t| t.name.as_str());
+            notes.push(format!(
+                "Tier {name}: the saved meet pick was dropped because {reason}."
+            ));
+            continue;
+        }
+        let facet = |i: usize| PickedFacet {
+            tier: TierId(saved[i].tier),
+            index: saved[i].at,
+        };
+        design.tier_meet_picks.insert(
+            id,
+            TierMeetPick {
+                facets: [facet(0), facet(1), facet(2)],
+            },
+        );
+    }
+    notes
 }
 
 /// [`raw_tier_ids_from_native`]'s counterpart for [`TierTable::angle_relation`].

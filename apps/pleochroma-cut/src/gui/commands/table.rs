@@ -243,6 +243,7 @@ pub static COMMANDS: &[Command] = &[
     table_view::view_inspector_variants(),
     table_view::view_library_panel(),
     table_view::view_slice(),
+    table_view::view_pick_meet(),
     table_view::view_snap(),
     // --- Tiers ------------------------------------------------------------------------
     command(

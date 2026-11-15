@@ -192,6 +192,7 @@ fn client_message_render_request_round_trips() {
         frosted_planes: Vec::new(),
         effects: crate::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     };
     let msg = ClientMessage::RenderRequest(Box::new(super::super::render::RenderRequest {
         request_id: 8,
@@ -249,6 +250,7 @@ fn client_message_tilt_curves_request_round_trips() {
         frosted_planes: Vec::new(),
         effects: crate::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     };
     let msg = ClientMessage::TiltCurvesRequest(Box::new(super::super::tilt::TiltCurvesRequest {
         request_id: 11,
@@ -319,6 +321,7 @@ fn render_gated_variants_are_appended_in_order_after_cancel_and_library() {
         frosted_planes: Vec::new(),
         effects: crate::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     };
 
     let render_request =

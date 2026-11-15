@@ -18,10 +18,11 @@ use super::{
         structure_table, surface_columns,
     },
     load::{
-        MaterialResolution, apply_tier_frosting, apply_tier_ids_and_targets, apply_tier_relations,
-        cheater_offsets_from_native, material_resolution_of, raw_tier_frosting_from_native,
-        raw_tier_ids_from_native, raw_tier_relations_from_native, raw_tier_targets_from_native,
-        restore_concave_tiers, tier_from_table_with_full_geometry, tier_notes_from_native,
+        MaterialResolution, apply_tier_frosting, apply_tier_ids_and_targets, apply_tier_meet_picks,
+        apply_tier_relations, cheater_offsets_from_native, material_resolution_of,
+        raw_tier_frosting_from_native, raw_tier_ids_from_native, raw_tier_meet_picks_from_native,
+        raw_tier_relations_from_native, raw_tier_targets_from_native, restore_concave_tiers,
+        tier_from_table_with_full_geometry, tier_notes_from_native,
     },
     unknown_keys::UnknownFileKeys,
 };
@@ -29,12 +30,12 @@ use crate::{
     crystal_axis::CrystalAxisPlan,
     design::{
         Design, EdgeAbrasionEffects, ScheduleMeta, StoneRenderEffects, TierFrosting, TierId,
-        TierRelation,
+        TierMeetPick, TierRelation,
     },
 };
 use pleochroma::geometry::stone_metrics::ExternalProportions;
 use pleochroma_formats::native::{
-    CustomMaterialSnapshot, HistoryTable, SourceTable, TierTable,
+    CustomMaterialSnapshot, HistoryTable, MeetPickFacetTable, SourceTable, TierTable,
     design::{
         self, AttachmentBlob, DesignFile, DesignFileError, DesignMetadata, RenderEffectsTable,
         ScheduleTable, attachment_blobs,
@@ -155,6 +156,9 @@ pub struct LoadedDesign {
     pub metadata: DesignMetadata,
     /// The attachments with their bytes decoded and verified, in file order.
     pub attachments: Vec<AttachmentBlob>,
+    /// What the loader set aside or repaired while reading the file, one sentence per item
+    /// (for example a saved meet pick it could not keep). Empty for a file read as written.
+    pub load_notes: Vec<String>,
 }
 
 fn schedule_table_from_meta(meta: &ScheduleMeta) -> ScheduleTable {
@@ -228,6 +232,18 @@ fn bounded_history(entries: &[String]) -> Vec<String> {
     entries.get(start..).unwrap_or_default().to_vec()
 }
 
+/// A picked corner as the `meet_pick` entries of its tier's file record: three facets, each
+/// the facet's tier id and index-wheel position.
+fn meet_pick_columns(pick: &TierMeetPick) -> Vec<MeetPickFacetTable> {
+    pick.facets
+        .iter()
+        .map(|facet| MeetPickFacetTable {
+            tier: facet.tier.0,
+            at: facet.index,
+        })
+        .collect()
+}
+
 /// A tier's frosting as the two columns of its file record: the whole-tier flag and the
 /// single frosted facets' positions (a polished tier is `(false, [])`, which is not written).
 fn frosting_columns(frosting: Option<&TierFrosting>) -> (bool, Vec<f64>) {
@@ -273,6 +289,13 @@ fn build_file(
                     .map(TierRelation::to_canonical),
             )
             .with_frosting(frosted, frosted_facets)
+            .with_meet_pick(
+                ids_in_step
+                    .then(|| design.tier_meet_pick(index))
+                    .flatten()
+                    .map(meet_pick_columns)
+                    .unwrap_or_default(),
+            )
             .with_surface(surface_columns(design.tier_surface(index)))
         })
         .collect();
@@ -421,6 +444,7 @@ pub fn design_from_file(file: DesignFile) -> Result<LoadedDesign, DesignLoadErro
     let raw_targets = raw_tier_targets_from_native(&tiers);
     let raw_relations = raw_tier_relations_from_native(&tiers);
     let raw_frosting = raw_tier_frosting_from_native(&tiers);
+    let raw_meet_picks = raw_tier_meet_picks_from_native(&tiers);
     let raw_surfaces: Vec<_> = tiers.iter().map(TierTable::surface_columns).collect();
     // The keys this build does not claim, set aside before the tables are consumed;
     // the per-tier ones are matched to their tier's id once the ids are assigned.
@@ -459,6 +483,7 @@ pub fn design_from_file(file: DesignFile) -> Result<LoadedDesign, DesignLoadErro
     design.cheater_offsets_deg = offsets;
     apply_tier_ids_and_targets(&mut design, raw_ids, raw_targets);
     apply_tier_frosting(&mut design, &raw_frosting);
+    let load_notes = apply_tier_meet_picks(&mut design, &raw_meet_picks);
     apply_tier_surfaces(&mut design, &raw_surfaces);
     apply_tier_relations(&mut design, &raw_relations)
         .map_err(|(index, reason)| DesignLoadError::Relation { index, reason })?;
@@ -490,6 +515,7 @@ pub fn design_from_file(file: DesignFile) -> Result<LoadedDesign, DesignLoadErro
         draft,
         metadata: meta,
         attachments,
+        load_notes,
     })
 }
 

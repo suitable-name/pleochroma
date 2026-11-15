@@ -12,7 +12,7 @@
 
 use super::{metrics, overlay, params, render, run::VideoExportRequest};
 use crate::{
-    bridge::export_thread::{AccumulationCarry, ComputeTarget, RenderTaps},
+    bridge::export_thread::{AccumulationCarry, ComputeTarget, RenderTaps, SceneSnapshot},
     gui::tilt::tilt_hover_preview,
     settings::LocalComputeTarget,
 };
@@ -25,6 +25,17 @@ use std::{
 
 /// The suffix of a frame that is still being written.
 const PARTIAL_SUFFIX: &str = ".partial";
+
+/// The scene every frame of a tilt video starts from: `scene` without the stone shadow, the tray
+/// reflection and the stone pose. A tilt video shows the stone as designed, tipped about its own
+/// axes, so the Live Render pose, the shadow and the mirror are left out of every frame.
+fn tilt_frame_scene(scene: &SceneSnapshot) -> SceneSnapshot {
+    let mut scene = scene.clone();
+    scene.stone_shadow = false;
+    scene.tray_reflection = 0.0;
+    scene.clear_stone_pose();
+    scene
+}
 
 /// Receives the frame loop's progress. Called from the thread that renders.
 pub trait FrameReporter {
@@ -560,10 +571,7 @@ pub fn render_frames_tapped(
     // for the whole video carries it. The pan stays: the axis roll brings every axis's picture
     // axes onto the first axis's, so the same pan keeps the stone on the same spot of every
     // frame and the joints between axes do not jump.
-    let mut scene = request.scene.clone();
-    scene.stone_shadow = false;
-    // Like the stone shadow, the tray reflection is left out of the tilt frames.
-    scene.tray_reflection = 0.0;
+    let mut scene = tilt_frame_scene(&request.scene);
 
     for (index, pose) in poses.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
@@ -673,12 +681,31 @@ pub fn render_frames_tapped(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::{
-        export_thread::{RemoteSelection, SceneSnapshot},
-        render_thread::RenderContext,
-    };
+    use crate::bridge::{export_thread::RemoteSelection, render_thread::RenderContext};
     use pleochroma::color::ColorSpace;
     use std::sync::Mutex;
+
+    /// The frames of a tilt video start from the stone as designed: the Live Render pose, the
+    /// stone shadow and the tray reflection of the captured scene are all left out.
+    #[test]
+    fn the_tilt_frames_clear_the_stone_pose_the_shadow_and_the_reflection() {
+        let scene = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            stone_pose: pleochroma::render_setup::StonePose {
+                tilt_deg: 60.0,
+                turn_deg: 20.0,
+                spin_deg: 0.0,
+            },
+            stone_shadow: true,
+            tray_reflection: 0.04,
+            ..RenderContext::default()
+        }))
+        .expect("Diamond resolves");
+        assert!(!scene.stone_pose.is_identity(), "the capture carries it");
+        let frame = tilt_frame_scene(&scene);
+        assert!(frame.stone_pose.is_identity());
+        assert!(!frame.stone_shadow);
+        assert_eq!(frame.tray_reflection.to_bits(), 0);
+    }
 
     /// A fresh, empty folder for one test.
     fn test_dir(name: &str) -> PathBuf {

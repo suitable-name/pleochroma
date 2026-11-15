@@ -27,7 +27,8 @@
 //! coalescing edits keyed by [`drag_coalesce_key`], so a whole gesture is one undo step.
 //! [`dependents`] names the tiers that follow a drag; [`text`] holds the hint and toast
 //! wording; [`slice`] turns a dragged screen line into a snapped cutting plane and the
-//! provisional tier it becomes.
+//! provisional tier it becomes; [`meet_pick`] places the corner rings of pick mode (the
+//! corner a tier is cut to) and holds its wording.
 //!
 //! # What both apps share around them
 //!
@@ -51,6 +52,7 @@ pub mod drag;
 pub mod frame;
 pub mod gesture;
 pub mod handles;
+pub mod meet_pick;
 pub mod projection;
 pub mod provisional;
 pub mod slice;
@@ -64,6 +66,8 @@ mod frame_tests;
 #[cfg(test)]
 mod gesture_tests;
 #[cfg(test)]
+mod meet_pick_tests;
+#[cfg(test)]
 mod tests;
 
 pub use dependents::{moved_tiers, tiers_meeting};
@@ -75,6 +79,10 @@ pub use drag::{DragStart, DragValue, SnapMode, drag_coalesce_key, drag_value, sn
 pub use frame::FacetFrame;
 pub use gesture::{ActiveDrag, AppliedEdit, DragProgress, GestureInputs, Step, drain_value};
 pub use handles::{HANDLE_HIT_RADIUS_PX, HandleKind, HandleLayout, handle_layout, hit_test};
+pub use meet_pick::{
+    CORNER_MATCH_FRACTION, PickRing, PickRingKind, RING_HIT_RADIUS_PX, VISIBLE_RADIUS_PX, hit_ring,
+    pick_rings, step_ring,
+};
 pub use projection::{ScreenPoint, ScreenSize, project, unproject};
 pub use provisional::{DiscardReason, ProvisionalSlice, SliceLine, Snapshot};
 pub use slice::{

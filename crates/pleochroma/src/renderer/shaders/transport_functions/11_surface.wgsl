@@ -87,6 +87,11 @@ struct SurfWordCase {
     _pad1: f32,
     normal: vec3<f32>,
     _pad2: f32,
+    // The scratch basis: `scratch_up` with the posed flag in `scratch_posed`, then `scratch_side`.
+    scratch_up: vec3<f32>,
+    scratch_posed: f32,
+    scratch_side: vec3<f32>,
+    _pad3: f32,
 }
 
 @group(0) @binding(114) var<storage, read> surf_word_cases: array<SurfWordCase>;
@@ -105,7 +110,9 @@ fn surf_word_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let c = surf_word_cases[idx];
     let base = idx * 12u;
     let angle = surf_scratch_angle_deg(c.word, c.machine, c.sweep_u);
-    let across = cross(c.normal, surf_scratch_direction(c.normal, angle));
+    let basis_up = vec4<f32>(c.scratch_up, c.scratch_posed);
+    let basis_side = vec4<f32>(c.scratch_side, 0.0);
+    let across = cross(c.normal, surf_scratch_direction(c.normal, angle, basis_up, basis_side));
     let raised = surf_with_rq_at_least(c.word, c.rq_floor);
     surf_word_out[base + 0u] = f32(surf_kind(c.word));
     surf_word_out[base + 1u] = surf_rq_nm(c.word);

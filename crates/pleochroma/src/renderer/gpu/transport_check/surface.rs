@@ -16,7 +16,7 @@ use crate::{
         SweepRange, compensation,
         facet_surface::{SurfaceKind, halo_alpha},
         micro::fresnel_unpolarized,
-        sweep::{scratch_angle_deg, scratch_direction},
+        sweep::{ScratchBasis, scratch_angle_deg, scratch_direction_in},
         tis::{tis_reflection, tis_transmission},
     },
     renderer::{buffers::machine_sweep, gpu::compute},
@@ -286,7 +286,7 @@ pub fn run_surface_tis(ctx: &crate::renderer::gpu::GpuContext) -> UlpCheckResult
 // The packed word, the sweep and the scratch direction
 // ---------------------------------------------------------------------------------
 
-/// One word case, byte for byte the shader's `SurfWordCase` (48 bytes).
+/// One word case, byte for byte the shader's `SurfWordCase` (80 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SurfWordCase {
@@ -299,9 +299,16 @@ pub struct SurfWordCase {
     pad1: f32,
     normal: [f32; 3],
     pad2: f32,
+    /// The scratch basis `up` (`ScratchBasis::up`).
+    scratch_up: [f32; 3],
+    /// 1 for a turned stone's basis, 0 for the stone as designed (the shader's posed flag).
+    scratch_posed: f32,
+    /// The scratch basis `side` (`ScratchBasis::side`).
+    scratch_side: [f32; 3],
+    pad3: f32,
 }
 
-const _: () = assert!(size_of::<SurfWordCase>() == 48);
+const _: () = assert!(size_of::<SurfWordCase>() == 80);
 
 const fn machines() -> [FacetingMachine; 3] {
     [
@@ -355,29 +362,66 @@ fn word_surfaces() -> Vec<FacetSurface> {
     ]
 }
 
+/// The scratch bases the cases run against: the stone as designed, and a stone turned by
+/// `Ry(0.7) * Rx(1.1) * Ry(-0.4)`.
+fn scratch_bases() -> [ScratchBasis; 2] {
+    let r = glam::Mat3::from_rotation_y(0.7)
+        * glam::Mat3::from_rotation_x(1.1)
+        * glam::Mat3::from_rotation_y(-0.4);
+    [
+        ScratchBasis::MODEL,
+        ScratchBasis::new(r * Vec3::Y, r * Vec3::X),
+    ]
+}
+
+/// The basis a word case was built from.
+fn basis_of(case: &SurfWordCase) -> ScratchBasis {
+    if case.scratch_posed == 0.0 {
+        ScratchBasis::MODEL
+    } else {
+        ScratchBasis::new(
+            Vec3::from_array(case.scratch_up),
+            Vec3::from_array(case.scratch_side),
+        )
+    }
+}
+
 fn word_cases() -> Vec<SurfWordCase> {
-    let normals = [
+    let base_normals = [
         unit(0.3, 0.8, 0.52),
-        // A table facet: the girdle direction falls back to model +X.
+        // A table facet: the girdle direction falls back to the basis' side direction.
         unit(0.0, 1.0, 0.0),
         unit(0.9, 0.1, -0.4),
     ];
     let floors = [0.0f32, 3.0, 40.0];
     let us = [0.0f32, 0.37, 0.99];
     let mut cases = Vec::new();
-    for (s, surface) in word_surfaces().into_iter().enumerate() {
-        for (m, machine) in machines().iter().enumerate() {
-            for (n, &normal) in normals.iter().enumerate() {
-                cases.push(SurfWordCase {
-                    word: surface.packed(),
-                    rq_floor: floors[(s + m + n) % floors.len()],
-                    sweep_u: us[(s + n) % us.len()],
-                    pad0: 0.0,
-                    machine: machine_slots(machine),
-                    pad1: 0.0,
-                    normal,
-                    pad2: 0.0,
-                });
+    for basis in scratch_bases() {
+        let mut normals = base_normals.to_vec();
+        if !basis.is_model() {
+            // The table of the turned stone, and its culet.
+            normals.push(basis.up.to_array());
+            normals.push((-basis.up).to_array());
+        }
+        let posed = if basis.is_model() { 0.0 } else { 1.0 };
+        for (s, surface) in word_surfaces().into_iter().enumerate() {
+            for (m, machine) in machines().iter().enumerate() {
+                for (n, &normal) in normals.iter().enumerate() {
+                    cases.push(SurfWordCase {
+                        word: surface.packed(),
+                        rq_floor: floors[(s + m + n) % floors.len()],
+                        sweep_u: us[(s + n) % us.len()],
+                        pad0: 0.0,
+                        machine: machine_slots(machine),
+                        pad1: 0.0,
+                        normal,
+                        pad2: 0.0,
+                        scratch_up: basis.up.to_array(),
+                        scratch_posed: posed,
+                        scratch_side: basis.side.to_array(),
+                        pad3: 0.0,
+                    });
+                }
             }
         }
     }
@@ -412,7 +456,7 @@ pub fn run_surface_word(ctx: &crate::renderer::gpu::GpuContext) -> UlpCheckResul
         let machine = machine_of(case);
         let normal = Vec3::from_array(case.normal);
         let angle = scratch_angle_deg(&surface, &machine, case.sweep_u);
-        let across = normal.cross(scratch_direction(normal, angle));
+        let across = normal.cross(scratch_direction_in(normal, angle, basis_of(case)));
         let raised = surface.with_rq_at_least(case.rq_floor).packed();
         let kind = match surface.kind() {
             SurfaceKind::Ideal => 0.0,

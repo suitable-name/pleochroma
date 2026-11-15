@@ -199,6 +199,9 @@ fn bragg_track(
         material.inclusions.header.z,
         material.inclusions.structure[0], material.inclusions.structure[1],
         material.inclusions.structure[2],
+        material.inclusions.header.w,
+        material.inclusions.lattice[0], material.inclusions.lattice[1],
+        material.inclusions.lattice[2],
     );
     let r = maybe_scatter_oriented_bragg(
         oriented_medium(), st, (*s).lambdas, alphas, (*s).origin, (*s).dir, (*h).hit.t,
@@ -508,6 +511,9 @@ fn bounce_scatter_sample_zoned_bragg(
         material.inclusions.header.z,
         material.inclusions.structure[0], material.inclusions.structure[1],
         material.inclusions.structure[2],
+        material.inclusions.header.w,
+        material.inclusions.lattice[0], material.inclusions.lattice[1],
+        material.inclusions.lattice[2],
     );
     // Per absorption-length unit, like the zone alphas.
     var sigma_s: array<f32, 8> = array<f32, 8>();

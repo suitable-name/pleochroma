@@ -129,10 +129,12 @@ impl AppSettings {
 
     /// Resets the Lighting & Environment tab to the built-in defaults: the rig, the light
     /// direction, exposure, backdrop, surface glare, head shadow, Stone Shadow, Tray
-    /// Reflection and the HDR map (cleared, so the studio rig comes back). The camera pose
-    /// is not lighting and is not touched.
+    /// Reflection and the HDR map (cleared, so the studio rig comes back), and stands the stone
+    /// as designed (the Stone Pose, which sits on this tab). The camera pose is not lighting
+    /// and is not touched. The caller sets the live Stone Pose to `StonePose::IDENTITY` too.
     pub fn reset_lighting_tab(&mut self) {
         LightingValues::default().write_into(self);
+        self.stone_pose = [0.0, 0.0, 0.0];
     }
 }
 
@@ -353,6 +355,25 @@ mod tests {
             ..AppSettings::default()
         };
         assert_eq!(s, expected);
+    }
+
+    /// The Lighting tab's reset stands the stone as designed and leaves the camera alone.
+    #[test]
+    fn resetting_the_lighting_tab_clears_the_stone_pose_and_keeps_the_camera() {
+        let mut s = AppSettings {
+            stone_pose: [90.0, 30.0, 10.0],
+            camera_yaw: 0.9,
+            ..AppSettings::default()
+        };
+        assert!(reset_tab(&mut s, ParameterTab::Lighting).is_none());
+        assert_eq!(s.stone_pose, [0.0, 0.0, 0.0]);
+        assert_eq!(s.camera_yaw.to_bits(), 0.9f32.to_bits());
+        let mut render = AppSettings {
+            stone_pose: [90.0, 30.0, 10.0],
+            ..AppSettings::default()
+        };
+        assert!(reset_tab(&mut render, ParameterTab::RenderOutput).is_none());
+        assert_eq!(render.stone_pose, [90.0, 30.0, 10.0]);
     }
 
     #[test]

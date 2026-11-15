@@ -44,6 +44,6 @@ pub use path::{
 };
 pub use schema::{
     CONCAVE_FRAME_V0, CrystalAxisPlanTable, DESIGN_FORMAT, DESIGN_VERSION, DESIGN_VERSION_CONCAVE,
-    DESIGN_VERSION_PLANES, DESIGN_VERSION_RELATIONS, DesignFile, LEGACY_DESIGN_FORMAT,
-    MAX_DESIGN_TIERS, RenderEffectsTable, ScheduleTable, is_design_format,
+    DESIGN_VERSION_MEET_PICKS, DESIGN_VERSION_PLANES, DESIGN_VERSION_RELATIONS, DesignFile,
+    LEGACY_DESIGN_FORMAT, MAX_DESIGN_TIERS, RenderEffectsTable, ScheduleTable, is_design_format,
 };

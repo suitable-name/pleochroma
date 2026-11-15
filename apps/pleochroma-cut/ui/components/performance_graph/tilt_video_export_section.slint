@@ -439,17 +439,17 @@ export component TiltVideoExportSection inherits Rectangle {
                     ray_traced: TiltVideoExportModel.engine_index == 1;
                 }
 
-                PathCacheControls {
+                // Shown only when the path cache can be used; the saved choices are kept.
+                if TiltVideoExportModel.path_cache_available : PathCacheControls {
                     path_cache <=> TiltVideoExportModel.path_cache;
                     keep_video_cache <=> TiltVideoExportModel.keep_video_cache;
                     show_video_keep: true;
                     beam: SettingsModel.beam_build && TiltVideoExportModel.beam
                         && TiltVideoExportModel.beam_available;
-                    available: TiltVideoExportModel.path_cache_available;
                     ray_traced: TiltVideoExportModel.engine_index == 1;
                 }
 
-                if SettingsModel.beam_build : BeamTracingControls {
+                if SettingsModel.beam_build && TiltVideoExportModel.beam_available : BeamTracingControls {
                     beam <=> TiltVideoExportModel.beam;
                     available: TiltVideoExportModel.beam_available;
                     ray_traced: TiltVideoExportModel.engine_index == 1;

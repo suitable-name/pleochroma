@@ -93,6 +93,7 @@ impl Default for AppSettings {
             camera_pitch: DEFAULT_CAMERA_PITCH,
             camera_roll: 0.0,
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
             camera_distance: DEFAULT_CAMERA_DISTANCE,
             selected_material: DEFAULT_MATERIAL.to_string(),
             remote: None,

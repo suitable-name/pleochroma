@@ -53,6 +53,8 @@ pub fn refusal(scene: &SceneSnapshot) -> Option<&'static str> {
         Some("Optical Diagnostics cannot be combined with ASET")
     } else if scene.active_planes.is_empty() {
         Some("Optical Diagnostics need a stone with facets")
+    } else if !scene.stone_pose.is_identity() {
+        Some("Optical Diagnostics cannot be combined with a Stone Pose")
     } else if !style.map_mode && !style.scintillation && !style.layers.iter().any(|on| *on) {
         Some("Select an Optical Diagnostics layer or the Diagnostic Map before exporting")
     } else {
@@ -668,6 +670,17 @@ mod tests {
         scene.lighting_preset = LightingPreset::Aset;
         assert!(refusal(&scene).unwrap().contains("ASET"));
         scene.optical_diagnostics = None;
+        assert_eq!(refusal(&scene), None);
+    }
+
+    #[test]
+    fn a_stone_pose_refuses_an_export_with_diagnostics_only() {
+        let mut scene = default_scene();
+        scene.stone_pose.tilt_deg = 30.0;
+        assert_eq!(refusal(&scene), None, "no opt-in, nothing to refuse");
+        scene.optical_diagnostics = Some(OpticalPresentation::default());
+        assert!(refusal(&scene).unwrap().contains("Stone Pose"));
+        scene.clear_stone_pose();
         assert_eq!(refusal(&scene), None);
     }
 

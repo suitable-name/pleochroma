@@ -48,6 +48,7 @@ pub(super) fn scene(width: u32, height: u32) -> SceneState {
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     }
 }
 

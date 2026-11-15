@@ -108,7 +108,8 @@
 //! over-bright colors with `pleochroma::color::HighlightRule::Whiten` instead of the default
 //! rule (process-wide while the job runs); `--stone-shadow on|off` sets the job's Stone Shadow
 //! (format 3 with it); `--tray-reflection PERCENT` sets the job's Tray Reflection (format 4 with
-//! it, 5 with color zones, 6 with a turned HDR map); `--meter` reads the job's exposure as the
+//! it, 5 with color zones, 6 with a turned HDR map); `--stone-pose TILT,TURN[,SPIN]` stands the
+//! stone on the tray in that pose (format 8); `--meter` reads the job's exposure as the
 //! compensation on top of the rig's light meter, as the app meters its live view. Each one gives
 //! the job a token of its own, so a tilt video never mixes frames made with and without it.
 
@@ -806,6 +807,9 @@ fn command_line_changes(args: &RenderJobArgs) -> String {
     if let Some(reflection) = args.tray_reflection {
         changes.push(format!("tray-reflection={reflection}"));
     }
+    if let Some([tilt, turn, spin]) = args.stone_pose {
+        changes.push(format!("stone-pose={tilt},{turn},{spin}"));
+    }
     if args.exposure == Exposure::Metered {
         changes.push("meter".to_string());
     }
@@ -972,7 +976,8 @@ pub fn run(args: &RenderJobArgs, progress: &mut dyn Write, terminal: bool) -> Co
 
 /// Reads the job file `args.job` and lays the command line's changes over it: the renderer, the
 /// material, the color variant and pattern, the metered exposure, the stone shadow and the tray
-/// reflection (which recompute the job's format and refuse a light with no backdrop).
+/// reflection (which recompute the job's format and refuse a light with no backdrop) and the stone
+/// pose (format 8).
 fn load_job(args: &RenderJobArgs) -> Result<RenderJobFile, CliError> {
     let text = std::fs::read_to_string(&args.job)
         .map_err(|e| CliError::io(format!("cannot read {}: {e}", args.job.display())))?;
@@ -1006,6 +1011,12 @@ fn load_job(args: &RenderJobArgs) -> Result<RenderJobFile, CliError> {
     }
     if let Some(reflection) = args.tray_reflection {
         job.scene.tray_reflection = reflection;
+        job.format = pleochroma_render_jobs::job::format_for(&job);
+        job.validate()
+            .map_err(|error| CliError::design(error.to_string()))?;
+    }
+    if let Some(pose) = args.stone_pose {
+        job.scene.stone_pose = pleochroma::render_setup::StonePose::from_array(pose).to_array();
         job.format = pleochroma_render_jobs::job::format_for(&job);
         job.validate()
             .map_err(|error| CliError::design(error.to_string()))?;
@@ -1194,6 +1205,7 @@ mod tests {
             // which the executor puts in the token.
             estimator: Estimator::Branching,
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         }
     }
 
@@ -2010,6 +2022,45 @@ mod tests {
             "{}",
             refused.message
         );
+    }
+
+    /// `--stone-pose` is clamped into the pose's ranges, laid over the job's scene, and the format
+    /// follows it: 8 with a pose, the job's own format without.
+    #[test]
+    fn the_stone_pose_override_sets_the_scene_pose_and_format_eight() {
+        let folder = folder("render-job-stone-pose");
+        let plain = job_with(&folder.join("out.png"), still_kind());
+        let path = write_job(&folder, &plain);
+        let load = |value: &str| {
+            let args = match crate::args::parse(
+                &["render", &path, "--stone-pose", value].map(str::to_string),
+            ) {
+                Ok(crate::args::Command::Render(args)) => args,
+                other => panic!("{other:?}"),
+            };
+            load_job(&args)
+        };
+
+        let posed = load("90,30").expect("a pose is accepted");
+        assert_eq!(posed.scene.stone_pose, [90.0, 30.0, 0.0]);
+        assert_eq!(posed.format, 8);
+        assert_eq!(posed.validate(), Ok(()));
+        let text = codec::to_text(&posed).expect("encode posed job");
+        assert!(text.contains("\"format\": 8") || text.contains("\"format\":8"));
+
+        let clamped = load("400,30,10").expect("a tilt past 180 is clamped");
+        assert!((clamped.scene.stone_pose[0] - 180.0).abs() < f32::EPSILON);
+        assert!((clamped.scene.stone_pose[2] - 10.0).abs() < f32::EPSILON);
+
+        let identity = load("0,0,0").expect("the identity pose needs nothing");
+        assert_eq!(identity.format, plain.format);
+        let args = match crate::args::parse(
+            &["render", "a.job.json", "--stone-pose", "90,30"].map(str::to_string),
+        ) {
+            Ok(crate::args::Command::Render(args)) => args,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(command_line_changes(&args), "stone-pose=90,30,0");
     }
 
     /// `--meter` gives the job the exposure the app's live view would use: the job's own

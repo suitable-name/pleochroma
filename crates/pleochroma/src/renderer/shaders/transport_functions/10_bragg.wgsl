@@ -7,9 +7,9 @@
 // ---------------------------------------------------------------------------------
 
 // One case: the structure as `structure_rows` encodes it, a point to query the domain map at, a
-// segment to track and a ray for the whole estimator. 384 bytes, no padding.
+// segment to track and a ray for the whole estimator. 432 bytes, no padding.
 struct BraggCase {
-    // [domain_seed, rng_seed, bounce, 0]
+    // [domain_seed, rng_seed, bounce, lattice_posed]
     header: vec4<u32>,
     row0: vec4<f32>,
     row1: vec4<f32>,
@@ -29,6 +29,10 @@ struct BraggCase {
     // Synthetic zoned optical depths per channel at the tracked `t_model`, for
     // `bragg_reflect_weights4`.
     depth_in: array<f32, 8>,
+    // The columns of `lattice_from_world` (`structure_lattice`), read when header.w is nonzero.
+    lattice0: vec4<f32>,
+    lattice1: vec4<f32>,
+    lattice2: vec4<f32>,
 }
 
 @group(0) @binding(130) var<storage, read> bragg_cases: array<BraggCase>;
@@ -47,7 +51,9 @@ fn bragg_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let c = bragg_cases[idx];
-    let st = bragg_structure(c.header.x, c.row0, c.row1, c.row2);
+    let st = bragg_structure(
+        c.header.x, c.row0, c.row1, c.row2, c.header.w, c.lattice0, c.lattice1, c.lattice2,
+    );
     let base = idx * 83u;
     let dir = c.dir.xyz;
 

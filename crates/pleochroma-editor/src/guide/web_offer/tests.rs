@@ -49,8 +49,8 @@ fn the_classes_have_the_audited_sizes() {
             count(WebClass::C),
             count(WebClass::D)
         ),
-        // Class C also holds the two desktop-only color variant lessons.
-        (11, 9, 42, 36)
+        // Class C also holds the two desktop-only color variant lessons and the corner pick.
+        (11, 9, 43, 36)
     );
 }
 

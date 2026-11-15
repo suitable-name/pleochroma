@@ -307,6 +307,8 @@ pub fn render_view(job: &PreviewJob<'_>, view: PreviewView, gpu: &GpuBackend) ->
         camera_roll: 0.0,
         // A thumbnail is centred whatever the live view's framing.
         camera_pan: [0.0, 0.0],
+        // And shows the stone as designed, whatever the Live Render pose.
+        stone_pose: pleochroma::render_setup::StonePose::IDENTITY,
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
         yaw: PREVIEW_YAW,
@@ -433,6 +435,7 @@ pub fn render_rgba_at_pose(
         camera_roll: roll,
         // The compare window frames its stones centred.
         camera_pan: [0.0, 0.0],
+        stone_pose: pleochroma::render_setup::StonePose::IDENTITY,
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         optical_diagnostics: None,
         yaw,
@@ -541,6 +544,7 @@ fn remote_scene(job: &PreviewJob<'_>, view: PreviewView) -> SceneState {
         camera_roll: 0.0,
         // Centred, as `render_view` traces it locally.
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
         stone_shadow: false,
         tray_reflection: 0.0,
         // Thumbnails are lit by the studio rig, so there is no map to turn.

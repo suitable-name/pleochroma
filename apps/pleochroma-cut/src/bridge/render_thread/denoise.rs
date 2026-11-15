@@ -51,7 +51,8 @@ mod tests {
         // Same value as the twin in `pleochroma::renderer::frame_denoise`. Background pixels
         // pass the denoiser unfiltered, and the sRGB encode rounds to nearest. The value
         // depends on the encode's default highlight rule (`HighlightRule::KeepColor`).
-        const PINNED: u64 = 0x50f9_945c_3ecd_b2a7;
+        // Pinned with the exact gamut walk (`gamut::project_to_gamut_bounded`).
+        const PINNED: u64 = 0xe69b_333f_9a39_7df9;
         let (width, height, samples) = (24_u32, 16_u32, 3_u32);
         let planes = pleochroma::geometry::cuts::StandardGemCuts::standard_round_brilliant();
         let accum: Vec<Vec3> = (0..(width * height) as usize)

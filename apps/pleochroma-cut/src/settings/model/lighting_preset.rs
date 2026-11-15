@@ -80,6 +80,11 @@ pub struct LightingPreset {
     /// pan reads centred.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_pan: Option<[f32; 2]>,
+    /// The Stone Pose `[tilt, turn, spin]` in degrees, recorded with a camera pose. `None` stands
+    /// the stone as designed when the pose is applied; a preset without a camera pose never
+    /// applies it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stone_pose: Option<[f32; 3]>,
     /// Loaded HDR environment map path, if one was active when saved -- see this
     /// type's doc comment for the `None`-means-"leave it alone" semantics.
     #[serde(default)]
@@ -151,6 +156,7 @@ impl LightingPreset {
             camera_pitch: self.camera_pitch,
             camera_roll: self.camera_roll,
             camera_pan: self.camera_pan,
+            stone_pose: self.stone_pose,
             camera_distance: self
                 .camera_yaw
                 .and(self.camera_pitch)
@@ -183,6 +189,7 @@ impl LightingPreset {
             self.camera_pitch = Some(pitch);
             self.camera_roll = values.camera_roll;
             self.camera_pan = values.camera_pan;
+            self.stone_pose = values.stone_pose;
         }
         if let Some(distance) = values.camera_distance {
             self.camera_distance = distance;
@@ -207,7 +214,8 @@ impl LightingPreset {
 ///
 /// `env_map_path` is `None` and `export_usable` is `false` for every built-in, and
 /// `camera_yaw`/`camera_pitch` are `None` for every built-in except "Grading tray"
-/// (a view, not just a mood: it recalls the near face-up pose a grader looks from):
+/// (a view, not just a mood: it recalls the near face-up pose a grader looks from, with the
+/// stone as designed, since `stone_pose` is `None` on every built-in):
 /// applying a lighting mood must only change the lighting, never reposition the camera
 /// or swap in an environment map. They also default out of the export fan-out list.
 ///
@@ -242,6 +250,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -267,6 +276,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -289,6 +299,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -312,6 +323,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -342,6 +354,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: Some(1.48),
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -367,6 +380,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -393,6 +407,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -420,6 +435,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             env_map_path: None,
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
@@ -537,6 +553,7 @@ mod tests {
             camera_pitch: Some(0.2),
             camera_roll: None,
             camera_pan: Some([0.3, 0.1]),
+            stone_pose: None,
             camera_distance: Some(3.0),
             ..LightingValues::default()
         };
@@ -577,6 +594,61 @@ mod tests {
         assert!(!built_in.contains("camera_pan"), "{built_in}");
     }
 
+    /// A saved view carries its Stone Pose through the preset and the settings file, a lighting
+    /// without a camera pose leaves it alone, and no built-in carries one.
+    #[test]
+    fn a_saved_view_carries_its_stone_pose_and_no_built_in_does() {
+        let mut shot = built_in_presets().remove(0);
+        shot.camera_yaw = Some(0.2);
+        shot.camera_pitch = Some(0.4);
+        shot.stone_pose = Some([90.0, 30.0, 10.0]);
+        let toml_str = toml::to_string_pretty(&shot).expect("must serialize");
+        let back: LightingPreset = toml::from_str(&toml_str).expect("must deserialize");
+        assert_eq!(back.stone_pose, Some([90.0, 30.0, 10.0]));
+        assert_eq!(back.values().pose_stone_pose(), Some([90.0, 30.0, 10.0]));
+
+        // A preset saved before the Stone Pose existed stands the stone as designed.
+        let mut older = back;
+        older.stone_pose = None;
+        assert_eq!(older.values().pose_stone_pose(), Some([0.0, 0.0, 0.0]));
+
+        // Lighting-only values leave the recorded view, pose included, alone.
+        shot.set_values(&LightingValues::default());
+        assert_eq!(shot.stone_pose, Some([90.0, 30.0, 10.0]));
+
+        for preset in built_in_presets() {
+            assert_eq!(preset.stone_pose, None, "{}", preset.name);
+            let text = toml::to_string_pretty(&preset).expect("serializes");
+            assert!(!text.contains("stone_pose"), "{text}");
+        }
+    }
+
+    /// Applying the Grading tray stands a posed stone as designed (it carries a camera pose and
+    /// no Stone Pose); a mood, which carries no camera pose, keeps the pose.
+    #[test]
+    fn the_grading_tray_clears_a_stone_pose_and_a_mood_keeps_it() {
+        let posed = [90.0, 30.0, 10.0];
+        let grading = built_in_presets()
+            .into_iter()
+            .find(|p| p.name == "Grading tray")
+            .expect("the Grading tray built-in exists");
+        assert_eq!(
+            grading.values().stone_pose_after_apply(posed),
+            [0.0, 0.0, 0.0]
+        );
+        for mood in built_in_presets()
+            .into_iter()
+            .filter(|p| p.name != "Grading tray")
+        {
+            assert_eq!(
+                mood.values().stone_pose_after_apply(posed),
+                posed,
+                "{}",
+                mood.name
+            );
+        }
+    }
+
     /// A newly saved lighting is named after its rig and the day, so it never reads like the
     /// rig itself.
     #[test]
@@ -602,6 +674,7 @@ mod tests {
             camera_pitch: Some(0.45),
             camera_roll: Some(std::f32::consts::FRAC_PI_2),
             camera_pan: Some([0.25, -0.5]),
+            stone_pose: None,
             env_map_path: Some("C:/env/studio.hdr".to_string()),
             export_usable: true,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,

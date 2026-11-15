@@ -4351,7 +4351,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "pleochroma"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bytemuck",
  "crc32fast",
@@ -4377,7 +4377,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-cli"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "glam",
  "pleochroma",
@@ -4396,7 +4396,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-converter"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "pleochroma",
@@ -4411,7 +4411,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-cut"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4446,7 +4446,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-cut-core"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "divan",
  "glam",
@@ -4465,7 +4465,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-dispatch"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "divan",
  "glam",
@@ -4475,7 +4475,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-editor"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "divan",
  "glam",
@@ -4490,7 +4490,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-formats"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "serde",
  "sha2",
@@ -4499,7 +4499,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-mobile-android"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "android_logger",
  "image",
@@ -4522,7 +4522,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-mobile-core"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "glam",
  "pleochroma",
@@ -4546,7 +4546,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-net"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bytemuck",
  "glam",
@@ -4566,7 +4566,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-render-jobs"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "pleochroma",
  "pleochroma-net",
@@ -4576,7 +4576,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-solid"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "glam",
  "image",
@@ -4587,7 +4587,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-update"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "semver",
  "serde",
@@ -4597,7 +4597,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-vault"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "pleochroma",
@@ -4611,7 +4611,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-web"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "console_error_panic_hook",
  "image",
@@ -4636,7 +4636,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-web-compute"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
@@ -4648,7 +4648,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-web-core"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "futures-channel",
  "glam",
@@ -4669,7 +4669,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-web-gpu"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "console_error_panic_hook",
  "futures-channel",
@@ -4686,7 +4686,7 @@ dependencies = [
 
 [[package]]
 name = "pleochroma-worker"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "bytemuck",

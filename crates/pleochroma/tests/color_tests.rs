@@ -246,16 +246,17 @@ fn monochromatic_520nm_clamps_harder_in_srgb_than_in_wider_gamuts() {
         "sRGB should retain less u'v' chroma than Rec.2020 for a 520nm stimulus: srgb={srgb_chroma:.4} rec2020={rec2020_chroma:.4} (rgb {srgb_rgb:?} vs {rec2020_rgb:?})"
     );
 
-    // In linear RGB the gamut mapping walks less far toward white as the gamut widens, so
-    // the red channel (the one driving the stimulus out of gamut) stays closer to zero.
+    // In linear RGB the walk toward white stops exactly where the stimulus enters each gamut:
+    // the red channel (the one driving it out of gamut) lands on zero in both spaces, and the
+    // chroma check above shows the wider gamut got there with the shorter walk.
     let srgb_linear = project_to_gamut(xyz, ColorSpace::Srgb);
     let rec2020_linear = project_to_gamut(xyz, ColorSpace::Rec2020);
-    assert!(
-        rec2020_linear.x < srgb_linear.x,
-        "Rec.2020's wider gamut should require pulling the red channel up out of \
-         negative territory less severely (via less white-point mixing) than sRGB \
-         does: srgb={srgb_linear:?} rec2020={rec2020_linear:?}"
-    );
+    for (name, rgb) in [("sRGB", srgb_linear), ("Rec.2020", rec2020_linear)] {
+        assert!(
+            (0.0..1e-6).contains(&rgb.x),
+            "{name}: the walk should stop with red on the gamut boundary, got {rgb:?}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -769,4 +770,49 @@ fn every_space_maps_its_own_white_to_unit_linear_rgb() {
             "{space:?}: RGB(1, 1, 1) should have Y = 1 (got {y_row_sum})"
         );
     }
+}
+
+/// CIE XYZ of chromaticity `(x, y)` at luminance `big_y`.
+fn xyz_from_xy(x: f32, y: f32, big_y: f32) -> Vec3 {
+    Vec3::new(x / y * big_y, big_y, (1.0 - x - y) / y * big_y)
+}
+
+/// A green outside sRGB (an emerald body color seen through a softly shaded tray) swept in
+/// small chromaticity steps: the gamut walk must follow it smoothly. A walk searched in whole
+/// steps toward white jumps at each step boundary, by about 0.024 in red here, which shows as
+/// contour bands across a deeply colored stone.
+#[test]
+fn the_gamut_walk_follows_a_smooth_chromaticity_ramp_without_steps() {
+    for (big_y, max) in [(0.4, f32::INFINITY), (0.8, 1.0)] {
+        let mut previous: Option<Vec3> = None;
+        for step in 0..=400u16 {
+            let x = 0.04f32.mul_add(f32::from(step) / 400.0, 0.18);
+            let rgb = project_to_gamut_bounded(xyz_from_xy(x, 0.70, big_y), ColorSpace::Srgb, max);
+            if let Some(before) = previous {
+                let jump = (rgb - before).abs().max_element();
+                assert!(jump < 1e-3, "Y {big_y}, x {x}: the walk jumped by {jump}");
+            }
+            previous = Some(rgb);
+        }
+    }
+}
+
+/// The walk stops exactly where the color enters the gamut: the limiting channel lands on its
+/// bound instead of a step past it.
+#[test]
+fn the_gamut_walk_stops_on_the_gamut_boundary() {
+    for x in [0.16f32, 0.18, 0.20, 0.22] {
+        let rgb = project_to_gamut(xyz_from_xy(x, 0.70, 0.4), ColorSpace::Srgb);
+        assert!(rgb.min_element() >= 0.0, "x {x}: {rgb:?}");
+        assert!(
+            rgb.min_element() < 1e-5,
+            "x {x}: the walk went past the boundary, {rgb:?}"
+        );
+    }
+    let capped = project_to_gamut_bounded(xyz_from_xy(0.20, 0.70, 0.8), ColorSpace::Srgb, 1.0);
+    assert!(capped.max_element() <= 1.0, "{capped:?}");
+    assert!(
+        capped.min_element() < 1e-5 || capped.max_element() > 1.0 - 1e-5,
+        "a bound is met exactly: {capped:?}"
+    );
 }

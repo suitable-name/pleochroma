@@ -224,7 +224,9 @@ facet's depth is usually determined by where its plane meets its
 neighbours, rather than set as a direct number. On the cutting sheet a
 meet point is a corner that is already on the stone when the tier is cut;
 a tier that reaches none prints only its depth and is cut to it by
-measurement (Chapter 11).
+measurement (Chapter 11). When the named facets meet in more than one
+corner, the solver takes the shallowest, unless you have picked one (see
+*Picked corner*, Chapter 4).
 
 **Noise threshold** — How far a figure has to move before the program calls it a
 real change. Brilliance, Windowing and Extinction: 2 points; Scintillation: 3;
@@ -259,6 +261,13 @@ command palette or Ctrl+Alt+1/2/3, in the Live Render view and in the Edit view
 
 **Pavilion** — The block of a stone below the girdle, usually culminating
 in a culet or point.
+
+**Picked corner** — The corner of the stone you chose for a tier in the Solid
+view with **Pick in View**, **Pick Meet** or **M**. It is stored as the three
+facets that meet there, so it follows them when their angles change, and the
+tier is cut until its plane passes through it. Without one, a tier takes the
+shallowest corner where its named facets meet (Chapter 4; Chapter 13,
+"Picking a Meet Point").
 
 **Pin** — The button that freezes a tier's current solved mast as a new
 **Exact Scale Value** anchor, converting a free tier back into a pinned
@@ -344,6 +353,8 @@ Editor accepts one-term and three-term fits (Chapter 29).
 **Solved / stale** — A design is "solved" once Solve has successfully run
 against its current tier list; it becomes "stale" the moment any further
 edit changes that tier list, until Solve runs again (Chapter 5).
+
+**Stone Pose** — The position the stone is stood in on the tray for a picture, set by Tilt (0° to 180°), Turn and Spin (0° to 360°) in the Lighting tab. The stone rests on the tray at its lowest point; the lights, the tray and the camera stay put. It changes the Live Render picture, exports and render jobs, not the design, the metrics or the Edit tab (Chapter 2).
 
 **Stone Shadow** — The optional shadow and colored caustic light cast by the stone onto a backdrop touching its culet. Studio lights only; off by default.
 

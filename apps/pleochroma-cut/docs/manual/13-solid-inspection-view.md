@@ -414,6 +414,50 @@ on its own with a short message saying so, rather than being kept against a
 design it was not cut from. Clicking a facet in the viewport selects nothing
 until you Keep or Discard.
 
+## Picking a Meet Point
+
+Some facets can be cut to more than one corner of the stone, and the solver
+takes the shallowest by default (Chapter 4, "How the Meets Modes Choose a
+Corner"). **Pick Meet** lets you click the corner you want instead. It works
+in the Solid view and the other 3D views, not in the Diagram view, and only
+in the desktop app: the web app and the Android app read a pick that is in
+the file and show its effect, but they have no pick mode.
+
+1. **Arm it.** Select a saved tier, then turn on **Pick Meet** in the
+   toolbar's **Show** menu, press **M** once you have clicked into the
+   viewport, or click **Pick in View** on the **Meet Point** row of the tier
+   form. Pick Meet is unavailable, with the reason in its tooltip, when
+   nothing is cut before the tier, when the tier sets the stone's size, or
+   when it is the only tier that sets the size of its block. Slice mode
+   switches off, and the drag handles are hidden.
+2. **The stone before the tier.** The **Cut position** slider moves to just
+   before the selected tier, so you see the stone as it is when the tier is
+   cut. The line under the toolbar says what to do and has a **Cancel**
+   button. Its earlier position comes back when pick mode ends. Orbit and
+   zoom as usual: a left press that moves less than a few pixels counts as a
+   click.
+3. **Rings mark the corners.** Every corner the tier can be cut to carries a
+   ring. Move the pointer over one and it lights up in amber, its facets are
+   outlined, and a label names the tiers that meet there (for example
+   `P1 · P2 · G1`). A grey ring is a corner with an unnamed facet: the line
+   under the toolbar says which tier to name before the corner can be picked.
+   The corner this tier already meets is green and says "meets here". Corners
+   on the far side of the stone are not drawn; orbit the stone to reach them.
+4. **Choose it.** Click a lit ring, or use **Right** and **Down** (or **Left**
+   and **Up**) to step from ring to ring and **Enter** to choose the lit one.
+   The tier is cut to that corner as **one undo step**, Meets moves to
+   **Named Facet(s)** with the three tiers filled in, the stone is solved
+   again, a toast confirms, and the Cut position goes back where it was.
+5. **Leave without choosing.** **Esc**, **Cancel**, **M**, the pill or **S**
+   ends pick mode and changes nothing. Selecting another tier, switching to
+   the Diagram view, opening another design or an edit from elsewhere ends it
+   too.
+
+**Clear** on the Meet Point row forgets the corner; the tier then meets the
+shallowest point of its names again. A tier that has no name for one of the
+facets at a corner cannot be picked there until you name it. A screen reader
+hears the lit ring as, for example, "Corner 3 of 9: P1, P2 and G1."
+
 ## The Two Overlays
 
 Two visual cues appear directly on the solid, independent of hover/click:

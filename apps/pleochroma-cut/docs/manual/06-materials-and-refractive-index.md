@@ -77,7 +77,7 @@ cutting) -- are:
 | Opal | 1.450 | — | Isotropic | No |
 | Glass (N-BK7) | 1.517 | — | Isotropic | No |
 | Glass (F2) | 1.620 | — | Isotropic | No |
-| Rutile | 2.616 | +0.287 | Uniaxial (+) | Yes |
+| Rutile | 2.613 | +0.2957 | Uniaxial (+) | Yes |
 | Precious Opal (White) | 1.450 | — | Isotropic | No |
 | Precious Opal (Black) | 1.450 | — | Isotropic | Yes (dark body) |
 | Labradorite | 1.5625 | +0.0080 | Biaxial (+) | No |

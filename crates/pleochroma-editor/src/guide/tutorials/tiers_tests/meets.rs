@@ -1,7 +1,10 @@
 //! Walks of the lessons in `tiers/meets.rs`.
 
 use super::{Sim, act, guide_named, read, walk};
-use crate::{guide::StartingState, view_model::solid_status::status_text_and_is_problem};
+use crate::{
+    guide::{StartingState, goal::tier_has_meet_pick},
+    view_model::solid_status::status_text_and_is_problem,
+};
 use pleochroma::geometry::meet_solver::{MeetConstraint, SolvedTier};
 use pleochroma_cut_core::{
     DEFAULT_MIN_FACET_AREA_FRACTION_OF_W2, Edit, ManufacturabilityWarning, TierTarget,
@@ -14,6 +17,36 @@ fn meet_by_name(sim: &mut Sim, name: &str, target: &str) {
         form.kind = 1;
         form.text = target.to_owned();
     });
+}
+
+/// Leaves `name` to the solver, as the tier form's Unspecified vertex does.
+fn meet_unspecified(sim: &mut Sim, name: &str) {
+    sim.edit_tier(name, |form| {
+        form.kind = 0;
+        form.text.clear();
+    });
+}
+
+/// The first corner `name` can be cut to that has a name for every tier at it, as the list of
+/// corners the viewport rings offer.
+fn first_pickable_corner(sim: &Sim, name: &str) -> pleochroma_cut_core::PickCorner {
+    let design = &sim.session.design;
+    let solved = design.solve().expect("the stone solves");
+    design
+        .pick_corners(&solved, sim.row(name))
+        .expect("the solved stone closes")
+        .into_iter()
+        .find(|corner| corner.unnamed_tier.is_none())
+        .unwrap_or_else(|| panic!("{name} has no corner to pick"))
+}
+
+/// Clicking a ring of the viewport: cuts `name` to the first pickable corner.
+fn pick_first_corner(sim: &mut Sim, name: &str) {
+    let corner = first_pickable_corner(sim, name);
+    let row = sim.row(name);
+    sim.session
+        .pick_meet_corner(row, &corner)
+        .expect("the pick applies");
 }
 
 /// The solve of the editor as it is now, which has to be a closed stone with every facet on its
@@ -257,5 +290,84 @@ fn pinning_the_depth_the_solver_found() {
         matches!(upper.constraint, MeetConstraint::ScaleReference(_)),
         "the tier is pinned: {:?}",
         upper.constraint
+    );
+}
+
+#[test]
+fn picking_a_corner_cuts_the_table_to_it() {
+    let sim = walk(
+        "tiers-meets-pick-corner",
+        vec![
+            act(|sim| meet_unspecified(sim, "Table")),
+            read(),
+            act(|sim| pick_first_corner(sim, "Table")),
+            read(),
+        ],
+    );
+    let table = &sim.session.design.tiers[sim.row("Table")];
+    assert!(
+        matches!(table.constraint, MeetConstraint::MeetNamed(_)),
+        "the pick names the facets of the corner: {:?}",
+        table.constraint
+    );
+}
+
+/// The lesson's Table has corners to choose from: something is cut before it, it is neither the
+/// sizing tier nor the only anchor of its block, and a corner with a name for every tier at it
+/// puts it at a positive depth.
+#[test]
+fn the_table_has_corners_to_pick_from() {
+    let mut sim = Sim::start(&guide_named("tiers-meets-pick-corner").starting_state);
+    meet_unspecified(&mut sim, "Table");
+    let row = sim.row("Table");
+    assert_eq!(sim.session.design.meet_pick_blocked(row), None);
+    let corner = first_pickable_corner(&sim, "Table");
+    assert!(
+        corner.mast > 0.0,
+        "the table is cut at a depth: {}",
+        corner.mast
+    );
+}
+
+/// A pick is one Undo step that brings back the way the tier met before it.
+#[test]
+fn a_pick_is_one_undo_step() {
+    let mut sim = Sim::start(&guide_named("tiers-meets-pick-corner").starting_state);
+    meet_unspecified(&mut sim, "Table");
+    pick_first_corner(&mut sim, "Table");
+    assert!(tier_has_meet_pick(&sim.session.design, "Table"));
+    sim.undo();
+    assert!(!tier_has_meet_pick(&sim.session.design, "Table"));
+    let table = &sim.session.design.tiers[sim.row("Table")];
+    assert_eq!(table.constraint, MeetConstraint::MeetExisting);
+}
+
+/// The goal is met for the tier that holds the pick and no other, and Clear takes it away while
+/// the tier keeps its named facets.
+#[test]
+fn the_pick_goal_follows_the_picked_tier() {
+    let mut sim = Sim::start(&guide_named("tiers-meets-pick-corner").starting_state);
+    assert!(!tier_has_meet_pick(&sim.session.design, "Table"));
+    meet_unspecified(&mut sim, "Table");
+    pick_first_corner(&mut sim, "Table");
+    let design = &sim.session.design;
+    assert!(
+        tier_has_meet_pick(design, " table "),
+        "case and spaces do not matter"
+    );
+    assert!(!tier_has_meet_pick(design, "Star"));
+    assert!(!tier_has_meet_pick(design, "No Such Tier"));
+
+    let row = sim.row("Table");
+    sim.session
+        .clear_meet_pick(row)
+        .expect("the clear applies")
+        .expect("there was a pick to clear");
+    assert!(!tier_has_meet_pick(&sim.session.design, "Table"));
+    let table = &sim.session.design.tiers[sim.row("Table")];
+    assert!(
+        matches!(table.constraint, MeetConstraint::MeetNamed(_)),
+        "Clear keeps the named facets: {:?}",
+        table.constraint
     );
 }

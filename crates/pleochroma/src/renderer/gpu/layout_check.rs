@@ -166,6 +166,11 @@ pub fn sample_material() -> GpuGemMaterial {
         *row = [f(5.5, i), f(6.6, i), f(7.7, i), f(8.8, i)];
     }
     m.inclusions.edge = [0.0321, 0.654, 0.0, 0.0];
+    for (i, column) in m.inclusions.lattice.iter_mut().enumerate() {
+        *column = [f(9.1, i), f(9.2, i), f(9.3, i), f(9.4, i)];
+    }
+    m.inclusions.scratch_up = [0.111, 0.222, 0.333, 1.0];
+    m.inclusions.scratch_side = [0.444, 0.555, 0.666, 0.0];
     m
 }
 
@@ -652,7 +657,10 @@ pub const fn field_name_at_offset(offset: usize) -> &'static str {
         2944..=2959 => "inclusions.haze",
         2960..=3007 => "inclusions.structure[..]",
         3008..=3023 => "inclusions.edge",
-        _ => "out of range (GpuGemMaterial is 3024 bytes)",
+        3024..=3071 => "inclusions.lattice[..]",
+        3072..=3087 => "inclusions.scratch_up",
+        3088..=3103 => "inclusions.scratch_side",
+        _ => "out of range (GpuGemMaterial is 3104 bytes)",
     }
 }
 

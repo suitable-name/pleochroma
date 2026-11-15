@@ -63,6 +63,7 @@ mod live_split;
 mod local_preview;
 mod metrics;
 mod metrics_worker;
+mod posed_stone;
 #[cfg(feature = "beam")]
 mod ray_beams;
 mod redraw_gate;

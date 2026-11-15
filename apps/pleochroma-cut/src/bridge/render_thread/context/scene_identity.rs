@@ -35,7 +35,7 @@ struct SceneKey {
     engine: pleochroma::renderer::engine::EngineSpec,
     planes_owner: super::PlanesOwner,
     dims: [u32; 3],
-    floats: [u32; 14],
+    floats: [u32; 17],
     c_axis: Option<[u32; 3]>,
     /// The Second Axis override, as bit patterns like [`Self::c_axis`].
     alpha_axis: Option<[u32; 3]>,
@@ -71,7 +71,10 @@ const fn dims(ctx: &RenderContext) -> [u32; 3] {
     [ctx.width, ctx.height, ctx.max_bounces]
 }
 
-const fn floats(ctx: &RenderContext) -> [u32; 14] {
+/// The scene's floats as bit patterns: the camera, the lighting and stone numbers, then the
+/// stone pose as the Live Render tab shows it (tilt, turn, spin; the identity on the Edit tab).
+fn floats(ctx: &RenderContext) -> [u32; 17] {
+    let pose = ctx.effective_stone_pose().to_array();
     [
         ctx.yaw.to_bits(),
         ctx.pitch.to_bits(),
@@ -87,15 +90,18 @@ const fn floats(ctx: &RenderContext) -> [u32; 14] {
         ctx.stone_width_mm.to_bits(),
         ctx.surface_glare.to_bits(),
         ctx.head_shadow_deg.to_bits(),
+        pose[0].to_bits(),
+        pose[1].to_bits(),
+        pose[2].to_bits(),
     ]
 }
 
 /// The entries of [`floats`] that are not lighting: the camera (yaw, pitch, roll, pan,
-/// distance), the scattering strength, the edge rounding and the stone width.
-const fn pose_floats(floats: &[u32; 14]) -> [u32; 9] {
+/// distance), the scattering strength, the edge rounding, the stone width and the stone pose.
+const fn pose_floats(floats: &[u32; 17]) -> [u32; 12] {
     [
         floats[0], floats[1], floats[2], floats[3], floats[4], floats[5], floats[9], floats[10],
-        floats[11],
+        floats[11], floats[14], floats[15], floats[16],
     ]
 }
 
@@ -304,6 +310,7 @@ impl RenderContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pleochroma::render_setup::StonePose;
 
     #[test]
     fn changing_the_image_engine_or_its_taps_restarts_the_scene() {
@@ -491,11 +498,14 @@ mod tests {
         let mut ctx = RenderContext::default();
         ctx.scene_generation();
         let mut last = ctx.pose_generation();
-        let changes: [fn(&mut RenderContext); 9] = [
+        let changes: [fn(&mut RenderContext); 12] = [
             |c| c.pitch += 0.1,
             |c| c.camera_roll = std::f32::consts::FRAC_PI_2,
             |c| c.camera_pan = [0.3, -0.2],
             |c| c.distance += 1.0,
+            |c| c.stone_pose.tilt_deg = 35.0,
+            |c| c.stone_pose.turn_deg = 120.0,
+            |c| c.stone_pose.spin_deg = 15.0,
             |c| c.material_name = "Spinel".to_string(),
             |c| c.material_override = Some(GemMaterial::diamond()),
             |c| c.active_planes = Arc::new(c.active_planes.as_ref().clone()),
@@ -508,6 +518,60 @@ mod tests {
             assert!(ctx.pose_generation() > last, "a pose edit bumps the pose");
             last = ctx.pose_generation();
         }
+    }
+
+    /// The stone pose is part of the camera pose: each of its three angles on its own restarts the
+    /// scene and the pose, and writing the same pose again does not.
+    #[test]
+    fn a_stone_pose_restarts_the_scene_and_the_pose() {
+        let mut ctx = RenderContext::default();
+        let scene = ctx.scene_generation();
+        let pose = ctx.pose_generation();
+        ctx.stone_pose = StonePose {
+            tilt_deg: 40.0,
+            turn_deg: 0.0,
+            spin_deg: 0.0,
+        };
+        let tilted = ctx.scene_generation();
+        assert!(tilted > scene, "a tilt is a scene change");
+        assert!(ctx.pose_generation() > pose, "and a pose change");
+        ctx.stone_pose = StonePose {
+            tilt_deg: 40.0,
+            turn_deg: 0.0,
+            spin_deg: 0.0,
+        };
+        assert_eq!(ctx.scene_generation(), tilted, "the same pose is no change");
+        ctx.stone_pose.spin_deg = 90.0;
+        assert!(ctx.scene_generation() > tilted, "the spin counts too");
+    }
+
+    /// The Edit tab shows the stone as designed, so a pose edit made while it is shown changes
+    /// nothing, and switching tabs is a scene change exactly while a pose is set.
+    #[test]
+    fn the_edit_tab_ignores_the_stone_pose() {
+        let mut ctx = RenderContext {
+            live_tab_shown: false,
+            ..RenderContext::default()
+        };
+        let first = ctx.scene_generation();
+        ctx.stone_pose.tilt_deg = 60.0;
+        assert_eq!(ctx.scene_generation(), first, "a pose edit on the Edit tab");
+        assert!(ctx.effective_stone_pose().is_identity());
+        ctx.live_tab_shown = true;
+        let live = ctx.scene_generation();
+        assert!(live > first, "the Live Render tab now shows the pose");
+        assert!(!ctx.effective_stone_pose().is_identity());
+        ctx.live_tab_shown = false;
+        assert!(ctx.scene_generation() > live, "and the Edit tab drops it");
+    }
+
+    /// Holding a pose drag stops the shadow builds; it is not a scene field.
+    #[test]
+    fn a_held_pose_drag_is_not_a_scene_change() {
+        let mut ctx = RenderContext::default();
+        let first = ctx.scene_generation();
+        ctx.pose_drag_held = true;
+        assert_eq!(ctx.scene_generation(), first);
     }
 
     /// Panning alone moves the picture: a new scene and a new pose, each component on its own.
@@ -635,10 +699,13 @@ mod tests {
     fn every_kind_of_scene_change_bumps_the_generation() {
         let mut ctx = RenderContext::default();
         let mut last = ctx.scene_generation();
-        let changes: [fn(&mut RenderContext); 17] = [
+        let changes: [fn(&mut RenderContext); 20] = [
             |c| c.yaw += 0.1,
             |c| c.camera_roll = std::f32::consts::FRAC_PI_2,
             |c| c.camera_pan = [0.0, 0.5],
+            |c| c.stone_pose.tilt_deg = 35.0,
+            |c| c.stone_pose.turn_deg = 120.0,
+            |c| c.stone_pose.spin_deg = 15.0,
             |c| c.exposure = 2.0,
             |c| c.material_name = "Spinel".to_string(),
             |c| c.material_override = Some(GemMaterial::diamond()),

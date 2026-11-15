@@ -21,7 +21,7 @@
 
 use super::{launch, progress, runtime};
 use crate::{
-    ConcaveFormData, EditorModel, GuideModel, MainWindow, RelationModel,
+    ConcaveFormData, EditorModel, GuideModel, MainWindow, ManipulateModel, RelationModel,
     gui::{commands, show_toast},
 };
 use pleochroma_cut_core::design::ConcaveTier;
@@ -31,8 +31,11 @@ use pleochroma_editor::{
     },
     loading::{ConcaveTierFormFields, concave_tier_form_fields},
 };
-use slint::{ComponentHandle, Model as _};
-use std::{cell::Cell, time::Duration};
+use slint::{ComponentHandle, Model as _, Timer, TimerMode};
+use std::{
+    cell::{Cell, RefCell},
+    time::Duration,
+};
 
 /// How long after the press the recipe runs. Long enough for the press to finish, as the
 /// palette's own delay is.
@@ -51,6 +54,17 @@ const QUICK_TICKS: u32 = 2;
 /// runs anyway (and so says why it cannot): a Deep Solve or Optimize may run for long.
 const BUSY_WAIT_TICKS: u32 = 100;
 
+/// How often the pick recipe looks at pick mode and the corner rings.
+const PICK_POLL: Duration = Duration::from_millis(100);
+
+/// How many looks the pick recipe lets pass before it starts pick mode, so the selection of
+/// the tier's row has settled and cannot end the mode again.
+const PICK_SETTLE_POLLS: u32 = 3;
+
+/// How many looks the pick recipe takes at most (about the recipe's own wait of
+/// [`SETTLE_TICKS`]) before it leaves pick mode again.
+const PICK_MAX_POLLS: u32 = 30;
+
 /// A recipe that solves, held back until the running solve has finished.
 struct Pending {
     /// The guide and step it belongs to: a learner who moved on drops it.
@@ -66,6 +80,8 @@ thread_local! {
     static TICK_LIMIT: Cell<u32> = const { Cell::new(QUICK_TICKS) };
     /// The recipe waiting for a running solve to finish.
     static PENDING: Cell<Option<Pending>> = const { Cell::new(None) };
+    /// The timer of the running pick recipe, kept alive until the next one replaces it.
+    static PICK_TIMER: RefCell<Option<Timer>> = const { RefCell::new(None) };
 }
 
 /// Whether `perform` presses Solve.
@@ -83,11 +99,11 @@ fn editor_busy(ui: &MainWindow) -> bool {
     !ui.global::<EditorModel>().get_busy_action().is_empty()
 }
 
-/// Whether the result of `perform` arrives after it returns: a solve, or a new design that may
-/// first ask about unsaved changes.
+/// Whether the result of `perform` arrives after it returns: a solve, a pick that waits for the
+/// corner rings of the next frame, or a new design that may first ask about unsaved changes.
 fn waits_for_result(perform: &Perform) -> bool {
     match perform {
-        Perform::NewDesign { .. } => true,
+        Perform::NewDesign { .. } | Perform::PickMeetCorner(_) => true,
         Perform::Command(id) => id == CMD_SOLVE,
         Perform::Sequence(parts) => parts.iter().any(waits_for_result),
         _ => false,
@@ -258,9 +274,72 @@ fn execute(ui: &MainWindow, perform: &Perform) -> Result<(), String> {
             commands::show_inspector_tab(ui, *tab);
             Ok(())
         }
+        Perform::PickMeetCorner(tier) => pick_meet_corner(ui, tier),
         Perform::Command(id) => commands::run_unlocked(ui, id),
         Perform::Sequence(parts) => parts.iter().try_for_each(|part| execute(ui, part)),
     }
+}
+
+/// Picks the row called `tier`, starts pick mode for it and clicks the first corner ring, as
+/// the learner does with Pick in View and a click in the viewport.
+///
+/// The rings are placed when a frame of the stone has landed, so the work goes on in a timer
+/// ([`pick_poll`]) after this returns; the step's goal is checked as the timer clicks.
+fn pick_meet_corner(ui: &MainWindow, tier: &str) -> Result<(), String> {
+    select_row(ui, tier)?;
+    let weak = ui.as_weak();
+    let mut polls = 0_u32;
+    let poll_timer = Timer::default();
+    poll_timer.start(TimerMode::Repeated, PICK_POLL, move || {
+        polls += 1;
+        let Some(ui) = weak.upgrade() else {
+            stop_pick_timer();
+            return;
+        };
+        if polls > PICK_MAX_POLLS {
+            let model = ui.global::<ManipulateModel>();
+            if model.get_pick_mode() {
+                model.set_pick_mode(false);
+                model.invoke_pick_toggled();
+            }
+            stop_pick_timer();
+        } else if pick_poll(&ui, polls) {
+            stop_pick_timer();
+        }
+    });
+    PICK_TIMER.with(|cell| *cell.borrow_mut() = Some(poll_timer));
+    Ok(())
+}
+
+/// One look of the pick recipe. Starts pick mode once the row selection has settled, then
+/// clicks the first pickable corner ring. Returns whether the recipe is finished.
+fn pick_poll(ui: &MainWindow, polls: u32) -> bool {
+    let model = ui.global::<ManipulateModel>();
+    if !model.get_pick_mode() {
+        if polls < PICK_SETTLE_POLLS {
+            return false;
+        }
+        model.set_pick_mode(true);
+        model.invoke_pick_toggled();
+        // A refused start says why in a toast and leaves the mode off.
+        return !model.get_pick_mode();
+    }
+    let rings = model.get_pick_rings();
+    let Some(ring) = rings.iter().find(|ring| ring.kind == 0) else {
+        return false;
+    };
+    model.invoke_pick_click(ring.x, ring.y);
+    progress::check_now(ui);
+    true
+}
+
+/// Stops the timer of the pick recipe.
+fn stop_pick_timer() {
+    PICK_TIMER.with(|cell| {
+        if let Some(timer) = cell.borrow().as_ref() {
+            timer.stop();
+        }
+    });
 }
 
 /// Picks the row called `name` in the tier table (a flat tier, else a concave one) and returns
@@ -432,6 +511,14 @@ mod tests {
         assert!(!waits_for_result(&Perform::add_tier(
             "90", 2, "1", "G1", "0:12:96"
         )));
+    }
+
+    #[test]
+    fn a_pick_waits_for_the_corner_rings_of_the_next_frame() {
+        assert!(waits_for_result(&Perform::PickMeetCorner(
+            "Table".to_owned()
+        )));
+        assert!(!starts_solve(&Perform::PickMeetCorner("Table".to_owned())));
     }
 
     #[test]

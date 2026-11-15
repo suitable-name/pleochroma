@@ -8,7 +8,7 @@ use super::{
     FacetSurface, FacetingMachine, GgxLobe, PolishPreset, SurfaceKind, SweepPreset,
     facet_surface::{DEFAULT_GROUND_ALPHA, effective_anisotropy, halo_alpha},
     micro::reflect_about,
-    sweep::{scratch_angle_deg, scratch_direction},
+    sweep::{ScratchBasis, scratch_angle_deg, scratch_direction, scratch_direction_in},
     tis::{tis_reflection, tis_transmission},
 };
 use crate::optics::raytracer::hash_u32;
@@ -274,13 +274,13 @@ fn an_arm_through_the_centre_scratches_parallel_to_the_girdle() {
     assert_eq!(offset.sample_angle_deg(0.3), 12.0);
     // The facet frame: the girdle direction lies in the horizontal plane.
     let normal = Vec3::new(0.6, 0.7, 0.2).normalize();
-    let along = scratch_direction(normal, 0.0);
+    let along = scratch_direction_in(normal, 0.0, ScratchBasis::MODEL);
     assert!(along.y.abs() < 1e-6 && along.dot(normal).abs() < 1e-6);
     // 90 degrees about the normal is perpendicular to it, in the facet plane.
-    let turned = scratch_direction(normal, 90.0);
+    let turned = scratch_direction_in(normal, 90.0, ScratchBasis::MODEL);
     assert!(turned.dot(along).abs() < 1e-5 && turned.dot(normal).abs() < 1e-6);
     // A table facet takes model +X.
-    assert!((scratch_direction(Vec3::Y, 0.0) - Vec3::X).length() < 1e-6);
+    assert!((scratch_direction_in(Vec3::Y, 0.0, ScratchBasis::MODEL) - Vec3::X).length() < 1e-6);
 }
 
 #[test]
@@ -361,4 +361,110 @@ fn the_sweep_angle_histogram_matches_the_analytic_density() {
     };
     let span = |m: &FacetingMachine| m.angle_range_deg().1 - m.angle_range_deg().0;
     assert!(span(&narrow) < span(&machine) && span(&machine) < span(&wide));
+}
+
+/// The scratch direction of the stone as designed, written with the literal model axes.
+fn designed_scratch_direction(normal: Vec3, angle_deg: f32) -> Vec3 {
+    let girdle = normal.cross(Vec3::Y);
+    let girdle = if girdle.length_squared() < 1e-8 {
+        (Vec3::X - normal * normal.dot(Vec3::X)).normalize_or_zero()
+    } else {
+        girdle.normalize()
+    };
+    let (sin_a, cos_a) = angle_deg.to_radians().sin_cos();
+    (girdle * cos_a + normal.cross(girdle) * sin_a).normalize_or_zero()
+}
+
+/// The basis of a stone turned by `Ry(0.7) * Rx(1.1) * Ry(-0.4)`, and that rotation.
+fn posed_basis() -> (glam::Mat3, ScratchBasis) {
+    let r = glam::Mat3::from_rotation_y(0.7)
+        * glam::Mat3::from_rotation_x(1.1)
+        * glam::Mat3::from_rotation_y(-0.4);
+    (r, ScratchBasis::new(r * Vec3::Y, r * Vec3::X))
+}
+
+/// With the default basis the direction is the unrotated one bit for bit, on side facets, on the
+/// table and the culet, and at every angle.
+#[test]
+fn the_model_basis_is_the_designed_direction_bit_for_bit() {
+    assert!(ScratchBasis::default().is_model());
+    assert_eq!(ScratchBasis::default(), ScratchBasis::MODEL);
+    let normals = [
+        Vec3::new(0.3, 0.8, 0.52).normalize(),
+        Vec3::new(0.9, 0.1, -0.4).normalize(),
+        Vec3::new(-0.6, -0.3, 0.2).normalize(),
+        Vec3::Y,
+        Vec3::NEG_Y,
+        Vec3::X,
+    ];
+    for normal in normals {
+        for angle in [-37.5f32, 0.0, 12.0, 33.0, 90.0, 120.0] {
+            let got = scratch_direction_in(normal, angle, ScratchBasis::MODEL);
+            let want = designed_scratch_direction(normal, angle);
+            assert_eq!(
+                got.to_array().map(f32::to_bits),
+                want.to_array().map(f32::to_bits),
+                "normal {normal} angle {angle}"
+            );
+        }
+    }
+}
+
+/// The two-argument function is the designed stone's direction, bit for bit.
+#[test]
+fn the_designed_stone_function_matches_the_model_basis() {
+    for normal in [Vec3::new(0.3, 0.8, 0.52).normalize(), Vec3::Y, Vec3::NEG_Y] {
+        for angle in [-20.0f32, 0.0, 45.0] {
+            assert_eq!(
+                scratch_direction(normal, angle)
+                    .to_array()
+                    .map(f32::to_bits),
+                scratch_direction_in(normal, angle, ScratchBasis::MODEL)
+                    .to_array()
+                    .map(f32::to_bits)
+            );
+        }
+    }
+}
+
+/// A rotated basis turns the scratch direction with the stone: the direction on the turned facet
+/// is the turned direction, including the fallback on the facet facing along the turned `up`.
+#[test]
+fn a_rotated_basis_rotates_the_scratch_direction_with_the_stone() {
+    let (r, basis) = posed_basis();
+    assert!(!basis.is_model());
+    let normals = [
+        Vec3::new(0.3, 0.8, 0.52).normalize(),
+        Vec3::new(0.9, 0.1, -0.4).normalize(),
+        Vec3::new(-0.6, -0.3, 0.2).normalize(),
+        // The table and the culet: the girdle direction vanishes and `side` takes over.
+        Vec3::Y,
+        Vec3::NEG_Y,
+    ];
+    for normal in normals {
+        for angle in [-37.5f32, 0.0, 33.0, 90.0] {
+            let want = r * designed_scratch_direction(normal, angle);
+            let got = scratch_direction_in(r * normal, angle, basis);
+            assert!(
+                (got - want).length() < 1e-5,
+                "normal {normal} angle {angle}: got {got} want {want}"
+            );
+        }
+    }
+}
+
+/// The table of a stone turned in the world keeps its scratches fixed to the stone: the direction
+/// there is the turned `+X`, not the world `+X`.
+#[test]
+fn the_table_fallback_follows_the_stone() {
+    let (r, basis) = posed_basis();
+    let table = basis.up;
+    let along = scratch_direction_in(table, 0.0, basis);
+    assert!((along - basis.side).length() < 1e-5, "along {along}");
+    assert!(along.dot(table).abs() < 1e-5);
+    // The world `+X` would not lie in the turned table plane.
+    assert!(Vec3::X.dot(table).abs() > 1e-2);
+    // And it is the turned stone's `+X` in the model frame's own answer, turned.
+    let model = scratch_direction_in(Vec3::Y, 0.0, ScratchBasis::MODEL);
+    assert!((r * model - along).length() < 1e-5);
 }

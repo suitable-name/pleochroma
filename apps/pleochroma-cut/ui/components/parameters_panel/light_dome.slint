@@ -72,7 +72,7 @@ export component DegreeField inherits VerticalLayout {
         }
         Tooltip { text: @markdown("\{root.hint}"); }
     }
-    Text {
+    if root.name != "": Text {
         text: root.name;
         font-size: 11px;
         color: Theme.text-muted;

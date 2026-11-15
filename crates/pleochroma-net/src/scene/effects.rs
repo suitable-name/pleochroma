@@ -19,7 +19,9 @@ use glam::Vec3;
 use pleochroma::optics::{
     inclusions::{bragg::StructureSpec, spec::InclusionSpec},
     materials::GemMaterial,
-    raytracer::surface::{EdgeAbrasion, FacetSurface, FacetingMachine, SurfaceScene, SweepRange},
+    raytracer::surface::{
+        EdgeAbrasion, FacetSurface, FacetingMachine, ScratchBasis, SurfaceScene, SweepRange,
+    },
 };
 
 /// The longest preset name a scene may carry.
@@ -143,6 +145,12 @@ pub struct SceneEffects {
     /// reason of [`super::SceneState::tools`]; `#[serde(default)]` for the `scene.json` reason.
     #[serde(default)]
     pub material_inclusions: Option<MaterialInclusions>,
+    /// The directions facet scratches run along on a stone posed on the tray
+    /// (`pleochroma::render_setup::pose_stone`): the posed stone's own `+Y` and `+X`. A worker sets
+    /// it when it applies a scene's stone pose; it never travels on the wire and is the unposed
+    /// model basis otherwise.
+    #[serde(skip)]
+    pub scratch: ScratchBasis,
 }
 
 impl SceneEffects {
@@ -212,6 +220,7 @@ impl SceneEffects {
             facet_surfaces: surfaces,
             machine: self.machine.to_machine(),
             edge: self.edge.to_abrasion(),
+            scratch: self.scratch,
         }
     }
 

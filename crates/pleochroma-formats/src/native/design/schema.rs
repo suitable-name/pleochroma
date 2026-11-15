@@ -52,6 +52,10 @@
 //! `surface_no_sweep`, `ground_alpha` and per-facet `surface_facets`. Both are written
 //! only when set, and neither changes the file version.
 //!
+//! `meet_pick = [{ tier = 4, at = 12.0 }, ..]` names the three facets (by `tier_id` and
+//! index-wheel position) of the corner the tier is cut to. A file in which any tier has a
+//! `meet_pick` is `version = 5` ([`DESIGN_VERSION_MEET_PICKS`]).
+//!
 //! Nothing about a tier lives anywhere else in the file, so no value is matched to a tier
 //! by its array position: reordering the entries moves each tier's note, offset and target
 //! with it. `angle_deg` and `indices` are required; `tier_id` is expected and unique (a
@@ -62,7 +66,8 @@
 //! is interpreted by `pleochroma-cut-core`; this crate stores it. `angle_deg` still
 //! holds the resulting angle. A file in which any tier has an `angle_relation` is
 //! `version = 3` ([`DESIGN_VERSION_RELATIONS`]); a file whose `[preform]` shape is a plane
-//! set is `version = 4` ([`DESIGN_VERSION_PLANES`]); every other file keeps its version.
+//! set is `version = 4` ([`DESIGN_VERSION_PLANES`]); a file with a `meet_pick` is
+//! `version = 5` ([`DESIGN_VERSION_MEET_PICKS`]); every other file keeps its version.
 //!
 //! # Metadata and attachments: what is stored, what is recomputed
 //!
@@ -239,6 +244,15 @@ pub const DESIGN_VERSION_RELATIONS: u32 = 3;
 /// with `UnsupportedVersion` rather than failing on an unknown shape kind. A version 4
 /// file may also hold concave tiers and relations.
 pub const DESIGN_VERSION_PLANES: u32 = 4;
+
+/// The schema version of a file in which at least one tier has a non-empty `meet_pick`
+/// (the corner the tier is cut to).
+///
+/// Written only when a pick exists. A pick changes the geometry, so an older build refuses
+/// a version 5 file with `UnsupportedVersion` rather than solving the tier by the
+/// shallowest rule and showing a different stone. A version 5 file may also hold concave
+/// tiers, relations and a plane-set preform.
+pub const DESIGN_VERSION_MEET_PICKS: u32 = 5;
 
 /// The concave-tier frame convention this build writes and reads.
 ///
@@ -428,7 +442,8 @@ pub struct DesignFile {
     /// The major schema version: [`DESIGN_VERSION`], [`DESIGN_VERSION_CONCAVE`] for a
     /// file with concave tiers (see [`DesignFile::with_concave_tiers`]),
     /// [`DESIGN_VERSION_RELATIONS`] for a file in which a tier has an `angle_relation`,
-    /// or [`DESIGN_VERSION_PLANES`] for a file whose preform is a plane set
+    /// [`DESIGN_VERSION_PLANES`] for a file whose preform is a plane set, or
+    /// [`DESIGN_VERSION_MEET_PICKS`] for a file in which a tier has a `meet_pick`
     /// (see [`DesignFile::needed_version`]).
     #[serde(default = "default_version")]
     pub version: u32,
@@ -516,14 +531,17 @@ impl DesignFile {
         file
     }
 
-    /// The lowest version that can hold this document: [`DESIGN_VERSION_PLANES`] when
+    /// The lowest version that can hold this document: [`DESIGN_VERSION_MEET_PICKS`] when
+    /// any tier has a `meet_pick`, else [`DESIGN_VERSION_PLANES`] when
     /// the preform is a plane set, else [`DESIGN_VERSION_RELATIONS`] when any tier has
     /// an `angle_relation`, else [`DESIGN_VERSION_CONCAVE`] when there are concave
     /// tiers, else [`DESIGN_VERSION`]. A planar document without relations and with a
     /// block or cylinder preform is therefore always version 1.
     #[must_use]
     pub fn needed_version(&self) -> u32 {
-        if matches!(self.preform.shape, NativePreformShape::Planes { .. }) {
+        if self.tiers.iter().any(|tier| !tier.meet_pick.is_empty()) {
+            DESIGN_VERSION_MEET_PICKS
+        } else if matches!(self.preform.shape, NativePreformShape::Planes { .. }) {
             DESIGN_VERSION_PLANES
         } else if self.tiers.iter().any(|tier| tier.angle_relation.is_some()) {
             DESIGN_VERSION_RELATIONS

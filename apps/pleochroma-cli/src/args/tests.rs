@@ -464,6 +464,7 @@ fn render_takes_every_flag() {
         RenderJobArgs {
             stone_shadow: None,
             tray_reflection: None,
+            stone_pose: None,
             engine: None,
             kind: JobCommandKind::Render,
             job: PathBuf::from("a.job.json"),
@@ -506,6 +507,7 @@ fn tilt_video_takes_every_flag() {
         RenderJobArgs {
             stone_shadow: None,
             tray_reflection: None,
+            stone_pose: None,
             engine: None,
             kind: JobCommandKind::TiltVideo,
             job: PathBuf::from("v.job.json"),
@@ -850,6 +852,34 @@ fn tray_reflection_is_a_percent_still_render_override() {
     let refusal = error("tilt-video a.job.json --tray-reflection 4");
     assert!(
         refusal.contains("Tilt videos do not show the tray reflection yet."),
+        "{refusal}"
+    );
+}
+
+/// `--stone-pose` takes tilt and turn, or tilt, turn and spin, in degrees; it is a still-render
+/// override only, and anything else is refused with the one sentence.
+#[test]
+fn stone_pose_takes_two_or_three_degrees_for_a_still_render() {
+    assert_eq!(render_args("render a.job.json").stone_pose, None);
+    assert_eq!(
+        render_args("render a.job.json --stone-pose 90,30").stone_pose,
+        Some([90.0, 30.0, 0.0])
+    );
+    assert_eq!(
+        render_args("render a.job.json --stone-pose 45,120.5,270").stone_pose,
+        Some([45.0, 120.5, 270.0])
+    );
+    for bad in ["90", "90,", ",30", "1,2,3,4", "a,b", "nan,0", "0,inf"] {
+        let refusal = error(&format!("render a.job.json --stone-pose {bad}"));
+        assert!(
+            refusal.contains("--stone-pose takes TILT,TURN or TILT,TURN,SPIN in degrees"),
+            "{bad}: {refusal}"
+        );
+    }
+    assert!(parse(&argv("render a.job.json --stone-pose")).is_err());
+    let refusal = error("tilt-video a.job.json --stone-pose 90,30");
+    assert!(
+        refusal.contains("--stone-pose is for \"render\", not \"tilt-video\""),
         "{refusal}"
     );
 }

@@ -1,6 +1,8 @@
 //! Two things a cutter meets at the wheel that the finished stone alone does not show: a tier
 //! with no point to cut to when it is cut ([`pleochroma_cut_core::Design::cut_meets`], "no meet
 //! point"), and a girdle that tiers cut into ([`pleochroma_cut_core::Design::girdle_level`]).
+//! A tier whose picked meet corner no longer exists is told in the same meet-point reason, since
+//! it too is a tier that does not meet the point its cutter chose.
 //!
 //! [`meet_facts`] and [`girdle_fact`] read the facts off the design for [`super::gather()`];
 //! [`meet_point_reason`] and [`girdle_level_reason`] turn them into reasons for
@@ -9,8 +11,10 @@
 //! stone's size, a girdle thickness of its width.
 
 use super::{FixAction, Level, Reason, ReasonKind, VerdictInputs, plural, reason};
-use pleochroma::geometry::meet_solver::MeetConstraint;
-use pleochroma_cut_core::{CutMeets, DEFAULT_SNAP_MAX_MOVE_FRACTION, Design, GirdleLevel};
+use pleochroma::geometry::meet_solver::{MeetConstraint, SolvedTier};
+use pleochroma_cut_core::{
+    CutMeets, DEFAULT_SNAP_MAX_MOVE_FRACTION, Design, GirdleLevel, MeetPickState,
+};
 
 /// A tier the cutter has no point to cut to ([`ReasonKind::NoMeetPoint`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -28,11 +32,25 @@ pub struct FloatingTier {
     pub snappable: bool,
 }
 
+/// A tier whose picked meet corner can no longer be formed, so the solver meets it by its names
+/// instead ([`pleochroma_cut_core::MeetPickState::Lost`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LostPick {
+    /// The tier's position in `design.tiers`.
+    pub tier: usize,
+    /// The tier's name (may be empty).
+    pub name: String,
+    /// The names the tier meets: the tiers it is cut to the shallowest point of now.
+    pub names: Vec<String>,
+}
+
 /// What the cut-so-far meets say about the design's tiers.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MeetFacts {
     /// The tiers with no point to cut to, in cutting order. Empty when every tier has one.
     pub floating: Vec<FloatingTier>,
+    /// The tiers whose picked corner no longer exists, in tier order. Empty when no pick is lost.
+    pub lost_picks: Vec<LostPick>,
     /// The finished stone's size (its largest extent), in design units: what a miss is a
     /// percentage of when there are no millimetres.
     pub size: f64,
@@ -72,10 +90,30 @@ fn has_explicit_depth(design: &Design, tier: usize) -> bool {
         && design.tier_target(tier).is_none()
 }
 
-/// The facts [`meet_point_reason`] reads, from `design`'s cut-so-far `meets`.
-pub(super) fn meet_facts(design: &Design, meets: &CutMeets) -> MeetFacts {
+/// The names tier `tier` of `design` meets (empty unless it is a [`MeetConstraint::MeetNamed`]
+/// tier).
+fn names_met_by(design: &Design, tier: usize) -> Vec<String> {
+    match design.tiers.get(tier).map(|found| &found.constraint) {
+        Some(MeetConstraint::MeetNamed(names)) => names.clone(),
+        _ => Vec::new(),
+    }
+}
+
+/// The facts [`meet_point_reason`] reads, from `design`'s cut-so-far `meets`; `solved` is the mast
+/// list `meets` was built from.
+pub(super) fn meet_facts(design: &Design, meets: &CutMeets, solved: &[SolvedTier]) -> MeetFacts {
     let limit = DEFAULT_SNAP_MAX_MOVE_FRACTION * meets.size;
     MeetFacts {
+        lost_picks: design
+            .meet_pick_states(solved)
+            .into_iter()
+            .filter(|(_, state)| matches!(state, MeetPickState::Lost(_)))
+            .map(|(tier, _)| LostPick {
+                tier,
+                name: name_of(design, tier),
+                names: names_met_by(design, tier),
+            })
+            .collect(),
         floating: meets
             .floating(design)
             .into_iter()
@@ -122,38 +160,66 @@ fn miss_text(miss: f64, size: f64, mm_per_unit: Option<f64>) -> String {
     }
 }
 
-/// The reason for the tiers with no point to cut to: one line naming every one with its miss.
+/// The sentence for a tier whose picked corner no longer exists.
+fn lost_pick_sentence(inputs: &VerdictInputs, lost: &LostPick) -> String {
+    let names = if lost.names.is_empty() {
+        "its named facets".to_string()
+    } else {
+        listed(&lost.names)
+    };
+    format!(
+        "{}: its picked corner no longer exists, so it meets the shallowest point of {names}.",
+        inputs.label(&lost.name, lost.tier)
+    )
+}
+
+/// The reason for the tiers with no point to cut to: one line naming every one with its miss,
+/// followed by one sentence for every tier whose picked corner no longer exists.
 ///
-/// It offers [`FixAction::SnapToMeets`] when at least one of them can move
-/// ([`FloatingTier::snappable`]), and asks first, since the fix changes the design.
+/// It offers [`FixAction::SnapToMeets`] when at least one of the floating tiers can move
+/// ([`FloatingTier::snappable`]), and asks first, since the fix changes the design. A reason
+/// that only has lost picks to tell offers no fix.
 pub(super) fn meet_point_reason(inputs: &VerdictInputs) -> Option<Reason> {
     let facts = inputs.meets.as_ref()?;
-    let first = facts.floating.first()?;
-    let tiers: Vec<String> = facts
+    let first = facts
         .floating
-        .iter()
-        .map(|floating| {
+        .first()
+        .map(|floating| floating.tier)
+        .or_else(|| facts.lost_picks.first().map(|lost| lost.tier))?;
+    let mut sentences: Vec<String> = Vec::new();
+    if !facts.floating.is_empty() {
+        let tiers: Vec<String> = facts
+            .floating
+            .iter()
+            .map(|floating| {
+                format!(
+                    "{} ({} off)",
+                    inputs.label(&floating.name, floating.tier),
+                    miss_text(floating.miss, facts.size, inputs.mm_per_unit)
+                )
+            })
+            .collect();
+        sentences.push(if tiers.len() == 1 {
             format!(
-                "{} ({} off)",
-                inputs.label(&floating.name, floating.tier),
-                miss_text(floating.miss, facts.size, inputs.mm_per_unit)
+                "1 tier has no meet point: {}. A cutter has to set its depth by measurement.",
+                listed(&tiers)
             )
-        })
-        .collect();
-    let text = if tiers.len() == 1 {
-        format!(
-            "1 tier has no meet point: {}. A cutter has to set its depth by measurement.",
-            listed(&tiers)
-        )
-    } else {
-        format!(
-            "{} tiers have no meet point: {}. A cutter has to set their depth by measurement.",
-            tiers.len(),
-            listed(&tiers)
-        )
-    };
-    let mut found = reason(ReasonKind::NoMeetPoint, Level::Check, text);
-    found.tier = Some(first.tier);
+        } else {
+            format!(
+                "{} tiers have no meet point: {}. A cutter has to set their depth by measurement.",
+                tiers.len(),
+                listed(&tiers)
+            )
+        });
+    }
+    sentences.extend(
+        facts
+            .lost_picks
+            .iter()
+            .map(|lost| lost_pick_sentence(inputs, lost)),
+    );
+    let mut found = reason(ReasonKind::NoMeetPoint, Level::Check, sentences.join(" "));
+    found.tier = Some(first);
     let movable = facts
         .floating
         .iter()

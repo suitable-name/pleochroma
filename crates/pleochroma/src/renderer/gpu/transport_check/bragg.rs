@@ -30,9 +30,12 @@ use crate::{
             },
         },
     },
-    renderer::{buffers::structure_rows, gpu::compute},
+    renderer::{
+        buffers::{structure_lattice, structure_rows},
+        gpu::compute,
+    },
 };
-use glam::Vec3;
+use glam::{Mat3, Vec3};
 
 use super::{SHADER_SRC, UlpAccumulator, UlpCheckResult};
 
@@ -44,11 +47,11 @@ use super::{SHADER_SRC, UlpAccumulator, UlpCheckResult};
 /// `[75..83)` the zoned reflection weights (`bragg_reflect_weights` of `depth_in`).
 const OUT_FLOATS: usize = 83;
 
-/// One input case, byte for byte the shader's `BraggCase` (384 bytes, no padding).
+/// One input case, byte for byte the shader's `BraggCase` (432 bytes, no padding).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BraggCase {
-    /// `[domain_seed, rng_seed, bounce, 0]`.
+    /// `[domain_seed, rng_seed, bounce, lattice_posed]`.
     header: [u32; 4],
     /// `structure_rows`, row 0: `[cell_size, lambda_low, lambda_high, purity]`.
     row0: [f32; 4],
@@ -71,9 +74,11 @@ pub struct BraggCase {
     /// Synthetic zoned optical depths per channel at the tracked reflection, for
     /// `bragg_reflect_weights`.
     depth_in: [f32; 8],
+    /// `structure_lattice`: the columns of `lattice_from_world`, read when `header[3]` is nonzero.
+    lattice: [[f32; 4]; 3],
 }
 
-const _: () = assert!(size_of::<BraggCase>() == 384);
+const _: () = assert!(size_of::<BraggCase>() == 432);
 
 /// The budget for every compared value.
 ///
@@ -87,21 +92,27 @@ const BRAGG_ABS_FLOOR: f32 = 1e-4;
 const LAMBDAS: [f32; 8] = [560.0, 440.0, 480.0, 520.0, 600.0, 640.0, 680.0, 720.0];
 
 /// The structures under test: an opal-like one (random normals), a labradorite-like one (one
-/// shared normal), and a wide, dense one that reaches the second order and has no mosaic.
+/// shared normal), a wide, dense one that reaches the second order and has no mosaic, and the
+/// opal-like and labradorite-like ones turned in the world (posed lattices).
 fn structures() -> Vec<BraggStructure> {
+    let opal = BraggStructure::new(12345, 0.2, (440.0, 680.0), 0.05, 0.8, 0.6, 0.03, Vec3::ZERO);
+    let labradorite = BraggStructure::new(
+        777,
+        0.5,
+        (470.0, 740.0),
+        0.06,
+        0.9,
+        0.5,
+        0.10,
+        Vec3::new(0.3, 0.5, 0.8),
+    );
+    let pose = Mat3::from_rotation_y(0.9) * Mat3::from_rotation_x(1.2) * Mat3::from_rotation_y(0.3);
     vec![
-        BraggStructure::new(12345, 0.2, (440.0, 680.0), 0.05, 0.8, 0.6, 0.03, Vec3::ZERO),
-        BraggStructure::new(
-            777,
-            0.5,
-            (470.0, 740.0),
-            0.06,
-            0.9,
-            0.5,
-            0.10,
-            Vec3::new(0.3, 0.5, 0.8),
-        ),
+        opal,
+        labradorite,
         BraggStructure::new(99, 0.05, (400.0, 850.0), 0.1, 1.0, 0.9, 0.0, Vec3::ZERO),
+        opal.rotated(pose),
+        labradorite.rotated(pose),
     ]
 }
 
@@ -138,6 +149,12 @@ fn build_cases() -> Vec<(BraggCase, BraggStructure)> {
     let mut cases = Vec::new();
     for structure in structures() {
         let rows = structure_rows(&structure);
+        // Zero for an unposed structure, as the scene upload leaves it.
+        let lattice = if structure.is_posed() {
+            structure_lattice(&structure)
+        } else {
+            [[0.0; 4]; 3]
+        };
         for (pi, &p) in points.iter().enumerate() {
             for &dir in &dirs {
                 for &(seed, bounce) in &draws {
@@ -152,7 +169,12 @@ fn build_cases() -> Vec<(BraggCase, BraggStructure)> {
                             let origin = points[(pi + 2) % points.len()];
                             cases.push((
                                 BraggCase {
-                                    header: [structure.seed, seed, bounce, 0],
+                                    header: [
+                                        structure.seed,
+                                        seed,
+                                        bounce,
+                                        u32::from(structure.is_posed()),
+                                    ],
                                     row0: rows[0],
                                     row1: rows[1],
                                     row2: rows[2],
@@ -170,6 +192,7 @@ fn build_cases() -> Vec<(BraggCase, BraggStructure)> {
                                         let rank = if hero_deepest { 7 - k } else { k };
                                         0.07f32.mul_add(rank as f32, alphas[k]) * 1.2
                                     }),
+                                    lattice,
                                 },
                                 structure,
                             ));
@@ -360,7 +383,16 @@ mod tests {
         for structure in structures() {
             let material = GemMaterial::diamond().with_structure(structure);
             let block = GpuInclusionBlock::encode(&material);
-            assert_eq!(block.header, [0, 1, structure.seed, 0]);
+            assert_eq!(
+                block.header,
+                [0, 1, structure.seed, u32::from(structure.is_posed())]
+            );
+            let expected_lattice = if structure.is_posed() {
+                structure_lattice(&structure)
+            } else {
+                [[0.0; 4]; 3]
+            };
+            assert_eq!(block.lattice, expected_lattice);
             assert_eq!(block.structure, structure_rows(&structure));
             assert_eq!(block.structure[0][0], structure.cell_size);
             assert_eq!(block.structure[1][2], structure.kappa());
@@ -376,6 +408,30 @@ mod tests {
         }
         let plain = GpuInclusionBlock::encode(&GemMaterial::diamond());
         assert_eq!(plain, GpuInclusionBlock::default());
+    }
+
+    /// The posed structures are in the case table, carry the flag and the lattice columns, and
+    /// the CPU reference reaches reflections through them.
+    #[test]
+    fn the_case_table_holds_posed_structures() {
+        let (mut posed_cases, mut posed_reflections) = (0, 0);
+        for (case, structure) in build_cases() {
+            assert_eq!(case.header[3], u32::from(structure.is_posed()));
+            if structure.is_posed() {
+                assert_ne!(case.lattice, [[0.0; 4]; 3]);
+                posed_cases += 1;
+                if cpu_outputs(&structure, &case)[30] == 1.0 {
+                    posed_reflections += 1;
+                }
+            } else {
+                assert_eq!(case.lattice, [[0.0; 4]; 3]);
+            }
+        }
+        assert!(posed_cases > 0, "no posed structure in the case table");
+        assert!(
+            posed_reflections > 0,
+            "no Bragg reflection through a posed structure"
+        );
     }
 
     /// The case table reaches every branch of the estimator: reflections and passes, with and

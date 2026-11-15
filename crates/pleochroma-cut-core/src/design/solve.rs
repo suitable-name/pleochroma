@@ -269,6 +269,8 @@ impl Design {
             .map(|(i, mut input)| {
                 if !affected.contains(&i) {
                     input.constraint = MeetConstraint::ScaleReference(previous[i].mast);
+                    // A pinned tier is an anchor: it has no corner to follow.
+                    input.pick = None;
                 }
                 input
             })
@@ -285,11 +287,13 @@ impl Design {
     pub fn meet_tier_inputs(&self) -> Vec<MeetTierInput> {
         self.tiers
             .iter()
-            .map(|t| MeetTierInput {
+            .enumerate()
+            .map(|(index, t)| MeetTierInput {
                 angle_deg: t.angle_deg,
                 indices: t.indices.clone(),
                 constraint: t.constraint.clone(),
                 names: t.names().into_iter().map(str::to_string).collect(),
+                pick: self.solver_pick(index),
             })
             .collect()
     }

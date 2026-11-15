@@ -17,6 +17,7 @@ use super::{
     is_zero_reflection,
     surface_glare::{DEFAULT_SURFACE_GLARE, clamp_surface_glare},
 };
+use pleochroma::render_setup::StonePose;
 use serde::{Deserialize, Serialize};
 
 /// The stored format version. Raise it only when a field changes meaning; a new optional
@@ -97,6 +98,11 @@ pub struct LightingValues {
     /// the picture's axes). An older recorded camera pose is centred.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_pan: Option<[f32; 2]>,
+    /// The Stone Pose `[tilt, turn, spin]` in degrees, if carried. It is written only together
+    /// with a camera pose; a pose without it stands the stone as designed. See
+    /// [`Self::pose_stone_pose`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stone_pose: Option<[f32; 3]>,
     /// Camera distance from the stone, if carried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_distance: Option<f32>,
@@ -131,6 +137,7 @@ impl LightingValues {
             camera_pitch: None,
             camera_roll: None,
             camera_pan: None,
+            stone_pose: None,
             camera_distance: None,
         }
         .sanitised()
@@ -181,6 +188,10 @@ impl LightingValues {
             .camera_pan
             .filter(|pan| pan.iter().all(|v| v.is_finite()))
             .map(clamp_camera_pan);
+        self.stone_pose = self
+            .stone_pose
+            .filter(|pose| pose.iter().all(|v| v.is_finite()))
+            .map(|pose| StonePose::from_array(pose).to_array());
         self.camera_distance = self.camera_distance.filter(|v| v.is_finite() && *v > 0.0);
         self
     }
@@ -214,8 +225,44 @@ impl LightingValues {
         })
     }
 
+    /// The Stone Pose that goes with [`Self::camera_pose`]: the recorded one, or the stone as
+    /// designed (`[0.0, 0.0, 0.0]`) for a pose recorded without one. Lighting-only values carry
+    /// none (`None`), so applying them keeps the current Stone Pose. The returned array is the
+    /// stored one; the caller limits it with `StonePose::from_array`.
+    #[must_use]
+    pub const fn pose_stone_pose(&self) -> Option<[f32; 3]> {
+        if self.camera_pose().is_none() {
+            return None;
+        }
+        Some(match self.stone_pose {
+            Some(pose) if pose[0].is_finite() && pose[1].is_finite() && pose[2].is_finite() => pose,
+            _ => [0.0, 0.0, 0.0],
+        })
+    }
+
+    /// The Stone Pose that stands after applying these values to a view whose current pose is
+    /// `current`: the values' own pose when they carry a camera pose (identity when that pose
+    /// records none), `current` when they are lighting-only.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn stone_pose_after_apply(&self, current: [f32; 3]) -> [f32; 3] {
+        match self.pose_stone_pose() {
+            Some(pose) => pose,
+            None => current,
+        }
+    }
+
+    /// The Stone Pose to store with a camera pose saved from a view posed `pose`: `None` for the
+    /// stone as designed (the stored row then reads exactly as before), the pose otherwise.
+    #[must_use]
+    pub fn recorded_stone_pose(pose: [f32; 3]) -> Option<[f32; 3]> {
+        let pose = StonePose::from_array(pose);
+        (!pose.is_identity()).then_some(pose.to_array())
+    }
+
     /// Writes these values into the lighting fields of `app`. The camera is not written:
-    /// the persisted camera pose is the window's own state, not part of the lighting.
+    /// the persisted camera pose is the window's own state, not part of the lighting, and the
+    /// Stone Pose, which is stored with it, is left alone too.
     pub fn write_into(&self, app: &mut AppSettings) {
         app.lighting_rig.clone_from(&self.lighting_rig);
         app.light_yaw_deg = self.light_yaw_deg;
@@ -424,6 +471,110 @@ mod tests {
         assert_eq!(damaged.pose_pan(), Some([0.0, 0.0]));
         let max = pleochroma::optics::raytracer::MAX_CAMERA_PAN;
         assert_eq!(pose([40.0, -0.5]).camera_pan, Some([max, -0.5]));
+    }
+
+    /// The Stone Pose goes with the recorded camera pose only: lighting-only values carry none
+    /// (the current pose stands), a pose recorded without one stands the stone as designed.
+    #[test]
+    fn the_stone_pose_goes_with_the_recorded_camera_pose() {
+        let posed = LightingValues {
+            camera_yaw: Some(0.25),
+            camera_pitch: Some(0.75),
+            stone_pose: Some([90.0, 30.0, 10.0]),
+            ..LightingValues::default()
+        };
+        assert_eq!(posed.pose_stone_pose(), Some([90.0, 30.0, 10.0]));
+        assert_eq!(
+            posed.stone_pose_after_apply([5.0, 5.0, 5.0]),
+            [90.0, 30.0, 10.0]
+        );
+
+        // Rule 2: a camera pose without a stone pose sets the stone as designed.
+        let unposed = LightingValues {
+            stone_pose: None,
+            ..posed.clone()
+        };
+        assert_eq!(unposed.pose_stone_pose(), Some([0.0, 0.0, 0.0]));
+        assert_eq!(
+            unposed.stone_pose_after_apply([90.0, 30.0, 10.0]),
+            [0.0, 0.0, 0.0]
+        );
+
+        // Rule 1: values without a camera pose keep the current stone pose.
+        let lighting_only = LightingValues {
+            camera_yaw: None,
+            camera_pitch: None,
+            ..posed
+        };
+        assert_eq!(lighting_only.pose_stone_pose(), None);
+        assert_eq!(
+            lighting_only.stone_pose_after_apply([90.0, 30.0, 10.0]),
+            [90.0, 30.0, 10.0]
+        );
+    }
+
+    /// The pose is serialised only when carried, survives the stored JSON, is limited like the
+    /// sliders, and a damaged one reads as none (identity with a camera pose).
+    #[test]
+    fn the_stone_pose_round_trips_is_limited_and_is_omitted_when_absent() {
+        let json = LightingValues::default().to_json().expect("serialises");
+        assert!(!json.contains("stone_pose"), "{json}");
+
+        let values = LightingValues {
+            camera_yaw: Some(0.25),
+            camera_pitch: Some(0.75),
+            stone_pose: Some([90.0, 30.0, 10.0]),
+            ..LightingValues::default()
+        };
+        let json = values.to_json().expect("serialises");
+        assert!(json.contains("stone_pose"), "{json}");
+        assert_eq!(LightingValues::from_json(&json), Ok(values));
+
+        let pose = |stone_pose| {
+            LightingValues {
+                camera_yaw: Some(0.25),
+                camera_pitch: Some(0.75),
+                stone_pose: Some(stone_pose),
+                ..LightingValues::default()
+            }
+            .sanitised()
+        };
+        assert_eq!(
+            pose([400.0, 370.0, -10.0]).stone_pose,
+            Some([180.0, 10.0, 350.0])
+        );
+        let damaged = pose([f32::NAN, 0.0, 0.0]);
+        assert_eq!(damaged.stone_pose, None);
+        assert_eq!(damaged.pose_stone_pose(), Some([0.0, 0.0, 0.0]));
+    }
+
+    /// Only a posed stone is recorded with a saved view, so an unposed save reads as before.
+    #[test]
+    fn only_a_posed_stone_is_recorded_with_a_saved_view() {
+        assert_eq!(LightingValues::recorded_stone_pose([0.0, 0.0, 0.0]), None);
+        assert_eq!(
+            LightingValues::recorded_stone_pose([90.0, 30.0, 0.0]),
+            Some([90.0, 30.0, 0.0])
+        );
+    }
+
+    /// The camera fields are not lighting: neither the app's own values nor writing values back
+    /// touch the Stone Pose.
+    #[test]
+    fn the_stone_pose_is_not_lighting() {
+        let mut app = AppSettings {
+            stone_pose: [90.0, 30.0, 10.0],
+            ..AppSettings::default()
+        };
+        assert_eq!(LightingValues::from_app_settings(&app).stone_pose, None);
+        let values = LightingValues {
+            camera_yaw: Some(0.25),
+            camera_pitch: Some(0.75),
+            stone_pose: Some([10.0, 20.0, 30.0]),
+            ..LightingValues::default()
+        };
+        values.write_into(&mut app);
+        assert_eq!(app.stone_pose, [90.0, 30.0, 10.0]);
     }
 
     /// The map rotation and its camera switch survive the settings file, a saved lighting

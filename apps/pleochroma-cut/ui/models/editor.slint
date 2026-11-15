@@ -16,6 +16,14 @@ export global EditorModel {
     callback selected_tier_changed(int);
     changed selected_tier_index => { selected_tier_changed(selected_tier_index); }
 
+    // The selected tier's picked meet corner, for the Meet Point row of the Tier tab. `meet_pick_state`:
+    // 0 none, 1 met, 2 dormant, 3 off the stone, 4 lost. The chip and the note are the row's texts.
+    in property <int> meet_pick_state: 0;
+    in property <string> meet_pick_chip: "";
+    in property <string> meet_pick_note: "";
+    // Forget the picked corner of the tier at this index.
+    callback meet_pick_clear(int);
+
     // Bumped whenever the tier-edit form must go blank. A monotonically increasing
     // counter (not a flag) so going from -1 to -1 again still fires `changed`.
     // EditorView watches this to re-seed/clear EditorInspector's form.

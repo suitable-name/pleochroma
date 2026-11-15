@@ -3,7 +3,8 @@
 //! Shared by the desktop and the web inspector, so both save a tier the same way: a new tier
 //! inserts right after the selected row, an existing tier modifies itself in place, and a
 //! depth / girdle-thickness / table-width target is written (or cleared) in the same undo
-//! step.
+//! step. A picked meet corner is cleared in that step too when the save changes the tier's
+//! Meets constraint.
 
 use crate::manipulate::{dependents::rename_dependant_edits, tiers_meeting};
 use pleochroma_cut_core::{ConstraintTier, Design, Edit, TierTarget, design::ConcaveTier};
@@ -82,6 +83,12 @@ pub fn unnaming_blocked_message(design: &Design, index: i32, new_name: &str) -> 
 /// both; a save that keeps the name, or that nobody meets, stays a plain
 /// `Edit::ModifyTier`. Saving a tier unnamed is the one rename this cannot follow -- see
 /// [`unnaming_blocked_message`].
+///
+/// A tier that has a picked meet corner ([`Design::tier_meet_pick`]) and is saved with a
+/// different Meets constraint (another kind, other names, another order of the names) gets
+/// `Edit::SetTierMeetPick { pick: None }` appended to the same batch: the pick belongs to the
+/// constraint it was made with, so one undo brings both back. A save that keeps the constraint
+/// keeps the pick.
 #[must_use]
 pub fn tier_save_edit(
     design: &Design,
@@ -103,13 +110,21 @@ pub fn tier_save_edit(
         )
     } else {
         let index = index.cast_unsigned() as usize;
+        let clears_pick = design.tier_meet_pick(index).is_some()
+            && design
+                .tiers
+                .get(index)
+                .is_some_and(|current| current.constraint != tier.constraint);
         let dependant_rewrites = rename_dependant_edits(design, index, &tier.name);
         let modify = Edit::ModifyTier { index, tier };
-        if dependant_rewrites.is_empty() {
+        if dependant_rewrites.is_empty() && !clears_pick {
             (index, modify)
         } else {
             let mut steps = vec![modify];
             steps.extend(dependant_rewrites);
+            if clears_pick {
+                steps.push(Edit::SetTierMeetPick { index, pick: None });
+            }
             (index, Edit::Batch(steps))
         }
     }
@@ -368,6 +383,85 @@ mod tests {
         // A free name and a blank one are fine.
         assert_eq!(concave_name_clash_message(&design, None, "Fresh"), None);
         assert_eq!(concave_name_clash_message(&design, None, "  "), None);
+    }
+
+    /// The standard round brilliant with its lower girdle (tier 6) cut to the corner of the
+    /// girdle and the pavilion mains.
+    fn picked_session() -> EditorSession {
+        use pleochroma_cut_core::{History, PreformSpec, ScheduleMeta};
+        let mut session = EditorSession::with_history(
+            Design::new(
+                PreformSpec::block(2.0, 1.0, 4.0),
+                ScheduleMeta::standard_round_brilliant(),
+                ConstraintTier::standard_round_brilliant(),
+            ),
+            History::with_coalesce_window(crate::session::ANGLE_NUDGE_COALESCE_WINDOW),
+        );
+        let solved = session.design.solve().expect("every tier is pinned");
+        let corner = session
+            .design
+            .pick_corners(&solved, 6)
+            .expect("the stone closes")
+            .into_iter()
+            .find(|corner| corner.tiers == [4, 5])
+            .expect("the girdle and the mains form a corner");
+        session
+            .pick_meet_corner(6, &corner)
+            .expect("the corner can be picked");
+        session
+    }
+
+    #[test]
+    fn a_save_that_changes_the_meets_clears_the_pick_in_the_same_undo_step() {
+        use pleochroma::geometry::meet_solver::MeetConstraint;
+        let mut session = picked_session();
+        let named = session.design.tiers[6].constraint.clone();
+        let mut changed = session.design.tiers[6].clone();
+        changed.constraint = MeetConstraint::MeetNamed(vec!["Girdle".to_string()]);
+
+        let (at, edit) = tier_save_edit(&session.design, 6, changed, None);
+        assert_eq!(at, 6);
+        assert!(
+            matches!(
+                &edit,
+                Edit::Batch(steps)
+                    if matches!(steps.last(), Some(Edit::SetTierMeetPick { index: 6, pick: None }))
+            ),
+            "{edit:?}"
+        );
+        session.apply(edit).unwrap();
+        assert!(session.design.tier_meet_pick(6).is_none());
+        assert_eq!(
+            session.design.tiers[6].constraint,
+            MeetConstraint::MeetNamed(vec!["Girdle".to_string()])
+        );
+
+        session.undo().unwrap();
+        assert!(session.design.tier_meet_pick(6).is_some());
+        assert_eq!(session.design.tiers[6].constraint, named);
+    }
+
+    #[test]
+    fn a_save_that_keeps_the_meets_keeps_the_pick() {
+        let mut session = picked_session();
+        let mut steeper = session.design.tiers[6].clone();
+        steeper.angle_deg += 0.1;
+        let (_, edit) = tier_save_edit(&session.design, 6, steeper, None);
+        assert!(
+            matches!(edit, Edit::ModifyTier { index: 6, .. }),
+            "{edit:?}"
+        );
+        session.apply(edit).unwrap();
+        assert!(session.design.tier_meet_pick(6).is_some());
+
+        // A tier without a pick saves plain whatever it changes.
+        let mut other = session.design.tiers[5].clone();
+        other.constraint = pleochroma::geometry::meet_solver::MeetConstraint::MeetExisting;
+        let (_, edit) = tier_save_edit(&session.design, 5, other, None);
+        assert!(
+            matches!(edit, Edit::ModifyTier { index: 5, .. }),
+            "{edit:?}"
+        );
     }
 
     #[test]

@@ -117,6 +117,8 @@ pub fn render_job(
     {
         return Outcome::Failed(note);
     }
+    // Validated when the job was submitted: the picture is traced from the posed scene.
+    render_core::pose::apply_pose(&mut scene);
     let scene = &scene;
     // Held for the whole render: the tracer finds the decoded map in the registry.
     let _pin = match scene.hdr() {
@@ -280,6 +282,7 @@ mod tests {
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         }
     }
 

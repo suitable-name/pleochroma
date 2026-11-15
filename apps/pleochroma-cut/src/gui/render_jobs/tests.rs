@@ -110,6 +110,7 @@ fn assert_snapshots_equal(a: &SceneSnapshot, b: &SceneSnapshot) {
     bits("pitch", a.pitch, b.pitch);
     bits("pan x", a.camera_pan[0], b.camera_pan[0]);
     bits("pan y", a.camera_pan[1], b.camera_pan[1]);
+    assert_eq!(a.stone_pose, b.stone_pose);
     bits("distance", a.distance, b.distance);
     bits("light_yaw", a.light_yaw, b.light_yaw);
     bits("light_pitch", a.light_pitch, b.light_pitch);
@@ -251,6 +252,53 @@ fn the_pan_survives_the_job_round_trip() {
     let rebuilt = convert::snapshot_from_scene(&back.scene, None);
     assert_snapshots_equal(&original, &rebuilt);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The Stone Pose is frozen into the job file (format 8) and rebuilt with it, so a queued or
+/// command-line render stands the stone as the view did; a job without one rebuilds unposed.
+#[test]
+fn the_stone_pose_survives_the_job_round_trip() {
+    use pleochroma::render_setup::StonePose;
+    let dir = test_dir("stone_pose");
+    let mut original = capture(RenderContext::default());
+    original.stone_pose = StonePose::from_array([90.0, 30.0, 10.0]);
+    let remote = RemoteSelection::local_only();
+    let output = dir.join("pose-job.png");
+    let job = convert::build_still_job(
+        &still_inputs(&original, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(job.scene.stone_pose, [90.0, 30.0, 10.0]);
+    assert_eq!(job.format, 8, "a Stone Pose makes the job format 8");
+    let back =
+        codec::from_text(&codec::to_text(&job).expect("the job encodes")).expect("the job decodes");
+    let rebuilt = convert::snapshot_from_scene(&back.scene, None);
+    assert_snapshots_equal(&original, &rebuilt);
+
+    let unposed = capture(RenderContext::default());
+    let plain = convert::build_still_job(
+        &still_inputs(&unposed, tiny_params(), &remote, &output),
+        1_791_302_580,
+    )
+    .expect("the job builds");
+    assert_eq!(plain.scene.stone_pose, [0.0, 0.0, 0.0]);
+    assert_eq!(
+        convert::snapshot_from_scene(&plain.scene, None).stone_pose,
+        StonePose::IDENTITY
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The queue row names the pose only when the stone is posed.
+#[test]
+fn the_job_detail_names_a_stone_pose_only_when_posed() {
+    use pleochroma::render_setup::StonePose;
+    assert_eq!(convert::stone_pose_detail(StonePose::IDENTITY), "");
+    assert_eq!(
+        convert::stone_pose_detail(StonePose::from_array([90.0, 30.0, 10.0])),
+        " \u{b7} Stone Pose: tilt 90\u{b0}, turn 30\u{b0}, spin 10\u{b0}"
+    );
 }
 
 /// The stone's render physics (surface finish, abraded edge and the faceting machine) is frozen

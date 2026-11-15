@@ -14,8 +14,13 @@ A job lit by a turned HDR map (the map rotation above 0, or "Turns with the Came
 Pictures, tilt videos and jobs frame the stone where the live view has it (its pan); a job whose
 stone is off-centre is format 7, which wins over every other format, so an older build refuses
 it instead of rendering it centred. Catalogue thumbnails stay centred.
+Pictures and jobs also draw the stone in the Stone Pose of the Live Render view, also when the
+export is started from the Edit tab; a job whose stone is posed is format 8, which wins over
+every other format, and tilt videos always show the stone as designed. An export with
+**Include Optical Diagnostics** is refused while the stone is posed ("Optical Diagnostics
+cannot be combined with a Stone Pose").
 Tilt videos do not show the tray reflection.
-The desktop app and remote workers must all use protocol 43. See the
+The desktop app and remote workers must all use protocol 44. See the
 [rendering manual](manual/09-rendering-and-export.md) for the approximation's limits.
 
 **Import**: the Import Designs panel has **Choose File...** (one `.psdd`, `.asc`,

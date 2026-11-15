@@ -28,6 +28,7 @@ pub mod plane_hash;
 #[cfg(feature = "hdr")]
 pub mod png_encode;
 pub mod sample_scale;
+mod stone_pose;
 #[cfg(feature = "stone-shadow")]
 mod stone_shadow;
 pub mod stone_width;
@@ -47,4 +48,5 @@ pub use materials::{
 pub use plane_hash::{hash_geometry, hash_planes};
 #[cfg(feature = "hdr")]
 pub use png_encode::{encode_png_with_icc, encode_preview_png};
+pub use stone_pose::{PosedStone, StonePose, pose_stone};
 pub use stone_width::measure_model_width;

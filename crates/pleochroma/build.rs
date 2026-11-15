@@ -348,7 +348,7 @@ fn bisect_report(keys: &[String], hits: &[usize]) {
 /// 1. the `GpuGemMaterial` struct gains its trailing `zones: GpuZoneTable` field (the Rust
 ///    twin appends the table at offset 592, `renderer::buffers::GpuGemMaterial::zones`), then
 ///    `biaxial_curves: GpuBiaxialCurves` (offset 2720) and `inclusions: GpuInclusionBlock`
-///    (offset 2800), so the struct is 3024 bytes in every shader built from the bounce text.
+///    (offset 2800), so the struct is 3104 bytes in every shader built from the bounce text.
 ///    The two block structs are declared in `transport_bounce/02_scene_bindings.wgsl`;
 /// 2. the homogeneous interior-absorption branch of `transport_bounce_step` becomes
 ///    `if (zoned) { zoned_interior_absorption(..) } else if (<the original condition>) {`.
@@ -361,7 +361,7 @@ fn zoned_bounce_shared(shaders_dir: &Path, bounce_shared: &str) -> String {
         "extraordinary_param_b: vec4<f32>,\n    // Zone table, appended at byte offset 592.\n    zones: GpuZoneTable,\n    \
          // Biaxial principal-index curves, appended at byte offset 2720.\n    \
          biaxial_curves: GpuBiaxialCurves,\n    \
-         // Oriented-inclusion block, appended at byte offset 2800 (the struct is 3024 bytes).\n    \
+         // Oriented-inclusion block, appended at byte offset 2800 (the struct is 3104 bytes).\n    \
          inclusions: GpuInclusionBlock,",
         "GpuGemMaterial.zones",
     );

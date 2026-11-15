@@ -385,7 +385,8 @@ fn prepare_jobs(
                 job.scene.lighting_preset.label(),
             ) + &super::convert::adaptive_detail(request.adaptive.as_ref())
                 + &super::convert::path_cache_detail(request.path_cache.as_ref())
-                + &super::convert::beam_detail(request.beam.as_ref()),
+                + &super::convert::beam_detail(request.beam.as_ref())
+                + &super::convert::stone_pose_detail(job.scene.stone_pose),
             output,
             text,
         });

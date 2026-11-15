@@ -4,7 +4,7 @@ use super::*;
 use crate::{loading::design_from_asc_text, session::EditorSession};
 use pleochroma::geometry::meet_solver::MeetConstraint;
 use pleochroma_cut_core::{
-    Edit, History, ScheduleState, TierId,
+    Edit, History, PickedFacet, ScheduleState, TierId, TierMeetPick,
     design::{ConcaveTier, ConcaveTool, ToolMotion},
 };
 
@@ -377,6 +377,83 @@ fn removing_a_tier_a_relation_reads_drops_the_relation() {
     let plan = plan_apply(&design, &base, &edited, &[]).expect("plans");
     assert!(plan.state.tier_relations.is_empty());
     assert!(any_line(&plan.report.lost, "relation"), "{:?}", plan.report);
+}
+
+/// The line of the picked tier (C2) in `text`, as the design writes it.
+fn c2_line(text: &str) -> &str {
+    text.lines()
+        .find(|line| line.contains(" n C2 "))
+        .expect("the text has a C2 line")
+}
+
+/// A design whose third tier (C2) is cut to the corner of C1, P1 and the table, picked by id.
+fn picked_design() -> Design {
+    let mut design = fixture();
+    let facet = |position: usize, index: f64| PickedFacet {
+        tier: design.tier_ids[position],
+        index,
+    };
+    let pick = TierMeetPick {
+        facets: [facet(1, 0.0), facet(3, 0.0), facet(0, 0.0)],
+    };
+    design.tiers[2].constraint =
+        MeetConstraint::MeetNamed(vec!["C1".to_owned(), "P1".to_owned(), "Table".to_owned()]);
+    let id = design.tier_ids[2];
+    design.tier_meet_picks.insert(id, pick);
+    design
+}
+
+#[test]
+fn applying_a_text_keeps_the_picked_corner_of_the_tiers_that_survive() {
+    let design = picked_design();
+    let id = design.tier_ids[2];
+    let base = text_of(&design);
+
+    // Unchanged text: nothing to apply, the pick stays in the state.
+    let same = plan_apply(&design, &base, &base, &[]).expect("plans");
+    assert!(same.is_noop());
+    assert_eq!(same.state.tier_meet_picks, design.tier_meet_picks);
+
+    // An angle edit elsewhere keeps the pick with its tier, ids unchanged.
+    let edited = base.replace("a 34.5 0.59", "a 35 0.59");
+    let kept = plan_apply(&design, &base, &edited, &[]).expect("plans");
+    assert_eq!(kept.state.tier_meet_picks, design.tier_meet_picks);
+
+    // Moving the picked tier's line moves nothing in the map: it is keyed by id.
+    let mut lines: Vec<&str> = base.lines().collect();
+    lines.swap(6, 7);
+    let moved = plan_apply(&design, &base, &(lines.join("\n") + "\n"), &[]).expect("plans");
+    assert_eq!(moved.state.tier_meet_picks, design.tier_meet_picks);
+    assert_eq!(moved.state.tier_ids[1], id);
+
+    // Removing the picked tier's line takes its pick with it.
+    let removed = plan_apply(
+        &design,
+        &base,
+        &base.replace(&format!("{}\n", c2_line(&base)), ""),
+        &[],
+    )
+    .expect("plans");
+    assert!(removed.state.tier_meet_picks.is_empty());
+}
+
+#[test]
+fn applying_a_text_that_changes_the_names_leaves_the_pick_stored_but_unused() {
+    let design = picked_design();
+    let base = text_of(&design);
+    // The G text of the picked tier now names other tiers: the pick is kept in the state and
+    // the tier's constraint no longer covers the picked tiers, so the pick reads as dormant.
+    let line = c2_line(&base);
+    let (head, _) = line.split_once(" G ").expect("the C2 line states its meet");
+    let edited = base.replace(line, &format!("{head} G Meet C1, Table"));
+    let plan = plan_apply(&design, &base, &edited, &[]).expect("plans");
+    assert_eq!(plan.state.tier_meet_picks, design.tier_meet_picks);
+    let tier = &plan.state.tiers[2];
+    assert!(
+        !matches!(&tier.constraint, MeetConstraint::MeetNamed(names) if names.len() == 3),
+        "{:?}",
+        tier.constraint
+    );
 }
 
 #[test]

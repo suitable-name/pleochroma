@@ -29,6 +29,9 @@ pub fn handles_hidden_reason(ui: &MainWindow) -> String {
     if ui.global::<ManipulateModel>().get_slice_mode() {
         return "Slice mode".into();
     }
+    if super::meet_pick::is_armed() {
+        return "pick mode (the stone is shown before the tier is cut)".into();
+    }
     let Ok(tier) = usize::try_from(ui.global::<EditorModel>().get_selected_tier_index()) else {
         return "no tier selected".into();
     };

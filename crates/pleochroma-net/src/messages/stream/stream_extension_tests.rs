@@ -211,6 +211,7 @@ fn ping_and_final_image_request_round_trip_at_discriminants_4_and_5() {
         frosted_planes: Vec::new(),
         effects: crate::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     };
     let request = ClientMessage::FinalImageRequest(Box::new(FinalImageRequest {
         request_id: 9,
@@ -358,6 +359,7 @@ fn batch_render_request_is_appended_at_discriminant_8_and_round_trips() {
         frosted_planes: Vec::new(),
         effects: crate::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     };
     let request = ClientMessage::BatchRenderRequest(Box::new(BatchRenderRequest {
         request_id: 12,

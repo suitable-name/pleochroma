@@ -76,6 +76,7 @@ fn busy() -> SceneEffects {
             halo_rq_nm: 8.0,
         },
         material_inclusions: Some(carried()),
+        scratch: pleochroma::optics::raytracer::surface::ScratchBasis::MODEL,
     }
 }
 

@@ -205,6 +205,9 @@ impl Design {
             Edit::SetTierSurface { index, surface } => {
                 self.apply_set_tier_surface(index, surface, tier_count)
             }
+            Edit::SetTierMeetPick { index, pick } => {
+                self.apply_set_tier_meet_pick(index, pick, tier_count)
+            }
             Edit::RestoreTierId { index, id } => self.apply_restore_tier_id(index, id, tier_count),
             Edit::AddConcaveTier { index, tier } => self.apply_add_concave_tier(index, tier),
             Edit::RemoveConcaveTier { index } => self.apply_remove_concave_tier(index),
@@ -331,6 +334,9 @@ impl Design {
         let removed_relation = self.tier_relations.remove(&removed_id);
         let removed_frosting = self.tier_frosting.remove(&removed_id);
         let removed_surface = self.take_tier_surface_step(removed_id, index);
+        // Its own picked corner goes with it. Picks of other tiers that name this one are left
+        // alone: they read as lost until undo brings the tier (and its id) back.
+        let removed_meet_pick = self.take_tier_meet_pick_step(removed_id, index);
         let removed_offset = self.shift_cheater_offsets_for_remove(index);
         let removed_note = self.shift_tier_notes_for_remove(index);
         let mut steps = vec![
@@ -384,6 +390,7 @@ impl Design {
             });
         }
         steps.extend(removed_surface);
+        steps.extend(removed_meet_pick);
         // Always a `Batch` of at least `AddTier` and `RestoreTierId`.
         Ok(Edit::Batch(steps))
     }
@@ -680,16 +687,19 @@ impl Design {
         let flat_inverse = Edit::RestoreIndices { tiers };
         // Facet-by-facet frosting names its facets by index-wheel position, so it
         // moves with the tiers' own indices. Empty for every design without it.
-        let frosting_inverse = self.remap_frosted_facets(from_gear, to_gear, rounding);
+        let mut facet_inverse = self.remap_frosted_facets(from_gear, to_gear, rounding);
+        // Picked corners name their facets by index-wheel position too, so they move the same
+        // way; empty for every design without a pick.
+        facet_inverse.extend(self.remap_meet_picks(from_gear, to_gear, rounding));
         // A gear change must carry concave placements along too, or they keep their old
-        // tooth numbers. A design with neither concave tiers nor frosted facets gets the
+        // tooth numbers. A design with neither concave tiers nor facets named by position gets the
         // plain `RestoreIndices` inverse.
         if self.concave_tiers.is_empty() {
-            if frosting_inverse.is_empty() {
+            if facet_inverse.is_empty() {
                 return Ok(flat_inverse);
             }
             let mut steps = vec![flat_inverse];
-            steps.extend(frosting_inverse);
+            steps.extend(facet_inverse);
             return Ok(Edit::Batch(steps));
         }
         let snapshot = self
@@ -706,7 +716,7 @@ impl Design {
             flat_inverse,
             Edit::RestoreConcaveIndices { tiers: snapshot },
         ];
-        steps.extend(frosting_inverse);
+        steps.extend(facet_inverse);
         Ok(Edit::Batch(steps))
     }
 

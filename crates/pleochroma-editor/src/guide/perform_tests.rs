@@ -213,6 +213,10 @@ impl Sim {
 
     /// Carries out `perform`. `Ok(false)` when part of it is a UI action this simulation cannot
     /// play.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per Perform variant, matched exhaustively"
+    )]
     fn play(&mut self, perform: &Perform) -> Result<bool, String> {
         match perform {
             Perform::NewDesign {
@@ -271,6 +275,8 @@ impl Sim {
                     .ok_or("the tier does not exist")?;
                 self.solved = false;
             }
+            // A click in the Solid view: the simulation has no view to click in.
+            Perform::PickMeetCorner(_) => return Ok(false),
             Perform::ClearRelation(tier) => {
                 let row = self.row(tier)?;
                 self.session.clear_tier_relation(row).map_err(debug)?;

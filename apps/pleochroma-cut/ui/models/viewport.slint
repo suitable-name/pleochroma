@@ -154,6 +154,13 @@ export global ViewportModel {
     // release. A stray extra `end` is harmless.
     callback camera_drag_begin();
     callback camera_drag_end();
+    // A Stone Pose drag of `(dx, dy)` logical pixels in the Live Render view (Alt or Ctrl and Shift
+    // with the left button): vertical tilts the stone, horizontal turns it
+    // (`gui::render::stone_pose`). Its button edges come as
+    // `stone_pose_drag_begin` / `stone_pose_drag_end`, besides the camera drag edges above.
+    callback stone_pose_drag(float, float);
+    callback stone_pose_drag_begin();
+    callback stone_pose_drag_end();
     callback light_move(float, float);
     callback light_pos_changed(float, float);
     // The Lighting tab's Map Rotation slider (degrees, 0 to 360) and its Turns with the Camera

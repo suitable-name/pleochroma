@@ -25,7 +25,7 @@ dropped.)
 ## Update the App and Every Worker Together
 
 The app and its workers must run the same version. The current version of the wire protocol
-is 43, which carries Stone Shadow, Tray Reflection, the HDR map's turn, the stone estimator and the stone's place in the picture (Chapter 2). Each worker builds its own map: a Preview map for the live
+is 44, which carries Stone Shadow, Tray Reflection, the HDR map's turn, the stone estimator, the stone's place in the picture and its Stone Pose (Chapter 2). Each worker builds its own map: a Preview map for the live
 viewport, a Final map for everything else (exports, jobs, final images, batches and adaptive
 passes); map bytes are never sent over the wire. The Tray Reflection travels as one number
 (the surface's head-on reflectance), and each worker builds the mirror from the stone itself. A worker can render whole beam tiles of a
@@ -36,7 +36,7 @@ whether beam tracing is on or not. After you update the app, update every worker
 coordinator that workers join) to the same release and restart them, then use **Test
 Connection** to check each one.
 
-Every worker must be on protocol 43 (version 0.11). The app sends the estimator with the scene
+Every worker must be on protocol 44 (version 0.11). The app sends the estimator with the scene
 (Chapter 9, "Exit Collection"), and a worker renders with the estimator the app sends, never
 with one of its own, so a picture shared between this computer and the workers is drawn with
 one estimator.
@@ -46,7 +46,7 @@ built without it answers every beam-tile request with "unsupported request" (cod
 keeps the connection; a standard coordinator does not forward beam tiles. A beam build of
 the app then draws those tiles on this computer or on another worker, as it does for a lost
 worker (Chapter 9), and with Remote Only the export fails.
-A beam build and a standard build of one version still pair at the handshake (protocol 43).
+A beam build and a standard build of one version still pair at the handshake (protocol 44).
 
 Adaptive sampling is an optional build feature too (`adaptive-sampling`, which a `beam` build
 includes). A worker or coordinator built without it answers every adaptive live-pass request
@@ -57,7 +57,7 @@ protocol of every build, so an adaptive build and a standard build of one versio
 
 ## Why Use a Remote Worker
 
-Both Path-Traced and Ray-Traced images can be sent to protocol-43 peers. Ray-Traced
+Both Path-Traced and Ray-Traced images can be sent to protocol-44 peers. Ray-Traced
 work carries its engine, AA count and Fire option with the resolved scene; tap ranges
 travel as sample ranges and are never merged with Path-Traced samples. Display-only
 Ray-Traced pictures are tone-mapped without the spectral denoiser. Older peers are
@@ -192,7 +192,7 @@ Where the choice lives:
 
 Click **Test Connection**. While it runs, the button shows "Testing...".
 On success you'll see something like "Compatible -- coordinator (3
-workers) (protocol v43)" (or "CPU, 16 threads" / a GPU description for a
+workers) (protocol v44)" (or "CPU, 16 threads" / a GPU description for a
 coordinator that renders on its own with `--render` and has no workers
 joined yet, or "library only (no render capacity)" if the remote only
 serves the design library — a coordinator with no joined workers and no

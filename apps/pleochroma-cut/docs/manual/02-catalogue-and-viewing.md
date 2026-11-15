@@ -257,6 +257,7 @@ floats over it as glass:
 | **Front** / **Top** buttons | Snap to the canonical poses: girdle edge-on with index 0 towards you, or straight down onto the table. Distance and lighting stay as they were |
 | **Turn 90°** button | Turns the stone a quarter turn about its vertical axis and keeps the viewing angle, distance and lighting: an oval that runs top to bottom then lies across the picture, ready for a landscape export |
 | Right-drag, or Shift + left-drag | Move the light; with an HDR map loaded, turn the map instead |
+| Alt + left-drag, or Ctrl + Shift + left-drag | Tilt and turn the stone on the tray: vertical movement tilts, horizontal movement turns (Stone Pose, below). **Reset Camera** keeps the pose |
 | Scroll | Zoom |
 | Click the FACE-UP figures card | Copy the five gemological numbers to the clipboard |
 | Mouse button, bottom left | Show or hide this list of gestures in the view |
@@ -419,6 +420,7 @@ genuine right-drag gesture.)
   Rename, Usable for Export and Delete). The **Usable for Export** entry is the "usable
   for" mark: switch it on and the view is offered in the export dialog's list of lightings, so one export can
   render the stone under several of them (Chapter 9). New views start with it off.
+  With the camera pose the view also keeps the Stone Pose (below).
 - **Backdrop** (Lighting tab, SURROUNDINGS, a segment with color dots) — the surface the stone
   lies on: a matte tray under the stone, lit by the lighting rig and extending to the
   horizon. It is seen around the stone and through the stone's windows alike, so what
@@ -462,6 +464,63 @@ genuine right-drag gesture.)
   reflection."). Metrics and catalogue previews omit it. The path cache declines it, and so does
   beam tracing (in a build with the `beam` feature), with a note each; with the Spectral GPU
   renderer, a graphics card that cannot run it leaves the render to the processor.
+- **Stone Pose** (Lighting tab, SURROUNDINGS, under Tray Reflection) — stands the stone on the
+  tray in another position than the one it was designed in: tipped onto a side, turned towards
+  the camera, or lying on its table. The group has three rows and three buttons.
+  **Tilt** (0° to 180°) tips the stone away from table-up: 90° stands the table upright and
+  180° lays the stone on its table, pavilion up. **Turn** (0° to 360°) swings the tilt
+  direction around the stone's vertical axis. **Spin** (0° to 360°) turns the stone about its
+  own axis before it is tilted, which decides which girdle point ends up on the tray: for an
+  oval, an emerald cut, a pear or a heart it is the difference between standing on the long
+  side, the short side or the point. Each row has a slider and a number field (the slider
+  updates the picture while you drag it; the field applies on Enter).
+  **Face the Camera** sets Turn and Tilt so that the table looks at the camera from where the
+  camera is now, taking the camera's height into account (a camera 15° above the tray gives a
+  tilt of 75°; a camera below the horizon never lays the stone on its table), and keeps Spin.
+  **Product Shot** does that and frames the picture for a product photo: it sets the camera
+  pitch to 15° with no roll (the yaw stays), faces the stone to the camera, sets the distance
+  to fit twice the stone's radius so the mirror image has room, and moves the stone in the
+  picture so the point where it touches the tray sits at the middle (the stone above, its
+  reflection below). The lighting is not touched; with the Tray Reflection at 0 a message says
+  "Product Shot set the pose and the camera. Turn on the Tray Reflection for the mirror
+  image.", and where the Tray Reflection cannot work (an HDR map, As Lit, "Contrast view
+  (ASET-style)") it says "Product Shot set the pose and the camera. The Tray Reflection needs
+  a studio light with a backdrop." **Reset**, in the group's title row, stands the stone as
+  designed.
+
+  The pose belongs to the world, not to the camera: the stone is turned about the middle of the
+  stone (the point the camera orbits), and the lights, the HDR map, the tray and the camera stay
+  where they were, so orbiting afterwards looks at the posed stone from other sides. The stone
+  rests on the tray at its lowest point, so the tray drops as the stone tilts; the Stone Shadow
+  and the Tray Reflection follow the posed stone. The crystal axis, the color zones, the
+  inclusions and the polishing scratches turn with the stone. A pose is a picture setting: it
+  changes nothing about the design.
+
+  While the stone is posed, a chip over the Live Render picture reads "Stone Pose · tilted 70°"
+  (with the current tilt; "Stone Pose · rotated" for a stone that is only turned or spun). It
+  is a button: its note says "Stand the stone as designed", and a
+  click resets the pose. You can also pose the stone in the picture itself: **Alt + drag** or
+  **Ctrl + Shift + drag** tilts it (vertical movement) and turns it (horizontal movement);
+  Spin is set with its slider. Ctrl + Shift + drag is there because some Linux window managers
+  take Alt + drag to move the window. While a drag or a slider is held the Stone Shadow is not
+  rebuilt (the picture shows the stone without it) and the shadow comes back a moment after you
+  let go; the Tray Reflection stays on, so the mirror image moves while you drag.
+
+  What shows the stone as designed, whatever the pose: tilt views and tilt videos, the metrics
+  and figures (the FACE-UP card, the tilt curves), catalogue previews and thumbnails, and the
+  Edit tab (the Edit view, including its Solid view, is never posed). The Solid mode of the Live
+  Render view shows the posed stone. **Optical Diagnostics** is off while the stone is posed
+  and says "Not with a Stone Pose", because the overlay describes the stone
+  as designed. An export or a queued job draws the pose of the Live Render view, even when it
+  is started from the Edit tab (Chapter 9).
+
+  The pose is remembered with the other settings. A saved lighting that was saved with
+  **Include the camera pose** keeps the stone pose with the camera. Applying a lighting with a
+  camera pose that holds no stone pose (the built-in Grading tray, or a view saved by an older
+  version) stands the stone as designed, so the picture matches the figures it is there to
+  judge; applying a lighting without a camera pose leaves the current pose alone. A design's own
+  lighting (**Use This Lighting for This Design**) never carries a pose. **Reset this tab**
+  at the bottom of the Lighting tab resets the pose as well; **Reset Camera** keeps it.
 - **Surface Glare** (Lighting tab, the Viewer card) — a 0–100 % slider in steps of 5
   (default 100 %). It scales the white mirror image of the light that a polished
   surface reflects, which is what a cross-polarised photograph removes: at 0 % the
@@ -666,7 +725,12 @@ parts, from the top:
   color dot), the **Stone Shadow** and **Tray Reflection** rows (a row that cannot work
   shows a reason chip, for example "not with HDR", in place of its slider), and the
   **HDR Environment Map** row: "None" or the file name, **Choose...** (which picks a .hdr
-  file and loads it in one step) and a clear button once one is loaded.
+  file and loads it in one step) and a clear button once one is loaded. After the Tray
+  Reflection row comes the **STONE POSE** group: the rows **Tilt**, **Turn** and **Spin**
+  (slider and field each), the buttons **Face the Camera** and **Product Shot**, and **Reset**
+  in the group's title row, with the line "The stone rests on the tray at its lowest point; the shadow and
+  the reflection follow. Tilt views, metrics and the Edit view show the stone as designed."
+  (see *Stone Pose* above).
 - **The Viewer card** (folded until opened, unless a value is off its default) —
   **Surface Glare** and **Head Shadow**, each with its reset link. Its summary reads
   "Glare 100 % · head shadow 16°". Both grey out while an HDR map is loaded.
@@ -678,7 +742,7 @@ parts, from the top:
   Design** once one is saved; the group called "Lighting This Design Opens With";
   Chapter 9). A saved lighting holds the whole look: rig, light direction, exposure,
   glare, backdrop, head shadow, the "Stone Shadow" and "Tray Reflection" settings, the
-  HDR map if any, and optionally the camera pose.
+  HDR map if any, and optionally the camera pose, which then includes the Stone Pose.
 
 The camera buttons are not in this tab any more: the viewport has them (Reset Camera,
 Front, Top, Turn 90°).

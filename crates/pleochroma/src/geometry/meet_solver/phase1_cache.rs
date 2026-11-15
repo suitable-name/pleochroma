@@ -360,6 +360,7 @@ mod tests {
                 .collect(),
             constraint: MeetConstraint::MeetExisting,
             names: Vec::new(),
+            pick: None,
         }
     }
 

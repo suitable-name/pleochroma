@@ -252,6 +252,18 @@ pub(super) const fn view_slice() -> Command {
     )
 }
 
+pub(super) const fn view_pick_meet() -> Command {
+    command(
+        "view.pick_meet",
+        "Pick Meet Point",
+        Category::View,
+        "corner meet point facet cut to vertex",
+        Some("M"),
+        SLICE,
+        run::toggle_pick_meet,
+    )
+}
+
 pub(super) const fn view_snap() -> Command {
     command(
         "view.snap",

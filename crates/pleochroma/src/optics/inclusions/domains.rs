@@ -69,7 +69,8 @@ pub fn cell_of(cell_size: f32, p: Vec3) -> [i32; 3] {
     [q.x.floor() as i32, q.y.floor() as i32, q.z.floor() as i32]
 }
 
-/// The seed point of `cell`: the cell's corner plus a hashed jitter inside it.
+/// The seed point of `cell`: the cell's corner plus a hashed jitter inside it, in the
+/// coordinates the domain map is laid out in (see [`BraggStructure::lattice_from_world`]).
 #[must_use]
 pub fn seed_point(structure: &BraggStructure, cell: [i32; 3]) -> Vec3 {
     let jitter = Vec3::new(
@@ -80,12 +81,15 @@ pub fn seed_point(structure: &BraggStructure, cell: [i32; 3]) -> Vec3 {
     (Vec3::new(cell[0] as f32, cell[1] as f32, cell[2] as f32) + jitter) * structure.cell_size
 }
 
-/// The domain with the nearest seed point to `p`, searching the 27 cells around it.
+/// The domain with the nearest seed point to the world point `p`, searching the 27 cells around
+/// it. The point is looked up at `lattice_from_world * p`, and the domain's normal is a world
+/// direction.
 ///
 /// A tie (a point exactly equidistant from two seed points) goes to the cell met first in the
 /// fixed `x, y, z` loop order; ties have measure zero.
 #[must_use]
 pub fn domain_at(structure: &BraggStructure, p: Vec3) -> Domain {
+    let p = structure.to_lattice(p);
     let home = cell_of(structure.cell_size, p);
     let mut best = home;
     let mut best_d2 = f32::INFINITY;
@@ -104,7 +108,8 @@ pub fn domain_at(structure: &BraggStructure, p: Vec3) -> Domain {
     domain_of_cell(structure, best)
 }
 
-/// Everything a domain owns, from its cell.
+/// Everything a domain owns, from its cell (a cell of the domain map's own coordinates). The
+/// normal is a world direction: a random opal normal is turned back by `lattice_from_world^T`.
 #[must_use]
 #[expect(
     clippy::suboptimal_flops,
@@ -129,8 +134,9 @@ pub fn domain_of_cell(structure: &BraggStructure, cell: [i32; 3]) -> Domain {
         let z = 1.0 - 2.0 * unit_float(cell_hash(cell, seed, SALT_NORMAL_A));
         let phi = TAU * unit_float(cell_hash(cell, seed, SALT_NORMAL_B));
         let r = (1.0 - z * z).max(0.0).sqrt();
-        Vec3::new(r * phi.cos(), r * phi.sin(), z)
+        structure.lattice_to_world(Vec3::new(r * phi.cos(), r * phi.sin(), z))
     } else {
+        // Already a world direction: `BraggStructure::rotated` turns it with the stone.
         structure.normal
     };
     Domain {

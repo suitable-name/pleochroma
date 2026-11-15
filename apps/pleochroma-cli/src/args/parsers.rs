@@ -627,6 +627,27 @@ fn parse_tray_reflection(word: &str) -> Result<f32, String> {
     Ok(percent / 100.0)
 }
 
+/// The Stone Pose `--stone-pose` gives: tilt and turn, or tilt, turn and spin, in degrees. Every
+/// value must be a finite number; the range is applied when the pose is laid over the job.
+fn parse_stone_pose(word: &str) -> Result<[f32; 3], String> {
+    let refusal = || "--stone-pose takes TILT,TURN or TILT,TURN,SPIN in degrees".to_string();
+    let mut values = [0.0_f32; 3];
+    let mut count = 0;
+    for part in word.split(',') {
+        let slot = values.get_mut(count).ok_or_else(refusal)?;
+        let value: f32 = part.trim().parse().map_err(|_| refusal())?;
+        if !value.is_finite() {
+            return Err(refusal());
+        }
+        *slot = value;
+        count += 1;
+    }
+    if count < 2 {
+        return Err(refusal());
+    }
+    Ok(values)
+}
+
 /// The renderer `--engine` names: `path` or `ray`.
 fn parse_engine(word: &str) -> Result<pleochroma::renderer::engine::RenderEngine, String> {
     match word {
@@ -652,6 +673,7 @@ fn blank_render_job(kind: JobCommandKind) -> RenderJobArgs {
     RenderJobArgs {
         stone_shadow: None,
         tray_reflection: None,
+        stone_pose: None,
         engine: None,
         kind,
         job: PathBuf::new(),
@@ -772,6 +794,16 @@ fn apply_render_flag(
             return Err(
                 "--tray-reflection is for \"render\", not \"tilt-video\". Tilt videos do not \
                  show the tray reflection yet."
+                    .to_string(),
+            );
+        }
+        "--stone-pose" if kind == JobCommandKind::Render => {
+            parsed.stone_pose = Some(parse_stone_pose(cursor.value("--stone-pose")?)?);
+        }
+        "--stone-pose" => {
+            return Err(
+                "--stone-pose is for \"render\", not \"tilt-video\". Tilt videos turn the stone \
+                 themselves."
                     .to_string(),
             );
         }

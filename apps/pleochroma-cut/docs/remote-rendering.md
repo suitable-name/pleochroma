@@ -5,11 +5,11 @@ configured remote, and how denoising and the TLS connection are handled across t
 handoff. For everything else see [the README](../README.md); for the
 `RemoteEndpoint` configuration itself see [settings.md](settings.md).
 
-## Protocol 43: Update the Whole Fleet Together
+## Protocol 44: Update the Whole Fleet Together
 
-The current protocol is **43**. It appends the camera pan to the scene (see below); earlier
-versions appended the HDR map turn and the stone estimator (42), Tray Reflection (41) and
-Stone Shadow (40).
+The current protocol is **44**. It appends the Stone Pose to the scene (see below); earlier
+versions appended the camera pan (43), the HDR map turn and the stone estimator (42), Tray
+Reflection (41) and Stone Shadow (40).
 Each worker computes its own map; map bytes never cross the wire. A live viewport request gets a Preview
 map, and everything else (exports, jobs, final images, batches and the passes of an adaptive
 export) gets a Final map. The beam-tile request (protocol 38) lets a worker
@@ -39,10 +39,20 @@ written before the field (an older job file) reads as centred. A pan is camera m
 cancels the live remote epoch like an orbit or a roll, so samples of two framings are never
 summed.
 
+The Stone Pose travels in the scene as well (`SceneState::stone_pose`, `[tilt, turn, spin]`
+in degrees; the key is left out of the JSON when it is `[0, 0, 0]`, and a scene written before
+the field reads as an unposed stone). Every scene the viewer sends carries the pose of the
+Live Render view (the live view, exports and jobs); tilt requests, catalogue thumbnails and
+metrics send the stone as designed. A worker refuses a component that is not a number ("stone
+pose must be finite"), limits tilt to 0 to 180 degrees and wraps turn and spin into 0 to 360,
+then turns the stone's facets, tools, crystal axis, color zones and inclusions once per
+request, so a frame split between the viewer and workers shows one pose. A worker builds
+the Stone Shadow's map itself, for the posed stone.
+
 Beam tracing is retired and is an optional build feature (`beam`, for example `cargo build -p
 pleochroma-worker --features beam`). Only builds with the feature send or render beam tiles.
 The wire definition (`BeamTileRequest`, `StreamEvent::BeamTiles`) is in every build, so beam
-and standard builds of protocol 43 pair at the handshake. A worker or coordinator built
+and standard builds of protocol 44 pair at the handshake. A worker or coordinator built
 without the feature answers every `BeamTileRequest` with `StreamEvent::Error` (code
 `UNSUPPORTED_REQUEST`, 5) and keeps the connection; a standard coordinator does not forward
 beam tiles. A beam build of the app treats that error like a lost worker: the tiles move to

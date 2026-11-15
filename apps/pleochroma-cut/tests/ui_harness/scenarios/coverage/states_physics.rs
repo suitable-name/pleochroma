@@ -147,11 +147,17 @@ fn scroll_to_label(a: &HarnessApp, scope: &str, label: &str, step: f32) {
     }
 }
 
-/// The Preferences dialog scrolled to the path cache buttons (Open Folder, Clear Path Cache).
-fn preferences_path_cache(a: &HarnessApp) {
+/// The Preferences dialog scrolled to its Rendering section (Instant Lighting Changes in the
+/// Ray-Traced View; the path cache rows show only where the path cache can be used).
+fn preferences_rendering(a: &HarnessApp) {
     a.ui().global::<PreferencesModel>().set_dialog_open(true);
     pump(250);
-    scroll_to_label(a, "PreferencesDialog", "Clear Path Cache", 200.0);
+    scroll_to_label(
+        a,
+        "PreferencesDialog",
+        "Instant Lighting Changes in the Ray-Traced View",
+        200.0,
+    );
 }
 
 /// The Preferences dialog scrolled to the Direct Manipulation switches (Larger Handles, Snap to
@@ -278,11 +284,11 @@ fn physics_states() -> Vec<State> {
             open: layers_across_axis,
         },
         State {
-            name: "Preferences, path cache",
+            name: "Preferences, rendering",
             base: Base::Startup,
             scope: Some("PreferencesDialog"),
             deny: DENY_PREFERENCES,
-            open: preferences_path_cache,
+            open: preferences_rendering,
         },
         State {
             name: "Preferences, direct manipulation",

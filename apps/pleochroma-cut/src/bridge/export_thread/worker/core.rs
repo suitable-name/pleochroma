@@ -458,6 +458,13 @@ fn with_export_ctx_taps<R>(
     shadow_progress: &mut dyn FnMut(f32),
     f: impl FnOnce(Result<&ExportCtx<'_>, String>) -> R,
 ) -> R {
+    // The stone as it stands on the tray (the scene's Live Render pose; the scene itself is
+    // untouched for the identity). The shadow, the mirror, the camera frame, the planes and tools
+    // of every local lane, the path cache and the material all read this posed scene, with the
+    // material and the finishes resolved first. A remote lane sends the original scene and its
+    // pose, which the worker applies itself.
+    let posed = scene.posed();
+    let scene: &SceneSnapshot = &posed;
     let camera = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
         .with_roll(scene.camera_roll)
         .with_pan(scene.camera_pan);

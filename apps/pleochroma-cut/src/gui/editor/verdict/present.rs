@@ -5,7 +5,7 @@
 //! and the fixes all come from `pleochroma_editor::verdict`.
 
 use crate::{MainWindow, VerdictModel, VerdictReasonData};
-use pleochroma_editor::verdict::{FixAction, Verdict};
+use pleochroma_editor::verdict::{FixAction, VanishNotice, Verdict};
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 /// One reason as the popover shows it: `VerdictReasonData` with plain strings.
@@ -82,6 +82,20 @@ pub(super) fn push_hidden(ui: &MainWindow) {
     ));
     model.set_stale(false);
     model.set_busy(false);
+    set_vanish_notice(ui, None);
+}
+
+/// Shows the vanished-facet notice for `notice`, or hides it for `None`.
+///
+/// Hiding leaves the last words in the model, so the notice does not change shape while it fades.
+pub(super) fn set_vanish_notice(ui: &MainWindow, notice: Option<&VanishNotice>) {
+    let model = ui.global::<VerdictModel>();
+    if let Some(notice) = notice {
+        model.set_vanish_notice_text(notice.text.as_str().into());
+        model.set_vanish_notice_tier(i32::try_from(notice.select_tier).unwrap_or(-1));
+        model.set_vanish_notice_tier_label(notice.select_label.as_str().into());
+    }
+    model.set_vanish_notice_shown(notice.is_some());
 }
 
 /// Marks the verdict on screen as out of date (or current again).

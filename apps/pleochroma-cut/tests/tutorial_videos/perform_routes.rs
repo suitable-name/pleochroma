@@ -119,6 +119,7 @@ impl Film<'_> {
             Perform::ClearRelation(tier) => self.film_clear_relation(tier),
             Perform::TierNote { tier, text } => self.film_tier_note(tier, text),
             Perform::CheaterOffset { tier, text } => self.film_cheater_offset(tier, text),
+            Perform::PickMeetCorner(tier) => self.film_pick_meet_corner(tier),
             Perform::Material(name) => self.film_material(name),
             Perform::Yield { girdle_diameter_mm } => self.film_yield(*girdle_diameter_mm),
             Perform::ViewMode(mode) => self.film_view_mode(*mode),

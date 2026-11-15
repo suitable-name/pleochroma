@@ -567,3 +567,27 @@ fn legacy_settings_open_centred_and_new_settings_keep_the_pan() {
     let parsed: crate::settings::model::SettingsFile = toml::from_str(&text).expect("deserialize");
     assert_eq!(parsed.settings.camera_pan, [0.4, -0.25]);
 }
+#[test]
+fn legacy_settings_open_unposed_and_new_settings_keep_the_stone_pose() {
+    let legacy: super::AppSettings = serde_json::from_str("{}").unwrap();
+    assert_eq!(legacy.stone_pose, [0.0, 0.0, 0.0]);
+    let posed = super::AppSettings {
+        stone_pose: [90.0, 30.0, 10.0],
+        ..legacy
+    };
+    let restored: super::AppSettings =
+        serde_json::from_str(&serde_json::to_string(&posed).unwrap()).unwrap();
+    assert_eq!(restored.stone_pose, posed.stone_pose);
+    let file = crate::settings::model::SettingsFile {
+        settings: posed,
+        ..Default::default()
+    };
+    let text = toml::to_string_pretty(&file).expect("serialize");
+    assert!(text.contains("stone_pose"), "{text}");
+    let parsed: crate::settings::model::SettingsFile = toml::from_str(&text).expect("deserialize");
+    assert_eq!(parsed.settings.stone_pose, [90.0, 30.0, 10.0]);
+    // A settings file written before the Stone Pose existed reads it as identity.
+    let old: crate::settings::model::SettingsFile =
+        toml::from_str("[settings]\ncamera_pan = [0.4, -0.25]\n").expect("deserialize");
+    assert_eq!(old.settings.stone_pose, [0.0, 0.0, 0.0]);
+}

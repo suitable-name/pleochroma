@@ -35,24 +35,28 @@ fn main() {
                 indices: vec![0.0, 1.0, 2.0, 3.0],
                 constraint: MeetConstraint::ScaleReference(1.0),
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 0.0,
                 indices: vec![],
                 constraint: MeetConstraint::ScaleReference(0.6),
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -0.0,
                 indices: vec![],
                 constraint: MeetConstraint::ScaleReference(0.6),
                 names: vec![],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 45.0,
                 indices: vec![0.5],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec![],
+                pick: None,
             },
         ];
         let solved = solve_meet_points(4, &tiers);
@@ -77,18 +81,21 @@ fn main() {
                 indices: vec![0.0, 1.0, 2.0, 3.0],
                 constraint: MeetConstraint::ScaleReference(1.0),
                 names: vec!["girdle".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 0.0,
                 indices: vec![],
                 constraint: MeetConstraint::ScaleReference(0.6),
                 names: vec!["table".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -0.0,
                 indices: vec![],
                 constraint: MeetConstraint::ScaleReference(0.6),
                 names: vec!["culet".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 45.0,
@@ -99,12 +106,14 @@ fn main() {
                     "table".to_string(),
                 ]),
                 names: vec!["X".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 60.0,
                 indices: vec![0.5],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["Y".to_string()],
+                pick: None,
             },
         ];
         let solved = solve_meet_points(4, &tiers);

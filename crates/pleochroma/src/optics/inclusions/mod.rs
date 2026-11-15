@@ -27,6 +27,7 @@ pub mod domains;
 pub mod needle;
 pub mod platelet;
 mod rebase;
+mod rotate;
 pub mod spec;
 pub mod spectral;
 #[cfg(test)]

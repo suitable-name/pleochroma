@@ -493,7 +493,8 @@ fn seed_path_cache(ui: &MainWindow, settings: &AppSettings) {
     let prefs = ui.global::<PreferencesModel>();
     prefs.set_path_cache_viewport(settings.path_cache_viewport);
     // The app renders with exit collection, which uses neither the path cache nor beam tracing,
-    // so both switches are greyed out while it is the process default.
+    // so the path cache rows are hidden and the beam switch states why it applies only to the
+    // Ray-Traced view while it is the process default. The saved values are kept.
     let branching = pleochroma::optics::raytracer::default_estimator()
         == pleochroma::optics::raytracer::Estimator::Branching;
     prefs.set_path_cache_available(branching);

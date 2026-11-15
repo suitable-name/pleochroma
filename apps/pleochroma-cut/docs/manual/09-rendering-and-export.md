@@ -17,7 +17,7 @@ Off, 4×, 8× or 16×. The first tap is visible before the remaining taps finish
 is used for Ray-Traced.
 
 The export dialog has its own **Renderer** choice. Ray-Traced exports use AA taps and
-Fire in place of the Path-Traced sample count. Local CPU, supported GPU and protocol-43
+Fire in place of the Path-Traced sample count. Local CPU, supported GPU and protocol-44
 remote computation honor that choice; the engine and options are frozen in queued jobs.
 Changing engines starts a new accumulation, so spectral samples never mix with AA taps.
 
@@ -94,7 +94,21 @@ says "Tray reflection is traced on the CPU on this graphics card."; Ray-Traced G
 always shows it. Tilt views and tilt videos
 do not show the reflection ("Tilt views don't show the tray reflection."). A still with the
 reflection on is saved as a format 4 render job (format 5 when the stone has color zones, format 6 with a
-turned HDR map, format 7 with the stone moved within the picture; Chapter 23).
+turned HDR map, format 7 with the stone moved within the picture, format 8 with a Stone Pose; Chapter 23).
+
+### Stone Pose
+
+An export, an extra preset image and a queued job draw the stone in the **Stone Pose** of the Live
+Render view (Chapter 2): the same tilt, turn and spin, with the shadow and the mirror image
+that go with it. This holds when the export is started from the Edit tab too: the Edit view
+is never posed, but the export takes the pose the Live Render view has, so a posed export
+started beside an unposed Edit view is not a surprise. When the stone is posed, the dialog
+shows the line "Stone Pose: tilt 75°, turn 20°, spin 0°" (with the actual angles), and a queued
+job's row in the render queue carries the same line. A job keeps its pose as `stone_pose` and is
+saved as a format 8 render job, so an older program refuses it instead of drawing the stone as
+designed (Chapter 23). A remote worker draws the same pose. Tilt videos always show the stone as
+designed, and an export with **Include Optical Diagnostics** is refused while the stone is
+posed (below).
 
 ### Output Location
 
@@ -237,8 +251,10 @@ are noisier at the same samples.
 ### Path Cache
 
 The path cache and beam tracing are off while the app renders with exit collection, because
-exit collection does not use them. The **Path Cache** check boxes are greyed out with a note,
-and a job that asks for the cache is drawn without it and says "Path cache off: exit
+exit collection does not use them. The **Path Cache** controls (and, in a build with the
+`beam` feature, the export's **Beam Tracing** controls) are shown only when the path cache can
+be used; otherwise they are not shown. A job that asks for the cache, for example a queued job
+or a command-line run, is drawn without it and says "Path cache off: exit
 collection, the default estimator, does not use it." (in a build with the `beam` feature,
 beams say the same). The rest of this section describes the cache with the classic (branching)
 estimator.
@@ -656,6 +672,6 @@ These are geometric diagnostics. Persistent notices identify body absorption/zon
 
 Still exports stay clean unless **Include Optical Diagnostics (4 Samples/Pixel)** is checked. The selection, opacity, palette and mode freeze with the export scene, including preset fan-out and queued jobs. Each diagnostic still traces four deterministic samples at its actual output dimensions in bounded row tiles, then composites after beauty processing. The tiles are traced on all available processor cores; the picture is identical whatever the number of cores. While it runs, the progress bar fills a second time (the first half is the beauty render) and a note says "Tracing Optical Diagnostics". The PNG's `.optical.txt` companion records model version, pose, material, lighting policy, selected effects, units, sampling and limitations without source/profile paths. It is written after the PNG, so a failed picture leaves no orphan legend. Target RGB profile conversion applies to the palette too. Transparent beauty alpha is preserved.
 
-An export that cannot produce a diagnostic pass is refused before anything renders: ASET lighting without an HDR map, a stone without facets, or no layer (Scintillation counts as one) and no **Diagnostic Map on Neutral Stone** selected. The same check covers every preset of a fan-out, queued jobs and job files run from the command line (which fail as an input problem).
+An export that cannot produce a diagnostic pass is refused before anything renders: ASET lighting without an HDR map, a stone without facets, or no layer (Scintillation counts as one) and no **Diagnostic Map on Neutral Stone** selected. A posed stone is refused too, with "Optical Diagnostics cannot be combined with a Stone Pose": reset the pose or leave **Include Optical Diagnostics** off. The same check covers every preset of a fan-out, queued jobs and job files run from the command line (which fail as an input problem).
 
 The built-in **Optical Diagnostics at a Viewing Angle** tutorial demonstrates enabling, choosing effects, orbiting, reading a region and explicitly exporting with the legend.

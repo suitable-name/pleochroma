@@ -79,16 +79,46 @@ fn constraint_text(constraint: &MeetConstraint) -> String {
 /// What a tier meets or follows: the meet the file stated when it stated one (and the mast the
 /// import pinned it at), else its constraint; a tier whose angle follows a relation says so.
 fn meet_text(design: &Design, index: usize, tier: &ConstraintTier) -> String {
-    if let Some(relation) = design.relation_text(index) {
-        return format!("follows {relation}");
+    let base = design.relation_text(index).map_or_else(
+        || match (&tier.imported_meet, &tier.constraint) {
+            (Some(stated), MeetConstraint::ScaleReference(mast)) => {
+                format!("{} (pinned, mast {mast:.4})", constraint_text(stated))
+            }
+            (Some(stated), _) => constraint_text(stated),
+            (None, constraint) => constraint_text(constraint),
+        },
+        |relation| format!("follows {relation}"),
+    );
+    match pick_text(design, index) {
+        Some(pick) => format!("{base}; {pick}"),
+        None => base,
     }
-    match (&tier.imported_meet, &tier.constraint) {
-        (Some(stated), MeetConstraint::ScaleReference(mast)) => {
-            format!("{} (pinned, mast {mast:.4})", constraint_text(stated))
-        }
-        (Some(stated), _) => constraint_text(stated),
-        (None, constraint) => constraint_text(constraint),
-    }
+}
+
+/// The picked corner of the tier at `index` as its three facets, `picked corner (P1@12, P2@18,
+/// G1@12)`: each facet is its tier's name and index position. An unnamed tier reads `tier N`;
+/// a facet whose tier is gone reads `removed tier`. `None` when the tier has no pick.
+fn pick_text(design: &Design, index: usize) -> Option<String> {
+    let pick = design.tier_meet_pick(index)?;
+    let facets: Vec<String> = pick
+        .facets
+        .iter()
+        .map(|facet| {
+            let name = design.index_of_tier_id(facet.tier).map_or_else(
+                || "removed tier".to_string(),
+                |at| {
+                    let name = design.tiers[at].name.trim();
+                    if name.is_empty() {
+                        format!("tier {}", at + 1)
+                    } else {
+                        name.to_string()
+                    }
+                },
+            );
+            format!("{name}@{}", index_text(facet.index))
+        })
+        .collect();
+    Some(format!("picked corner ({})", facets.join(", ")))
 }
 
 /// The kind of a constraint, for JSON.
@@ -532,6 +562,51 @@ mod tests {
         assert_eq!(tier["code"], code.as_str());
         assert_eq!(tier["name"], "Pavilion Main");
         assert_eq!(tier["block"], "pavilion");
+    }
+
+    #[test]
+    fn a_picked_corner_ends_the_meet_line_with_its_facets() {
+        let mut design = testing::brilliant_at_172();
+        let picking = design.tiers.len() - 1;
+        let tier_ids = [0, 1, 2].map(|at| design.tier_id_at(at).expect("a tier id"));
+        let pick = pleochroma_cut_core::TierMeetPick {
+            facets: [
+                pleochroma_cut_core::PickedFacet {
+                    tier: tier_ids[0],
+                    index: 12.0,
+                },
+                pleochroma_cut_core::PickedFacet {
+                    tier: tier_ids[1],
+                    index: 18.5,
+                },
+                pleochroma_cut_core::PickedFacet {
+                    tier: tier_ids[2],
+                    index: 12.0,
+                },
+            ],
+        };
+        let without = meet_text(&design, picking, &design.tiers[picking]);
+        assert!(!without.contains("picked corner"), "{without}");
+
+        let id = design.tier_id_at(picking).expect("a tier id");
+        design.tier_meet_picks.insert(id, pick);
+        let names: Vec<String> = [0, 1, 2]
+            .iter()
+            .map(|at| design.tiers[*at].name.trim().to_string())
+            .collect();
+        let line = meet_text(&design, picking, &design.tiers[picking]);
+        let expected = format!(
+            "{without}; picked corner ({}@12, {}@18.5, {}@12)",
+            names[0], names[1], names[2]
+        );
+        assert_eq!(line, expected);
+
+        let loaded = Loaded::in_memory(design, "round.psdd");
+        let report = text_report(&loaded, &Catalogue::default());
+        assert!(
+            row_of(&report, picking + 1).contains("picked corner ("),
+            "{report}"
+        );
     }
 
     #[test]

@@ -49,7 +49,7 @@ pub use facet_surface::{
 pub use finishes::merged_facet_finishes;
 pub use ggx::GgxLobe;
 pub use ground::{GroundCtx, GroundFrame, GroundInterface, GroundParams, GroundSample};
-pub use sweep::{FacetingMachine, SweepPreset, SweepRange};
+pub use sweep::{FacetingMachine, ScratchBasis, SweepPreset, SweepRange};
 
 pub(crate) use edge::EdgeBand;
 pub(crate) use ground::apply_ground_bounce;
@@ -76,7 +76,8 @@ pub(crate) fn unit_draw(rng_seed: u32, bounce: u32, stream: u32) -> f32 {
 }
 
 /// The surface inputs of one trace: the facet surfaces parallel to the planes, the faceting
-/// machine, and the abraded-edge setting.
+/// machine, the up and side directions the scratches are measured against, and the abraded-edge
+/// setting.
 ///
 /// Empty `facet_surfaces` and no abrasion is the ideal scene: every hook is skipped.
 #[derive(Clone, Copy, Debug)]
@@ -85,6 +86,9 @@ pub struct SurfaceScene<'a> {
     pub facet_surfaces: &'a [FacetSurface],
     /// The machine the scratch directions are derived from.
     pub machine: FacetingMachine,
+    /// The directions the scratches are measured against: [`ScratchBasis::MODEL`] for a stone
+    /// as designed, the stone's own rotated `+Y` and `+X` for a stone turned in the world.
+    pub scratch: ScratchBasis,
     /// The abraded-edge band.
     pub edge: EdgeAbrasion,
 }
@@ -94,6 +98,7 @@ impl SurfaceScene<'static> {
     pub const IDEAL: Self = Self {
         facet_surfaces: &[],
         machine: FacetingMachine::DEFAULT,
+        scratch: ScratchBasis::MODEL,
         edge: EdgeAbrasion::NONE,
     };
 }

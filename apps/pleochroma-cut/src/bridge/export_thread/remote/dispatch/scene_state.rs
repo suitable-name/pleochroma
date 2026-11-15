@@ -44,6 +44,8 @@ pub(in crate::bridge::export_thread) fn scene_state_from_snapshot_with(
         yaw: cam_yaw,
         camera_roll: snapshot.camera_roll,
         camera_pan: snapshot.camera_pan,
+        // The pose beside the planes as designed: the worker turns the stone itself.
+        stone_pose: snapshot.stone_pose.to_array(),
         // The shadow and the reflectance only where the lighting can apply them and the stone
         // is closed; the worker resolves its own plane and refuses a stone that is not closed.
         stone_shadow: snapshot.remote_stone_shadow(),

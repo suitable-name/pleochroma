@@ -240,6 +240,10 @@ pub enum Perform {
     ViewMode(i32),
     /// The inspector's tab (0 Tier, 1 Preform, 2 Optimize, 3 unused: the Schedule tab is gone, 4 History).
     InspectorTab(i32),
+    /// Pick mode of the Solid viewport on the tier called this: Pick in View is pressed and the
+    /// first ringed corner of the stone is clicked, which cuts the tier to that corner. Needs a
+    /// solved stone in the Solid view, so only the desktop carries it out.
+    PickMeetCorner(String),
     /// A command of the command palette, by its id (one of [`COMMANDS`]).
     Command(String),
     /// Several, one after the other.
@@ -334,6 +338,7 @@ impl Perform {
             | Self::MirrorTier { tier: name, .. }
             | Self::TierNote { tier: name, .. }
             | Self::CheaterOffset { tier: name, .. }
+            | Self::PickMeetCorner(name)
             | Self::Material(name) => name
                 .trim()
                 .is_empty()

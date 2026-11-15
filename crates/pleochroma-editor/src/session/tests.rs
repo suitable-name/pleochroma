@@ -797,3 +797,179 @@ fn result_staleness_follows_the_generation() {
     assert!(!result_is_stale(Some(7), 7));
     assert!(result_is_stale(Some(6), 7));
 }
+
+// ---------------------------------------------------------------------------------------
+// Pick Meet Point
+// ---------------------------------------------------------------------------------------
+
+mod meet_pick {
+    use super::*;
+    use pleochroma_cut_core::{MeetPickBlock, PickCorner, ScheduleMeta};
+
+    const GIRDLE: usize = 4;
+    const PAVILION_MAIN: usize = 5;
+    const LOWER_GIRDLE: usize = 6;
+
+    /// The standard round brilliant, every tier pinned.
+    fn brilliant_session() -> EditorSession {
+        EditorSession::with_history(
+            Design::new(
+                PreformSpec::block(2.0, 1.0, 4.0),
+                ScheduleMeta::standard_round_brilliant(),
+                ConstraintTier::standard_round_brilliant(),
+            ),
+            History::with_coalesce_window(ANGLE_NUDGE_COALESCE_WINDOW),
+        )
+    }
+
+    /// The corner of the girdle and the pavilion mains the lower girdle can be cut to.
+    fn girdle_main_corner(session: &EditorSession) -> PickCorner {
+        let solved = session.design.solve().expect("every tier is pinned");
+        session
+            .design
+            .pick_corners(&solved, LOWER_GIRDLE)
+            .expect("the stone closes")
+            .into_iter()
+            .find(|corner| corner.tiers == [GIRDLE, PAVILION_MAIN])
+            .expect("the girdle and the mains form a corner")
+    }
+
+    #[test]
+    fn picking_a_corner_is_one_undo_step() {
+        let mut session = brilliant_session();
+        let corner = girdle_main_corner(&session);
+        let original = session.design.tiers[LOWER_GIRDLE].constraint.clone();
+        let generation = session.current_generation();
+
+        let change = session
+            .pick_meet_corner(LOWER_GIRDLE, &corner)
+            .expect("the corner can be picked");
+        assert_eq!(change.generation, generation + 1);
+        assert_eq!(
+            session.design.tier_meet_pick(LOWER_GIRDLE),
+            Some(&corner.pick)
+        );
+        assert_eq!(
+            session.design.tiers[LOWER_GIRDLE].constraint,
+            MeetConstraint::MeetNamed(vec!["Girdle".to_string(), "Pavilion Main".to_string()])
+        );
+
+        // One undo takes back the names and the pick together, and nothing else is left.
+        assert!(session.undo().unwrap().is_some());
+        assert!(session.design.tier_meet_pick(LOWER_GIRDLE).is_none());
+        assert_eq!(session.design.tiers[LOWER_GIRDLE].constraint, original);
+        assert!(session.undo().unwrap().is_none(), "the pick was one step");
+
+        assert!(session.redo().unwrap().is_some());
+        assert_eq!(
+            session.design.tier_meet_pick(LOWER_GIRDLE),
+            Some(&corner.pick)
+        );
+    }
+
+    #[test]
+    fn picking_a_corner_clears_the_tiers_target_and_undo_brings_it_back() {
+        let mut session = brilliant_session();
+        let corner = girdle_main_corner(&session);
+        let id = session
+            .design
+            .tier_id_at(LOWER_GIRDLE)
+            .expect("the tier has an id");
+        session
+            .design
+            .tier_targets
+            .insert(id, TierTarget::DepthMm(1.0));
+
+        session
+            .pick_meet_corner(LOWER_GIRDLE, &corner)
+            .expect("the corner can be picked");
+        assert!(session.design.tier_target(LOWER_GIRDLE).is_none());
+
+        session.undo().unwrap();
+        assert_eq!(
+            session.design.tier_target(LOWER_GIRDLE),
+            Some(TierTarget::DepthMm(1.0))
+        );
+        assert!(session.design.tier_meet_pick(LOWER_GIRDLE).is_none());
+    }
+
+    #[test]
+    fn a_tier_that_cannot_take_a_pick_or_a_corner_that_cannot_be_named_changes_nothing() {
+        let mut session = brilliant_session();
+        let corner = girdle_main_corner(&session);
+        let generation = session.current_generation();
+
+        // The first tier cut has nothing before it.
+        assert_eq!(
+            session.pick_meet_corner(GIRDLE, &corner),
+            Err(MeetPickError::Blocked(MeetPickBlock::NothingCutBefore))
+        );
+        assert_eq!(
+            session.pick_meet_corner(99, &corner),
+            Err(MeetPickError::NoSuchTier)
+        );
+        let mut unnamed = corner.clone();
+        unnamed.unnamed_tier = Some(GIRDLE);
+        assert_eq!(
+            session.pick_meet_corner(LOWER_GIRDLE, &unnamed),
+            Err(MeetPickError::UnnamedTier(GIRDLE))
+        );
+        let mut stale = corner;
+        stale.tiers.push(99);
+        assert_eq!(
+            session.pick_meet_corner(LOWER_GIRDLE, &stale),
+            Err(MeetPickError::StaleCorner)
+        );
+
+        assert_eq!(session.current_generation(), generation);
+        assert!(session.design.tier_meet_pick(LOWER_GIRDLE).is_none());
+        assert!(session.undo().unwrap().is_none(), "nothing was recorded");
+    }
+
+    #[test]
+    fn clearing_a_pick_keeps_the_names_and_undo_restores_it() {
+        let mut session = brilliant_session();
+        let corner = girdle_main_corner(&session);
+        session
+            .pick_meet_corner(LOWER_GIRDLE, &corner)
+            .expect("the corner can be picked");
+        let named = session.design.tiers[LOWER_GIRDLE].constraint.clone();
+
+        let change = session.clear_meet_pick(LOWER_GIRDLE).unwrap();
+        assert!(change.is_some());
+        assert!(session.design.tier_meet_pick(LOWER_GIRDLE).is_none());
+        assert_eq!(session.design.tiers[LOWER_GIRDLE].constraint, named);
+
+        // Nothing left to clear: no edit, no undo step.
+        let generation = session.current_generation();
+        assert_eq!(session.clear_meet_pick(LOWER_GIRDLE).unwrap(), None);
+        assert_eq!(session.current_generation(), generation);
+
+        session.undo().unwrap();
+        assert_eq!(
+            session.design.tier_meet_pick(LOWER_GIRDLE),
+            Some(&corner.pick)
+        );
+    }
+
+    #[test]
+    fn a_duplicate_of_a_picked_tier_has_no_pick() {
+        let mut session = brilliant_session();
+        let corner = girdle_main_corner(&session);
+        session
+            .pick_meet_corner(LOWER_GIRDLE, &corner)
+            .expect("the corner can be picked");
+
+        let outcome = session
+            .duplicate_tier(LOWER_GIRDLE)
+            .unwrap()
+            .expect("the tier exists");
+        assert_eq!(outcome.new_index, LOWER_GIRDLE + 1);
+        assert!(session.design.tier_meet_pick(outcome.new_index).is_none());
+        assert_eq!(
+            session.design.tier_meet_pick(LOWER_GIRDLE),
+            Some(&corner.pick),
+            "the source keeps its pick"
+        );
+    }
+}

@@ -91,8 +91,11 @@ struct GpuBiaxialCurves {
 }
 
 // Oriented-inclusion block, at byte offset 2800. See `renderer::buffers::GpuInclusionBlock`:
-// header = [family_count, structure_flag, domain_seed, flags]; fam_dir = world direction xyz and
-// kind w; fam_params = [sigma, p, lobe, rho].
+// header = [family_count, structure_flag, domain_seed, lattice_posed]; fam_dir = world direction
+// xyz and kind w; fam_params = [sigma, p, lobe, rho]; lattice = the columns of the domain map's
+// `lattice_from_world` (read when lattice_posed is nonzero); scratch_up = [up.xyz, posed] and
+// scratch_side = [side.xyz, 0], the directions the polishing scratches are measured against (all
+// zero for a stone as designed, which reads as model +Y and +X).
 struct GpuInclusionBlock {
     header: vec4<u32>,
     fam_dir: array<vec4<f32>, 4>,
@@ -100,6 +103,9 @@ struct GpuInclusionBlock {
     haze: vec4<f32>,
     structure: array<vec4<f32>, 3>,
     edge: vec4<f32>,
+    lattice: array<vec4<f32>, 3>,
+    scratch_up: vec4<f32>,
+    scratch_side: vec4<f32>,
 }
 
 struct GpuGemMaterial {

@@ -559,6 +559,8 @@ fn build_request(
     // The capture is taken for the video's own engine, so the render physics follow it and not
     // the engine the view shows.
     let mut scene = SceneSnapshot::capture_finished_for_engine(render_ctx, finished, engine)?;
+    // A tilt video shows the stone as designed, whatever the Live Render pose.
+    scene.clear_stone_pose();
     scene.max_bounces = max_bounces;
     scene.engine = engine;
     // "Turn Stone 90°": a quarter turn of the picture on top of the live view's own roll, for

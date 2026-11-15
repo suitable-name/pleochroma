@@ -117,6 +117,30 @@ strip opens this section. The Simple interface (Chapter 17) leaves out the
 solve-duration figure, and the **Pin** column of Deep Solve's results in the Details
 list; the Advanced interface shows both.
 
+## How the Solver Chooses a Corner
+
+Solve works out each tier's depth from what the tier says about itself, in
+the order the stone is cut:
+
+1. **A picked corner**, when the tier has one and it still exists: the tier's
+   plane goes through the point where the three picked facets meet.
+2. **Named Facet(s)**: the plane goes to a corner where the named facets
+   meet. When they meet in several corners, the **shallowest** wins.
+3. **Unspecified Vertex**: the facet is cut in past the point where it first
+   touches the stone and stops at the first corner it reaches after that.
+4. **Exact Scale Value** and the targets (Chapter 4) are numbers you gave, so
+   nothing is chosen.
+
+A design with no picked corner solves exactly as it did before picking
+existed, and its file is unchanged. The solver does not check whether a
+picked corner is still on the stone when the tier is cut: a corner is often
+cut away again by tiers that come later, and only the cutting order knows.
+That check happens after the solve and shows as **corner cut away** on the
+tier's Meet Point row. When the solver cannot use a pick, the tier's Solved
+detail ends with the reason: "picked corner not usable: a picked facet does
+not exist", "the picked facets do not meet in one point" or "the picked point
+is out of range".
+
 ## Manufacturability Warnings
 
 Alongside the status strip, Solve also refreshes a list of
@@ -141,6 +165,33 @@ table (Chapter 3), so you do not have to open Details to see which rows are
 affected. Like the status strip, they go stale (cleared, not left showing
 an outdated result) the instant you make another edit, and only reappear
 after the next Solve.
+
+## The "This Cut Away" Notice
+
+When an edit makes facets disappear, a small amber notice appears at the top
+of the Solid viewport, under the toolbar, as soon as the new solve lands:
+
+> This cut away P2: all 8 of its facets.
+
+The wording follows what happened:
+
+| Notice | When |
+|---|---|
+| `This cut away P2.` | One tier that has a single facet lost it. |
+| `This cut away P2: all 8 of its facets.` | One tier lost every facet. |
+| `This cut away 2 of the 8 facets of P2.` | One tier lost some of its facets. |
+| `This cut away P2, P3 and P4.` | Two or three tiers were affected. |
+| `This cut away P2, P3 and 3 more tiers.` | More than three. |
+
+A tier with no name reads `tier N`. The notice has **Select P2**, which
+selects the tier in the tier list, **Undo**, which takes back the edit that
+cut it away (Ctrl+Z does the same), and a cross that dismisses it. It also
+goes away on the next edit and while the "Not Solved" banner shows. It
+appears once at the end of a handle drag, not on every step of the drag, and
+a design you have just opened or switched to starts with no notice. The
+manufacturability warning "cut away entirely by a later tier" (above)
+describes the same facets after the fact; the notice tells you at the moment
+it happens.
 
 ## The Overall Verdict
 
@@ -234,6 +285,20 @@ cut away before you press **Move** ("It cuts away P3 (all 10 facets) and C3
 (all 10 facets)."), the message afterwards names them again, and the
 verdict then lists them with its **Remove** fix. One Ctrl+Z puts the design
 back as it was.
+
+**A picked corner that no longer exists.** A tier whose Meet Point was picked
+in the Solid view (Chapter 13, "Picking a Meet Point") can lose its corner:
+one of the three tiers is removed, a facet of the corner is no longer there,
+or the three facets no longer meet in one point. The tier is then solved by
+its named facets again, and the verdict adds one sentence for it to the same
+Check as the missing meet points:
+
+> P3: its picked corner no longer exists, so it meets the shallowest point of P1, P2 and G1.
+
+The Meet Point row of the tier form says the same, with the reason
+(Chapter 4). The verdict offers no Fix for it: **Show** selects the tier, and
+**Undo** or **Pick Again** restores a corner. A pick whose corner is cut away
+by an earlier tier is reported as a tier with no meet point, as above.
 
 **Girdle not level.** A level girdle is a band of the same thickness all
 the way round: every pavilion facet meets it at one height and every crown

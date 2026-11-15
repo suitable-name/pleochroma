@@ -2,10 +2,10 @@
 //! than a model edit. The registry lives in `scripts.rs`.
 
 use crate::{director::Film, pacing, targets};
-use pleochroma_cut::{CuttingModeModel, EditorModel};
+use pleochroma_cut::{CuttingModeModel, EditorModel, ManipulateModel};
 use pleochroma_editor::guide::TierEntry;
 use slint::{ComponentHandle, Model};
-use std::time::Duration;
+use std::{cell::RefCell, time::Duration};
 
 impl Film<'_> {
     /// Changes the Quick Add Table's scale in the Tier form, then adds a real Pavilion ring.
@@ -113,6 +113,59 @@ impl Film<'_> {
                 added.indices_full,
                 added.constraint_kind,
                 added.constraint_text
+            ));
+        }
+        self.hold(pacing::RESULT_HOLD)
+    }
+
+    /// Cuts `tier` to a corner of the stone as a learner does: the row is picked, Pick in View is
+    /// clicked in the Meet Point row of the Tier form, and the first ringed corner of the
+    /// picture is clicked.
+    pub(crate) fn film_pick_meet_corner(&mut self, tier: &str) -> Result<(), String> {
+        let editor = self.ui.global::<EditorModel>();
+        let manipulate = self.ui.global::<ManipulateModel>();
+        self.film_select_tier(tier)?;
+        let button = self
+            .inspector_form_control("Pick Meet Point in View", uiprobe::AccessibleRole::Button)?
+            .ok_or("the Pick in View button of the Meet Point row is missing")?;
+        self.click_and_invoke(&button)?;
+        if !pacing::wait_real(pacing::START_TIMEOUT, || manipulate.get_pick_mode()) {
+            return Err(format!("Pick in View did not start pick mode for {tier}"));
+        }
+        // The rings are placed when a frame of the stone before the tier has landed. Each
+        // ring reads out as its plate: the names of the corner, then what a click does.
+        let wanted = RefCell::new(None::<String>);
+        let seen = pacing::wait_real(pacing::STEP_TIMEOUT, || {
+            let found = manipulate
+                .get_pick_rings()
+                .iter()
+                .find(|ring| ring.kind == 0)
+                .map(|ring| {
+                    if ring.sub.is_empty() {
+                        ring.label.to_string()
+                    } else {
+                        format!("{}. {}", ring.label, ring.sub)
+                    }
+                });
+            let ready = found.is_some();
+            *wanted.borrow_mut() = found;
+            ready
+        });
+        let label = wanted
+            .into_inner()
+            .filter(|_| seen)
+            .ok_or("pick mode shows no corner ring the tier can be cut to")?;
+        self.hold(pacing::RESULT_HOLD)?;
+        let ring = targets::run_label(&self.view(), &label)
+            .ok_or_else(|| format!("the corner ring {label:?} is not visible"))?;
+        self.click_and_invoke(&ring)?;
+        if !pacing::wait_real(pacing::START_TIMEOUT, || {
+            !manipulate.get_pick_mode() && editor.get_meet_pick_state() != 0
+        }) {
+            return Err(format!(
+                "clicking the corner ring {label:?} did not cut {tier} to it (pick mode {}, row state {})",
+                manipulate.get_pick_mode(),
+                editor.get_meet_pick_state()
             ));
         }
         self.hold(pacing::RESULT_HOLD)

@@ -365,14 +365,38 @@ fn surf_scratch_angle_deg(word: u32, machine: vec3<f32>, u: f32) -> f32 {
     return surf_machine_angle_deg(machine, u);
 }
 
-// `scratch_direction`.
-fn surf_scratch_direction(normal: vec3<f32>, angle_deg: f32) -> vec3<f32> {
+// The girdle-parallel direction of a stone as designed: `normalize(n x Y)`, falling back to `X`
+// on a facet whose normal is parallel to `Y`.
+fn surf_girdle_model(normal: vec3<f32>) -> vec3<f32> {
     var girdle = cross(normal, vec3<f32>(0.0, 1.0, 0.0));
     if (dot(girdle, girdle) < 1e-8) {
         let x_axis = vec3<f32>(1.0, 0.0, 0.0);
         girdle = normalize_or_zero(x_axis - normal * dot(normal, x_axis));
     } else {
         girdle = normalize(girdle);
+    }
+    return girdle;
+}
+
+// The girdle-parallel direction of a turned stone: the same expression against its own `up` and
+// `side`.
+fn surf_girdle_posed(normal: vec3<f32>, up_axis: vec3<f32>, side_axis: vec3<f32>) -> vec3<f32> {
+    var girdle = cross(normal, up_axis);
+    if (dot(girdle, girdle) < 1e-8) {
+        girdle = normalize_or_zero(side_axis - normal * dot(normal, side_axis));
+    } else {
+        girdle = normalize(girdle);
+    }
+    return girdle;
+}
+
+// `scratch_direction`. `scratch_up` is `[up.xyz, posed]` and `scratch_side` is `[side.xyz, 0]`
+// (`GpuInclusionBlock::scratch_up` and `scratch_side`). With `posed` zero the directions are model
+// `+Y` and `+X` and the arithmetic is that of the stone as designed.
+fn surf_scratch_direction(normal: vec3<f32>, angle_deg: f32, scratch_up: vec4<f32>, scratch_side: vec4<f32>) -> vec3<f32> {
+    var girdle = surf_girdle_model(normal);
+    if (scratch_up.w != 0.0) {
+        girdle = surf_girdle_posed(normal, scratch_up.xyz, scratch_side.xyz);
     }
     let angle = angle_deg * 0.017453292519943295;
     let sin_a = sin(angle);
@@ -381,10 +405,18 @@ fn surf_scratch_direction(normal: vec3<f32>, angle_deg: f32) -> vec3<f32> {
 }
 
 // `dispatch::across_scratches`: the direction across the scratches of a sample on a facet
-// with outward normal `normal_out`.
-fn surf_across_scratches(word: u32, machine: vec3<f32>, normal_out: vec3<f32>, rng_seed: u32, bounce: u32) -> vec3<f32> {
+// with outward normal `normal_out`, against the scratch basis `scratch_up` / `scratch_side`.
+fn surf_across_scratches(
+    word: u32,
+    machine: vec3<f32>,
+    scratch_up: vec4<f32>,
+    scratch_side: vec4<f32>,
+    normal_out: vec3<f32>,
+    rng_seed: u32,
+    bounce: u32,
+) -> vec3<f32> {
     let angle = surf_scratch_angle_deg(word, machine, surface_unit_draw(rng_seed, bounce, SURFACE_SWEEP_STREAM));
-    return cross(normal_out, surf_scratch_direction(normal_out, angle));
+    return cross(normal_out, surf_scratch_direction(normal_out, angle, scratch_up, scratch_side));
 }
 
 // ---------------------------------------------------------------------------------

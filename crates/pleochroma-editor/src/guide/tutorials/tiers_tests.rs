@@ -32,7 +32,7 @@ use std::time::Duration;
 
 /// Every tiers tutorial, in the order the browser lists them. A new lesson must be added here
 /// and given a walk in the submodule of its file.
-const IDS: [&str; 23] = [
+const IDS: [&str; 24] = [
     "tiers-add-a-tier",
     "tiers-edit-a-tier",
     "tiers-index-shorthands",
@@ -40,6 +40,7 @@ const IDS: [&str; 23] = [
     "tiers-quick-add",
     "tiers-inline-angle",
     "tiers-meets-named-facets",
+    "tiers-meets-pick-corner",
     "tiers-meets-mm-targets",
     "tiers-adopt-imported-meets",
     "tiers-pin-to-mast",

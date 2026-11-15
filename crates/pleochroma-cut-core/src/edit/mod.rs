@@ -19,6 +19,7 @@
 mod apply;
 mod apply_concave;
 mod apply_frosting;
+mod apply_meet_pick;
 mod apply_shift;
 mod apply_surface;
 mod edit_type;

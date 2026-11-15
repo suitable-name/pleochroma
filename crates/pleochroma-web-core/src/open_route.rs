@@ -33,14 +33,14 @@ pub fn design_file_name_for_asc(asc_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pleochroma_formats::native::design::DESIGN_VERSION_PLANES;
+    use pleochroma_formats::native::design::DESIGN_VERSION_MEET_PICKS;
 
     #[test]
     fn a_file_from_a_newer_version_is_refused_with_a_clear_message() {
-        // One past the newest version this build reads (the one with plane-set preforms).
+        // One past the newest version this build reads (the one with meet picks).
         let text = format!(
             "format = \"pleochroma-design\"\nversion = {}\n",
-            DESIGN_VERSION_PLANES + 1
+            DESIGN_VERSION_MEET_PICKS + 1
         );
         assert_eq!(
             pleochroma_editor::files::InputFileKind::classify("future.psdd", text.as_bytes()),

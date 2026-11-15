@@ -3,13 +3,15 @@
 //! The verdict and its fixes are tested in `pleochroma_editor::verdict`.
 
 use super::{
-    FIX_RUNNING, OUT_OF_DATE, SLOT, Slot, failure_text, pending_fix,
+    FIX_RUNNING, OUT_OF_DATE, SLOT, Slot, advance_baseline, failure_text, pending_fix,
     present::{ReasonRow, rows_of},
     work::compute,
 };
 use pleochroma::optics::LightingPreset;
 use pleochroma_cut_core::{ConstraintTier, Design, Edit, PreformSpec, ScheduleMeta, TierFrosting};
-use pleochroma_editor::verdict::{FixAction, Level, Reason, ReasonKind, SolveFacts, Verdict};
+use pleochroma_editor::verdict::{
+    FixAction, Level, Reason, ReasonKind, SolveFacts, VanishEntry, VanishSnapshot, Verdict,
+};
 
 fn brilliant() -> Design {
     Design::new(
@@ -53,6 +55,7 @@ fn show(verdict: Verdict, design: &Design, current: bool) {
             n_d: 1.76,
             current,
             busy: false,
+            ..Slot::default()
         };
     });
 }
@@ -246,4 +249,61 @@ fn a_design_that_did_not_solve_gets_a_verdict_input_without_optics() {
     let inputs = compute(&design, None, 1.76, LightingPreset::RingLights, Some(&[]));
     assert!(matches!(inputs.solve, SolveFacts::DoesNotSolve(_)));
     assert!(inputs.optics.is_none());
+}
+
+fn vanished_snapshot(vanished: usize) -> VanishSnapshot {
+    VanishSnapshot {
+        tiers: vec![VanishEntry {
+            id: pleochroma_cut_core::TierId(7),
+            index: 3,
+            label: "P2".to_string(),
+            vanished,
+            total: 4,
+        }],
+    }
+}
+
+#[test]
+fn the_first_verdict_of_a_document_only_sets_the_baseline() {
+    let mut baseline = None;
+    let notice = advance_baseline(&mut baseline, vanished_snapshot(4), false);
+    assert_eq!(notice, None);
+    assert_eq!(baseline, Some(vanished_snapshot(4)));
+}
+
+#[test]
+fn more_vanished_facets_raise_the_notice_and_move_the_baseline() {
+    let mut baseline = Some(vanished_snapshot(0));
+    let notice = advance_baseline(&mut baseline, vanished_snapshot(4), false)
+        .expect("facets vanished that did not before");
+    assert_eq!(notice.text, "This cut away P2: all 4 of its facets.");
+    assert_eq!(notice.select_tier, 3);
+    assert_eq!(baseline, Some(vanished_snapshot(4)));
+    // Undo: fewer vanish, no notice, the baseline follows.
+    assert_eq!(
+        advance_baseline(&mut baseline, vanished_snapshot(0), false),
+        None
+    );
+    assert_eq!(baseline, Some(vanished_snapshot(0)));
+}
+
+#[test]
+fn the_baseline_is_frozen_while_a_handle_drag_runs() {
+    let mut baseline = Some(vanished_snapshot(0));
+    assert_eq!(
+        advance_baseline(&mut baseline, vanished_snapshot(4), true),
+        None
+    );
+    assert_eq!(
+        baseline,
+        Some(vanished_snapshot(0)),
+        "frozen during the drag"
+    );
+    // The verdict after the drag compares against the frozen baseline: one notice.
+    assert!(advance_baseline(&mut baseline, vanished_snapshot(4), false).is_some());
+    assert_eq!(
+        advance_baseline(&mut baseline, vanished_snapshot(4), false),
+        None,
+        "the same set does not raise it twice"
+    );
 }

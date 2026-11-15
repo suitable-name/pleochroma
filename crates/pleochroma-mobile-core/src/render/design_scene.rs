@@ -91,5 +91,6 @@ pub fn wire_effects(scene: &OwnedScene) -> SceneEffects {
         machine: MachineSpec::from_machine(&spec.machine.to_machine()),
         edge: EdgeSpec::from_abrasion(&spec.edge.to_abrasion()),
         material_inclusions: MaterialInclusions::of_material(scene.material()),
+        scratch: pleochroma::optics::raytracer::surface::ScratchBasis::MODEL,
     }
 }

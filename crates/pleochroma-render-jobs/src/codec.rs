@@ -221,18 +221,44 @@ mod tests {
 
     #[test]
     fn a_newer_format_is_refused_with_the_exact_sentence() {
-        let error = from_text(r#"{"format": 8}"#).unwrap_err();
+        let error = from_text(r#"{"format": 9}"#).unwrap_err();
         assert_eq!(
             error,
             JobFileError::NewerFormat {
-                found: 8,
-                supported: 7
+                found: 9,
+                supported: 8
             }
         );
         assert_eq!(
             error.to_string(),
-            "This job file was made by a newer version of Pleochroma (format 8); \
-             this version reads format 7."
+            "This job file was made by a newer version of Pleochroma (format 9); \
+             this version reads format 8."
+        );
+    }
+
+    /// A posed job survives the text bit for bit, and a format-7 reader refuses the file instead
+    /// of rendering the stone unposed.
+    #[test]
+    fn a_posed_job_round_trips_and_a_format_seven_reader_refuses_it() {
+        use crate::job::test_support::posed_still_job;
+        let job = posed_still_job();
+        assert_eq!(job.format, 8);
+        let text = to_text(&job).expect("encode posed job");
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["format"], 8);
+        assert!(value["scene"].get("stone_pose").is_some());
+        assert_eq!(
+            read_supported_format(&text, 7),
+            Err(JobFileError::NewerFormat {
+                found: 8,
+                supported: 7
+            })
+        );
+        let back = from_text(&text).expect("read format 8");
+        assert_eq!(back, job);
+        assert_eq!(
+            back.scene.stone_pose.map(f32::to_bits),
+            job.scene.stone_pose.map(f32::to_bits)
         );
     }
 

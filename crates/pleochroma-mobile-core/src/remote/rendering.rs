@@ -709,6 +709,7 @@ pub(super) fn scene_state(
         // them, so the endpoint traces the stone the phone's preview shows.
         effects: wire_effects(scene),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     }
 }
 

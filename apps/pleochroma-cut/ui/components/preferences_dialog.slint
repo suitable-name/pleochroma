@@ -405,15 +405,12 @@ export component PreferencesDialog inherits Rectangle {
                                 PreferencesModel.adaptive_viewport_changed(PreferencesModel.adaptive_viewport);
                             }
                         }
-                        PreferenceSwitch {
+                        // The path cache rows are shown only when the path cache can be used
+                        // (`PreferencesModel.path_cache_available`); the saved values are kept.
+                        if PreferencesModel.path_cache_available : PreferenceSwitch {
                             title: "Speed Up Still Views With a Path Cache";
-                            detail: PreferencesModel.path_cache_available
-                                ? "Reuses the stone's light paths once the view stands still."
-                                : "Off: exit collection, the default estimator, does not use the path cache.";
-                            hint: PreferencesModel.path_cache_available
-                                ? "While the stone stands still, the live viewport builds a path cache for it in memory and shades the stone from it, so the picture cleans up sooner. The cache is never written to disk; moving the stone or changing the design, the material or the size drops it at once. It applies to the Path-Traced renderer."
-                                : "Off: exit collection, the default estimator, does not use the path cache.";
-                            enabled: PreferencesModel.path_cache_available || PreferencesModel.path_cache_viewport;
+                            detail: "Reuses the stone's light paths once the view stands still.";
+                            hint: "While the stone stands still, the live viewport builds a path cache for it in memory and shades the stone from it, so the picture cleans up sooner. The cache is never written to disk; moving the stone or changing the design, the material or the size drops it at once. It applies to the Path-Traced renderer.";
                             checked: PreferencesModel.path_cache_viewport;
                             toggled => {
                                 PreferencesModel.path_cache_viewport = !PreferencesModel.path_cache_viewport;
@@ -457,7 +454,7 @@ export component PreferencesDialog inherits Rectangle {
                                 PreferencesModel.beam_instant_lighting_changed(PreferencesModel.beam_instant_lighting);
                             }
                         }
-                        VerticalLayout {
+                        if PreferencesModel.path_cache_available : VerticalLayout {
                             spacing: 4px;
                             padding-left: 8px;
                             padding-right: 8px;
@@ -476,7 +473,7 @@ export component PreferencesDialog inherits Rectangle {
                                 accessible-role: AccessibleRole.text;
                             }
                         }
-                        HorizontalLayout {
+                        if PreferencesModel.path_cache_available : HorizontalLayout {
                             height: 30px;
                             padding-left: 8px;
                             padding-right: 8px;
@@ -504,7 +501,7 @@ export component PreferencesDialog inherits Rectangle {
                                 }
                             }
                         }
-                        HorizontalLayout {
+                        if PreferencesModel.path_cache_available : HorizontalLayout {
                             height: 32px;
                             padding-left: 8px;
                             padding-right: 8px;
@@ -521,7 +518,7 @@ export component PreferencesDialog inherits Rectangle {
                                 clicked => { root.confirm_clear_cache_open = true; }
                             }
                         }
-                        HorizontalLayout {
+                        if PreferencesModel.path_cache_available : HorizontalLayout {
                             padding-left: 8px;
                             Text {
                                 text: PreferencesModel.path_cache_status;

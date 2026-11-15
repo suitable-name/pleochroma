@@ -438,6 +438,20 @@ pub fn goal_met(goal: &Goal, ctx: &GoalContext<'_>) -> bool {
     }
 }
 
+/// Whether the flat tier called `name` (case and surrounding spaces do not matter) is cut to a
+/// picked meet corner: `design` holds an entry in its meet picks for that tier.
+///
+/// A lesson's [`Goal::Check`] wraps this for the one tier it teaches. A name no tier has is
+/// never met.
+#[must_use]
+pub fn tier_has_meet_pick(design: &Design, name: &str) -> bool {
+    design
+        .tiers
+        .iter()
+        .position(|tier| has_name(tier, name))
+        .is_some_and(|at| design.tier_meet_pick(at).is_some())
+}
+
 /// Whether `tier` is known by `name` (case and surrounding spaces do not matter).
 fn has_name(tier: &ConstraintTier, name: &str) -> bool {
     tier.names()

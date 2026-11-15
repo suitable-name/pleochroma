@@ -18,6 +18,8 @@ use pleochroma::{
     renderer::env_map::{EnvRotation, EnvironmentMap},
 };
 use std::sync::Arc;
+/// The reason shown while the Live Render tab shows the stone posed on the tray.
+pub const STONE_POSE_REASON: &str = "Not with a Stone Pose";
 #[derive(Clone)]
 pub struct OpticalSnapshot {
     pub generation: u64,
@@ -52,6 +54,11 @@ impl OpticalSnapshot {
         }
         if ctx.active_planes.is_empty() {
             return Some("No solved geometry".into());
+        }
+        // The analytic map is pixel-aligned to the traced picture and describes the stone as
+        // designed, so it is off while the Live Render tab shows the stone posed.
+        if !ctx.effective_stone_pose().is_identity() {
+            return Some(STONE_POSE_REASON.into());
         }
         if ctx.env_map.is_none() && ctx.lighting_preset == LightingPreset::Aset {
             return Some(
@@ -330,6 +337,23 @@ mod tests {
             "the same planes are served from the cache"
         );
         assert!(first.same_input(&second));
+    }
+    /// A posed stone has no overlay: the reason is the chip text, on the Live Render tab only.
+    #[test]
+    fn a_stone_pose_refuses_the_overlay_on_the_live_tab_only() {
+        let mut ctx = RenderContext::default();
+        assert_eq!(OpticalSnapshot::refusal(&ctx), None);
+        ctx.stone_pose.tilt_deg = 40.0;
+        assert_eq!(
+            OpticalSnapshot::refusal(&ctx).as_deref(),
+            Some("Not with a Stone Pose")
+        );
+        ctx.live_tab_shown = false;
+        assert_eq!(
+            OpticalSnapshot::refusal(&ctx),
+            None,
+            "the Edit tab shows the stone as designed"
+        );
     }
     #[test]
     fn the_limitations_text_uses_american_spelling() {

@@ -31,8 +31,8 @@ use crate::support::{
     smoke::{DenyMatch, DenyRule},
 };
 use pleochroma_cut::{
-    ConcaveFormData, EditorModel, EditorTierItem, ExportModel, LibraryModel, OpticalModel,
-    SolidPreviewModel, ViewportModel,
+    ConcaveFormData, EditorModel, EditorTierItem, ExportModel, LibraryModel, ManipulateModel,
+    OpticalModel, SolidPreviewModel, VerdictModel, ViewportModel,
 };
 use slint::{ComponentHandle, Model, ModelRc, VecModel, platform::WindowEvent};
 use std::time::Duration;
@@ -233,6 +233,31 @@ fn viewport_states() -> Vec<State> {
             },
         },
         State {
+            name: "Solid viewport, pick mode armed",
+            base: Base::Design,
+            scope: Some("SolidViewportView"),
+            deny: NONE,
+            open: pick_mode_armed,
+        },
+        State {
+            name: "Solid viewport, vanished-facet notice",
+            base: Base::Design,
+            scope: Some("SolidViewportView"),
+            deny: NONE,
+            open: |a| {
+                edit_tab(a);
+                wait_settled(a);
+                // The notice shows after a verdict that cut facets away; the harness writes the
+                // five properties the verdict presenter writes.
+                let verdict = a.ui().global::<VerdictModel>();
+                verdict.set_vanish_notice_text("This cut away Pavilion Main.".into());
+                verdict.set_vanish_notice_tier(0);
+                verdict.set_vanish_notice_tier_label("Pavilion Main".into());
+                verdict.set_vanish_notice_shown(true);
+                pump(300);
+            },
+        },
+        State {
             name: "Live Render, stone cut back",
             base: Base::Design,
             scope: Some("LiveCutBadge"),
@@ -250,6 +275,54 @@ fn viewport_states() -> Vec<State> {
             },
         },
     ]
+}
+
+/// Selects Lower Girdle, makes it meet the named facets Pavilion Main and Girdle (so the tier
+/// form shows its Meet Point row) and, once the solve is over, writes the row's state, chip and
+/// note the way Rust does for a tier with that pick state.
+fn meet_point_row(a: &HarnessApp, state: i32, chip: &str, note: &str) {
+    inspector(a, 0);
+    wait_settled(a);
+    let editor = a.ui().global::<EditorModel>();
+    let Some((row, item)) = editor
+        .get_tiers()
+        .iter()
+        .enumerate()
+        .find(|(_, tier)| tier.name.as_str() == "Lower Girdle")
+    else {
+        return;
+    };
+    let Ok(index) = i32::try_from(row) else {
+        return;
+    };
+    editor.set_selected_tier_index(index);
+    pump(200);
+    editor.invoke_save_tier(
+        index,
+        item.angle_full,
+        1,
+        "Pavilion Main, Girdle".into(),
+        item.name,
+        item.indices_full,
+    );
+    wait_settled(a);
+    editor.set_meet_pick_state(state);
+    editor.set_meet_pick_chip(chip.into());
+    editor.set_meet_pick_note(note.into());
+    pump(300);
+}
+
+/// The Meet Point row open on Lower Girdle, then pick mode armed the way the row's button does,
+/// and the rings waited for (the frame that places them lands on the render thread).
+fn pick_mode_armed(a: &HarnessApp) {
+    meet_point_row(a, 0, "", "");
+    let manipulate = a.ui().global::<ManipulateModel>();
+    manipulate.set_pick_mode(true);
+    manipulate.invoke_pick_toggled();
+    let _ = wait_until(Duration::from_secs(20), || {
+        manipulate.get_pick_rings().row_count() > 0
+    });
+    pump(300);
 }
 
 /// The Live Render toolbar's Export button while an export is running ("Exporting..."): the
@@ -528,6 +601,76 @@ fn tier_form_states() -> Vec<State> {
             scope,
             deny: NONE,
             open: tier_following_relation,
+        },
+        State {
+            name: "Tier form, Meet Point row, no corner picked",
+            base: Base::Design,
+            scope,
+            deny: NONE,
+            open: |a| {
+                meet_point_row(
+                    a,
+                    0,
+                    "",
+                    "No corner picked: Lower Girdle meets the shallowest point where its named facets meet.",
+                )
+            },
+        },
+        State {
+            name: "Tier form, Meet Point row, corner picked",
+            base: Base::Design,
+            scope,
+            deny: NONE,
+            open: |a| {
+                meet_point_row(
+                    a,
+                    1,
+                    "Pavilion Main \u{b7} Girdle \u{b7} Pavilion Main",
+                    "Lower Girdle is cut until it reaches the corner where Pavilion Main, Girdle and Pavilion Main meet. The pick follows that corner when angles change.",
+                );
+            },
+        },
+        State {
+            name: "Tier form, Meet Point row, picked corner dormant",
+            base: Base::Design,
+            scope,
+            deny: NONE,
+            open: |a| {
+                meet_point_row(
+                    a,
+                    2,
+                    "Pavilion Main \u{b7} Girdle \u{b7} Pavilion Main",
+                    "The pick is kept but the Meets setting no longer names its facets.",
+                );
+            },
+        },
+        State {
+            name: "Tier form, Meet Point row, corner cut away",
+            base: Base::Design,
+            scope,
+            deny: NONE,
+            open: |a| {
+                meet_point_row(
+                    a,
+                    3,
+                    "corner cut away",
+                    "The picked corner is cut away before Lower Girdle is cut. Lower Girdle still passes through that point, but there is no corner to stop at.",
+                );
+            },
+        },
+        State {
+            name: "Tier form, Meet Point row, corner lost",
+            base: Base::Design,
+            scope,
+            deny: NONE,
+            open: |a| {
+                meet_point_row(
+                    a,
+                    4,
+                    "corner lost",
+                    "The picked corner no longer exists: its facets no longer meet in one point. Lower Girdle meets the shallowest point of Pavilion Main and Girdle until you pick again.",
+                );
+            },
         },
         State {
             name: "Concave form, draft kept while the selection moved",

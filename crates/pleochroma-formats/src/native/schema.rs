@@ -9,7 +9,9 @@ pub use super::custom_material::CustomMaterialSnapshot;
 
 mod tier;
 
-pub use tier::{ConcaveTierTable, SurfaceColumns, SurfaceFacetTable, TierTable};
+pub use tier::{
+    ConcaveTierTable, MeetPickFacetTable, SurfaceColumns, SurfaceFacetTable, TierTable,
+};
 
 /// The on-disk mirror of a tier's authored meet constraint.
 ///

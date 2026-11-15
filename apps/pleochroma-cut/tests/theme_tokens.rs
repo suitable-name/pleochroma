@@ -356,13 +356,16 @@ fn theme_tokens() -> BTreeMap<String, Token> {
     let mut tokens = BTreeMap::new();
     for (name, declared) in colour_properties(&read_ui("theme.slint")) {
         let name = name.as_str();
-        let value = match declared.strip_prefix("PleoPalette.") {
-            Some(forwarded) => palette
-                .get(forwarded)
-                .unwrap_or_else(|| panic!("token `{name}` forwards `{forwarded}`, not in palette"))
-                .as_str(),
-            None => declared.as_str(),
-        };
+        let value = declared
+            .strip_prefix("PleoPalette.")
+            .map_or(declared.as_str(), |forwarded| {
+                palette
+                    .get(forwarded)
+                    .unwrap_or_else(|| {
+                        panic!("token `{name}` forwards `{forwarded}`, not in palette")
+                    })
+                    .as_str()
+            });
         let parse = |text: &str| {
             parse_hex(text.trim())
                 .unwrap_or_else(|| panic!("`{text}` of token `{name}` is not a hex colour"))

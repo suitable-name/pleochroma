@@ -7,6 +7,7 @@ use pleochroma::{
     optics::raytracer::{
         DEFAULT_MAX_BOUNCES, DEFAULT_POSE, LightingPreset, surface::FacetingMachine,
     },
+    render_setup::StonePose,
 };
 use pleochroma_net::scene::effects::SceneEffects;
 use std::sync::{Arc, atomic::AtomicBool};
@@ -36,6 +37,9 @@ impl Default for RenderContext {
             head_shadow_deg: pleochroma::optics::raytracer::DEFAULT_HEAD_SHADOW_DEG,
             stone_shadow: false,
             tray_reflection: 0.0,
+            stone_pose: StonePose::IDENTITY,
+            live_tab_shown: true,
+            pose_drag_held: false,
             target_samples: 256,
             max_bounces: DEFAULT_MAX_BOUNCES,
             exposure: 1.0,

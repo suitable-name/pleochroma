@@ -69,6 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         frosted_planes: Vec::new(),
         effects: pleochroma_net::scene::effects::SceneEffects::default(),
         camera_pan: [0.0, 0.0],
+        stone_pose: [0.0, 0.0, 0.0],
     };
 
     let file = File::create(&out)?;

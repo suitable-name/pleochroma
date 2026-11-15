@@ -315,8 +315,9 @@ disk, so that drawing the same video again with other lighting starts from them;
 run takes longer than a video without the cache. With **Path Cache** ticked alone the video
 is drawn as without it and a line says so. Kept caches take disk space: the cache folder and
 its size limit are in **Preferences** (Chapter 17). The boxes are greyed out for the
-Ray-Traced renderer, and while the app renders with exit collection (Chapter 9, "Exit
-Collection"), which does not use the path cache; a note under them says so.
+Ray-Traced renderer. They are shown only when the path cache can be used, so they are not
+shown while the app renders with exit collection (Chapter 9, "Exit Collection"), which does
+not use it; the saved choices stay as they are.
 
 **Beam Tracing (Faceted Stones).** The section also has the **Beam Tracing (Faceted
 Stones)** check box of the export dialog (Chapter 9). It follows the light through each

@@ -1,3 +1,5 @@
+import { MeetPickRing } from "../types.slint";
+
 // State for the Solid viewport's direct-manipulation tools (`SolidViewportView`): the
 // three drag handles (angle, depth, index) on the selected facet, the hint line under
 // the toolbar, and the Snap pill. Rust reaches this via `ui.global::<ManipulateModel>()`
@@ -120,4 +122,19 @@ export global ManipulateModel {
     callback slice_discard();
     // The Symmetric pill was toggled (`slice_symmetric` already holds its new value).
     callback slice_symmetric_toggled();
+
+    // --- Pick mode: choose the corner a tier is cut to (`gui::editor::manipulate::meet_pick`).
+    // While it is on, the stone is shown as it is before the selected tier is cut, a left
+    // release under 4 px of travel picks the ringed corner under the pointer, and the arrow keys
+    // and Enter pick without the mouse.
+    in-out property <bool> pick_mode: false;            // Slint writes (button, pill, M, Esc); Rust also clears
+    in property <bool> pick_available: false;           // the selected tier can take a pick
+    in property <string> pick_blocked_reason: "";       // tooltip when it cannot
+    in property <[MeetPickRing]> pick_rings;            // logical viewport coordinates
+    in property <int> pick_lit: -1;                     // index into pick_rings, hover or keyboard
+    callback pick_toggled();                            // pick_mode already holds its new value
+    callback pick_hover(length, length);
+    callback pick_click(length, length);
+    callback pick_step(int);                            // +1 / -1 from the arrow keys
+    callback pick_accept();                             // Enter on the lit ring
 }

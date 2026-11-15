@@ -49,10 +49,11 @@ global SolidIcons {
     out property <string> magnet: "M6 4 V12 A6 6 0 0 0 18 12 V4 M6 4 H10 V12 A2 2 0 0 0 14 12 V4 H18";
     out property <string> slice: "M4 14 H20 M7 9 L12 4 L17 9 M7 19 L12 22 L17 19";
     out property <string> finish: "M4 18 L10 6 L16 18 M7 13 H13 M18 8 V18";
+    out property <string> pick:"M12 3 V8 M12 16 V21 M3 12 H8 M16 12 H21 M12 9 A3 3 0 1 0 12 15 A3 3 0 1 0 12 9";
 }
 
-// The five overlay toggles, once, for both the SHOW group and the Show menu. `kind`: 0 Preform,
-// 1 Snap, 2 Crystal Axis, 3 Surface Finish, 4 Slice.
+// The six overlay toggles, once, for both the SHOW group and the Show menu. `kind`: 0 Preform,
+// 1 Snap, 2 Crystal Axis, 3 Surface Finish, 4 Slice, 5 Pick Meet.
 global ShowState {
     // Preform: Solid view only (the path tracer does not draw the preform, and the Diagram has
     // its own facet labels). Snap: every mode. Crystal Axis: an anisotropic material only.
@@ -63,19 +64,23 @@ global ShowState {
         SettingsModel.c_axis_override_available,
         SolidPreviewModel.view_mode != 3,
         SolidPreviewModel.view_mode != 3,
+        SolidPreviewModel.view_mode != 3,
     ];
+    // Pick Meet needs a selected tier that can take a pick (or pick mode already on, so it can be left).
+    out property <[bool]> enabled: [true, true, true, true, true, ManipulateModel.pick_available || ManipulateModel.pick_mode];
     out property <[bool]> on: [
         SolidPreviewModel.show_preform_planes,
         !ManipulateModel.snap_off,
         CrystalAxisModel.show_axis,
         SurfaceModel.show_overlay,
         ManipulateModel.slice_mode,
+        ManipulateModel.pick_mode,
     ];
     // How many of the shown toggles are on: the count on the Show menu button.
-    out property <int> count: (root.shown[0] && root.on[0] ? 1 : 0) + (root.shown[1] && root.on[1] ? 1 : 0) + (root.shown[2] && root.on[2] ? 1 : 0) + (root.shown[3] && root.on[3] ? 1 : 0) + (root.shown[4] && root.on[4] ? 1 : 0);
-    out property <[string]> icons: [SolidIcons.preform, SolidIcons.magnet, KitIcons.axis, SolidIcons.finish, SolidIcons.slice];
+    out property <int> count: (root.shown[0] && root.on[0] ? 1 : 0) + (root.shown[1] && root.on[1] ? 1 : 0) + (root.shown[2] && root.on[2] ? 1 : 0) + (root.shown[3] && root.on[3] ? 1 : 0) + (root.shown[4] && root.on[4] ? 1 : 0) + (root.shown[5] && root.on[5] ? 1 : 0);
+    out property <[string]> icons: [SolidIcons.preform, SolidIcons.magnet, KitIcons.axis, SolidIcons.finish, SolidIcons.slice, SolidIcons.pick];
     // The old pill names: the accessible labels.
-    out property <[string]> texts: ["Preform", "Snap", "Crystal Axis", "Surface Finish", "Slice"];
+    out property <[string]> texts: ["Preform", "Snap", "Crystal Axis", "Surface Finish", "Slice", "Pick Meet"];
     // What each draws or does, in one line (the Show menu's second line).
     out property <[string]> details: [
         "the rough's own bounding planes",
@@ -83,6 +88,7 @@ global ShowState {
         "the crystal axis, with a handle to turn it",
         "a dot per finished facet, tinted by its grade",
         "drag a line to cut a new facet (S)",
+        "click the corner the tier is cut to (M)",
     ];
     out property <[string]> hints: [
         "Show or hide the rough's own bounding planes (the preform) in the Solid view. See the glossary.",
@@ -90,9 +96,12 @@ global ShowState {
         "Show the stone's crystal axis over it, with a handle to turn it. A biaxial stone also shows its Second Axis. It switches on by itself the first time you set the axis.",
         "Show the surface finish of the tiers over the stone: a dot on each finished facet, tinted by its grade, and a tick along the direction of its scratches. Set the finish with a right-click on a tier.",
         "Cut a new facet with the mouse (shortcut S): drag a line across the stone and the part to the right of your drag is cut away. Nothing is kept until you press Keep.",
+        ManipulateModel.pick_available || ManipulateModel.pick_mode || ManipulateModel.pick_blocked_reason == ""
+            ? "Pick the corner the selected tier is cut to. Shortcut: M."
+            : ManipulateModel.pick_blocked_reason,
     ];
     // The tutorial highlight target of each toggle ("" for none).
-    out property <[string]> targets: ["", "snap_pill", "crystal_axis_toggle", "", "slice_pill"];
+    out property <[string]> targets: ["", "snap_pill", "crystal_axis_toggle", "", "slice_pill", ""];
 
     public function toggle(kind: int) {
         if kind == 0 {
@@ -109,6 +118,12 @@ global ShowState {
         } else if kind == 4 {
             ManipulateModel.slice_mode = !ManipulateModel.slice_mode;
             ManipulateModel.slice_toggled();
+        } else if kind == 5 {
+            // Arming needs a tier that can take a pick; leaving is always allowed.
+            if ManipulateModel.pick_mode || ManipulateModel.pick_available {
+                ManipulateModel.pick_mode = !ManipulateModel.pick_mode;
+                ManipulateModel.pick_toggled();
+            }
         }
     }
 }
@@ -438,7 +453,7 @@ component ShowMenuButton inherits KitGlass {
     accessible-description: root.count == 0 ? "None on" : "\{root.count} on";
     accessible-action-default => { root.clicked(); }
 
-    Tooltip { text: @markdown("Choose what the viewport draws over the stone: the preform, snapping, the crystal axis, the surface finish and the Slice tool."); }
+    Tooltip { text: @markdown("Choose what the viewport draws over the stone: the preform, snapping, the crystal axis, the surface finish, the Slice tool and the Pick Meet tool."); }
 
     menu_focus := FocusScope {
         key-pressed(event) => {
@@ -481,6 +496,7 @@ component ShowItem inherits Rectangle {
 
     height: 44px;
     border-radius: 8px;
+    opacity: ShowState.enabled[root.kind] ? 1.0 : 0.45;
     background: root.on ? Theme.accent-cyan-surface.with-alpha(0.5) : (item_touch.has-hover ? Theme.bg-card-hover : transparent);
     border-width: item_focus.has-focus ? 2px : 0px;
     border-color: Theme.accent-cyan-hover;
@@ -725,9 +741,10 @@ export component SolidViewportToolbar inherits Rectangle {
                     vertical-alignment: center;
                 }
                 Rectangle { width: 6px; }
-                for kind in 5: VerticalLayout {
+                for kind in 6: VerticalLayout {
                     alignment: center;
                     if ShowState.shown[kind]: ToolToggle {
+                        enabled: ShowState.enabled[kind];
                         icon: ShowState.icons[kind];
                         text: ShowState.texts[kind];
                         hint: ShowState.hints[kind];
@@ -829,7 +846,7 @@ export component SolidViewportToolbar inherits Rectangle {
         menu_list := VerticalLayout {
             padding: 6px;
             spacing: 2px;
-            for kind in 5: VerticalLayout { if ShowState.shown[kind]: ShowItem { kind: kind; } }
+            for kind in 6: VerticalLayout { if ShowState.shown[kind]: ShowItem { kind: kind; } }
         }
     }
 }

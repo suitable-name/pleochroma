@@ -34,9 +34,10 @@ export global Shell {
     in-out property <length> inset-bottom: 0px;
     in-out property <length> inset-left: 0px;
     in-out property <length> inset-right: 0px;
-    // The bottom inset a page must respect itself: on a compact window the navigation
-    // bar already sits above the gesture area, so the page needs none.
-    out property <length> page-inset-bottom: window-class == 0 ? 0px : inset-bottom;
+    // The bottom inset a page must respect itself. `AppWindow` ends the page area above the
+    // navigation bar (compact) or above the system bar (otherwise), so a page needs none.
+    // Overlays that cover the whole window (not just the page area) use `inset-*` instead.
+    out property <length> page-inset-bottom: 0px;
 
     // Toast (snackbar). Rust shows it and dismisses it after four seconds.
     in-out property <string> toast-text: "";

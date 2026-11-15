@@ -10,6 +10,7 @@ use glam::Vec3;
 use pleochroma::{
     geometry::{plane::GpuFacetPlane, tool::ToolPrimitive},
     optics::{fluorescence::Fluorescence, materials::GemMaterial, raytracer::LightingPreset},
+    render_setup::StonePose,
     renderer::env_map::{EnvironmentMap, HdrOrientation},
 };
 use pleochroma_net::scene::effects::SceneEffects;
@@ -65,6 +66,10 @@ pub(in crate::bridge::render_thread) struct FrameInputs {
     /// The snapshot of [`RenderContext::tray_reflection`], still subject to the lighting
     /// declining it.
     pub(in crate::bridge::render_thread) tray_reflection: f32,
+    /// The snapshot of [`RenderContext::effective_stone_pose`]: the identity on the Edit tab.
+    pub(in crate::bridge::render_thread) stone_pose: StonePose,
+    /// See [`RenderContext::pose_drag_held`].
+    pub(in crate::bridge::render_thread) pose_drag_held: bool,
     pub(in crate::bridge::render_thread) target_samples: u32,
     pub(in crate::bridge::render_thread) max_bounces: u32,
     pub(in crate::bridge::render_thread) exposure: f32,
@@ -192,6 +197,8 @@ pub(in crate::bridge::render_thread) fn snapshot_frame_inputs(
         head_shadow_deg: ctx.head_shadow_deg,
         stone_shadow: ctx.stone_shadow,
         tray_reflection: ctx.tray_reflection,
+        stone_pose: ctx.effective_stone_pose(),
+        pose_drag_held: ctx.pose_drag_held,
         target_samples,
         max_bounces: ctx.max_bounces,
         exposure: ctx.effective_exposure(),

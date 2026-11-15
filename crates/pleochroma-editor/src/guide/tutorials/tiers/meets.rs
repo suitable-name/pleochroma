@@ -9,6 +9,7 @@
 use super::{FORM, FORM_ADVANCED, TABLE_ADVANCED, check, meets_named, position, tier_called};
 use crate::guide::{
     Goal, GoalContext, Group, Guide, GuideCategory, GuideStep, MeetKind, StartingState,
+    goal::tier_has_meet_pick,
 };
 use pleochroma_cut_core::{ConstraintTier, Design, TierTarget};
 
@@ -16,6 +17,7 @@ use pleochroma_cut_core::{ConstraintTier, Design, TierTarget};
 pub fn guides() -> Vec<Guide> {
     vec![
         meets_named_facets(),
+        meets_pick_the_corner(),
         meets_in_millimetres(),
         adopt_imported_meets(),
         pin_to_mast(),
@@ -154,6 +156,79 @@ fn meets_named_facets() -> Guide {
         .actions([
             "A tier cannot be left unnamed while another tier meets it.",
             "Join several names with / to give one tier more than one name, for example P1/P2.",
+        ])
+        .why("Every control is unlocked again."),
+    )
+}
+
+fn meets_pick_the_corner() -> Guide {
+    Guide::new(
+        "tiers-meets-pick-corner",
+        "Meets: Pick the Corner",
+        "When a tier could meet its facets in more than one corner, click the corner it is cut to.",
+        GuideCategory::AdvancedTiers,
+    )
+    .starting(StartingState::Template(SOLVER_STONE))
+    .step(
+        GuideStep::new(
+            "Leave the table to the solver",
+            "Picking a corner works on a tier that finds its depth from other facets, so the table stops being an exact scale value first.",
+        )
+        .actions([
+            "Click the Table row.",
+            "Set Meets to Unspecified Vertex (Vertex segment); it applies at once.",
+        ])
+        .check("the Table row's Meets column reads meet, and the Tier tab shows a Meet Point row.")
+        .why("The Meet Point row appears for a tier that meets a vertex or named facets. Without a pick, the solver takes the shallowest point where the tier's facets reach the others.")
+        .goal(
+            Goal::tier("Table", 0.0).with_meet(MeetKind::Unspecified),
+            "Table on an unspecified vertex",
+        )
+        .highlight("inspector_tier")
+        .allow(FORM),
+    )
+    .step(
+        GuideStep::new(
+            "Corners to choose from",
+            "A corner is a point of the stone where three facets meet. The table could be cut to any corner of the crown, not only the shallowest.",
+        )
+        .actions([
+            "Meet Point: Chosen by the solver means no corner has been picked.",
+            "Pick in View shows the stone as it is before the table is cut, with a ring on each corner the table can meet.",
+        ])
+        .why("Use a pick when the named facets meet in more than one corner and the solver's choice is not the one you cut.")
+        .highlight("inspector_tier")
+        .allow(FORM),
+    )
+    .step(
+        GuideStep::new(
+            "Pick the corner",
+            "Clicking a ring cuts the tier to that corner and remembers which corner it is.",
+        )
+        .actions([
+            "With the Table row selected, click Pick in View in the Meet Point row (or press M with the stone in focus).",
+            "Click one of the rings on the stone. Esc leaves pick mode without changing anything.",
+        ])
+        .check("the Meet Point row names the tiers of the corner you clicked, and the stone is cut to it.")
+        .why("The table now meets the facets of that corner by name, and the pick follows that corner when you change one of their angles.")
+        .goal(
+            check("Table is cut to a picked corner", |ctx| {
+                tier_has_meet_pick(ctx.design, "Table")
+            }),
+            "Table cut to a picked corner",
+        )
+        .highlight("solid_viewport")
+        .allow(FORM),
+    )
+    .step(
+        GuideStep::new(
+            "Forget a pick",
+            "A pick is kept until you clear it or change what the tier meets.",
+        )
+        .actions([
+            "Clear in the Meet Point row forgets the corner; the tier keeps its named facets and meets their shallowest point.",
+            "Changing the Meets setting or the Facet Names of the tier forgets the pick too.",
+            "Undo (Ctrl+Z) takes a pick or a clear back in one step.",
         ])
         .why("Every control is unlocked again."),
     )

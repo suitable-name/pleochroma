@@ -22,8 +22,8 @@ pub use girdle::{
     girdle_facet_finishes,
 };
 pub use meet_solver::{
-    MeetConstraint, MeetTierInput, SolveStrategy, SolvedTier, build_reconstructed_schedule,
-    meet_tier_inputs_from_asc, solve_meet_points, vertex_meet_groups,
+    MeetConstraint, MeetPick, MeetPickPlane, MeetTierInput, SolveStrategy, SolvedTier,
+    build_reconstructed_schedule, meet_tier_inputs_from_asc, solve_meet_points, vertex_meet_groups,
 };
 pub use plane::GpuFacetPlane;
 pub use tool::{

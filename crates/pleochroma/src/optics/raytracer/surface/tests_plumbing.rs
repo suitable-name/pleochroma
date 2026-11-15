@@ -173,6 +173,7 @@ fn the_tis_boost_dulls_the_polish_next_to_the_band() {
     let scene = SurfaceScene {
         facet_surfaces: &[],
         machine: FacetingMachine::DEFAULT,
+        scratch: super::ScratchBasis::MODEL,
         edge: EdgeAbrasion {
             width: 0.01,
             alpha: 0.0,
@@ -227,6 +228,7 @@ fn the_ground_band_still_wins_inside_the_band() {
     let scene = SurfaceScene {
         facet_surfaces: &[],
         machine: FacetingMachine::DEFAULT,
+        scratch: super::ScratchBasis::MODEL,
         edge: EdgeAbrasion {
             width: 0.01,
             alpha: 0.3,

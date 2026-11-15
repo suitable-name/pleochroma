@@ -53,6 +53,7 @@ pub const CURRICULUM: &[(GuideCategory, &[&str])] = &[
         GuideCategory::AdvancedTiers,
         &[
             "tiers-meets-named-facets",
+            "tiers-meets-pick-corner",
             "tiers-meets-mm-targets",
             "tiers-pin-to-mast",
             "tiers-adopt-imported-meets",

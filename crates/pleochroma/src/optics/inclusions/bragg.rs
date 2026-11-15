@@ -40,7 +40,7 @@
 
 use super::{CrystalDir, CrystalFrame, platelet::platelet_sample};
 use crate::optics::materials::GemMaterial;
-use glam::Vec3;
+use glam::{Mat3, Vec3};
 
 /// Refractive index of the silica spheres of opal.
 pub const SILICA_INDEX: f32 = 1.45;
@@ -156,6 +156,23 @@ pub struct BraggStructure {
     /// The unit lattice normal shared by every domain (labradorite), or zero for a random
     /// normal per domain (opal).
     pub normal: Vec3,
+    /// The map from world coordinates to the coordinates the domain map is laid out in: the
+    /// identity for a stone as designed, `R^T` for a stone rotated by `R` (see [`Self::rotated`]).
+    /// A point `p` looks up the domain at `lattice_from_world * p`; the random lattice normals of
+    /// opal are turned back to the world by the transpose.
+    ///
+    /// Never serialized: the pose is applied where the stone is rendered, after a design or a
+    /// wire message is read, so every stored or sent structure is unposed and reads back as the
+    /// identity. Skipping it (rather than writing it only when posed) keeps the field count fixed,
+    /// which postcard's positional encoding needs.
+    #[cfg_attr(feature = "serde", serde(skip, default = "unposed_lattice"))]
+    pub lattice_from_world: Mat3,
+}
+
+/// The lattice map of a stone as designed.
+#[cfg(feature = "serde")]
+const fn unposed_lattice() -> Mat3 {
+    Mat3::IDENTITY
 }
 
 impl BraggStructure {
@@ -190,6 +207,51 @@ impl BraggStructure {
             peak_reflectance: finite(peak_reflectance, 0.5).clamp(0.01, 0.95),
             mosaic: finite(mosaic, 0.05).clamp(0.0, 0.5),
             normal: normal.normalize_or_zero(),
+            lattice_from_world: Mat3::IDENTITY,
+        }
+    }
+
+    /// The structure of the stone turned by `r` in the world: the shared lattice normal turns
+    /// with the stone and the domain map follows it (`lattice_from_world` becomes
+    /// `lattice_from_world * r^T`). The identity returns the structure unchanged.
+    #[must_use]
+    pub fn rotated(&self, r: Mat3) -> Self {
+        if r == Mat3::IDENTITY {
+            return *self;
+        }
+        Self {
+            normal: r * self.normal,
+            lattice_from_world: self.lattice_from_world * r.transpose(),
+            ..*self
+        }
+    }
+
+    /// Whether the domain map is turned against the world (`lattice_from_world` is not the
+    /// identity).
+    #[must_use]
+    pub fn is_posed(&self) -> bool {
+        self.lattice_from_world != Mat3::IDENTITY
+    }
+
+    /// The world point `p` in the coordinates the domain map is laid out in; `p` itself, without
+    /// any arithmetic, when the structure is not posed.
+    #[must_use]
+    pub fn to_lattice(&self, p: Vec3) -> Vec3 {
+        if self.is_posed() {
+            self.lattice_from_world * p
+        } else {
+            p
+        }
+    }
+
+    /// The direction `v` of the domain map's coordinates turned back to the world: `v` itself,
+    /// without any arithmetic, when the structure is not posed.
+    #[must_use]
+    pub fn lattice_to_world(&self, v: Vec3) -> Vec3 {
+        if self.is_posed() {
+            self.lattice_from_world.transpose() * v
+        } else {
+            v
         }
     }
 

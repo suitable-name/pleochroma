@@ -7,7 +7,7 @@
 use super::{
     attachment::{AttachmentsError, validate_attachments},
     schema::{
-        CONCAVE_FRAME_V0, DESIGN_FORMAT, DESIGN_VERSION_PLANES, DesignFile, MAX_DESIGN_TIERS,
+        CONCAVE_FRAME_V0, DESIGN_FORMAT, DESIGN_VERSION_MEET_PICKS, DesignFile, MAX_DESIGN_TIERS,
         is_design_format,
     },
 };
@@ -185,10 +185,10 @@ pub fn check_header(text: &str) -> Result<u32, DesignFileError> {
     }
     match header.version {
         None => Err(DesignFileError::MissingVersion),
-        Some(v) if v > i64::from(DESIGN_VERSION_PLANES) => {
+        Some(v) if v > i64::from(DESIGN_VERSION_MEET_PICKS) => {
             Err(DesignFileError::UnsupportedVersion {
                 found: v,
-                supported: DESIGN_VERSION_PLANES,
+                supported: DESIGN_VERSION_MEET_PICKS,
             })
         }
         Some(v) if v < 1 => Err(DesignFileError::InvalidVersion(v)),

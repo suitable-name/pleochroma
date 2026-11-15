@@ -147,19 +147,42 @@ fn project_to_gamut_bounded(xyz: vec3<f32>, upper: f32) -> vec3<f32> {
         return linear;
     }
 
-    var resolved = max(
-        xyz_to_linear(mapped_xyz(x, y, luminance, 1.0)),
-        vec3<f32>(0.0, 0.0, 0.0),
-    );
-    for (var i: u32 = 0u; i <= 32u; i = i + 1u) {
-        let t = f32(i) / 32.0;
-        let candidate = xyz_to_linear(mapped_xyz(x, y, luminance, t));
-        if (in_range(candidate, upper)) {
-            resolved = candidate;
-            break;
+    // The walk length solved exactly, as `gamut::project_to_gamut_bounded` does: per-channel
+    // numerators at the color (t = 0) and at the white point (t = 1), one linear bound each.
+    let wx = params.white_xy.x;
+    let wy = params.white_xy.y;
+    let n0 = xyz_to_linear(vec3<f32>(x, y, 1.0 - x - y));
+    let n1 = xyz_to_linear(vec3<f32>(wx, wy, 1.0 - wx - wy));
+    let capped = upper < MAX_FINITE;
+    var t = 0.0;
+    for (var c: u32 = 0u; c < 3u; c = c + 1u) {
+        t = max(t, first_nonnegative(n0[c], n1[c]));
+        if (capped) {
+            let h0 = fma(-luminance, n0[c], upper * y);
+            let h1 = fma(-luminance, n1[c], upper * wy);
+            t = max(t, first_nonnegative(h0, h1));
         }
     }
-    return resolved;
+    if (t <= 1.0) {
+        return clamp(
+            xyz_to_linear(mapped_xyz(x, y, luminance, t)),
+            vec3<f32>(0.0, 0.0, 0.0),
+            vec3<f32>(upper, upper, upper),
+        );
+    }
+    return max(xyz_to_linear(mapped_xyz(x, y, luminance, 1.0)), vec3<f32>(0.0, 0.0, 0.0));
+}
+
+// `gamut::first_nonnegative`: the smallest t >= 0 with g0 + (g1 - g0) t >= 0. Where none exists
+// it returns 2.0 (the CPU returns infinity): any value above 1 selects the white-point fallback.
+fn first_nonnegative(g0: f32, g1: f32) -> f32 {
+    if (g0 >= 0.0) {
+        return 0.0;
+    }
+    if (g1 > g0) {
+        return -g0 / (g1 - g0);
+    }
+    return 2.0;
 }
 
 // `gamut::fit_keeping_color`.

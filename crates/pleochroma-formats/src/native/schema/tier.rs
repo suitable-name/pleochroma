@@ -103,9 +103,26 @@ pub struct TierTable {
     /// Facets whose surface differs from the tier's, by index-wheel position.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surface_facets: Vec<SurfaceFacetTable>,
+    /// The corner this tier is cut to: three facets, each named by the `tier_id` of its
+    /// tier and its index-wheel position. Mirrors `Design::tier_meet_picks`. Empty when
+    /// the tier has no pick, and then not written. A file with any pick is version 5
+    /// (see `DESIGN_VERSION_MEET_PICKS`), so an older build refuses it instead of solving
+    /// the tier by the shallowest rule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub meet_pick: Vec<MeetPickFacetTable>,
     /// Carries unknown keys through a save, as [`PreformTable::unknown`] does.
     #[serde(flatten, default)]
     pub unknown: toml::Table,
+}
+
+/// One facet of a picked meet corner: the tier's `tier_id` and the facet's index-wheel
+/// position.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MeetPickFacetTable {
+    /// The `tier_id` of the tier the facet belongs to.
+    pub tier: u64,
+    /// The index-wheel position of the facet within that tier.
+    pub at: f64,
 }
 
 /// One entry of [`TierTable::surface_facets`]: one facet's own surface.
@@ -235,6 +252,7 @@ impl TierTable {
             surface_no_sweep: false,
             ground_alpha: None,
             surface_facets: Vec::new(),
+            meet_pick: Vec::new(),
             unknown: toml::Table::new(),
         }
     }
@@ -273,6 +291,13 @@ impl TierTable {
     pub fn with_frosting(mut self, frosted: bool, frosted_facets: Vec<f64>) -> Self {
         self.frosted = frosted;
         self.frosted_facets = frosted_facets;
+        self
+    }
+
+    /// Attaches [`Self::meet_pick`] -- see that field's own doc comment.
+    #[must_use]
+    pub fn with_meet_pick(mut self, meet_pick: Vec<MeetPickFacetTable>) -> Self {
+        self.meet_pick = meet_pick;
         self
     }
 

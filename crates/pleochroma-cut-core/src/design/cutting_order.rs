@@ -56,6 +56,7 @@ pub fn meet_inputs(tiers: &[ConstraintTier]) -> Vec<MeetTierInput> {
             indices: tier.indices.clone(),
             constraint: tier.constraint.clone(),
             names: tier.names().into_iter().map(str::to_string).collect(),
+            pick: None,
         })
         .collect()
 }

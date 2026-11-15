@@ -20,9 +20,10 @@ use pleochroma::{
         raytracer::{
             EnvironmentSource, FacetFinish, LightingPreset,
             environment::tray_plane_y,
-            surface::{FacetSurface, SurfaceScene},
+            surface::{FacetSurface, ScratchBasis, SurfaceScene},
         },
     },
+    render_setup::{StonePose, pose_stone},
     renderer::env_map::{EnvironmentMap, HdrOrientation},
 };
 use pleochroma_net::scene::{
@@ -59,6 +60,11 @@ pub struct SceneSnapshot {
     /// Where the stone sits in the picture (`RenderContext::camera_pan`, image half-heights in the
     /// picture's axes), frozen with the viewport pose; `[0.0, 0.0]` is centred.
     pub camera_pan: [f32; 2],
+    /// The stone's pose on the tray (`RenderContext::stone_pose`, the Live Render pose even when
+    /// the capture is made from the Edit tab): the identity is the stone as designed. The planes,
+    /// tools and material of this snapshot stay as designed; the local tracer turns them with
+    /// [`Self::posed`], and a remote worker or a job file receives the pose beside them.
+    pub stone_pose: StonePose,
     /// Camera distance from the stone.
     pub distance: f32,
     /// Light yaw.
@@ -238,6 +244,47 @@ impl SceneSnapshot {
         !asked || tray_plane_y(StoneGeometry { planes, tools }).is_some()
     }
 
+    /// This scene with its stone turned into [`Self::stone_pose`], the scene every local tracer,
+    /// the stone shadow and the tray mirror read: the planes and tools rotated (the `d` values
+    /// kept), [`Self::material`] replaced by the posed traced material (crystal axes, color zones
+    /// and the inclusions, which then ride in the material), the effects that would apply an
+    /// unrotated inclusion set cleared, and the scratch directions of the surface finish turned
+    /// with the stone. The finishes are index-based and stay as captured, and the pose of the
+    /// result is the identity, so nothing turns the stone twice.
+    ///
+    /// Borrowed and untouched for the identity pose, which keeps every picture, hash and golden
+    /// as it was. A remote worker takes the pose from the original scene instead (the inclusions
+    /// would not survive the wire, and the worker poses its own scene).
+    #[must_use]
+    pub fn posed(&self) -> Cow<'_, Self> {
+        if self.stone_pose.is_identity() {
+            return Cow::Borrowed(self);
+        }
+        let posed = pose_stone(
+            self.stone_pose,
+            &self.active_planes,
+            &self.tools,
+            &self.traced_material(),
+        );
+        let mut scene = self.clone();
+        scene.active_planes = posed.planes;
+        scene.tools = posed.tools;
+        scene.material = posed.material;
+        scene.effects.inclusions = None;
+        scene.effects.inclusion_second_axis = None;
+        scene.effects.structure = None;
+        scene.effects.material_inclusions = None;
+        scene.effects.scratch = ScratchBasis::new(posed.up, posed.side);
+        scene.stone_pose = StonePose::IDENTITY;
+        Cow::Owned(scene)
+    }
+
+    /// Clears [`Self::stone_pose`]: the scene of a tilt view, tilt curve or tilt video, which
+    /// measure and show the stone as designed.
+    pub const fn clear_stone_pose(&mut self) {
+        self.stone_pose = StonePose::IDENTITY;
+    }
+
     /// The material the tracer traces: [`Self::material`] with the design's inclusions and
     /// play-of-color applied (borrowed and untouched without them).
     #[must_use]
@@ -380,6 +427,9 @@ impl SceneSnapshot {
             pitch: guard.pitch,
             camera_roll: guard.camera_roll,
             camera_pan: guard.camera_pan,
+            // The Live Render pose whichever tab the capture is made from: an export or a queued
+            // job shows what the Live Render tab shows.
+            stone_pose: guard.stone_pose.clamped(),
             distance: guard.distance,
             light_yaw: guard.light_yaw,
             light_pitch: guard.light_pitch,
@@ -874,6 +924,93 @@ mod tests {
         }))
         .expect("default resolves");
         assert_eq!(panned.camera_pan, [0.4, -0.25]);
+    }
+
+    /// The export takes the Live Render pose from the context, also while the Edit tab is shown,
+    /// and an untouched context captures the stone as designed.
+    #[test]
+    fn capture_carries_the_stone_pose_into_the_exported_scene() {
+        let plain = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
+            .expect("default resolves");
+        assert!(plain.stone_pose.is_identity());
+        assert!(
+            matches!(plain.posed(), Cow::Borrowed(_)),
+            "no pose, no copy"
+        );
+
+        let pose = StonePose {
+            tilt_deg: 60.0,
+            turn_deg: 30.0,
+            spin_deg: 10.0,
+        };
+        for live_tab_shown in [true, false] {
+            let posed = SceneSnapshot::capture(&Mutex::new(RenderContext {
+                stone_pose: pose,
+                live_tab_shown,
+                ..Default::default()
+            }))
+            .expect("default resolves");
+            assert_eq!(posed.stone_pose, pose, "live tab shown: {live_tab_shown}");
+        }
+    }
+
+    /// A tilt scene shows the stone as designed.
+    #[test]
+    fn clearing_the_stone_pose_gives_the_stone_as_designed() {
+        let mut scene = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            stone_pose: StonePose {
+                tilt_deg: 45.0,
+                turn_deg: 0.0,
+                spin_deg: 0.0,
+            },
+            ..Default::default()
+        }))
+        .expect("default resolves");
+        assert!(!scene.stone_pose.is_identity());
+        scene.clear_stone_pose();
+        assert!(scene.stone_pose.is_identity());
+        assert!(matches!(scene.posed(), Cow::Borrowed(_)));
+    }
+
+    /// The posed scene holds the turned stone, keeps the finishes and the closed flag, and has no
+    /// pose left to apply twice.
+    #[test]
+    fn a_posed_scene_holds_the_turned_stone_and_no_pose() {
+        let pose = StonePose {
+            tilt_deg: 90.0,
+            turn_deg: 0.0,
+            spin_deg: 0.0,
+        };
+        let scene = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            stone_pose: pose,
+            girdle_frosted: true,
+            ..Default::default()
+        }))
+        .expect("default resolves");
+        let posed = scene.posed();
+        assert!(matches!(posed, Cow::Owned(_)));
+        assert!(posed.stone_pose.is_identity());
+        assert_eq!(posed.active_planes.len(), scene.active_planes.len());
+        assert_eq!(posed.facet_finishes, scene.facet_finishes, "index-based");
+        let r = pose.rotation();
+        for (before, after) in scene.active_planes.iter().zip(&posed.active_planes) {
+            let expected = r * Vec3::from(before.normal);
+            assert!((Vec3::from(after.normal) - expected).length() < 1e-5);
+            assert!((after.d - before.d).abs() < 1e-6, "d is kept");
+        }
+        assert!(
+            (posed.material.c_axis - r * scene.material.c_axis).length() < 1e-5,
+            "the crystal axis turns with the stone"
+        );
+        assert_eq!(
+            posed.effects.scratch,
+            ScratchBasis::new(r * Vec3::Y, r * Vec3::X)
+        );
+        assert!(
+            matches!(posed.traced_material(), Cow::Borrowed(_)),
+            "the effects hold no inclusion set that could be applied again"
+        );
+        assert_eq!(scene.stone_pose, pose, "the captured scene is not changed");
     }
 
     /// The viewport's surface glare reaches the export snapshot, and the default

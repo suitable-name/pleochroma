@@ -60,6 +60,6 @@ pub use fingerprint::sha256_hex;
 pub use schema::{
     COLOR_VARIANT_SHAPE_ENERGY, COLOR_VARIANT_SHAPE_WAVELENGTH, COLOR_VARIANT_UNIT_MODEL_UNIT,
     COLOR_VARIANT_UNIT_PER_MM, ColorVariantBandTable, ColorVariantTable, ConcaveTierTable,
-    HistoryTable, MaterialTable, NativeMeetConstraint, NativePreformShape, NativeTierTarget,
-    PreformTable, SourceTable, SurfaceColumns, SurfaceFacetTable, TierTable,
+    HistoryTable, MaterialTable, MeetPickFacetTable, NativeMeetConstraint, NativePreformShape,
+    NativeTierTarget, PreformTable, SourceTable, SurfaceColumns, SurfaceFacetTable, TierTable,
 };

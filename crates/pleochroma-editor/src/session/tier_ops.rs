@@ -17,7 +17,7 @@ use crate::{
     },
     manipulate::{dependents::clear_dependant_edits, tiers_meeting},
 };
-use pleochroma_cut_core::{ConstraintTier, Edit, EditError};
+use pleochroma_cut_core::{ConstraintTier, Edit, EditError, MeetPickBlock, PickCorner};
 use std::{collections::BTreeSet, fmt};
 
 mod concave;
@@ -118,6 +118,64 @@ impl From<EditError> for RemoveTierError {
     }
 }
 
+/// Why [`EditorSession::pick_meet_corner`] cut nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MeetPickError {
+    /// The tier is not a flat tier of the design.
+    NoSuchTier,
+    /// The tier cannot take a pick at all ([`pleochroma_cut_core::Design::meet_pick_blocked`]).
+    Blocked(MeetPickBlock),
+    /// A tier at the corner has no name, so the Meets names cannot say the corner. Holds the
+    /// tier's position.
+    UnnamedTier(usize),
+    /// The corner is out of date: a tier of it is no longer in the design.
+    StaleCorner,
+    /// The edit itself failed.
+    Edit(EditError),
+}
+
+impl fmt::Display for MeetPickError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoSuchTier => f.write_str("The tier does not exist."),
+            Self::Blocked(MeetPickBlock::NothingCutBefore) => {
+                f.write_str("Nothing is cut before this tier, so there is no corner to pick.")
+            }
+            Self::Blocked(MeetPickBlock::SoleBlockAnchor) => f.write_str(
+                "This tier is the only one that sets the size of its block, so it cannot meet a \
+                 corner.",
+            ),
+            Self::Blocked(MeetPickBlock::SizingTier) => {
+                f.write_str("This tier sets the stone's size and cannot meet a corner.")
+            }
+            Self::UnnamedTier(tier) => {
+                write!(
+                    f,
+                    "Tier {} has no name. Name it to pick this corner.",
+                    tier + 1
+                )
+            }
+            Self::StaleCorner => f.write_str("The corner is out of date. Pick it again."),
+            Self::Edit(error) => fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for MeetPickError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Edit(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<EditError> for MeetPickError {
+    fn from(error: EditError) -> Self {
+        Self::Edit(error)
+    }
+}
+
 /// What [`EditorSession::toggle_detach`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetachOutcome {
@@ -190,7 +248,8 @@ pub const fn selection_after_remove(selected: Option<usize>, removed: usize) -> 
 impl EditorSession {
     /// The tier list's Duplicate (Ctrl+D): inserts a copy of tier `index` right after it,
     /// named by [`unique_duplicate_name`], with the same indices, angle, constraint and
-    /// detached set. The copy's `imported_meet` is cleared, as it is a user-authored row.
+    /// detached set. The copy's `imported_meet` is cleared, as it is a user-authored row,
+    /// and it carries no picked meet corner: the pick is stored beside the tier, not in it.
     /// One `Edit::AddTier`, since cut order matters.
     ///
     /// `Ok(None)` when the tier does not exist.
@@ -220,6 +279,57 @@ impl EditorSession {
             source_label,
             duplicate_label,
         }))
+    }
+
+    /// Cuts tier `tier` to `corner`, one of the corners [`pleochroma_cut_core::Design::pick_corners`]
+    /// offered for it: the tier's Meets become the names of the corner's tiers, any depth target
+    /// is cleared, and the corner is stored as the tier's pick.
+    ///
+    /// One undo step ([`pleochroma_cut_core::Design::meet_pick_edit`]), never coalesced.
+    ///
+    /// # Errors
+    ///
+    /// [`MeetPickError`]: the tier does not exist or cannot take a pick, the corner has an
+    /// unnamed tier or a tier the design no longer has, or the edit is refused. Nothing changes
+    /// on `Err`.
+    pub fn pick_meet_corner(
+        &mut self,
+        tier: usize,
+        corner: &PickCorner,
+    ) -> Result<EditChange, MeetPickError> {
+        if tier >= self.design.tiers.len() {
+            return Err(MeetPickError::NoSuchTier);
+        }
+        if let Some(block) = self.design.meet_pick_blocked(tier) {
+            return Err(MeetPickError::Blocked(block));
+        }
+        if let Some(unnamed) = corner.unnamed_tier {
+            return Err(MeetPickError::UnnamedTier(unnamed));
+        }
+        let edit = self
+            .design
+            .meet_pick_edit(tier, corner)
+            .ok_or(MeetPickError::StaleCorner)?;
+        self.apply(edit).map_err(MeetPickError::Edit)
+    }
+
+    /// Forgets the corner tier `tier` is cut to. The tier keeps its Meets names and meets their
+    /// shallowest point. One undo step.
+    ///
+    /// `Ok(None)` when the tier has no pick (nothing is applied).
+    ///
+    /// # Errors
+    ///
+    /// [`Self::apply`]'s error.
+    pub fn clear_meet_pick(&mut self, tier: usize) -> Result<Option<EditChange>, EditError> {
+        if self.design.tier_meet_pick(tier).is_none() {
+            return Ok(None);
+        }
+        self.apply(Edit::SetTierMeetPick {
+            index: tier,
+            pick: None,
+        })
+        .map(Some)
     }
 
     /// The tier list's Remove: [`Self::remove_tier_with`] without clearing references,

@@ -307,6 +307,11 @@ pub struct AppSettings {
     /// the picture's axes); `[0.0, 0.0]` is centred. Older settings open centred.
     #[serde(default)]
     pub camera_pan: [f32; 2],
+    /// The Stone Pose, `[tilt, turn, spin]` in degrees: how the stone stands on the tray in the
+    /// Live Render view. Stored with the camera pose; `[0.0, 0.0, 0.0]` is the stone as
+    /// designed. Older settings open unposed.
+    #[serde(default)]
+    pub stone_pose: [f32; 3],
     /// Camera distance from the stone.
     pub camera_distance: f32,
     /// Name of the selected material.

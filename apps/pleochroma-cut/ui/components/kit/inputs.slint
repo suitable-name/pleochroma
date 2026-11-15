@@ -40,6 +40,8 @@ export component KitSlider inherits Rectangle {
     in property <bool> enabled: true;
     in-out property <float> value;
     callback moved(float);
+    // The slider was let go (the mouse button released); `moved` carries the live values.
+    callback released(float);
 
     height: 28px;
     if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
@@ -56,5 +58,6 @@ export component KitSlider inherits Rectangle {
         accessible-label: root.label;
         accessible-description: root.hint;
         changed(v) => { root.moved(v); }
+        released(v) => { root.released(v); }
     }
 }

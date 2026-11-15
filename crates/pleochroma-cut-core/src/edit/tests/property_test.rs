@@ -1,10 +1,10 @@
-//! Property test: `SetSchedule`, `RemapIndices` (and its `RestoreIndices`
+//! Property test: `SetSchedule`, `SetTierMeetPick`, `RemapIndices` (and its `RestoreIndices`
 //! inverse) and `RetargetAngles` all apply and invert exactly over generated
 //! tier lists.
 
 use super::fixtures::{fresh_design, tier};
 use crate::{
-    design::ConstraintTier,
+    design::{ConstraintTier, PickedFacet, TierMeetPick},
     edit::{Edit, History, RemapRounding},
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
@@ -41,12 +41,17 @@ fn generate_tiers(seed: u64) -> Vec<ConstraintTier> {
 /// `RestoreIndices` inverse) and `RetargetAngles` each apply and undo back to the identical
 /// design state, and redo reproduces the fully-edited state.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one walk over every edit variant, so the seeds share each step's checks"
+)]
 fn new_a2_edit_variants_apply_and_invert_exactly_over_generated_tier_lists() {
     for seed in [1u64, 2, 3, 4, 5] {
         let mut design = fresh_design();
         for generated in generate_tiers(seed) {
             design.tiers.push(generated);
         }
+        design.ensure_tier_ids();
         let before = design.clone();
 
         let mut history = History::new();
@@ -63,6 +68,24 @@ fn new_a2_edit_variants_apply_and_invert_exactly_over_generated_tier_lists() {
                 },
             )
             .expect("set schedule must apply");
+        snapshots.push(design.clone());
+        // A picked corner on the generated tiers, so the remap below has positions to move.
+        let facet = |position: usize| PickedFacet {
+            tier: design.tier_id_at(position).expect("every tier has an id"),
+            index: design.tiers[position].indices[0],
+        };
+        let pick = TierMeetPick {
+            facets: [facet(0), facet(1), facet(0)],
+        };
+        history
+            .apply(
+                &mut design,
+                Edit::SetTierMeetPick {
+                    index: 1,
+                    pick: Some(pick),
+                },
+            )
+            .expect("set pick must apply");
         snapshots.push(design.clone());
         history
             .apply(

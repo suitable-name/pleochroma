@@ -20,7 +20,7 @@ use pleochroma_editor::{
     material_lookup::{EditorMaterialLookup, resolved_gem_material_for_design},
     retarget::metrics::measure_column_with_finishes,
     solve_policy::design_to_gpu_planes_from_solved,
-    verdict::{SolveFacts, VerdictInputs, axis_fact, gather},
+    verdict::{SolveFacts, VanishSnapshot, VerdictInputs, axis_fact, gather, vanish_snapshot},
 };
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -98,6 +98,9 @@ fn design_finishes(design: &Design, solved: &[SolvedTier]) -> Vec<FacetFinish> {
     design.facet_finishes_from_solved(solved, &design_to_gpu_planes_from_solved(design, solved))
 }
 
+/// What a worker hands back: the verdict's inputs and the facets that vanish in the design.
+pub(super) type Outcome = (VerdictInputs, VanishSnapshot);
+
 /// Runs `job` on a worker thread; the result comes back through [`finish`] on the UI thread.
 pub(super) fn spawn(job: Job) {
     std::thread::spawn(move || {
@@ -114,13 +117,15 @@ pub(super) fn spawn(job: Job) {
         // A panic inside the geometry must not leave the badge on "out of date" for good; the
         // UI thread keeps what it showed.
         let outcome = catch_unwind(AssertUnwindSafe(|| {
-            compute(
+            let inputs = compute(
                 &design,
                 solved.as_deref(),
                 n_d,
                 lighting,
                 custom.as_deref().map(Vec::as_slice),
-            )
+            );
+            let vanished = vanish_snapshot(&design, &inputs);
+            (inputs, vanished)
         }));
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             finish(&ui, serial, had_solution, outcome.ok());

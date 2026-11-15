@@ -236,6 +236,9 @@ pub(super) fn serve_beam_tiles<S: Read + Write + TimeoutRead + TimeoutWrite>(
         }
     };
 
+    // Validated: the scene is rendered as its posed scene.
+    crate::render_core::pose::apply_pose(&mut request.scene);
+
     let started = Instant::now();
     let cancel = AtomicBool::new(false);
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));

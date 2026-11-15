@@ -29,6 +29,7 @@ fn tent() -> LightingValues {
         camera_pitch: None,
         camera_roll: None,
         camera_pan: None,
+        stone_pose: None,
         camera_distance: None,
     }
 }
@@ -161,6 +162,19 @@ fn the_live_view_is_captured_from_the_render_context() {
     assert!(close(values.surface_glare, 0.5));
     assert_eq!(values.backdrop, Backdrop::White);
     assert_eq!(values.env_map_path.as_deref(), Some("C:/hdr/studio.hdr"));
+}
+
+/// A design's own lighting never carries the Stone Pose: it is not captured from a posed live
+/// view and not part of the stored row.
+#[test]
+fn a_designs_lighting_never_carries_the_stone_pose() {
+    let ctx = RenderContext {
+        stone_pose: pleochroma::render_setup::StonePose::from_array([90.0, 30.0, 10.0]),
+        ..RenderContext::default()
+    };
+    let values = LightingValues::from_live(&ctx, None);
+    assert_eq!(values.stone_pose, None);
+    assert!(!values.to_json().expect("serialises").contains("stone_pose"));
 }
 
 #[test]

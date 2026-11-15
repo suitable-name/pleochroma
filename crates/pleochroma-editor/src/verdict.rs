@@ -37,6 +37,7 @@ mod meets;
 mod snap;
 #[cfg(test)]
 mod tests;
+mod vanish_notice;
 
 use crate::retarget::metrics::MetricColumn;
 use pleochroma_cut_core::ManufacturabilityWarning;
@@ -48,8 +49,11 @@ use std::{
 pub use axis::{AxisFact, axis_fact};
 pub use fix::{FixPlan, QUICK_ADD_TABLE_MAST, plan_fix, steep_target_deg};
 pub use gather::gather;
-pub use meets::{FloatingTier, GirdleLevelFact, MeetFacts};
+pub use meets::{FloatingTier, GirdleLevelFact, LostPick, MeetFacts};
 pub use snap::{CutAway, SnapOutcome, SnapRefusal, judge_snap};
+pub use vanish_notice::{
+    VanishEntry, VanishNotice, VanishSnapshot, vanish_notice, vanish_snapshot,
+};
 
 /// Windowing above this many percent of the stone is worth a look.
 ///

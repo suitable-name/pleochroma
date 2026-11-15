@@ -68,6 +68,7 @@ mod handles;
 #[cfg(feature = "ui-harness")]
 mod harness_explain;
 mod live_crystal_axis;
+mod meet_pick;
 mod slice;
 mod surface_overlay;
 #[cfg(feature = "ui-harness")]
@@ -89,7 +90,9 @@ use crate::{
         solid_preview::{
             diagram2d::PanelKind,
             facet_map::FacetMap,
-            preview_state::{FrameGeometry, SolidPickState, SolidPreviewState},
+            preview_state::{
+                FacetOwners, FrameGeometry, PickBuffer, SolidPickState, SolidPreviewState,
+            },
         },
         tutorial_events::raise,
     },
@@ -152,8 +155,12 @@ pub(super) fn note_provisional_planes(planes: &[(glam::Vec3, f32)]) {
 /// A tier-list selection change is about to replan the committed design: the
 /// provisional slice (if any) cannot outlive it.
 pub(super) fn drop_provisional_for_selection(ui: &MainWindow) {
+    meet_pick::leave_for_selection(ui);
     slice::drop_for_selection(ui);
 }
+
+/// Pushes the Meet Point row and the Pick Meet pill's availability for the selected tier.
+pub(super) use meet_pick::publish_row as publish_meet_pick_row;
 
 /// The shared handles every manipulation callback needs, cloned into each closure and
 /// stored once in [`CTX`] for [`on_frame_landed`] (which only receives the window).
@@ -164,6 +171,10 @@ struct Shared {
     preview_state: Arc<SolidPreviewState>,
     solid_last_solved: SolidLastSolved,
     geometry: Arc<Mutex<Option<FrameGeometry>>>,
+    /// The last frame's pick buffer, which pick mode reads to see which corners are hidden.
+    pick: Arc<Mutex<Option<PickBuffer>>>,
+    /// The last frame's facet-id-to-tier tables.
+    facet_owners: Arc<Mutex<FacetOwners>>,
 }
 
 /// What the handles are currently drawn on: the selected tier, the facet whose
@@ -211,6 +222,8 @@ struct HandleSession {
     /// The Diagram panel the pointer last entered that offered handles; the handles sit on
     /// it while it keeps offering them (see `diagram::follow_pointer`).
     diagram_panel: Option<PanelKind>,
+    /// Pick mode and the corners it offers.
+    pick: meet_pick::PickSession,
 }
 
 impl HandleSession {
@@ -224,6 +237,7 @@ impl HandleSession {
             drag: None,
             slice: slice::SliceState::new(),
             diagram_panel: None,
+            pick: meet_pick::PickSession::new(),
         }
     }
 }
@@ -299,11 +313,14 @@ pub(super) fn setup_manipulate_callbacks(
         preview_state: Arc::clone(preview_state),
         solid_last_solved: Arc::clone(solid_last_solved),
         geometry: Arc::clone(&solid_pick_state.geometry),
+        pick: Arc::clone(&solid_pick_state.pick),
+        facet_owners: Arc::clone(&solid_pick_state.facet_owners),
     };
     CTX.with(|cell| *cell.borrow_mut() = Some(ctx.clone()));
     wire_pointer_callbacks(ui, &ctx);
     wire_drag_callbacks(ui, &ctx);
     wire_slice_callbacks(ui, &ctx);
+    meet_pick::setup(ui, &ctx);
 }
 
 /// The Slice tool: mode toggle, the line gesture, and the provisional tier's buttons.
@@ -313,6 +330,10 @@ fn wire_slice_callbacks(ui: &MainWindow, ctx: &Shared) {
     let toggle_ctx = ctx.clone();
     model.on_slice_toggled(move || {
         if let Some(ui) = ui_weak.upgrade() {
+            // The two tools exclude each other: switching Slice on ends pick mode.
+            if ui.global::<ManipulateModel>().get_slice_mode() {
+                meet_pick::leave(&ui, &toggle_ctx, meet_pick::Exit::Slice);
+            }
             slice::toggled(&ui, &toggle_ctx);
         }
     });
@@ -480,4 +501,6 @@ pub(super) fn on_frame_landed(ui: &MainWindow, generation: u64) {
     } else {
         handles::refresh_handles(ui, &ctx);
     }
+    // After the handles, so the pick-mode hint is the last word on the hint line.
+    meet_pick::refresh(ui, &ctx);
 }

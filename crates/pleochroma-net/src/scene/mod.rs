@@ -185,6 +185,14 @@ pub struct SceneState {
     /// `pleochroma::optics::raytracer::MAX_CAMERA_PAN`.
     #[serde(default)]
     pub camera_pan: [f32; 2],
+    /// The stone's pose on the tray in degrees: tilt, turn and spin
+    /// (`pleochroma::render_setup::StonePose`). `[0.0, 0.0, 0.0]` is the stone as designed,
+    /// bit-identical to a build without the field. Appended last for positional postcard
+    /// decoding (twelve bytes, always written on the wire); `#[serde(default)]`, and left out of
+    /// human-readable output at identity: an old JSON scene or job reads as identity. A worker
+    /// refuses a non-finite component and clamps the rest into the pose ranges.
+    #[serde(default)]
+    pub stone_pose: [f32; 3],
 }
 
 /// The default head-shadow radius (`16.0` degrees), the serde default of

@@ -3,8 +3,8 @@
 
 use super::edit_type::{Edit, EditError};
 use crate::design::{
-    ConstraintTier, Design, ScheduleMeta, TierFrosting, TierId, TierRelation, TierSurface,
-    TierTarget,
+    ConstraintTier, Design, ScheduleMeta, TierFrosting, TierId, TierMeetPick, TierRelation,
+    TierSurface, TierTarget,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -42,6 +42,8 @@ pub struct ScheduleState {
     pub tier_frosting: BTreeMap<TierId, TierFrosting>,
     /// Surface finish by tier id ([`Design::tier_surfaces`]).
     pub tier_surfaces: BTreeMap<TierId, TierSurface>,
+    /// Picked corners by the picking tier's id ([`Design::tier_meet_picks`]).
+    pub tier_meet_picks: BTreeMap<TierId, TierMeetPick>,
 }
 
 impl ScheduleState {
@@ -59,6 +61,7 @@ impl ScheduleState {
             tier_relations: design.tier_relations.clone(),
             tier_frosting: design.tier_frosting.clone(),
             tier_surfaces: design.tier_surfaces.clone(),
+            tier_meet_picks: design.tier_meet_picks.clone(),
         }
     }
 }
@@ -108,6 +111,7 @@ impl Design {
             .keys()
             .chain(state.tier_frosting.keys())
             .chain(state.tier_surfaces.keys())
+            .chain(state.tier_meet_picks.keys())
             .any(|id| !ids.contains(id))
         {
             return Err(refuse(new_count));
@@ -138,6 +142,7 @@ impl Design {
         self.tier_relations = state.tier_relations;
         self.tier_frosting = state.tier_frosting;
         self.tier_surfaces = state.tier_surfaces;
+        self.tier_meet_picks = state.tier_meet_picks;
         Ok(Edit::ReplaceSchedule(Box::new(previous)))
     }
 }

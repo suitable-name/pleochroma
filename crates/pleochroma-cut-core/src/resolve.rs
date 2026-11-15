@@ -161,6 +161,8 @@ pub fn resolve_after_edit(
         | Edit::SetSchedule { .. }
         | Edit::RemapIndices { .. }
         | Edit::RestoreIndices { .. }
+        // A pick moves its tier to a different corner, which can move any non-anchor tier.
+        | Edit::SetTierMeetPick { .. }
         | Edit::ReplaceSchedule(_) => design.solve(),
         // All of these replace exactly one tier's fields in place; every other tier
         // keeps its index, so `previous` stays aligned. `SetTierRelation` changes no
@@ -248,6 +250,7 @@ fn batch_needs_full_resolve(
             | Edit::SetSchedule { .. }
             | Edit::RemapIndices { .. }
             | Edit::RestoreIndices { .. }
+            | Edit::SetTierMeetPick { .. }
             | Edit::ReplaceSchedule(_) => needs_full = true,
             Edit::ModifyTier { index, .. }
             | Edit::SetConstraint { index, .. }
@@ -274,6 +277,7 @@ mod tests {
             indices: vec![0.0],
             constraint,
             names: Vec::new(),
+            pick: None,
         }
     }
 

@@ -34,10 +34,15 @@ use serde_json::{Value, json};
 use std::fmt::Write as _;
 
 /// What the text line of a reason this program fixes itself adds: the command that fixes it.
-/// `None` for every other reason (their fix is the editor's only).
+/// `None` for every other reason (their fix is the editor's only), and for a meet-point reason
+/// that only tells of a lost picked corner, which `snap-meets` does not change.
 fn command_line_fix(reason: &Reason) -> Option<&'static str> {
-    (reason.kind == ReasonKind::NoMeetPoint)
-        .then_some("From the command line: pleochroma-cli snap-meets.")
+    (reason.kind == ReasonKind::NoMeetPoint
+        && matches!(
+            reason.fix,
+            Some(pleochroma_editor::verdict::FixAction::SnapToMeets)
+        ))
+    .then_some("From the command line: pleochroma-cli snap-meets.")
 }
 
 /// The verdict of a design with what it was judged on.
@@ -422,8 +427,9 @@ mod tests {
         );
     }
 
-    /// `validate` cannot apply a fix, so a reason with no meet point also names the command
-    /// that can; no other reason does.
+    /// `validate` cannot apply a fix, so a reason with no meet point whose tiers can snap also
+    /// names the command that can; one with nothing to snap (only a lost pick) does not, and no
+    /// other reason does.
     #[test]
     fn a_reason_with_no_meet_point_names_the_command_that_snaps_it() {
         let design = testing::template();
@@ -434,7 +440,7 @@ mod tests {
                    measurement."
                 .to_string(),
             tier: Some(2),
-            fix: None,
+            fix: Some(pleochroma_editor::verdict::FixAction::SnapToMeets),
             confirm: None,
         };
         let line = reason_line(&design, &reason);
@@ -445,6 +451,14 @@ mod tests {
         assert!(
             line.ends_with(" From the command line: pleochroma-cli snap-meets."),
             "{line}"
+        );
+        let unsnappable = Reason {
+            fix: None,
+            ..reason.clone()
+        };
+        assert!(
+            !reason_line(&design, &unsnappable).contains("pleochroma-cli"),
+            "a reason with nothing to snap names no command"
         );
         let gear = Reason {
             kind: ReasonKind::OffGear,

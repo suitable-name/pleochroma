@@ -82,6 +82,7 @@ fn designing(id: &str) -> bool {
             | "view.both"
             | "view.diagram"
             | "view.slice"
+            | "view.pick_meet"
             | "view.snap"
     ) || id.starts_with("view.inspector_")
 }
@@ -173,6 +174,7 @@ mod tests {
             "view.diagram",
             "view.inspector_tier",
             "view.slice",
+            "view.pick_meet",
             "tools.angle_sweep",
             "view.live_render",
         ] {

@@ -19,7 +19,13 @@ export component NewDesignPage inherits Rectangle {
     // Nothing below the page reacts to a tap on its background.
     TouchArea { }
 
+    // The page covers the whole window, so it keeps its content out of the system bars.
     VerticalLayout {
+        padding-top: Shell.inset-top;
+        padding-bottom: Shell.inset-bottom;
+        padding-left: Shell.inset-left;
+        padding-right: Shell.inset-right;
+
         TopBar {
             title: "New Design";
             show-back: true;

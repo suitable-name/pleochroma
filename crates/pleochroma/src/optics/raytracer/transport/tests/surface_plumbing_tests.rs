@@ -149,6 +149,7 @@ fn a_ground_word_is_a_frosted_finish() {
     let scene = SurfaceScene {
         facet_surfaces: &words,
         machine: FacetingMachine::DEFAULT,
+        scratch: crate::optics::raytracer::surface::ScratchBasis::MODEL,
         edge: EdgeAbrasion::NONE,
     };
     for (environment, material) in [(studio, &clear), (hdr, &hazy)] {
@@ -202,6 +203,7 @@ fn nee_through_an_abraded_edge_converges_to_the_phase_sampled_mean() {
     let scene = SurfaceScene {
         facet_surfaces: &[],
         machine: FacetingMachine::DEFAULT,
+        scratch: crate::optics::raytracer::surface::ScratchBasis::MODEL,
         edge: EdgeAbrasion {
             width: 0.08,
             alpha: 0.4,

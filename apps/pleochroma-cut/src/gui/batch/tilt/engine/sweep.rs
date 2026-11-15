@@ -124,6 +124,8 @@ pub(super) fn fetch_tilt_curves_remote(
         camera_roll: 0.0,
         // The curves are metrics from their own cameras; no framing reaches them.
         camera_pan: [0.0, 0.0],
+        // The curves are a property of the stone as designed: never the Live Render pose.
+        stone_pose: [0.0, 0.0, 0.0],
         stone_shadow: false,
         tray_reflection: 0.0,
         // The tilt-curve sweep is lit by a studio preset, never an HDR map.

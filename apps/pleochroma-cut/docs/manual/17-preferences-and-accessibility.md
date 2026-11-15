@@ -178,7 +178,8 @@ switch and does not use it; it keeps the saved choice unchanged.
 ## The Path Cache
 
 The Rendering section also holds the path cache's settings (Chapter 9 explains the cache
-itself).
+itself). The path cache switch, the folder, the disk limit, **Open Folder** and **Clear Path
+Cache** are shown only when the path cache can be used.
 
 **Speed Up Still Views With a Path Cache** (off by default) lets the live viewport reuse
 the stone's light paths. Once the stone has stood still for a while, the viewport works
@@ -186,9 +187,8 @@ out the paths of the current view, keeps them in memory only, and shades the sto
 them for the rest of the refinement, so the picture cleans up sooner. Moving the stone, or
 changing the design, the material or the size, drops the cache at once. It is never written
 to disk, and it applies to the Path-Traced renderer. It combines with Adaptive Sampling in
-the Viewport. While the app renders with exit collection (Chapter 9) the box is greyed out
-and a note says that exit collection does not use the path cache; the saved choice stays as it
-is.
+the Viewport. While the app renders with exit collection (Chapter 9), which does not use the
+path cache, the switch is not shown; the saved choice stays as it is.
 
 **Instant Lighting Changes in the Ray-Traced View** (off by default) re-lights a still
 stone instantly from its stored light paths. Once a Ray-Traced view has stood still and

@@ -18,6 +18,7 @@ use std::collections::BTreeSet;
 
 mod fixes;
 mod meets;
+mod vanish_notice;
 
 // ---------------------------------------------------------------------------------------
 // Fixtures

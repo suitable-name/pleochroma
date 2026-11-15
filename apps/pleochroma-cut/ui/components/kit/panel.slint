@@ -156,6 +156,8 @@ export component KitInlineSlider inherits HorizontalLayout {
     in property <bool> enabled: true;
     in property <string> note;
     callback moved(float);
+    // The slider was let go; `moved` carries the live values.
+    callback released(float);
 
     height: 30px;
     spacing: 10px;
@@ -182,6 +184,7 @@ export component KitInlineSlider inherits HorizontalLayout {
         enabled: root.enabled;
         value <=> root.value;
         moved(v) => { root.moved(v); }
+        released(v) => { root.released(v); }
     }
     if root.enabled || root.note == "": Text {
         width: 44px;

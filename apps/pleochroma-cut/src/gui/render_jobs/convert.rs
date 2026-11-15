@@ -26,6 +26,7 @@ use pleochroma::renderer::adaptive::{NoiseMetric, TARGET_NOISE_PRESETS};
 use pleochroma::{
     color::ColorSpace,
     geometry::{facet_finishes_with_frosted, girdle_facet_finishes},
+    render_setup::StonePose,
     renderer::{
         accel::{PathCacheSettings, RenderAccel},
         accel_beam::BeamSettings,
@@ -96,6 +97,20 @@ pub fn beam_detail(beam: Option<&BeamSettings>) -> String {
 #[must_use]
 pub const fn beam_detail(_beam: Option<&BeamSettings>) -> String {
     String::new()
+}
+
+/// The words a job's detail line adds when the stone is posed, with the leading separator:
+/// ` \u{b7} Stone Pose: tilt 90\u{b0}, turn 30\u{b0}, spin 0\u{b0}`. Empty for the stone as
+/// designed, so the line of an ordinary job is what it was.
+#[must_use]
+pub fn stone_pose_detail(pose: StonePose) -> String {
+    if pose.is_identity() {
+        return String::new();
+    }
+    format!(
+        " \u{b7} Stone Pose: tilt {:.0}\u{b0}, turn {:.0}\u{b0}, spin {:.0}\u{b0}",
+        pose.tilt_deg, pose.turn_deg, pose.spin_deg
+    )
 }
 
 /// The job colour space for `cs`.
@@ -249,6 +264,8 @@ pub fn snapshot_from_scene(
         camera_roll: scene.camera_roll,
         // A job stored before the pan existed reads centred (`SceneState`'s serde default).
         camera_pan: scene.camera_pan,
+        // The Stone Pose of the job's scene (identity for a job written before it existed).
+        stone_pose: StonePose::from_array(scene.stone_pose),
         pitch: scene.pitch,
         distance: scene.distance,
         light_yaw: scene.light_yaw,

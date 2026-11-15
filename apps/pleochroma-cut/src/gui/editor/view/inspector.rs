@@ -655,6 +655,8 @@ pub(in crate::gui::editor) fn push_selected_tier_chips(ui: &MainWindow, state: &
     );
     // The Surface Finish section of the same tier (`SurfaceModel`).
     crate::gui::editor::callbacks::publish_selected_tier(ui, &state.design);
+    // The Meet Point row and the Pick Meet pill of the same tier.
+    crate::gui::editor::manipulate::publish_meet_pick_row(ui, state);
 }
 
 #[cfg(test)]

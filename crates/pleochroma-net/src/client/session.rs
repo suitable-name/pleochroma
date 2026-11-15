@@ -453,6 +453,7 @@ mod tests {
             frosted_planes: Vec::new(),
             effects: crate::scene::effects::SceneEffects::default(),
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         }
     }
 

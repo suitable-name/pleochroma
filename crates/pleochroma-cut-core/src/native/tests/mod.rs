@@ -16,6 +16,7 @@ mod dispersion_model;
 mod field_round_trips;
 mod history_and_notes;
 mod imported_meet_and_drafts;
+mod meet_pick;
 mod pattern;
 mod preform_offset_and_full_design;
 mod printed_proportions_and_version;

@@ -13,6 +13,20 @@ pub(super) fn trace_batch(env: &TraceEnv, batch: &QueuedBatch) {
     let cancel: &AtomicBool = &batch.cancel;
     let started = Instant::now();
 
+    // The items as traced: each one that passes its checks is turned into its posed scene (the
+    // checks read the pose as sent, so a non-finite one fails the item).
+    let mut items: Vec<BatchItem> = batch.request.items.clone();
+    let mut valid = vec![false; items.len()];
+    for (item, passed) in items.iter_mut().zip(&mut valid) {
+        match check_item(item) {
+            Ok(()) => {
+                render_core::pose::apply_pose(&mut item.scene);
+                *passed = true;
+            }
+            Err(reason) => env.fail(request_id, item.item_id, reason),
+        }
+    }
+
     let mut gpu_items: Vec<(usize, &BatchItem)> = Vec::new();
     let mut cpu_items: Vec<(usize, &BatchItem)> = Vec::new();
     // Each item's Stone Shadow and Tray Reflection (by item index), resolved once here, up front,
@@ -24,11 +38,10 @@ pub(super) fn trace_batch(env: &TraceEnv, batch: &QueuedBatch) {
             shadow: None,
             mirror: None,
         };
-        batch.request.items.len()
+        items.len()
     ];
-    for (index, item) in batch.request.items.iter().enumerate() {
-        if let Err(reason) = check_item(item) {
-            env.fail(request_id, item.item_id, reason);
+    for (index, item) in items.iter().enumerate() {
+        if !valid[index] {
             continue;
         }
         match assets::resolve_tray(&item.scene, None, cancel) {
@@ -62,7 +75,7 @@ pub(super) fn trace_batch(env: &TraceEnv, batch: &QueuedBatch) {
     });
     tracing::info!(
         request_id,
-        items = batch.request.items.len(),
+        items = items.len(),
         gpu_items = gpu_items.len(),
         cancelled,
         traced_in = ?started.elapsed(),

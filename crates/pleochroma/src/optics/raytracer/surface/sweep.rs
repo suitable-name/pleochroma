@@ -182,17 +182,71 @@ pub fn scratch_angle_deg(surface: &FacetSurface, machine: &FacetingMachine, u: f
     })
 }
 
-/// The direction of the scratches in the plane of a facet with outward normal `normal`, for a
-/// scratch angle `angle_deg` measured from the girdle-parallel direction about the normal.
+/// The two directions the scratch direction is built from, in the frame the facet normals are
+/// given in.
+///
+/// `up` is the direction the polishing scratches run perpendicular to on a side facet (the
+/// girdle-parallel direction is `normalize(n × up)`), and `side` is the direction they fall back
+/// to on a facet whose normal is parallel to `up`. For a stone drawn as designed they are model
+/// `+Y` and `+X`; a stone turned in the world carries its own rotated `+Y` and `+X`
+/// ([`Self::MODEL`] is the unrotated one).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScratchBasis {
+    /// The up direction of the stone, a unit vector.
+    pub up: Vec3,
+    /// The fallback direction on a facet facing along `up`, a unit vector perpendicular to `up`.
+    pub side: Vec3,
+}
+
+impl ScratchBasis {
+    /// The unrotated stone: `up` is `+Y` and `side` is `+X`.
+    pub const MODEL: Self = Self {
+        up: Vec3::Y,
+        side: Vec3::X,
+    };
+
+    /// The basis with up direction `up` and fallback direction `side`.
+    #[must_use]
+    pub const fn new(up: Vec3, side: Vec3) -> Self {
+        Self { up, side }
+    }
+
+    /// `true` for [`Self::MODEL`] exactly.
+    #[must_use]
+    pub fn is_model(&self) -> bool {
+        *self == Self::MODEL
+    }
+}
+
+impl Default for ScratchBasis {
+    fn default() -> Self {
+        Self::MODEL
+    }
+}
+
+/// The direction of the scratches of the stone as designed: [`scratch_direction_in`] with
+/// [`ScratchBasis::MODEL`], bit for bit.
 ///
 /// The girdle-parallel direction is `normalize(n × Y)` (model `+Y` is up). On a facet that faces
 /// straight up or down, where it vanishes, it falls back to model `+X`.
 #[must_use]
 pub fn scratch_direction(normal: Vec3, angle_deg: f32) -> Vec3 {
-    let girdle = normal.cross(Vec3::Y);
+    scratch_direction_in(normal, angle_deg, ScratchBasis::MODEL)
+}
+
+/// The direction of the scratches in the plane of a facet with outward normal `normal`, for a
+/// scratch angle `angle_deg` measured from the girdle-parallel direction about the normal.
+///
+/// The girdle-parallel direction is `normalize(n × up)` (`basis.up` is up). On a facet that faces
+/// straight up or down, where it vanishes, it falls back to `basis.side`, made perpendicular to the
+/// normal. With [`ScratchBasis::MODEL`] the arithmetic is that of the unrotated stone, operation for
+/// operation.
+#[must_use]
+pub fn scratch_direction_in(normal: Vec3, angle_deg: f32, basis: ScratchBasis) -> Vec3 {
+    let girdle = normal.cross(basis.up);
     let girdle = if girdle.length_squared() < 1e-8 {
-        // The normal is parallel to +Y: use +X, made perpendicular to the normal.
-        (Vec3::X - normal * normal.dot(Vec3::X)).normalize_or_zero()
+        // The normal is parallel to `up`: use `side`, made perpendicular to the normal.
+        (basis.side - normal * normal.dot(basis.side)).normalize_or_zero()
     } else {
         girdle.normalize()
     };

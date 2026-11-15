@@ -14,6 +14,7 @@ mod batch_and_describe;
 mod coalescing;
 mod concave_flat_interplay;
 mod history_steps;
+mod meet_pick;
 mod move_tier;
 mod property_test;
 mod relations;

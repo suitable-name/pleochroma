@@ -133,6 +133,14 @@ pub fn validate_scene(scene: &SceneState) -> Result<(), String> {
             ));
         }
     }
+    // The stone pose: tilt, turn and spin in degrees. A finite value outside its range is
+    // clamped when the pose is applied (`StonePose::from_array`); a non-finite one is refused.
+    if scene.stone_pose.iter().any(|v| !v.is_finite()) {
+        return Err(format!(
+            "stone pose must be finite (got {:?})",
+            scene.stone_pose
+        ));
+    }
     // The tray's head-on reflectance `R0`: a fraction, 0 (matte tray) to 1 (mirror).
     if !(0.0..=1.0).contains(&scene.tray_reflection) {
         return Err(format!(

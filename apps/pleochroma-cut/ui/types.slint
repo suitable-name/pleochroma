@@ -442,3 +442,15 @@ export struct RetargetRowItem {
     risk_label: string,
     risk_color: color,
 }
+
+// One ring of the Meet Pick overlay (`ManipulateModel.pick_rings`), in the viewport's logical
+// coordinates. `kind`: 0 a corner the selected tier can meet, 1 a corner whose tier has no name
+// (drawn, not pickable), 2 the corner this tier is already cut to. `label` is the plate's first
+// line and `sub` its second.
+export struct MeetPickRing {
+    x: length,
+    y: length,
+    kind: int,
+    label: string,
+    sub: string,
+}

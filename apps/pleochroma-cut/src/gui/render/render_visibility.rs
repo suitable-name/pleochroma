@@ -52,14 +52,16 @@ const fn render_is_visible(
             || (render_view_tab == 1 && EditViewMode::from_raw(solid_view_mode).is_traced()))
 }
 
-/// Reads the current signals off `ui` and writes the result into `render_ctx.tab_visible`.
-/// Every writer calls this, so the formula lives in one place.
+/// Reads the current signals off `ui` and writes the result into `render_ctx.tab_visible`, and
+/// the shown sub-tab into `render_ctx.live_tab_shown`. Every writer calls this, so the formula
+/// lives in one place.
 ///
 /// `pub(in crate::gui)`: `gui::main_window`'s `on_live_view_mode_changed` and
 /// `SolidPreviewModel.on_view_mode_changed` handlers call it too.
 ///
-/// Also clears `RenderContext::camera_drag_held`: a tab, sub-tab or view-mode switch
-/// mid-drag must never leave the preview gate closed.
+/// Also clears `RenderContext::camera_drag_held` and `RenderContext::pose_drag_held`: a tab,
+/// sub-tab or view-mode switch mid-drag must never leave the preview gate closed or the stone
+/// shadow paused.
 pub(in crate::gui) fn recompute_tab_visible(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -73,6 +75,9 @@ pub(in crate::gui) fn recompute_tab_visible(
             || ui.global::<CompareModel>().get_optimizer_inline_open(),
     );
     let mut ctx = RenderContext::lock(render_ctx);
+    // The render loop shows the stone posed only on the Live Render tab; the Edit tab's traced
+    // modes share the loop and learn the tab here (`RenderContext::effective_stone_pose`).
+    ctx.live_tab_shown = ui.get_render_view_tab() == 0;
     let engine = if ui.get_render_view_tab() == 1 {
         EditViewMode::from_raw(ui.global::<SolidPreviewModel>().get_view_mode()).engine()
     } else {
@@ -86,6 +91,7 @@ pub(in crate::gui) fn recompute_tab_visible(
     // A view switch mid-drag must never leave the preview gate closed (the release
     // may go to a different, now-hidden viewport); the next press re-arms it.
     ctx.camera_drag_held = false;
+    ctx.pose_drag_held = false;
     drop(ctx);
     // The same for the progress bar, which stays hidden while a drag is held.
     crate::bridge::render_thread::progress::set_camera_drag(ui, false);

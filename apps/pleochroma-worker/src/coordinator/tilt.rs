@@ -110,9 +110,12 @@ fn forward<S: Read + Write + TimeoutRead>(
 ) -> Result<(), NetError> {
     let worker_id = handle.info().worker_id;
     let local_id = next_worker_request_id();
+    // The curves belong to the stone as designed: the pose is not sent on.
+    let mut scene = request.scene.clone();
+    crate::render_core::pose::clear_pose(&mut scene);
     let message = ClientMessage::TiltCurvesRequest(Box::new(TiltCurvesRequest {
         request_id: local_id,
-        scene: request.scene.clone(),
+        scene,
     }));
     let mut viewer_gone = false;
     let outcome = {

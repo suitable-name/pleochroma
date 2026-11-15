@@ -5,7 +5,7 @@ import { EnvironmentMapSection } from "../settings_dialog/environment_map_sectio
 import { LightingPresetsSection } from "../settings_dialog/lighting_presets_section.slint";
 import { DesignLightingSection } from "../settings_dialog/design_lighting_section.slint";
 import { PhysicscolorModel } from "../../models/physics_color.slint";
-import { KitCard, KitChip, KitFoldCard, KitIcons, KitInlineSlider, KitRigThumb, KitSection, KitSegmentBar, KitSwitchRow } from "../kit/kit.slint";
+import { KitButton, KitCard, KitChip, KitFoldCard, KitIcons, KitInlineSlider, KitRigThumb, KitSection, KitSegmentBar, KitSlider, KitSwitchRow } from "../kit/kit.slint";
 import { TextLink } from "parts.slint";
 import { DegreeField, LightDome } from "light_dome.slint";
 import { RigChangeButton } from "rig_gallery.slint";
@@ -83,6 +83,55 @@ component BackdropSeg inherits Rectangle {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.picked(); }
+    }
+}
+
+// One angle of the Stone Pose: a name, a slider and a typed degrees box. The slider reports every
+// step through `moved` (the stone follows while it is dragged) and the let-go through `released`;
+// the box applies on Enter or when it is left (`entered`).
+component PoseAngleRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in-out property <float> value;
+    in property <float> maximum: 360.0;
+    callback moved(float);
+    callback released(float);
+    callback entered(float);
+
+    height: 32px;
+    spacing: 8px;
+    Text {
+        width: 60px;
+        text: root.label;
+        font-size: 12px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        KitSlider {
+            label: root.label + " of the Stone";
+            hint: root.hint;
+            minimum: 0.0;
+            maximum: root.maximum;
+            step: 1.0;
+            value <=> root.value;
+            moved(v) => { root.moved(v); }
+            released(v) => { root.released(v); }
+        }
+    }
+    DegreeField {
+        min-width: 76px;
+        max-width: 90px;
+        field_label: root.label + " in Degrees";
+        hint: root.hint;
+        value: root.value;
+        minimum: 0.0;
+        maximum: root.maximum;
+        wraps: root.maximum > 180.0;
+        applied(v) => { root.entered(v); }
     }
 }
 
@@ -384,6 +433,98 @@ export component LightingTab inherits VerticalLayout {
                 moved(val) => { SettingsModel.tray_reflection_changed(Math.round(val)); }
             }
             Tooltip { text: @markdown("How mirror-like the surface under the stone is: its reflectance straight on. About 4 % looks like black acrylic or glass, 100 % is a mirror; glancing views reflect more."); }
+        }
+
+        // Stone Pose: the stone stands on the tray at an angle other than the one it was designed
+        // at, in the Live Render view and the exports. Tilt 0 is the stone as designed. Rust
+        // clamps the angles and applies the pose (`gui::render::stone_pose`).
+        VerticalLayout {
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: "STONE POSE";
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.7px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text;
+                }
+                KitButton {
+                    text: "Reset";
+                    kind: 2;
+                    h: 26px;
+                    hint: "Stand the stone as designed: tilt, turn and spin back to 0.";
+                    clicked => { SettingsModel.stone_pose_reset(); }
+                }
+            }
+            PoseAngleRow {
+                label: "Tilt";
+                hint: "Tilt: how far the stone leans from lying table up, from 0 to 180 degrees.\n90 stands the table upright, 180 lays the stone on its table. Dragging in\nthe viewport with Alt, or Ctrl and Shift, held tilts it too.";
+                maximum: 180.0;
+                value <=> SettingsModel.stone_tilt_deg;
+                moved(v) => {
+                    SettingsModel.stone_pose_changed(v, SettingsModel.stone_turn_deg, SettingsModel.stone_spin_deg, true);
+                }
+                released(v) => {
+                    SettingsModel.stone_pose_changed(v, SettingsModel.stone_turn_deg, SettingsModel.stone_spin_deg, false);
+                }
+                entered(v) => {
+                    SettingsModel.stone_pose_changed(v, SettingsModel.stone_turn_deg, SettingsModel.stone_spin_deg, false);
+                }
+            }
+            PoseAngleRow {
+                label: "Turn";
+                hint: "Turn: the direction the tilted stone leans towards, as an angle around\nthe vertical (0 to 360 degrees). Dragging sideways in the viewport with\nAlt, or Ctrl and Shift, held turns it too.";
+                value <=> SettingsModel.stone_turn_deg;
+                moved(v) => {
+                    SettingsModel.stone_pose_changed(SettingsModel.stone_tilt_deg, v, SettingsModel.stone_spin_deg, true);
+                }
+                released(v) => {
+                    SettingsModel.stone_pose_changed(SettingsModel.stone_tilt_deg, v, SettingsModel.stone_spin_deg, false);
+                }
+                entered(v) => {
+                    SettingsModel.stone_pose_changed(SettingsModel.stone_tilt_deg, v, SettingsModel.stone_spin_deg, false);
+                }
+            }
+            PoseAngleRow {
+                label: "Spin";
+                hint: "Spin: turns the stone about its own table normal before it is tilted (0 to\n360 degrees). It decides which side of an oval, pear or emerald cut ends up\non the tray.";
+                value <=> SettingsModel.stone_spin_deg;
+                moved(v) => {
+                    SettingsModel.stone_pose_changed(SettingsModel.stone_tilt_deg, SettingsModel.stone_turn_deg, v, true);
+                }
+                released(v) => {
+                    SettingsModel.stone_pose_changed(SettingsModel.stone_tilt_deg, SettingsModel.stone_turn_deg, v, false);
+                }
+                entered(v) => {
+                    SettingsModel.stone_pose_changed(SettingsModel.stone_tilt_deg, SettingsModel.stone_turn_deg, v, false);
+                }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                KitButton {
+                    text: "Face the Camera";
+                    h: 28px;
+                    hint: "Turn the table to the camera: the stone tilts and turns to face the eye. The spin stays.";
+                    clicked => { SettingsModel.stone_face_camera(); }
+                }
+                KitButton {
+                    text: "Product Shot";
+                    h: 28px;
+                    hint: "One click for a product picture: the camera drops to 15 degrees, the stone faces it, and the view is framed with room for the mirror image under the stone. Lighting stays as it is; turn the Tray Reflection on for the mirror.";
+                    clicked => { SettingsModel.stone_product_shot(root.shadow_enabled); }
+                }
+            }
+            Text {
+                text: "The stone rests on the tray at its lowest point; the shadow and the reflection follow. Tilt views, metrics and the Edit view show the stone as designed.";
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
         }
 
         // HDR environment map: loads a Radiance .hdr equirectangular panorama as the render's

@@ -25,7 +25,7 @@ export component ExportSheet inherits Rectangle {
     property <bool> compact: Shell.window-class == 0;
     property <length> card-width: root.compact ? root.width : min(root.width - 2 * Theme.space-xl, 440px);
     // The panel is as tall as its content, at most the window minus a margin.
-    property <length> card-height: min(content.preferred-height + Theme.space-lg, root.height - (root.compact ? Shell.inset-top + Theme.space-xl : 2 * Theme.space-xl));
+    property <length> card-height: min(content.preferred-height + Theme.space-lg, root.height - (root.compact ? Theme.space-xl : 2 * Theme.space-xl));
 
     accessible-role: AccessibleRole.groupbox;
     accessible-label: "Export Picture";
@@ -64,7 +64,7 @@ export component ExportSheet inherits Rectangle {
                 padding-left: Theme.space-lg;
                 padding-right: Theme.space-lg;
                 padding-top: Theme.space-sm;
-                padding-bottom: root.compact ? Theme.space-lg + Shell.inset-bottom : Theme.space-lg;
+                padding-bottom: Theme.space-lg;
                 spacing: Theme.space-sm;
 
                 HorizontalLayout {

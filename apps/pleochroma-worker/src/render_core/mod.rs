@@ -64,6 +64,7 @@ pub(crate) mod hybrid;
 pub(crate) mod live;
 #[cfg(feature = "adaptive-sampling")]
 pub(crate) mod live_cache;
+pub(crate) mod pose;
 pub(crate) mod whitted;
 
 /// The stone `scene` describes: its planes with its concave tools subtracted.
@@ -743,6 +744,7 @@ mod tests {
             frosted_planes: Vec::new(),
             effects: pleochroma_net::scene::effects::SceneEffects::default(),
             camera_pan: [0.0, 0.0],
+            stone_pose: [0.0, 0.0, 0.0],
         }
     }
 

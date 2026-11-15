@@ -330,6 +330,7 @@ impl OwnedScene {
             facet_surfaces: &self.effects.surfaces,
             machine: self.effects.spec.machine.to_machine(),
             edge: self.effects.spec.edge.to_abrasion(),
+            scratch: pleochroma::optics::raytracer::surface::ScratchBasis::MODEL,
         }
     }
 }

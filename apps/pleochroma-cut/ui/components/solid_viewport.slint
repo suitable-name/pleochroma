@@ -16,9 +16,12 @@ import { SolidViewportLayers } from "solid_viewport/layers.slint";
 import { ManipulateModel } from "../models/manipulate.slint";
 import { ManipulateOverlay, SliceLineOverlay } from "solid_viewport/manipulate_overlay.slint";
 import { ManipulateHintBar } from "solid_viewport/hint_bar.slint";
+// The rings of Meet Pick mode (`ManipulateModel.pick_rings`); presentational like the handles.
+import { MeetPickOverlay } from "solid_viewport/meet_pick_overlay.slint";
 // The figures card (against the Baseline) and the banner for a problem with the solid.
 import { EditFigures } from "solid_viewport/edit_figures.slint";
 import { EditProblemBanner, ProblemBannerState } from "solid_viewport/problem_banner.slint";
+import { VanishNotice, VanishNoticeState } from "solid_viewport/vanish_notice.slint";
 // The crystal axis drawn over the stone, with its drag handle(s) -- see `CrystalAxisModel`
 // (`models/crystal_axis.slint`) and `gui::editor::manipulate::crystal_axis_overlay`.
 import { CrystalAxisModel } from "../models/crystal_axis.slint";
@@ -249,6 +252,12 @@ export component SolidViewportView inherits Rectangle {
                     CrystalAxisModel.drag_cancel();
                     return accept;
                 }
+                // Pick mode ends before any Slice rung; nothing changes.
+                if (ManipulateModel.pick_mode) {
+                    ManipulateModel.pick_mode = false;
+                    ManipulateModel.pick_toggled();
+                    return accept;
+                }
                 // Slice tool, innermost first: a line being drawn is dropped; then
                 // a provisional tier is discarded; then Slice mode itself is left.
                 if (root.slice_dragging) {
@@ -272,6 +281,20 @@ export component SolidViewportView inherits Rectangle {
                     return accept;
                 }
                 EditorModel.selected_tier_index = -1;
+                return accept;
+            } else if ManipulateModel.pick_mode && event.text == Key.Return {
+                // Enter picks the lit ring.
+                ManipulateModel.pick_accept();
+                return accept;
+            } else if ManipulateModel.pick_mode && (event.text == Key.RightArrow || event.text == Key.DownArrow) {
+                ManipulateModel.pick_step(1);
+                return accept;
+            } else if ManipulateModel.pick_mode && (event.text == Key.LeftArrow || event.text == Key.UpArrow) {
+                ManipulateModel.pick_step(-1);
+                return accept;
+            } else if (event.text == "m" || event.text == "M") && !ManipulateModel.dragging && !root.handle_dragging && !root.slice_dragging && !event.modifiers.control && !event.modifiers.meta && SolidPreviewModel.view_mode != 3 && (ManipulateModel.pick_mode || ManipulateModel.pick_available) {
+                ManipulateModel.pick_mode = !ManipulateModel.pick_mode;
+                ManipulateModel.pick_toggled();
                 return accept;
             } else if event.text == Key.Return && ManipulateModel.provisional_active {
                 // Enter keeps the provisional slice tier (one undo step).
@@ -324,6 +347,9 @@ export component SolidViewportView inherits Rectangle {
                     CrystalAxisModel.drag_move(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
                 } else if (root.slice_dragging) {
                     ManipulateModel.slice_move(drag_area.mouse-x, drag_area.mouse-y);
+                } else if (!root.is_dragging && ManipulateModel.pick_mode && SolidPreviewModel.view_mode != 3) {
+                    // Pick mode: the pointer lights the ring under it; nothing else hovers.
+                    ManipulateModel.pick_hover(drag_area.mouse-x, drag_area.mouse-y);
                 } else if (!root.is_dragging) {
                     // In the Diagram view this also moves the handles onto the panel the
                     // pointer entered.
@@ -352,7 +378,7 @@ export component SolidViewportView inherits Rectangle {
                 root.swallow_click = false;
                 // The crystal axis's own handles come first: they sit on the stone, over
                 // the facet handles' fan.
-                if (CrystalAxisModel.overlay_visible && !ManipulateModel.slice_mode) {
+                if (CrystalAxisModel.overlay_visible && !ManipulateModel.slice_mode && !ManipulateModel.pick_mode) {
                     let axis_hit = CrystalAxisModel.hit_test(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
                     if (axis_hit >= 0) {
                         CrystalAxisModel.drag_begin(axis_hit, root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
@@ -360,7 +386,7 @@ export component SolidViewportView inherits Rectangle {
                         root.axis_dragging = CrystalAxisModel.dragging;
                     }
                 }
-                if (ManipulateModel.handles_visible && !root.axis_dragging) {
+                if (ManipulateModel.handles_visible && !root.axis_dragging && !ManipulateModel.pick_mode) {
                     let hit = ManipulateModel.handle_hit_test(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
                     if (hit >= 0) {
                         ManipulateModel.drag_begin(hit, root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
@@ -371,7 +397,7 @@ export component SolidViewportView inherits Rectangle {
                 }
                 // Slice mode: a press that did not grab a handle (the provisional
                 // tier's handles stay grabbable) draws a line instead of orbiting.
-                if (!root.handle_dragging && !root.axis_dragging && SolidPreviewModel.view_mode != 3 && ManipulateModel.slice_mode) {
+                if (!root.handle_dragging && !root.axis_dragging && SolidPreviewModel.view_mode != 3 && ManipulateModel.slice_mode && !ManipulateModel.pick_mode) {
                     ManipulateModel.slice_begin(drag_area.mouse-x, drag_area.mouse-y);
                     root.slice_dragging = true;
                 }
@@ -444,10 +470,18 @@ export component SolidViewportView inherits Rectangle {
                     }
                 }
                 if (root.is_dragging) {
+                    // A left release that moved under 4 px in pick mode is a click on a ring (a
+                    // Ctrl-pan never is). Decided before the flags clear.
+                    let pick_clicked = event.kind == PointerEventKind.up && ManipulateModel.pick_mode && !root.is_pan_drag && root.drag_distance < 4 && SolidPreviewModel.view_mode != 3;
                     root.is_dragging = false;
                     root.is_pan_drag = false;
                     root.middle_pan = false;
                     ViewportModel.camera_drag_end();
+                    if (pick_clicked) {
+                        // The `clicked` that follows must not also select the facet under the pointer.
+                        root.swallow_click = true;
+                        ManipulateModel.pick_click(drag_area.mouse-x, drag_area.mouse-y);
+                    }
                 }
             }
         }
@@ -518,7 +552,7 @@ export component SolidViewportView inherits Rectangle {
                 if (root.drag_distance < 3 && !root.swallow_click) {
                     SolidPreviewModel.diagram_facet_click(root.diagram_unzoomed_x(drag_area.mouse-x), root.diagram_unzoomed_y(drag_area.mouse-y));
                 }
-            } else if (root.drag_distance < 3 && !root.swallow_click) {
+            } else if (root.drag_distance < 3 && !root.swallow_click && !ManipulateModel.pick_mode) {
                 // An orbit drag ends in a `clicked` too -- only forward it as a real
                 // pick when the pointer barely moved between down and up, so
                 // rotating the stone never also re-selects whatever facet ends up
@@ -596,15 +630,27 @@ export component SolidViewportView inherits Rectangle {
     // The Slice tool's rubber band while a line is being drawn.
     if ManipulateModel.slice_line_visible && SolidPreviewModel.view_mode != 3: SliceLineOverlay { }
 
-    // The stack under the toolbar rows, top to bottom: the problem banner (when the solid is blocked),
-    // the hint line, then the figures card. Each takes room only while it shows, so nothing overlaps.
-    property <bool> hint_on: ManipulateModel.hint_text != "" || ManipulateModel.provisional_active;
-    property <length> banner_room: ProblemBannerState.shown ? ProblemBannerState.banner_height : 0px;
+    // The corners Pick mode offers, as rings with a plate on the lit one. Pointer input is
+    // never handled here: `drag_area` above stays the only TouchArea.
+    if ManipulateModel.pick_rings.length > 0 && SolidPreviewModel.view_mode != 3: MeetPickOverlay { }
+
+    // The stack under the toolbar rows, top to bottom: the problem banner (when the solid is blocked) or
+    // else the vanished-facet notice, the hint line, then the figures card. Each takes room only while it
+    // shows, so nothing overlaps.
+    property <bool> hint_on: ManipulateModel.hint_text != "" || ManipulateModel.provisional_active || ManipulateModel.pick_mode;
+    property <length> banner_room: ProblemBannerState.shown ? ProblemBannerState.banner_height : (VanishNoticeState.shown ? VanishNoticeState.banner_height : 0px);
     // The hint line is one or two lines (24 or 38 px) and 8 px of gap; the room is the larger.
     property <length> hint_room: root.hint_on ? 46px : 0px;
 
     // One banner, in words, for a check that blocks the solid; centred under the toolbar rows.
     if ProblemBannerState.shown: EditProblemBanner {
+        room: root.width - 24px;
+        x: (root.width - self.width) / 2;
+        y: toolbar.top_height + 8px;
+    }
+
+    // The notice that the last edit cut facets away, in the problem banner's slot (never both).
+    if VanishNoticeState.shown: VanishNotice {
         room: root.width - 24px;
         x: (root.width - self.width) / 2;
         y: toolbar.top_height + 8px;

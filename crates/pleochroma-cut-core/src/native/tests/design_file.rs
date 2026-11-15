@@ -11,7 +11,9 @@ use crate::{
     preform::PreformSpec,
 };
 use pleochroma::geometry::stone_metrics::ExternalProportions;
-use pleochroma_formats::native::design::{CONCAVE_FRAME_V0, DESIGN_VERSION_PLANES, detect_kind};
+use pleochroma_formats::native::design::{
+    CONCAVE_FRAME_V0, DESIGN_VERSION_MEET_PICKS, DESIGN_VERSION_PLANES, detect_kind,
+};
 
 fn proportions() -> ExternalProportions {
     ExternalProportions {
@@ -264,12 +266,12 @@ fn a_newer_major_version_is_a_typed_error() {
     let text = design_to_string(&design, None, &DesignExtras::default()).expect("serializes");
     let newer = text.replacen(
         "version = 1",
-        &format!("version = {}", DESIGN_VERSION_PLANES + 1),
+        &format!("version = {}", DESIGN_VERSION_MEET_PICKS + 1),
         1,
     );
     match design_from_str(&newer) {
         Err(DesignLoadError::File(DesignFileError::UnsupportedVersion { found, .. })) => {
-            assert_eq!(found, i64::from(DESIGN_VERSION_PLANES + 1));
+            assert_eq!(found, i64::from(DESIGN_VERSION_MEET_PICKS + 1));
         }
         other => panic!("expected UnsupportedVersion, got {other:?}"),
     }

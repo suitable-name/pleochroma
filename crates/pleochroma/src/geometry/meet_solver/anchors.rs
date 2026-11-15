@@ -159,24 +159,28 @@ mod tests {
                 indices: vec![4.0, 12.0],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["P1".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -90.0,
                 indices: vec![4.0, 12.0],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["G1".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 44.92,
                 indices: vec![4.0, 12.0],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["A".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 0.0,
                 indices: vec![],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["Table".to_string()],
+                pick: None,
             },
         ];
 
@@ -224,18 +228,21 @@ mod tests {
                 indices: vec![1.0],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["P1".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -90.0,
                 indices: vec![1.0],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["G1".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 38.42,
                 indices: vec![1.0],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["A".to_string()],
+                pick: None,
             },
         ];
 
@@ -315,18 +322,21 @@ mod tests {
                 indices: vec![],
                 constraint: MeetConstraint::MeetExisting,
                 names: vec!["Table".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -90.0,
                 indices: vec![0.0],
                 constraint: MeetConstraint::ScaleReference(0.75), // narrower girdle row (W)
                 names: vec!["G1".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: -90.0,
                 indices: vec![4.0],
                 constraint: MeetConstraint::ScaleReference(1.20), // wider girdle row (L)
                 names: vec!["G2".to_string()],
+                pick: None,
             },
         ];
 
@@ -364,12 +374,14 @@ mod tests {
                 indices: vec![1.0],
                 constraint: MeetConstraint::ScaleReference(0.789),
                 names: vec!["G1".to_string()],
+                pick: None,
             },
             MeetTierInput {
                 angle_deg: 40.0,
                 indices: vec![1.0],
                 constraint: MeetConstraint::ScaleReference(0.709),
                 names: vec!["C1".to_string()],
+                pick: None,
             },
         ];
 

@@ -53,6 +53,30 @@
 //! compound `"1-2-G1"` vertex specs, connective prose, case and side-prefix
 //! mismatches).
 //!
+//! # Picked corners
+//!
+//! A [`MeetTierInput::pick`] names the corner a tier is cut to as three facet planes
+//! ([`MeetPick`]); the corner is the point where those planes meet. It decides between
+//! corners that the shallowest-level rule cannot tell apart. A pick is usable when the
+//! tier is not an anchor, its three planes belong to other tiers of the slice at
+//! existing index positions, and their normals are independent
+//! (`|n1 . (n2 x n3)| >= PICK_MIN_DET`). An unusable pick leaves the tier solved exactly
+//! as if it had none.
+//!
+//! * **Phase 1**: the tier waits (like a named tier) until the three picked tiers have
+//!   settled, then takes the mast of its facets' deepest plane through the corner:
+//!   `max_j n_j . v` over its own instances, the only mast at which the corner survives
+//!   the tier's own facets. The tier is settled as [`SolveStrategy::DependencyOrder`] with
+//!   no vertex-level pick, so the repair search of [`solve_meet_points_verified`] never
+//!   moves it. When that value is not finite, not positive or above the domination limit,
+//!   the tier falls back to the named or rank-1 rule.
+//! * **Phase 3**: every sweep recomputes the corner from the current masts and sets the
+//!   tier's mast from it, so the pick follows its facets.
+//!
+//! The solver does not test whether the corner lies on the stone: a meet point is often
+//! cut away again by later tiers, and only a caller that knows the cutting order can
+//! tell. The pick is purely algebraic.
+//!
 //! All geometry runs in `f64` on a deterministic candidate-vertex primitive (every
 //! well-conditioned plane triple, solved directly, filtered by feasibility) -- no
 //! convex-hull library, no hashed iteration, byte-identical results run to run.
@@ -446,7 +470,39 @@ pub struct MeetTierInput {
     /// `["c", "d"]` for a tier folded from more than one named group). Used only
     /// to resolve [`MeetConstraint::MeetNamed`]'s references back to tier indices.
     pub names: Vec<String>,
+    /// The corner this tier is cut to, for a [`MeetConstraint::MeetNamed`] or
+    /// [`MeetConstraint::MeetExisting`] tier. `None` solves by the constraint alone;
+    /// a pick that cannot be used also solves as if it were `None` (the tier's
+    /// [`SolvedTier::detail`] says why).
+    pub pick: Option<MeetPick>,
 }
+
+/// One facet plane of the arrangement: a tier of the input slice and one of its
+/// index-wheel positions.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeetPickPlane {
+    /// Position of the tier in the `tiers` slice handed to the solver.
+    pub tier: usize,
+    /// The index-wheel position of the facet. Ignored for a tier without indices
+    /// (table, culet).
+    pub index: f64,
+}
+
+/// The corner a tier is cut to: the point where three facet planes meet.
+///
+/// The point is recomputed from the planes' current masts on every solve, so it
+/// follows its facets when angles or sizes change.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeetPick {
+    /// The three facet planes that meet at the corner.
+    pub planes: [MeetPickPlane; 3],
+}
+
+/// A picked triple is usable when `|n1 . (n2 x n3)|` is at least this.
+const PICK_MIN_DET: f64 = 5e-3;
+
+/// Two index-wheel positions closer than this (modulo the gear) are the same position.
+const PICK_INDEX_TOL: f64 = 1e-6;
 
 /// How a tier's mast distance is determined.
 ///
@@ -501,6 +557,7 @@ pub fn meet_tier_inputs_from_asc(schedule: &AscSchedule) -> Vec<MeetTierInput> {
                 indices: tier.indices.clone(),
                 constraint,
                 names: tier.names().into_iter().map(str::to_string).collect(),
+                pick: None,
             }
         })
         .collect()
