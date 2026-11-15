@@ -1,12 +1,12 @@
 import { Theme } from "../../theme.slint";
 import { KitIcon, KitIcons } from "icons.slint";
-import { PleoGlass } from "../../../../../ui-shared/glass.slint";
+import { PleoGlass } from "../../shared/glass.slint";
 
 // Small kit controls. Every interactive one has a tooltip (`hint`), an accessible label and a
 // keyboard path (Tab, then Space or Enter), and draws from `Theme` so high contrast keeps working.
 // Heights: 28 px for segments, 32 px for buttons and icon buttons.
 
-// A glass panel floating over a picture: the shared `PleoGlass` (`ui-shared/glass.slint`), which
+// A glass panel floating over a picture: the shared `PleoGlass` (`ui/shared/glass.slint`), which
 // reads the same `PleoPalette` colors as `Theme.glass-bg` and `Theme.glass-edge`.
 export component KitGlass inherits PleoGlass { }
 

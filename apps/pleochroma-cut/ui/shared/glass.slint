@@ -1,0 +1,9 @@
+import { PleoPalette } from "palette.slint";
+
+// A glass panel floating over a picture. Shared by the desktop kit (`KitGlass`) and the mobile app.
+export component PleoGlass inherits Rectangle {
+    background: PleoPalette.glass-bg;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: PleoPalette.glass-edge;
+}

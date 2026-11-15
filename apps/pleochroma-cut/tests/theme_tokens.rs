@@ -341,14 +341,13 @@ fn colour_properties(source: &str) -> Vec<(String, String)> {
 }
 
 /// Every colour token of `theme.slint`, by name. `theme.slint` forwards each token from the
-/// shared `PleoPalette` (`ui-shared/palette.slint`), which holds the values: a forwarded token
+/// shared `PleoPalette` (`ui/shared/palette.slint`), which holds the values: a forwarded token
 /// is read from there. A token that is not a `root.high-contrast ? <hc> : <normal>` pair must be
 /// one of [`CONSTANT_TOKENS`].
 fn theme_tokens() -> BTreeMap<String, Token> {
     let palette_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("ui-shared")
+        .join("ui")
+        .join("shared")
         .join("palette.slint");
     let palette_source = fs::read_to_string(&palette_path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", palette_path.display()));
