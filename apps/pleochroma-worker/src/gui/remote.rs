@@ -704,14 +704,16 @@ fn handshake_over(
         ClientError::Incompatible(_) => ConnectFail::Mismatch(known_version.map(str::to_owned)),
         _ => ConnectFail::Rejected,
     })?;
-    // The coordinator checked this already; both sides check, neither trusts the other.
-    let remote = Hello::viewer(
-        welcome.protocol_version,
-        welcome.build_hash,
-        welcome.source_hash,
-    );
-    handshake::verify_compatible(&hello, &remote)
-        .map_err(|_| ConnectFail::Mismatch(known_version.map(str::to_owned)))?;
+    // An administrator needs the same protocol, not the same render build: the coordinator's
+    // `WELCOME` to a Monitor or Admin carries no build identity (`UNKNOWN_BUILD_HASH`, see
+    // `crate::admin::session::serve_connection`), so only the protocol version is compared
+    // here. A build-hash check would refuse every coordinator as "a different build".
+    if welcome.protocol_version != messages::PROTOCOL_VERSION {
+        return Err(ConnectFail::Mismatch(Some(format!(
+            "protocol {}",
+            welcome.protocol_version
+        ))));
+    }
     Ok(tls)
 }
 
@@ -1009,9 +1011,11 @@ mod tests {
             return;
         };
         roles.lock().unwrap().push(hello.role);
+        // Exactly what the real coordinator sends an administrator: no build identity
+        // (`crate::admin::session::serve_connection`).
         let welcome = Welcome::new(
-            handshake::local_build_hash(),
-            handshake::local_source_hash(),
+            handshake::UNKNOWN_BUILD_HASH,
+            handshake::UNKNOWN_BUILD_HASH,
             None,
             true,
             false,
