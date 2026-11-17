@@ -1,0 +1,116 @@
+// The shader-cache card of the Overview page: shown while the coordinator's graphics card builds
+// its shader cache (only a build that compiles fresh), and a few seconds after, saying how it
+// ended. `src/gui/shader_cache.rs` fills `ShaderCardState` from `CoordinatorStatus.shader_cache`;
+// the dismiss button sets `dismissed`, which the Rust side reads back and clears for the next build.
+// Built from the coordinator's own kit through `frame.slint`.
+import { Theme, KitIcon, KitIconButton, KitCard, CIcons, H2, Sub } from "frame.slint";
+
+export global ShaderCardState {
+    /// True while the card is up.
+    in property <bool> visible: false;
+    /// The build still runs (the card is not an ending summary).
+    in property <bool> running: false;
+    /// The build ended before its last step, or had no graphics card renderer: notice tone.
+    in property <bool> problem: false;
+    /// "Building shader cache", "Shader cache ready", …
+    in property <string> title: "Building shader cache";
+    /// The one-time note under the title.
+    in property <string> note;
+    /// "12 of 40", "Starting", "Ready", "Stopped at 12 of 40" or "Not available".
+    in property <string> progress-text: "Starting";
+    /// 0.0 to 1.0.
+    in property <float> fraction: 0;
+    /// The dismiss button was pressed for the current build.
+    in-out property <bool> dismissed: false;
+}
+
+// The card. It takes the room it needs (title row, bar row and the wrapped note).
+export component ShaderCacheCard inherits KitCard {
+    property <color> ink: ShaderCardState.problem ? Theme.accent-amber : Theme.accent-cyan;
+    height: body.preferred-height;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Shader cache: " + ShaderCardState.title + ", " + ShaderCardState.progress-text;
+    accessible-description: ShaderCardState.note;
+    border-color: ShaderCardState.problem ? Theme.accent-amber.with-alpha(0.5) : Theme.border-subtle;
+
+    body := VerticalLayout {
+        padding-left: 16px;
+        padding-right: 12px;
+        padding-top: 12px;
+        padding-bottom: 14px;
+        spacing: 10px;
+        HorizontalLayout {
+            height: 32px;
+            spacing: 12px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 8px;
+                    background: root.ink.with-alpha(0.14);
+                    KitIcon { x: 7px; y: 7px; d: ShaderCardState.problem ? CIcons.alert : CIcons.chip; size: 18px; ink: root.ink; }
+                }
+            }
+            H2 {
+                horizontal-stretch: 1;
+                min-width: 40px;
+                text: ShaderCardState.title;
+                overflow: elide;
+                accessible-role: AccessibleRole.text;
+                accessible-label: ShaderCardState.title;
+            }
+            VerticalLayout {
+                alignment: center;
+                KitIconButton {
+                    d: CIcons.close;
+                    label: "Dismiss shader cache message";
+                    hint: "Hide this card";
+                    size: 28px;
+                    icon_size: 14px;
+                    clicked => { ShaderCardState.dismissed = true; }
+                }
+            }
+        }
+        HorizontalLayout {
+            height: 18px;
+            spacing: 12px;
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                // The progress bar.
+                Rectangle {
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Theme.bg-input;
+                    accessible-role: AccessibleRole.progress-indicator;
+                    accessible-label: "Shader cache progress";
+                    accessible-value: "" + Math.round(max(0.0, min(1.0, ShaderCardState.fraction)) * 100) + " percent";
+                    Rectangle {
+                        x: 0px;
+                        width: parent.width * max(0, min(1, ShaderCardState.fraction));
+                        height: parent.height;
+                        border-radius: 3px;
+                        background: root.ink;
+                    }
+                }
+            }
+            Sub {
+                min-width: 90px;
+                text: ShaderCardState.progress-text;
+                horizontal-alignment: right;
+                overflow: elide;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Shader cache steps: " + ShaderCardState.progress-text;
+            }
+        }
+        Text {
+            text: ShaderCardState.note;
+            font-size: 12px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+            accessible-label: ShaderCardState.note;
+        }
+    }
+}

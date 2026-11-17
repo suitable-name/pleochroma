@@ -24,6 +24,8 @@ use pleochroma::optics::{
 use pleochroma_cut_core::material::{
     ColorMode, LibraryMaterial, crystal_system_name, optical_character_name,
 };
+use pleochroma_editor::material_reference::CustomGemData;
+use pleochroma_formats::native::CustomGemDataTable;
 use pleochroma_vault::{
     db::sqlite::{CustomMaterialParams, Database},
     model::material::CustomMaterialRow,
@@ -149,6 +151,7 @@ pub fn library_material(row: &CustomMaterialRow) -> LibraryMaterial<'_> {
         per_axis_dispersion_json: row.per_axis_dispersion_json.as_deref(),
         inclusion_families_json: row.inclusion_families_json.as_deref(),
         structure_json: row.structure_json.as_deref(),
+        gem_data_json: row.gem_data_json.as_deref(),
     }
 }
 
@@ -231,6 +234,7 @@ pub fn save_gem_material(
             per_axis_dispersion_json: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         },
     )
 }
@@ -274,6 +278,10 @@ pub struct MaterialSaveFields<'a> {
     /// The play-of-color choice as the JSON `structure_spec_to_json` writes; same rules as the
     /// inclusion families.
     pub structure_json: Option<&'a str>,
+    /// The gem data the user entered as the JSON of a [`CustomGemDataTable`]. `None` keeps the
+    /// stored value (a save that does not author gem data must not erase it); blank text clears
+    /// it.
+    pub gem_data_json: Option<&'a str>,
 }
 
 /// The text a save writes for one of the render-physics columns: `new` when it holds text, `None`
@@ -339,7 +347,63 @@ pub fn save_gem_material_fields(
                 .as_ref()
                 .and_then(|row| row.structure_json.as_deref()),
         ),
+        gem_data_json: carried(
+            fields.gem_data_json,
+            stored.as_ref().and_then(|row| row.gem_data_json.as_deref()),
+        ),
     })
+}
+
+/// `text` without surrounding blanks, `None` when nothing is left.
+fn non_blank(text: Option<&String>) -> Option<String> {
+    text.map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
+}
+
+/// The gem data of `table` in the form the Stone tab card and the Material Reference show. A
+/// Mohs figure off the scale and a toughness word nobody knows read as not recorded, as the
+/// file's own checked views do. `None` when no field holds a value.
+#[must_use]
+pub fn custom_gem_data_from_table(table: &CustomGemDataTable) -> Option<CustomGemData> {
+    let rank = LibraryMaterial::toughness_from_rank;
+    let data = CustomGemData {
+        mohs: table.mohs_range(),
+        toughness: table
+            .toughness_ranks()
+            .and_then(|(from, to)| Some((rank(from)?, rank(to)?))),
+        cleavage: non_blank(table.cleavage.as_ref()),
+        fracture: non_blank(table.fracture.as_ref()),
+        care: non_blank(table.care.as_ref()),
+        source: non_blank(table.source.as_ref()),
+    };
+    (data != CustomGemData::default()).then_some(data)
+}
+
+/// The gem data stored as `json` (a [`CustomGemDataTable`]); `None` for text that does not
+/// parse and for a table with no usable value.
+#[must_use]
+pub fn custom_gem_data_from_json(json: &str) -> Option<CustomGemData> {
+    LibraryMaterial::decode_gem_data(json).and_then(|table| custom_gem_data_from_table(&table))
+}
+
+/// The entries of `RenderContext::custom_material_gem_data` from custom-material rows: every row
+/// whose [`CustomMaterialRow::gem_data_json`] holds at least one usable value, paired with its
+/// name.
+///
+/// Like the specific gravity, the gem data is a side channel beside [`GemMaterial`]. It is
+/// rebuilt from the rows on every save, delete and startup load, so it never drifts from the
+/// library.
+#[must_use]
+pub fn custom_material_gem_data_from_rows(
+    rows: &[CustomMaterialRow],
+) -> Vec<(String, CustomGemData)> {
+    rows.iter()
+        .filter_map(|row| {
+            let data = custom_gem_data_from_json(row.gem_data_json.as_deref()?)?;
+            Some((row.name.clone(), data))
+        })
+        .collect()
 }
 
 /// The names of the custom materials in `rows` whose stored color mode is Physics: the value
@@ -504,6 +568,7 @@ mod tests {
             c_axis_second_azimuth_deg: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         };
         let from_row = gem_material_from_row(&row);
         let inferred = GemMaterial::new_custom(
@@ -554,6 +619,7 @@ mod tests {
             c_axis_second_azimuth_deg: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         };
         let material = gem_material_from_row(&row);
         assert_eq!(material.crystal_system, CrystalSystem::Orthorhombic);
@@ -587,6 +653,7 @@ mod tests {
             c_axis_second_azimuth_deg: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         }
     }
 
@@ -711,6 +778,7 @@ mod tests {
             per_axis_dispersion_json: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         };
         save_gem_material_fields(&db, &material, &fields).expect("save");
         let rows = db.get_custom_materials().expect("read");

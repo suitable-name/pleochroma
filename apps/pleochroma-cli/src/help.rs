@@ -17,6 +17,7 @@ takes a design takes several (the shell expands globs as usual): see Several des
 
 Commands:
   info      Name, gear, symmetry, tier list and material of a design.
+  materials  Optics and gem data of the built-in materials: the table, or one material.
   solve     Solve the design, report closure and warnings, optionally save it.
   metrics   Windowing, brilliance, extinction, fire and the proportions of the stone.
   validate  Manufacturability warnings and the overall Good / Check / Problem verdict.
@@ -96,10 +97,56 @@ Prints the design's name, gear, symmetry, preform (shape, size and offset), mate
 tier list (standard code, the tier's own name, block, angle as a positive number, index
 positions, what each tier meets or follows). Does not solve.
 
+Under the Material line the Gem Data of the material follow: hardness, toughness, cleavage,
+parting and fracture on one line, then the specific gravity, the care notes and the sources
+(short citations; values are typical for the species). A field no gemological source gives
+reads \"not recorded\" (toughness: \"not graded\"). With --json, material.gem_data holds every
+field, the figures behind them, and each source with its full citation and its address.
+
   --json       Print JSON instead of text.
   --out FILE   Write the report to FILE instead of printing it.
   --out-dir DIR
                With several designs: write each report to DIR/<name>.txt (.json with --json).
+  --db FILE    A design library, for custom materials.
+";
+
+const MATERIALS: &str = "\
+Usage: pleochroma-cli materials [NAME] [--json | --csv | --markdown TABLE] [--sort COLUMN]
+                                [--desc] [--filter KIND] [--dispersion bg|fc] [--bands]
+                                [--curves FILE.csv] [--out FILE] [--db FILE]
+
+Without NAME: the Material Reference table of every built-in material (and the custom materials
+of --db), in catalogue order: crystal system, optic character, refractive index (n_D),
+birefringence, dispersion, specific gravity, Mohs hardness, toughness and cleavage. A dash
+means the value is not recorded. Values are typical for each species.
+
+With NAME (any letter case; several words need no quotes): the details of that material:
+optics (n_D, principal indices, birefringence, dispersion in both conventions, Abbe number,
+critical angle) with the sources of the curves and the spectrum, its colors as hex per
+direction in daylight and under a 3200 K lamp, its color variants, effects, the gem data and
+the weight against diamond.
+
+  --json       JSON instead of text, with the full citation and the address of every source.
+  --csv        The table as CSV (the table only).
+  --markdown TABLE
+               One of the manual's tables as Markdown (the table only): optics (Appendix C,
+               with the Abbe number), gem-data (Appendix C), built-in (the materials chapter)
+               or sources (every source with its address, and the notes where sources differ).
+  --sort COLUMN
+               Order the table by name, system, optic, ri, birefringence, dispersion, sg,
+               hardness, toughness or cleavage. Missing values come last.
+  --desc       Largest first (hardest, highest index, ...).
+  --filter KIND
+               natural, synthetic, glass, custom (the --db library's own materials) or all.
+  --dispersion bg|fc
+               The dispersion shown: bg (default), n at 430.8 nm minus n at 686.7 nm, the
+               figure gem references print; or fc, n at 486.1 nm minus n at 656.3 nm, the
+               figure the Material Editor takes. Both come from the material's index curve.
+  --bands      With NAME: list the absorption bands of every ray (centre, width, peak).
+  --curves FILE.csv
+               With NAME: write wavelength and the refractive index of every direction
+               (380 to 750 nm, every 5 nm) to FILE.csv.
+  --out FILE   Write the report to FILE instead of printing it.
   --db FILE    A design library, for custom materials.
 ";
 
@@ -118,13 +165,24 @@ warnings. Exit code 2 when the design does not solve or does not close.
 ";
 
 const METRICS: &str = "\
-Usage: pleochroma-cli metrics <design>... [--material NAME | --ri N] [--tilt]
+Usage: pleochroma-cli metrics <design>... [--material NAME | --ri N] [--tilt] [--aset-grid]
                               [--json | --csv] [--lighting NAME] [--out FILE | --out-dir DIR]
                               [--db FILE]
 
-Table-up windowing, brilliance, extinction, fire and scintillation, the proportions of the
-stone and its yield. With --tilt the tilt performance is averaged over four axes and 181
-angles too (about a second and a half).
+Table-up windowing, brilliance, extinction, fire, scintillation, contrast and the zone
+shares, the proportions of the stone and its yield. With --tilt the tilt performance is
+averaged over four axes and 181 angles too (about a second and a half).
+
+Contrast (0 to 100) is Pleochroma's own measure: 100 times the mean difference in Blue share
+between neighbouring spots of the 18 x 18 face-up grid (left-right and up-down pairs of
+spots that are both on the stone). The zone shares are the percentages of the stone's face
+whose light leaves in the red (45-75 deg), green (0-45 deg) or blue (75-90 deg) zone of the
+Contrast view (ASET-style) lighting, or goes dark. Dark is leak (out through the pavilion,
+the windowing rays) plus lost (no exit within the bounce budget, or out sideways); only
+leak corresponds to ASET leakage. The zones and Contrast do not depend on --lighting. With
+--aset-grid the text report also prints the Blue share of every spot, so Contrast can be
+recomputed by hand. ASET is a registered trademark of the Gemological Institute of America,
+Inc. (GIA). Pleochroma is not affiliated with or endorsed by GIA or the American Gem Society.
 
 Without --material or --ri the design's own material is used; a design with none is scored
 with its refractive index as a flat material, and the report says so.
@@ -143,6 +201,7 @@ Two girdle figures, both as a percentage of the width:
   --material NAME   Score in this material.
   --ri N            Score in a material of this refractive index.
   --tilt            Also average the tilt performance.
+  --aset-grid       Also print the 18 x 18 Blue shares Contrast is computed from (text only).
   --json | --csv    Print JSON, or a header line and one row, instead of text.
   --lighting NAME   The light the score is taken under (default grading, the grading tray).
   --out FILE        Write the report to FILE instead of printing it.
@@ -426,14 +485,15 @@ It renders with the app's own engine, so the picture is the one the app would ha
                           same under every lighting). For a job written before the meter or by
                           hand; a job lit by an HDR map keeps its exposure.
   --stone-shadow on|off   Override Stone Shadow. Studio lights with a backdrop only.
-                          Computes a Final quality map before the first sample.
+                          Computes a Final quality map before the first sample. Tilt-video
+                          takes it too.
   --tray-reflection PERCENT
                           Override Tray Reflection: how mirror-like the surface under the
                           stone is, as its reflectance straight on, 0 to 100 (0 is the matte
                           tray). About 4 looks like black acrylic or glass, 100 is a mirror;
                           glancing views reflect more. Studio lights with a backdrop only.
                           Written to the job as format 4 (format 5 with color zones, 6 with
-                          a turned HDR map). Not for tilt-video.
+                          a turned HDR map). Tilt-video takes it too.
   --stone-pose TILT,TURN[,SPIN]
                           Stand the stone on the tray in this pose: TILT 0 to 180 degrees
                           (90 stands the table upright), TURN and SPIN 0 to 360. Written to
@@ -445,6 +505,7 @@ It renders with the app's own engine, so the picture is the one the app would ha
                           on the processor and a note says so.
                           A gpu build keeps the graphics card's compiled shaders in the pleochroma
                           folder of your user cache folder; this only speeds up the next start.
+                          The first GPU render after an install or an update compiles them; the CLI says so.
   --radv-workaround on|off
                           Mesa's RADV driver (AMD, Linux, gpu build) mis-schedules the GPU kernel,
                           so some zoned stones (opal) and stones with oriented inclusions
@@ -518,6 +579,7 @@ Usage: pleochroma-cli tilt-video JOB.job.json [--out-dir FOLDER] [--restart]
                                   [--compute local|remote|both] [--transfer full|final]
                                   [--contribute-local] [--quiet] [--material NAME]
                                   [--color-pattern NAME] [--color-variant KEY] [--highlights whiten|keep-color] [--meter]
+                                  [--stone-shadow on|off] [--tray-reflection PERCENT]
                                   [--raw-out FOLDER] [--sample-offset N]
 @ADAPTIVE_USAGE_TILT@
                                   [--path-cache] [--persist-cache] [--cache-dir FOLDER]
@@ -558,7 +620,14 @@ renders them again.
   --meter                 Read the job's exposure as a correction on top of the lighting's
                           light meter, as the app meters its live view. A job lit by an HDR map
                           keeps its exposure.
-                          Each of these three options makes a different video: give it its own
+  --stone-shadow on|off   Override the job's Stone Shadow in every frame. Studio lights with a
+                          backdrop only. Computes a Final quality map before the first sample.
+  --tray-reflection PERCENT
+                          Override the job's Tray Reflection: how mirror-like the surface under
+                          the stone is, as its reflectance straight on, 0 to 100 (0 is the
+                          matte tray). About 4 looks like black acrylic or glass, 100 is a
+                          mirror. Studio lights with a backdrop only.
+                          Each of these options makes a different video: give it its own
                           --out-dir (the folder of the plain run is refused as another job's).
   --engine path|ray      Replace the job renderer: spectral Path Traced or deterministic Ray Traced.
                           Ray uses the job AA tap count; its tint follows the absorption spectrum.
@@ -567,6 +636,7 @@ renders them again.
                           on the processor and a note says so.
                           A gpu build keeps the graphics card's compiled shaders in the pleochroma
                           folder of your user cache folder; this only speeds up the next start.
+                          The first GPU render after an install or an update compiles them; the CLI says so.
   --radv-workaround on|off
                           Mesa's RADV driver (AMD, Linux, gpu build) mis-schedules the GPU kernel,
                           so some zoned stones (opal) and stones with oriented inclusions
@@ -885,6 +955,7 @@ pub fn text(topic: Topic) -> String {
     let page = match topic {
         Topic::Root => ROOT,
         Topic::Info => INFO,
+        Topic::Materials => MATERIALS,
         Topic::Solve => SOLVE,
         Topic::Metrics => METRICS,
         Topic::Validate => VALIDATE,
@@ -920,7 +991,8 @@ pub fn text(topic: Topic) -> String {
 mod tests {
     use super::*;
 
-    const EVERY_TOPIC: [Topic; 14] = [
+    const EVERY_TOPIC: [Topic; 15] = [
+        Topic::Materials,
         Topic::Render,
         Topic::TiltVideo,
         Topic::ImageCompare,
@@ -950,6 +1022,7 @@ mod tests {
     fn every_command_page_starts_with_its_usage_line() {
         for (topic, word) in [
             (Topic::Info, "info"),
+            (Topic::Materials, "materials"),
             (Topic::Solve, "solve"),
             (Topic::Metrics, "metrics"),
             (Topic::Validate, "validate"),
@@ -977,6 +1050,7 @@ mod tests {
         let page = text(Topic::Root);
         for word in [
             "info",
+            "materials",
             "solve",
             "metrics",
             "validate",
@@ -1271,6 +1345,7 @@ mod tests {
                     "--material",
                     "--ri",
                     "--tilt",
+                    "--aset-grid",
                     "--json",
                     "--csv",
                     "--lighting",
@@ -1308,7 +1383,23 @@ mod tests {
 
     #[test]
     fn the_later_pages_name_the_flags_their_commands_take() {
-        let flags: [(Topic, &[&str]); 6] = [
+        let flags: [(Topic, &[&str]); 7] = [
+            (
+                Topic::Materials,
+                &[
+                    "--json",
+                    "--csv",
+                    "--markdown",
+                    "--sort",
+                    "--desc",
+                    "--filter",
+                    "--dispersion",
+                    "--bands",
+                    "--curves",
+                    "--out",
+                    "--db",
+                ],
+            ),
             (
                 Topic::Retarget,
                 &[

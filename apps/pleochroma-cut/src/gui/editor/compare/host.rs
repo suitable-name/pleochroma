@@ -261,6 +261,19 @@ pub(super) fn handle(surface: Surface) -> Option<SurfaceHandle> {
 /// Remembers the main window (the embedded surface's owner) -- once, at setup.
 pub(super) fn set_main_window(ui: &MainWindow) {
     COMPARE.with(|cell| cell.borrow_mut().ui = Some(ui.as_weak()));
+    // A high-contrast switch draws the open comparison again in the other palette. The sink
+    // is first called while it registers, which is not a switch.
+    let weak = ui.as_weak();
+    let registered = std::cell::Cell::new(false);
+    crate::gui::preferences::register_theme_sink(move |_| {
+        if weak.upgrade().is_none() {
+            return false;
+        }
+        if registered.replace(true) {
+            request_frames(TRACED_DEBOUNCE);
+        }
+        true
+    });
 }
 
 /// The pop-out window, once created.
@@ -592,6 +605,8 @@ pub(super) fn request_frames(traced_delay: Duration) {
     // here again (`mode_changed`), so entering Overlay always issues a request that
     // carries the demand.
     let overlay_wanted = overlay_layout_showing();
+    // The theme at request time (UI thread): the solid worker draws in that palette.
+    let high_contrast = crate::gui::preferences::high_contrast_enabled();
     let status = with_live(|live| {
         let size = live.size_px;
         let renderer = live.renderer;
@@ -608,6 +623,7 @@ pub(super) fn request_frames(traced_delay: Duration) {
                 size,
                 renderer,
                 overlay_wanted,
+                high_contrast,
             });
             if renderer.is_traced() {
                 ready.traced_progress = TracedProgress::Waiting;
@@ -656,6 +672,7 @@ fn submit_traced() {
                 // The overlay always comes from the solid pair; the traced worker
                 // never builds one.
                 overlay_wanted: false,
+                high_contrast: false,
             });
             ready.traced_progress = TracedProgress::Rendering { side: 1 };
         }

@@ -1,7 +1,9 @@
 //! States of the click-through passes for the popups, menus and folds of the UI redesign (round 1).
 //!
 //! The Live Render toolbar's Lighting menu (with a saved lighting and the save row) and its View
-//! menu on a narrow view, the gestures card, the figures card folded, the problem banner; the Edit
+//! menu on a narrow view, the gestures card, the figures card folded, with Contrast and the Zones
+//! (ASET-style) block, in the Simple interface and with its "How the Face-Up Figures Are Measured"
+//! popover open, the problem banner; the Edit
 //! viewport's Show Overlays menu below 900 px; the command bar's Solve chevron, Baseline menu and
 //! the header's Design Actions Menu; the Design Checks chip; the Stone tab's Material Menu and RI
 //! override; the Lighting tab's rig gallery and HDR map row; the Render tab's folding cards.
@@ -29,9 +31,10 @@ use crate::support::{
     smoke::{DenyMatch, DenyRule},
 };
 use pleochroma_cut::{
-    DesignLightingModel, EditorModel, ParametersModel, SettingsModel, ViewportModel,
+    DesignLightingModel, EditorModel, ParametersModel, PreferencesModel, SettingsModel,
+    ViewportModel,
 };
-use slint::{ComponentHandle, Model};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::time::Duration;
 
 /// The pieces of this file: one `overlay:popups-*:<state>` piece per state.
@@ -88,6 +91,25 @@ fn saved_lighting(a: &HarnessApp) {
     let design = a.ui().global::<DesignLightingModel>();
     design.invoke_use_for_design();
     let _ = wait_until(Duration::from_secs(5), || design.get_has_saved());
+    pump(300);
+}
+
+/// The Live Render tab in Path-Traced view (the figures card exists only there) with the figures a
+/// finished render pushes: Contrast, the four zone shares and the line that splits Dark.
+fn measured_figures(a: &HarnessApp) {
+    live_tab(a);
+    settle(a);
+    let viewport = a.ui().global::<ViewportModel>();
+    viewport.set_live_view_mode(1);
+    pump(400);
+    viewport.set_brilliance_pct(62.0);
+    viewport.set_fire_index(0.42);
+    viewport.set_scintillation_pct(61.0);
+    viewport.set_windowing_pct(9.0);
+    viewport.set_extinction_pct(29.0);
+    viewport.set_contrast(27.3);
+    viewport.set_aset_shares(ModelRc::new(VecModel::from(vec![44.0, 19.0, 16.0, 21.0])));
+    viewport.set_aset_split_text("Dark = Leak 9 % + Lost 12 %".into());
     pump(300);
 }
 
@@ -189,6 +211,44 @@ fn live_states() -> Vec<State> {
                     println!("states_popups: the Fold Figures button was not pressed");
                 }
                 pump(250);
+            },
+        },
+        State {
+            // The card with its Contrast row and Zones (ASET-style) block (Advanced interface): the
+            // pass presses the card (Copy the Face-Up Figures), the ? button and Fold Figures.
+            name: "Live Render, figures card with Contrast and zones",
+            base: Base::Design,
+            scope: Some("LiveFigures"),
+            deny: NONE,
+            open: measured_figures,
+        },
+        State {
+            // The ? button opens the popover over the viewport; its link opens the manual.
+            name: "Live Render, figures popover open",
+            base: Base::Design,
+            scope: None,
+            deny: NONE,
+            open: |a| {
+                measured_figures(a);
+                if !press(a, "How these figures are measured", None) {
+                    println!("states_popups: the figures ? button was not pressed");
+                    a.ui().global::<ViewportModel>().set_figures_help_open(true);
+                }
+                pump(300);
+            },
+        },
+        State {
+            // Contrast stays, the zones block goes.
+            name: "Live Render, figures card, Simple interface",
+            base: Base::Design,
+            scope: Some("LiveFigures"),
+            deny: NONE,
+            open: |a| {
+                measured_figures(a);
+                let prefs = a.ui().global::<PreferencesModel>();
+                prefs.set_simple_mode(true);
+                prefs.invoke_simple_mode_changed(true);
+                pump(300);
             },
         },
         State {

@@ -20,7 +20,7 @@ import { LchEditor } from "../material_editor/lch_editor.slint";
 import { RenderColorControl } from "../gem_viewport/render_color_picker.slint";
 import { PreviewBadge } from "../material_chip.slint";
 import { SolidPreviewModel } from "../../models/solid_preview.slint";
-import { KitCard, KitFoldCard, KitIcon, KitIconButton, KitIcons, KitSection, KitSwatch } from "../kit/kit.slint";
+import { KitButton, KitCard, KitFoldCard, KitIcon, KitIconButton, KitIcons, KitSection, KitSwatch } from "../kit/kit.slint";
 import { StoneChip, StoneChipButton, StoneColorTile, StoneMenuItem, StoneSlider, StoneSwitchRow } from "../kit/stone.slint";
 import { InclusionsSection } from "inclusions_section.slint";
 import { StructureSection } from "structure_section.slint";
@@ -41,9 +41,84 @@ component PatternThumb inherits Rectangle {
     Rectangle { border-radius: 8px; border-width: 1px; border-color: Theme.chip-edge; }
 }
 
+// The material facts under the identity chips: SG, Mohs and Toughness as the same chips, one
+// cleavage line (a warning when it is a cutting risk: perfect, good or distinct), and for a
+// custom material with no data one muted line that leads to the Material Editor. A value no source
+// fills is left out, never "Not recorded". Care, fracture and sources live on the details page.
+component GemFacts inherits VerticalLayout {
+    in property <bool> editable: true;
+    spacing: 8px;
+    if EditorModel.gem_sg != "" || EditorModel.gem_mohs != "" || EditorModel.gem_toughness != "": HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        if EditorModel.gem_sg != "": StoneChip {
+            text: "SG " + EditorModel.gem_sg;
+            label: "Specific gravity " + EditorModel.gem_sg;
+            hint: "Specific gravity: the density of the material compared with water. It sets the carat weight.";
+        }
+        if EditorModel.gem_mohs != "": StoneChip {
+            text: "Mohs " + EditorModel.gem_mohs;
+            label: "Mohs hardness " + EditorModel.gem_mohs;
+            hint: "Mohs is an order of scratch hardness, not a measure.";
+        }
+        if EditorModel.gem_toughness != "": StoneChip {
+            text: EditorModel.gem_toughness;
+            label: EditorModel.gem_toughness;
+            hint: "How well the stone resists chipping and breaking.";
+        }
+    }
+    if EditorModel.gem_cleavage != "": HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        accessible-role: AccessibleRole.text;
+        accessible-label: "Cleavage: " + EditorModel.gem_cleavage;
+        if EditorModel.gem_cleavage_warns: VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.warn; size: 13px; ink: Theme.accent-amber; }
+        }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: "Cleavage: " + EditorModel.gem_cleavage;
+            font-size: 11px;
+            color: EditorModel.gem_cleavage_warns ? Theme.accent-amber : Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    if EditorModel.gem_empty: HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+        Text {
+            text: "No gem data yet \u{2014}";
+            font-size: 11px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            width: empty_link.preferred-width;
+            empty_link := Text {
+                text: "add it in the Material Editor";
+                font-size: 11px;
+                color: Theme.accent-cyan;
+                vertical-alignment: center;
+            }
+            TouchArea {
+                enabled: root.editable;
+                mouse-cursor: pointer;
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Edit Material...";
+                accessible-description: "Open the Material Editor to enter this material's hardness, toughness, cleavage, fracture, care and source.";
+                clicked => { ViewportModel.material_editor_open = true; }
+            }
+        }
+    }
+}
+
 // The Parameters dock's Stone tab: everything about the stone itself, in one place. The design
-// is the single source of truth. Top to bottom: the material (an identity card), the color (swatch
-// tiles and the color pattern), the size and the material effects (folding cards that sum up
+// is the single source of truth. Top to bottom: the material (an identity card whose chips and
+// cleavage line give its refractive index, density, hardness and toughness, with a "Material
+// Details..." button for the rest), the color (swatch tiles and the color pattern), the size and the material effects (folding cards that sum up
 // their values; which are open is remembered, `ParametersModel.stone_folds`).
 //
 //  * Material: the design's material, refractive index, body color (one control each; they are
@@ -69,6 +144,8 @@ export component StoneTab inherits VerticalLayout {
     property <bool> design_shown: EditorModel.enabled && EditorModel.has_design && ViewportModel.shows_editor_design;
     // A library design is what the viewport shows: view-only choices.
     property <bool> library_shown: !ViewportModel.shows_editor_design;
+    // The library card shows the material facts only while they describe the material on show.
+    property <bool> lib_facts_shown: EditorModel.gem_card_shown && EditorModel.gem_name == ViewportModel.traced_material_name;
     // The worked-example guide can lock the design's material controls.
     property <bool> unlocked: GuideModel.allows_design_settings();
     property <bool> advanced: GuideModel.shows_advanced();
@@ -187,18 +264,57 @@ export component StoneTab inherits VerticalLayout {
                         }
                     }
                 }
+                // The facts of the material on show (they wait for the data of that very material).
+                if root.lib_facts_shown && EditorModel.gem_ri != "": HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    StoneChip {
+                        text: "RI " + EditorModel.gem_ri;
+                        label: "Refractive Index " + EditorModel.gem_ri;
+                        hint: "Refractive index (RI) of the material this library design is shown in. See the glossary.";
+                    }
+                    StoneChip {
+                        text: "Critical " + EditorModel.gem_critical;
+                        label: "Critical Angle " + EditorModel.gem_critical;
+                        hint: "Critical angle: below this angle light leaks out of a pavilion facet. See the glossary.";
+                    }
+                    if EditorModel.gem_dispersion != "": StoneChip {
+                        text: "Dispersion " + EditorModel.gem_dispersion;
+                        label: "Dispersion " + EditorModel.gem_dispersion;
+                        hint: "Dispersion in the B-G convention: how widely the material spreads white light into colors. See the glossary.";
+                    }
+                }
+                if root.lib_facts_shown: GemFacts { editable: false; }
                 VerticalLayout {
                     spacing: 3px;
                     SettingLabel {
                         text: "Material";
                         hint: "The material to look at this library design in. It is a\nview only: the library design is not changed and nothing is\nsaved with it. Your choice is remembered for next time. To\ngive a design its own material, open it in the Edit tab.";
                     }
-                    ComboBox {
-                        model: ViewportModel.material_options;
-                        current-index <=> ViewportModel.selected_material_index;
-                        accessible-label: "Show the Library Design As";
-                        accessible-description: "View only. The library design is not changed. Your choice is remembered as the material library designs are shown in.";
-                        selected(val) => { ViewportModel.library_material_chosen(val); }
+                    Rectangle {
+                        height: 32px;
+                        ComboBox {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            model: ViewportModel.material_options;
+                            current-index <=> ViewportModel.selected_material_index;
+                            accessible-label: "Show the Library Design As";
+                            accessible-description: "View only. The library design is not changed. Your choice is remembered as the material library designs are shown in.";
+                            selected(val) => { ViewportModel.library_material_chosen(val); }
+                        }
+                    }
+                }
+                if root.lib_facts_shown: HorizontalLayout {
+                    alignment: end;
+                    KitButton {
+                        kind: 2;
+                        icon: KitIcons.gem;
+                        h: 28px;
+                        text: "Material Details...";
+                        hint: "Open the Material Reference on " + ViewportModel.traced_material_name + ": its curves, spectra, colors and gem data.";
+                        clicked => { EditorModel.open_material_reference(ViewportModel.traced_material_name); }
                     }
                 }
             }
@@ -281,7 +397,7 @@ export component StoneTab inherits VerticalLayout {
                             icon_size: 16px;
                             active: root.menu_open;
                             label: "Material Menu";
-                            hint: "RI Override, New/Edit Material and, while previewing, the preview color.";
+                            hint: "RI Override, New/Edit Material, Material Reference and, while previewing, the preview color.";
                             clicked => {
                                 EditorModel.text_focus = false;
                                 root.menu_open = !root.menu_open;
@@ -314,9 +430,12 @@ export component StoneTab inherits VerticalLayout {
                     if EditorModel.material_dispersion_text != "": StoneChip {
                         text: "Dispersion " + EditorModel.material_dispersion_text;
                         label: "Dispersion " + EditorModel.material_dispersion_text;
-                        hint: "Dispersion: how much the refractive index differs between blue (F line) and red (C line) light. It makes the colored flashes (fire). See the glossary.";
+                        hint: EditorModel.material_dispersion_tip;
                     }
                 }
+
+                // SG, Mohs, Toughness and the cleavage line (the former Gem Data card).
+                if EditorModel.gem_card_shown: GemFacts { editable: root.unlocked; }
 
                 // The "..." menu, an inline list under the chips.
                 if root.menu_open: Rectangle {
@@ -342,6 +461,14 @@ export component StoneTab inherits VerticalLayout {
                             clicked => {
                                 root.menu_open = false;
                                 ViewportModel.material_editor_open = true;
+                            }
+                        }
+                        StoneMenuItem {
+                            text: "Material Reference...";
+                            hint: "Open the Material Reference window on this material: the table of every\nmaterial, with its curves, spectra, colors and gem data.";
+                            clicked => {
+                                root.menu_open = false;
+                                EditorModel.open_material_reference(EditorModel.gem_name != "" ? EditorModel.gem_name : root.material_name);
                             }
                         }
                         if ViewportModel.previewing: StoneMenuItem {
@@ -390,40 +517,59 @@ export component StoneTab inherits VerticalLayout {
                 // Change the material, or preview another one (view only).
                 HorizontalLayout {
                     spacing: 8px;
+                    // Two equal columns (preferred-width 0 and stretch 1 split the width 1:1). A
+                    // ComboBox measures its widest entry, so each sits in a 32 px Rectangle that
+                    // clips it to its column instead of pushing the second one past the card.
                     VerticalLayout {
                         horizontal-stretch: 1;
+                        preferred-width: 0px;
                         min-width: 0px;
                         spacing: 3px;
                         SettingLabel {
                             text: "Material";
                             hint: "The design's material: built-ins first, then your own custom\nmaterials, then \"Custom RI...\" for a refractive index you type.\nIt sets the critical angle, the optimizer's targets, the tilt\ncurves and the picture. Changing it is one step you can undo.";
                         }
-                        ComboBox {
-                            enabled: root.unlocked;
-                            model: EditorModel.material_combo_options;
-                            current-index <=> EditorModel.material_combo_index;
-                            accessible-label: "Material";
-                            accessible-description: "The design's material. Changing it applies at once and can be undone.";
-                            selected => {
-                                EditorModel.apply_design_material(EditorModel.material_combo_index, EditorModel.ri_override_text, EditorModel.body_color_index);
+                        Rectangle {
+                            height: 32px;
+                            ComboBox {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                height: parent.height;
+                                enabled: root.unlocked;
+                                model: EditorModel.material_combo_options;
+                                current-index <=> EditorModel.material_combo_index;
+                                accessible-label: "Material";
+                                accessible-description: "The design's material. Changing it applies at once and can be undone.";
+                                selected => {
+                                    EditorModel.apply_design_material(EditorModel.material_combo_index, EditorModel.ri_override_text, EditorModel.body_color_index);
+                                }
                             }
                         }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
+                        preferred-width: 0px;
                         min-width: 0px;
                         spacing: 3px;
                         SettingLabel {
                             text: "Preview As...";
                             hint: "Look at this stone in another material without changing\nthe design. While you preview, the picture, exports and\ntilt videos use that material, and a banner stays on until\nyou press Back to design. It never starts by itself.";
                         }
-                        ComboBox {
-                            enabled: root.unlocked;
-                            model: ViewportModel.material_options;
-                            current-index <=> ViewportModel.selected_material_index;
-                            accessible-label: "Preview as Another Material";
-                            accessible-description: "View only. The design keeps its own material. Back to design returns.";
-                            selected(val) => { ViewportModel.preview_material_chosen(val); }
+                        Rectangle {
+                            height: 32px;
+                            ComboBox {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                height: parent.height;
+                                enabled: root.unlocked;
+                                model: ViewportModel.material_options;
+                                current-index <=> ViewportModel.selected_material_index;
+                                accessible-label: "Preview as Another Material";
+                                accessible-description: "View only. The design keeps its own material. Back to design returns.";
+                                selected(val) => { ViewportModel.preview_material_chosen(val); }
+                            }
                         }
                     }
                 }
@@ -433,6 +579,19 @@ export component StoneTab inherits VerticalLayout {
                     color: Theme.accent-amber;
                     wrap: word-wrap;
                     accessible-role: AccessibleRole.text;
+                }
+
+                // Care, fracture, sources and the weight live on the details page.
+                if EditorModel.gem_card_shown: HorizontalLayout {
+                    alignment: end;
+                    KitButton {
+                        kind: 2;
+                        icon: KitIcons.gem;
+                        h: 28px;
+                        text: "Material Details...";
+                        hint: "Open the Material Reference on " + EditorModel.gem_name + ": its curves, spectra, colors and gem data.";
+                        clicked => { EditorModel.open_material_reference(EditorModel.gem_name); }
+                    }
                 }
             }
         }

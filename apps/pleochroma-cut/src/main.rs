@@ -9,6 +9,8 @@
 // No effect on non-Windows targets: the attribute is Windows-specific.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod info_request;
+
 /// Installs the `tracing` subscriber: stderr, plus a log file when the app was started with
 /// `--log`.
 ///
@@ -158,6 +160,11 @@ fn enable_gpu_pipeline_cache() {
 }
 
 fn main() -> anyhow::Result<()> {
+    // `--help` and `--version` answer and exit before anything else: no RADV restart wait, no
+    // Slint, no GPU. A release build has no console, so the answer finds its own way out.
+    if info_request::answer_if_requested(std::env::args_os().skip(1)) {
+        return Ok(());
+    }
     // Before ANY thread, Slint call or GPU call: the environment is only safe to change while
     // the process is still single-threaded, and Mesa reads `ACO_DEBUG` when the Vulkan device
     // is created. The RADV scheduler workaround comes first of all: when this instance

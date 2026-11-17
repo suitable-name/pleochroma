@@ -85,6 +85,7 @@ pub fn coordinator_args(pki: &Path) -> ServeArgs {
         no_workers: false,
         worker_allowlist: None,
         db: Some(temp_db()),
+        no_library: false,
         max_connections: 16,
         max_preauth_per_ip: crate::cli::DEFAULT_MAX_PREAUTH_PER_IP,
         interactive_workers: 0,
@@ -94,6 +95,7 @@ pub fn coordinator_args(pki: &Path) -> ServeArgs {
         whole_image_pixel_samples: crate::cli::DEFAULT_WHOLE_IMAGE_PIXEL_SAMPLES,
         jobs_per_viewer: crate::cli::DEFAULT_JOBS_PER_VIEWER,
         payload_encoding: pleochroma_net::messages::adaptive::PayloadChoice::Auto,
+        allow_remote_admin: false,
     }
 }
 

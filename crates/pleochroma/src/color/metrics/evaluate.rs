@@ -10,6 +10,7 @@
 
 use super::{
     accumulate::{MetricsAccumulators, finish_metrics},
+    aset::{ASET_GRID, AsetSpotGrid},
     camera::camera_view_basis,
     classify::{ApertureSampleContext, RayClassification, classify_aperture_sample},
     doubling::accumulate_sample_pair,
@@ -50,6 +51,11 @@ impl MetricsWanted {
         fire_and_scintillation: false,
     };
 }
+
+/// The grid side of the pass; the zone grid ([`ASET_GRID`]) has the same side, so a spot's
+/// index is `ix * ASET_GRID + iz`.
+const GRID_SIZE: i32 = 18;
+const _: () = assert!(GRID_SIZE == 18 && ASET_GRID == 18);
 
 /// Everything the main grid loop needs that is fixed across the whole pose: the sampling
 /// grid resolution, the sub-aperture jitter bundle, and the two per-ray contexts
@@ -120,7 +126,7 @@ fn build_grid_eval_setup<'p>(
     };
 
     GridEvalSetup {
-        grid_size: 18,
+        grid_size: GRID_SIZE,
         aperture_samples,
         temporal_ctx,
         aperture_ctx,
@@ -326,7 +332,35 @@ pub(super) const fn placeholder_metrics() -> GemOpticalMetrics {
         windowing_pct: 5.0,
         extinction_pct: 5.0,
         doubling_arcmin: 0.0,
+        aset: None,
     }
+}
+
+/// The Blue-zone share of every grid spot of one pose. `None` without geometry.
+///
+/// These are the per-spot values the Contrast figure is computed from (`pattern_contrast` of
+/// this grid equals `GemOpticalMetrics::aset`'s `contrast`, bit for bit).
+///
+/// Runs the Fire-less pass: the zones read only the d-line trace.
+#[must_use]
+pub fn evaluate_aset_spot_grid_finished(
+    stone: FinishedStone<'_>,
+    material: &GemMaterial,
+    cam_yaw: f32,
+    cam_pitch: f32,
+    environment: EnvironmentSource<'_>,
+) -> Option<AsetSpotGrid> {
+    let prepared = PreparedEval::new_finished(stone.geom, stone.finishes, material, environment)?;
+    let setup = build_grid_eval_setup(
+        &prepared,
+        cam_yaw,
+        cam_pitch,
+        MetricsWanted::CONSUMED_ONLY,
+        false,
+    );
+    let mut acc = MetricsAccumulators::default();
+    run_grid(&setup, &mut acc, None, false);
+    Some(acc.aset.spots())
 }
 
 /// [`evaluate_gem_optical_metrics`] for a stone with tools.
@@ -475,8 +509,15 @@ fn run_grid(
 
             // Per-cell counters for the Scintillation spatial-contrast measurement:
             // how many aperture samples hit the stone, and how many returned brilliance.
-            let (cell_total, cell_returned) =
-                sample_cell(setup, acc, tone.as_deref_mut(), diag_fire_debug, u, v);
+            let spot = usize::try_from(ix * setup.grid_size + iz).unwrap_or(0);
+            let (cell_total, cell_returned) = sample_cell(
+                setup,
+                acc,
+                tone.as_deref_mut(),
+                diag_fire_debug,
+                (u, v),
+                spot,
+            );
 
             if cell_total > 0.0 {
                 let frac = cell_returned / cell_total;
@@ -494,14 +535,15 @@ fn run_grid(
 /// Classifies the cell's sub-aperture bundle at `(u, v)`, updating the ray counters, the
 /// tone offers and the Fire sum; returns how many samples hit the stone and how many of
 /// those were visibly returned (whole numbers for an isotropic stone; an anisotropic one
-/// counts each of the two modes of a sample as half, see [`super::doubling`]).
+/// counts each of the two modes of a sample as half, see [`super::doubling`]). Every ray is
+/// also folded into the zone sums under the grid spot index `spot`.
 fn sample_cell(
     setup: &GridEvalSetup<'_>,
     acc: &mut MetricsAccumulators,
     mut tone: Option<&mut ToneAccumulator>,
     diag_fire_debug: bool,
-    u: f32,
-    v: f32,
+    (u, v): (f32, f32),
+    spot: usize,
 ) -> (f32, f32) {
     if setup.aperture_ctx.stone.modes.is_some() {
         let (mut cell_total, mut cell_returned) = (0.0f32, 0.0f32);
@@ -512,6 +554,7 @@ fn sample_cell(
                 tone.as_deref_mut(),
                 diag_fire_debug,
                 (u, v),
+                spot,
                 sample,
             );
             if let Some(share) = share {
@@ -538,10 +581,12 @@ fn sample_cell(
             t.count_total();
         }
 
+        acc.fold_aset(spot, &classification, 1.0);
+
         match classification {
             RayClassification::EntryBlocked | RayClassification::Invalid => {}
             RayClassification::Windowed => acc.windowed_rays += 1,
-            RayClassification::Extinct => acc.extinct_rays += 1,
+            RayClassification::Extinct { .. } => acc.extinct_rays += 1,
             RayClassification::Returned(ray) => {
                 acc.returned_rays += 1;
                 cell_returned += 1;
@@ -883,5 +928,158 @@ mod tests {
                 assert_eq!(tone_bits(full_tone), tone_bits(core_tone));
             }
         }
+    }
+
+    fn aset_bits(a: super::super::aset::AsetAreaShares) -> [u32; 6] {
+        [
+            a.red_pct.to_bits(),
+            a.green_pct.to_bits(),
+            a.blue_pct.to_bits(),
+            a.leak_pct.to_bits(),
+            a.lost_pct.to_bits(),
+            a.contrast.to_bits(),
+        ]
+    }
+
+    /// Every lighting the zone shares are tested under, as `(preset, head-shadow degrees)`.
+    const ASET_LIGHTINGS: [(LightingPreset, f32); 6] = [
+        (LightingPreset::RingLights, 16.0),
+        (LightingPreset::IsoHemisphere, 16.0),
+        (LightingPreset::LightTent, 16.0),
+        (LightingPreset::Aset, 16.0),
+        (LightingPreset::RingLights, 0.0),
+        (LightingPreset::RingLights, 30.0),
+    ];
+
+    /// The zone shares read only the exit directions, so no lighting and no head-shadow size
+    /// moves their bits, while Brilliance does move.
+    #[test]
+    fn the_zone_shares_do_not_depend_on_the_lighting() {
+        let planes = StandardGemCuts::standard_round_brilliant();
+        let material = GemMaterial::diamond();
+        for (yaw, pitch) in [(0.0, FRAC_PI_2), (0.6, 0.45)] {
+            let mut reference: Option<[u32; 6]> = None;
+            let mut brilliances = Vec::new();
+            for (preset, head_shadow) in ASET_LIGHTINGS {
+                let environment = preset.studio(1.0, 0.85, 0.95).with_head_shadow(head_shadow);
+                let m = evaluate_gem_optical_metrics(&planes, &material, yaw, pitch, environment);
+                let bits = aset_bits(m.aset.expect("a stone with planes has zone shares"));
+                assert_eq!(*reference.get_or_insert(bits), bits, "{preset:?}");
+                brilliances.push(m.brilliance_pct.to_bits());
+            }
+            brilliances.dedup();
+            assert!(brilliances.len() > 1, "brilliance never moved");
+        }
+    }
+
+    /// Leak is exactly the windowing rays: the same bits, isotropic stone.
+    #[test]
+    fn leak_has_the_bits_of_windowing_for_an_isotropic_stone() {
+        let material = GemMaterial::diamond();
+        for planes in [
+            StandardGemCuts::standard_round_brilliant(),
+            StandardGemCuts::emerald_cut(),
+        ] {
+            for (yaw, pitch) in [(0.0, FRAC_PI_2), (0.6, 0.45)] {
+                let m = evaluate_gem_optical_metrics(
+                    &planes,
+                    &material,
+                    yaw,
+                    pitch,
+                    LightingPreset::RingLights.studio(1.0, 0.85, 0.95),
+                );
+                let a = m.aset.expect("zone shares");
+                assert_eq!(a.leak_pct.to_bits(), m.windowing_pct.to_bits());
+            }
+        }
+    }
+
+    /// Red + green + blue + leak + lost is the whole (less the rays blocked at entry), the
+    /// extinction identity holds under every lighting, and the upward light bounds Brilliance.
+    #[test]
+    fn the_zone_identities_hold_under_every_lighting() {
+        let material = GemMaterial::diamond();
+        for planes in [
+            StandardGemCuts::standard_round_brilliant(),
+            StandardGemCuts::emerald_cut(),
+        ] {
+            for (yaw, pitch) in [(0.0, FRAC_PI_2), (0.6, 0.45)] {
+                for (preset, head_shadow) in ASET_LIGHTINGS {
+                    let environment = preset.studio(1.0, 0.85, 0.95).with_head_shadow(head_shadow);
+                    let m =
+                        evaluate_gem_optical_metrics(&planes, &material, yaw, pitch, environment);
+                    let a = m.aset.expect("zone shares");
+                    let up = a.red_pct + a.green_pct + a.blue_pct;
+                    let sum = up + a.leak_pct + a.lost_pct;
+                    assert!(sum <= 100.0 + 1e-3 && sum > 99.0, "{preset:?}: {sum}");
+                    assert!(
+                        (m.extinction_pct - (a.lost_pct + up - m.brilliance_pct)).abs() < 1e-3,
+                        "{preset:?}: {m:?}"
+                    );
+                    assert!(up >= m.brilliance_pct - 1e-3, "{preset:?}: {m:?}");
+                    assert!((0.0..=100.0).contains(&a.contrast), "{preset:?}");
+                }
+            }
+        }
+    }
+
+    /// The Fire-less pass gives the full pass's zone bits, and the spot grid of the CLI print
+    /// reproduces the Contrast figure bit for bit.
+    #[test]
+    fn the_fire_less_pass_and_the_spot_grid_agree_with_the_full_pass() {
+        let material = GemMaterial::diamond();
+        let environment = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
+        for planes in [
+            StandardGemCuts::standard_round_brilliant(),
+            StandardGemCuts::emerald_cut(),
+        ] {
+            let geom = StoneGeometry::planes_only(&planes);
+            let full =
+                evaluate_gem_optical_metrics_geom(geom, &material, 0.0, FRAC_PI_2, environment);
+            let core = evaluate_gem_optical_metrics_geom_core(
+                geom,
+                &material,
+                0.0,
+                FRAC_PI_2,
+                environment,
+            );
+            let full_aset = full.aset.expect("zone shares");
+            assert_eq!(
+                aset_bits(full_aset),
+                aset_bits(core.aset.expect("zone shares"))
+            );
+            let grid = evaluate_aset_spot_grid_finished(
+                FinishedStone::polished(geom),
+                &material,
+                0.0,
+                FRAC_PI_2,
+                environment,
+            )
+            .expect("a stone with planes has a grid");
+            assert_eq!(
+                super::super::aset::pattern_contrast(&grid.blue).to_bits(),
+                full_aset.contrast.to_bits()
+            );
+        }
+    }
+
+    /// No geometry gives the placeholders, which carry no zone shares, and no spot grid.
+    #[test]
+    fn no_geometry_has_no_zone_shares() {
+        let environment = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
+        let material = GemMaterial::diamond();
+        let m = evaluate_gem_optical_metrics(&[], &material, 0.0, FRAC_PI_2, environment);
+        assert!(m.aset.is_none());
+        assert!(placeholder_metrics().aset.is_none());
+        assert!(
+            evaluate_aset_spot_grid_finished(
+                FinishedStone::polished(StoneGeometry::planes_only(&[])),
+                &material,
+                0.0,
+                FRAC_PI_2,
+                environment,
+            )
+            .is_none()
+        );
     }
 }

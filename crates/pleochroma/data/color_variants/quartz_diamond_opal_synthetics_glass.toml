@@ -32,7 +32,7 @@ estimated = true
 sources = [
   "o-ray measured (Anahi, Bolivia); e-ray and strength estimated.",
   "o-ray: G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), Anahi Mine, Bolivia, 6.17 mm slab, E perpendicular c, http://minerals.gps.caltech.edu/FILES/Visible/quartz/ameth.bo (reference_spectra/variant_amethyst_deep_siberian_eperpc.csv); 4 energy Gaussians fitted, constant baseline 0.217 A removed, rms 0.0041 A",
-  "e-ray: no measured spectrum; the o-ray bands times the Report weights 1.0 / 1.0 / 0.7 / 0.5 (UV, violet, 545 nm, 950 nm bands) from docs/chromophores/research-2026-10-polarized-spectra.md (secondary); estimated",
+  "e-ray: no measured spectrum; the o-ray bands times the Report weights 1.0 / 1.0 / 0.7 / 0.5 (short-wavelength, violet, 545 nm, 950 nm bands) from docs/chromophores/research-2026-10-polarized-spectra.md (secondary); estimated",
   "Band positions (357, 545, 950 nm): Cox, J. Phys. C 10, 4631 (1977), as quoted in https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7483767/; strength scaled to the face-up target (4.1 x the Anahi density); estimated",
 ]
 fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#amethyst-deep-siberian"
@@ -341,7 +341,7 @@ estimated = true
 sources = [
   "Built from published band positions; strength estimated.",
   "Cause: Ti3+ (reduction) d-d and Ti3+-Ti4+ polaron absorption, Caltech https://minerals.gps.caltech.edu/FILES/Visible/Rutile/Index.html; Khomenko et al. 1998 and Cronemeyer, Phys. Rev. 113, 1222 (1958): polaron / NIR band near 1.18 eV (1050 nm) (via search summaries, docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 7.4)",
-  "No numeric spectrum exists: the 1050 nm band (sigma 2200 cm^-1), the visible 625 nm Ti3+ band (the part that makes the stone blue) and the e/o ratio 0.7 (Report) are estimates; the UV edge is the built-in Rutile edge (350 nm, 8.0 per model unit = 0.808 per mm at the 9.905 mm face-up path); estimated",
+  "No numeric spectrum exists: the 1050 nm band (sigma 2200 cm^-1), the visible 625 nm Ti3+ band (the part that makes the stone blue) and the e/o ratio 0.7 (Report) are estimates; the absorption edge below 400 nm is the built-in Rutile edge (350 nm, 8.0 per model unit = 0.808 per mm at the 9.905 mm face-up path); estimated",
 ]
 fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#rutile-blue-reduced"
 
@@ -560,7 +560,7 @@ reference_path_mm = 7.0
 estimated = true
 sources = [
   "Built from published band positions; strength estimated.",
-  "Ce3+ 4f-5d near 460 nm (US 9,651,483, https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9651483) and a UV band near 340 nm; strengths 0.028 and 0.015 cm^-1 per ppm from the Report (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "Ce3+ 4f-5d near 460 nm (US 9,651,483, https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9651483) and a band near 340 nm; strengths 0.028 and 0.015 cm^-1 per ppm from the Report (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
   "200 ppm Ce (R4: 100-300 ppm for a gem tint); estimated",
 ]
 fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#yag-ce-yellow"

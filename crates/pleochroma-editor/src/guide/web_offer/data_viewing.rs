@@ -41,7 +41,7 @@ fn custom_material() -> GuideOverlay {
         .step(
             StepOverlay::of("What a custom material holds")
                 .line(
-                    "The built-in list has 33 materials. A custom material is one you describe yourself, for a stone the list does not have.",
+                    "The built-in list has 39 materials. A custom material is one you describe yourself, for a stone the list does not have.",
                     "A custom material is one you describe yourself, for a stone the built-in list does not have.",
                 )
                 .line(

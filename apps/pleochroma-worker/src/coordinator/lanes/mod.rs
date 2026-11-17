@@ -249,10 +249,11 @@ pub struct JoinedWorkerLane {
 }
 
 impl JoinedWorkerLane {
-    /// A lane starting on the checked-out `handle`, for the job `job` describes. Spawns
-    /// this lane's own heartbeat thread (see the module doc comment); a spawn failure
-    /// (vanishingly unlikely) just means no heartbeat, not a construction failure --
-    /// the ordinary liveness deadlines still apply, just without the extra margin.
+    /// A lane starting on the checked-out `handle`, for the job `job` describes.
+    ///
+    /// Spawns this lane's own heartbeat thread (see the module doc comment); a spawn failure
+    /// (vanishingly unlikely) just means no heartbeat, not a construction failure -- the ordinary
+    /// liveness deadlines still apply, just without the extra margin.
     #[must_use]
     pub fn new(handle: WorkerHandle, registry: Arc<Registry>, job: Arc<JobLanes>) -> Self {
         let name = format!("joined worker #{}", handle.info().worker_id);
@@ -556,8 +557,9 @@ impl OwnLane {
         }
     }
 
-    /// This lane traces the chunks of a job whose viewer request carries `intent`, so its
-    /// Stone Shadow has the quality that intent picks (the same as the job's joined workers
+    /// This lane traces the chunks of a job whose viewer request carries `intent`.
+    ///
+    /// Its Stone Shadow has the quality that intent picks (the same as the job's joined workers
     /// and the viewer's local half).
     #[must_use]
     pub fn with_intent(mut self, intent: RequestIntent) -> Self {

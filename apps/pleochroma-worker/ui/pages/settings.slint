@@ -1,0 +1,309 @@
+// The Settings page of the coordinator window: a section list (General, Network, Security,
+// Performance, Storage, Advanced) and the cards of the section chosen, a strip that offers a
+// restart after a change only a restart applies, and the backup and confirm dialogs.
+//
+// Page contract: one `SettingsPage` with no required properties and one `SettingsState` global
+// (defined in `settings_state.slint`, exported here for `app.slint`). `src/gui/pages/settings.rs`
+// fills the state and answers its callbacks.
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme, ShellState, KitIcon, KitIcons, KitButton, CIcons } from "../frame.slint";
+import { SettingsState, AccessRowData } from "settings_state.slint";
+import { Btn, Modal, Note } from "settings_parts.slint";
+import { ActivateScope } from "../focus.slint";
+import { GeneralSection, NetworkSection, SecuritySection, PerformanceSection, StorageSection, AdvancedSection, RemoteSettingsSection } from "settings_sections.slint";
+
+export { SettingsState, AccessRowData }
+
+// One entry of the section list.
+component SubItem inherits Rectangle {
+    in property <string> name;
+    in property <bool> on;
+    in property <bool> narrow: false;
+    callback clicked();
+    height: 34px;
+    width: root.narrow ? lbl.preferred-width + 24px : 148px;
+    border-radius: 8px;
+    background: root.on ? Theme.accent-cyan-surface : (ta.has-hover ? Theme.bg-card-hover : transparent);
+    border-width: sub-fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.tab;
+    accessible-label: root.name;
+    accessible-checked: root.on;
+    accessible-action-default => { root.clicked(); }
+    sub-fs := ActivateScope {
+        activated => { root.clicked(); }
+    }
+    lbl := Text {
+        x: 12px;
+        height: parent.height;
+        text: root.name;
+        font-size: 13px;
+        font-weight: root.on ? 650 : 500;
+        color: root.on ? Theme.accent-cyan : Theme.text-secondary;
+        vertical-alignment: center;
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component SettingsPage inherits Rectangle {
+    property <bool> narrow: root.width < 760px;
+    property <string> password;
+    property <string> repeat;
+    background: transparent;
+    init => { SettingsState.page-opened(); }
+
+    ScrollView {
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            if SettingsState.restart-needed && !ShellState.remote: Rectangle {
+                height: strip.preferred-height + 20px;
+                border-radius: 10px;
+                background: Theme.surface-warning;
+                border-width: 1px;
+                border-color: Theme.accent-amber;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Restart the coordinator to apply the changes";
+                strip := HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 10px;
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: 10px;
+                    VerticalLayout { alignment: center; KitIcon { d: CIcons.alert; size: 18px; ink: Theme.accent-amber; } }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Restart the coordinator to apply the changes. Devices are disconnected for a moment.";
+                        font-size: 13px;
+                        color: Theme.text-primary;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout { alignment: center; KitButton { kind: 1; h: 30px; text: SettingsState.can-restart ? "Restart now" : "Start now"; clicked => { SettingsState.restart-now(); } } }
+                }
+            }
+
+            if SettingsState.error != "": Text {
+                text: SettingsState.error;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            // Wide: the list on the left. Narrow: a row of tabs on top.
+            if root.narrow && !ShellState.remote: HorizontalLayout {
+                spacing: 2px;
+                alignment: start;
+                for name[i] in ["General", "Network", "Security", "Performance", "Storage", "Advanced"]: SubItem {
+                    narrow: true;
+                    name: name;
+                    on: SettingsState.section == i;
+                    clicked => { SettingsState.section = i; }
+                }
+            }
+            HorizontalLayout {
+                spacing: 24px;
+                if !root.narrow && !ShellState.remote: VerticalLayout {
+                    width: 148px;
+                    spacing: 2px;
+                    alignment: start;
+                    for name[i] in ["General", "Network", "Security", "Performance", "Storage", "Advanced"]: SubItem {
+                        name: name;
+                        on: SettingsState.section == i;
+                        clicked => { SettingsState.section = i; }
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: start;
+                    if ShellState.remote: RemoteSettingsSection { }
+                    if !ShellState.remote && SettingsState.section == 0: GeneralSection { }
+                    if !ShellState.remote && SettingsState.section == 1: NetworkSection { }
+                    if !ShellState.remote && SettingsState.section == 2: SecuritySection { }
+                    if !ShellState.remote && SettingsState.section == 3: PerformanceSection { }
+                    if !ShellState.remote && SettingsState.section == 4: StorageSection { }
+                    if !ShellState.remote && SettingsState.section == 5: AdvancedSection { }
+                }
+            }
+        }
+    }
+
+    // Back up (1) and restore (2).
+    if SettingsState.dialog == 1 || SettingsState.dialog == 2: Modal {
+        label: SettingsState.dialog == 1 ? "Back up this coordinator" : "Restore a backup";
+        width: root.width;
+        height: root.height;
+        dismissed => {
+            if !SettingsState.dialog-busy {
+                root.password = "";
+                root.repeat = "";
+                SettingsState.dialog = 0;
+            }
+        }
+        Text {
+            text: SettingsState.dialog == 1 ? "Back up this coordinator" : "Restore a backup";
+            font-size: 15px;
+            font-weight: 650;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+        Text {
+            text: SettingsState.dialog == 1
+                ? "The backup holds the keys, the paired devices and the settings. Choose a password of at least 8 characters. Without it the backup cannot be opened, and nobody can reset it."
+                : "Restoring replaces this coordinator's certificates and settings with the ones in the backup. The current ones are kept next to them, with the date in the name. Paired devices from the backup work again.";
+            font-size: 13px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+        LineEdit {
+            text <=> root.password;
+            input-type: InputType.password;
+            placeholder-text: "Password";
+            accessible-label: "Backup password";
+            enabled: !SettingsState.dialog-busy;
+            init => { self.focus(); }
+        }
+        if SettingsState.dialog == 1: LineEdit {
+            text <=> root.repeat;
+            input-type: InputType.password;
+            placeholder-text: "Repeat the password";
+            accessible-label: "Repeat the backup password";
+            enabled: !SettingsState.dialog-busy;
+        }
+        if SettingsState.dialog-error != "": Text {
+            text: SettingsState.dialog-error;
+            font-size: 12px;
+            font-weight: 600;
+            color: Theme.danger;
+            wrap: word-wrap;
+        }
+        if SettingsState.dialog-done != "": Text {
+            text: SettingsState.dialog-done;
+            font-size: 12px;
+            font-weight: 600;
+            color: Theme.success;
+            wrap: word-wrap;
+        }
+        if SettingsState.dialog-busy: Text { text: "Working…"; font-size: 12px; color: Theme.text-muted; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            Btn {
+                text: SettingsState.dialog-done != "" ? "Close" : "Cancel";
+                enabled: !SettingsState.dialog-busy;
+                clicked => {
+                    root.password = "";
+                    root.repeat = "";
+                    SettingsState.dialog = 0;
+                }
+            }
+            if SettingsState.dialog-done == "": Btn {
+                kind: 1;
+                text: SettingsState.dialog == 1 ? "Choose file and back up" : "Choose file and restore";
+                enabled: !SettingsState.dialog-busy && root.password != "";
+                clicked => {
+                    SettingsState.run-backup(SettingsState.dialog, root.password, root.repeat);
+                    root.password = "";
+                    root.repeat = "";
+                }
+            }
+        }
+    }
+
+    // A new access code for another computer (4), in the style of the pairing dialog.
+    if SettingsState.dialog == 4: Modal {
+        label: "Access code for " + SettingsState.code-for;
+        width: root.width;
+        height: root.height;
+        dismissed => { SettingsState.close-code(); }
+        Text {
+            text: "Access code for " + SettingsState.code-for;
+            font-size: 15px;
+            font-weight: 650;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "Access: " + SettingsState.code-access;
+            font-size: 13px;
+            font-weight: 600;
+            color: Theme.accent-cyan;
+            wrap: word-wrap;
+        }
+        Rectangle {
+            height: 40px;
+            border-radius: 8px;
+            background: Theme.bg-input;
+            border-width: 1px;
+            border-color: Theme.border-medium;
+            Text {
+                x: 12px;
+                width: parent.width - 24px;
+                height: parent.height;
+                text: SettingsState.code-link-shown;
+                font-family: "Consolas";
+                font-size: 12px;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+                accessible-label: "Pairing link with its code hidden";
+            }
+        }
+        Text {
+            text: SettingsState.code-expired ? "This code no longer works. Close this window and make a new one." : "On the other computer: Add a coordinator, then paste the link. The code works once and runs out in " + SettingsState.code-remaining + ".";
+            font-size: 12px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "Anyone with this link can pair until it expires. Send it only to yourself. The clipboard is cleared when the code expires.";
+            font-size: 11px;
+            color: Theme.accent-amber;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            Btn { text: "Close"; autofocus: true; clicked => { SettingsState.close-code(); } }
+            Btn {
+                kind: 1;
+                text: SettingsState.code-copied ? "Copied" : "Copy link";
+                enabled: !SettingsState.code-expired;
+                clicked => { SettingsState.copy-code(); }
+            }
+        }
+    }
+
+    // Confirm "Accept any client certificate".
+    if SettingsState.dialog == 3: Modal {
+        label: "Accept any client certificate";
+        width: root.width;
+        height: root.height;
+        dismissed => { SettingsState.dialog = 0; }
+        Text {
+            text: "Accept any client certificate?";
+            font-size: 15px;
+            font-weight: 650;
+            color: Theme.danger;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "Any device with a certificate signed by this coordinator's authority can connect, even after you remove its access. Use this only to recover from a problem, and turn it off again afterwards.";
+            font-size: 13px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            Btn { text: "Cancel"; autofocus: true; clicked => { SettingsState.dialog = 0; } }
+            Btn { kind: 2; text: "Accept any certificate"; clicked => { SettingsState.confirm-accept-any(); } }
+        }
+    }
+}

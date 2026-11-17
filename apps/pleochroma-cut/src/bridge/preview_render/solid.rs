@@ -92,6 +92,9 @@ pub fn render_view_solid_with_tools(
         preview_distance(planes),
         DEFAULT_FOV_DEG,
     );
+    // Deliberately the default style, whatever the theme: the catalogue stand-in is content shown
+    // small (like the thumbnails, variants, history, rough plan and pose preview); only the live
+    // viewports and Compare follow high contrast.
     let style = SolidStyle {
         background: [0, 0, 0, 255],
         // A catalogue stand-in is shown small and replaced by the traced picture: no caption.

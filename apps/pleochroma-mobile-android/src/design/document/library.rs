@@ -196,11 +196,10 @@ fn saved(
                 document::finish_library_save(&mut state.borrow_mut(), plan, id);
                 crate::design::refresh(window, state);
             }
-            let text = plan.warning.as_ref().map_or_else(
-                || "Saved to Library".to_owned(),
-                |warning| format!("Saved to Library. {warning}"),
+            toast(
+                window,
+                &saved_text(plan.entry_id, id, plan.warning.as_deref()),
             );
-            toast(window, &text);
             if then_pending {
                 guard::run_pending(window, state);
             }
@@ -211,6 +210,22 @@ fn saved(
             }
             toast(window, &message);
         }
+    }
+}
+
+/// What the snackbar says after a save. A save over an entry that came out as another entry
+/// (`entry_id` was asked, `saved_id` was written) made a new design: the entry was a copy
+/// synced from the computer, which only a sync writes, or it was deleted meanwhile.
+fn saved_text(entry_id: Option<EntryId>, saved_id: EntryId, warning: Option<&str>) -> String {
+    let head = if entry_id.is_some_and(|asked| asked != saved_id) {
+        "Saved as a new design in your library."
+    } else {
+        "Saved to Library"
+    };
+    match warning {
+        Some(warning) if head.ends_with('.') => format!("{head} {warning}"),
+        Some(warning) => format!("{head}. {warning}"),
+        None => head.to_owned(),
     }
 }
 
@@ -297,6 +312,24 @@ fn detail(item: &RecentItem) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_save_that_forked_says_it_made_a_new_design() {
+        assert_eq!(saved_text(None, 5, None), "Saved to Library");
+        assert_eq!(saved_text(Some(5), 5, None), "Saved to Library");
+        assert_eq!(
+            saved_text(Some(5), 6, None),
+            "Saved as a new design in your library."
+        );
+        assert_eq!(
+            saved_text(Some(5), 5, Some("It is a draft.")),
+            "Saved to Library. It is a draft."
+        );
+        assert_eq!(
+            saved_text(Some(5), 6, Some("It is a draft.")),
+            "Saved as a new design in your library. It is a draft."
+        );
+    }
 
     #[test]
     fn details_name_where_the_design_is() {

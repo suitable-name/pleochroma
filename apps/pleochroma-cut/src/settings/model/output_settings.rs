@@ -283,6 +283,12 @@ pub struct TiltVideoOutput {
     pub metric_angle: bool,
     /// "Keep PNG Frames After Muxing".
     pub keep_frames: bool,
+    /// "Stone Shadow" in every frame (`TiltVideoExportModel.stone_shadow`). Off by default and in
+    /// a settings file written before the option existed.
+    pub stone_shadow: bool,
+    /// "Tray Reflection" in every frame (`TiltVideoExportModel.tray_reflection`). Off by default
+    /// and in a settings file written before the option existed.
+    pub tray_reflection: bool,
     /// "Adaptive Sampling" check box (`TiltVideoExportModel.adaptive_sampling`).
     pub adaptive_sampling: bool,
     /// "Target Noise" combo, as [`StillOutput::target_noise_index`].
@@ -335,6 +341,8 @@ impl Default for TiltVideoOutput {
             metric_tilt_brilliance: false,
             metric_angle: true,
             keep_frames: false,
+            stone_shadow: false,
+            tray_reflection: false,
             adaptive_sampling: false,
             target_noise_index: default_target_noise_index(),
             path_cache: false,
@@ -460,6 +468,8 @@ mod tests {
             show_values: true,
             metric_angle: false,
             keep_frames: true,
+            stone_shadow: true,
+            tray_reflection: true,
             ..TiltVideoOutput::default()
         };
         let text = toml::to_string(&file).expect("serialise");
@@ -486,6 +496,24 @@ mod tests {
         assert_eq!(odd.step_hundredths_deg, TILT_STEP_HUNDREDTHS_RANGE.0);
         assert_eq!(odd.fps_index, 2);
         assert_eq!(odd.axes, vec![1, 3]);
+    }
+
+    /// The tilt video's Stone Shadow and Tray Reflection are off by default, and a settings file
+    /// whose tilt video section predates them loads with both off.
+    #[test]
+    fn the_tilt_video_tray_effects_are_off_in_a_file_that_predates_them() {
+        use crate::settings::model::SettingsFile;
+        let fresh = TiltVideoOutput::default();
+        assert!(!fresh.stone_shadow && !fresh.tray_reflection);
+        let older: SettingsFile = toml::from_str(
+            "[settings.output.tilt_video]
+keep_frames = true
+",
+        )
+        .expect("parse");
+        let video = older.settings.output.tilt_video;
+        assert!(video.keep_frames);
+        assert!(!video.stone_shadow && !video.tray_reflection);
     }
 
     #[test]

@@ -1,0 +1,86 @@
+# Pleochroma render worker (pleochroma-worker join) as a systemd service.
+#
+# Install:  cp pleochroma-worker.service /etc/systemd/system/
+#           systemctl daemon-reload
+#           systemctl enable --now pleochroma-worker
+# Logs:     journalctl -u pleochroma-worker -f
+#
+# Before the first start (see chapter 10 of the manual, "Running the coordinator or a
+# render computer as a Linux service"):
+#   - the user and group "pleochroma" and /var/lib/pleochroma exist;
+#   - /var/lib/pleochroma/worker-cert holds ca.pem, client.pem and client.key of a WORKER
+#     certificate (claim a token once by hand, or copy a bundle made with
+#     "cert issue-client --role worker");
+#   - the binary is /usr/local/bin/pleochroma-worker, built with the worker feature
+#     (and the gpu feature to render on a graphics card).
+
+[Unit]
+Description=Pleochroma render worker
+Documentation=https://pleochroma.com
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pleochroma
+Group=pleochroma
+WorkingDirectory=/var/lib/pleochroma
+
+# --headless is required: without it a build with a window prints a deprecation warning.
+#
+# PLACEHOLDERS to change:
+#   coordinator.example:7880   the coordinator's WORKER port (host:port, default port 7880).
+#   --cert-dir                 the worker certificate folder (ca.pem, client.pem, client.key).
+# Optional flags: --slots <k> (default 2), --threads <n>, --only-gpu, --only-cpu.
+#
+# join dials out, so this computer needs no open inbound port. It reconnects by itself
+# when the coordinator restarts or the link drops.
+ExecStart=/usr/local/bin/pleochroma-worker --headless join coordinator.example:7880 \
+    --cert-dir /var/lib/pleochroma/worker-cert
+
+# join has no shutdown handler of its own: on a stop, systemd's SIGTERM ends the process
+# at once, and SIGKILL follows after the timeout if it were still running.
+KillSignal=SIGTERM
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=5
+
+# The GPU shader caches (the app's pipeline cache and Mesa's) live under the cache folder.
+# It must be writable, or every start compiles the shaders again: keep it below
+# ReadWritePaths, whatever the service user's home is.
+Environment=XDG_CACHE_HOME=/var/lib/pleochroma/.cache
+
+# Log level (the default is info). Output goes to the journal.
+#Environment=RUST_LOG=info
+
+# Skip the one request at start that asks GitHub for a newer release (offline server).
+#Environment=PLEOCHROMA_NO_UPDATE_CHECK=1
+
+# AMD GPU with Mesa's RADV driver: the worker turns its scheduler workaround on by itself
+# when it finds an AMD GPU on the amdgpu driver. Set this only to force it on or off.
+#Environment=PLEOCHROMA_RADV_WORKAROUND=on
+
+# Where the HDR map cache lives and how large it may grow (defaults: "asset-cache" next
+# to --cert-dir, 2048 MiB).
+#Environment=PLEOCHROMA_ASSET_CACHE_DIR=/var/lib/pleochroma/asset-cache
+#Environment=PLEOCHROMA_ASSET_CACHE_MIB=2048
+
+# GPU rendering: the service user needs the device nodes in /dev/dri. Uncomment, and
+# check the group names with "ls -l /dev/dri" (some systems have only "video").
+# Do not add PrivateDevices=true: it hides /dev/dri.
+#SupplementaryGroups=video render
+
+# Hardening. The service user can write only below /var/lib/pleochroma.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pleochroma
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

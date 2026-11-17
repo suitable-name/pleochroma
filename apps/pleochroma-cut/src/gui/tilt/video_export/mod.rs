@@ -561,14 +561,24 @@ fn build_request(
     let mut scene = SceneSnapshot::capture_finished_for_engine(render_ctx, finished, engine)?;
     // A tilt video shows the stone as designed, whatever the Live Render pose.
     scene.clear_stone_pose();
+    // The stone shadow and the tray reflection of the Live Render, only when the section's
+    // switches ask for them. The one rule for a direct video and a queued job alike: the job
+    // freezes this scene.
+    frames::apply_tray_effects(
+        &mut scene,
+        frames::TiltTrayEffects {
+            stone_shadow: model.get_stone_shadow(),
+            tray_reflection: model.get_tray_reflection(),
+        },
+    );
     scene.max_bounces = max_bounces;
     scene.engine = engine;
     // "Turn Stone 90°": a quarter turn of the picture on top of the live view's own roll, for
     // every frame (`frames` adds each axis's roll to it; the Start and End pictures match).
-    // The pan turns with the picture, so the eye stays where the live view has it.
+    // The framing is the video's own (centred, fitted distance; `frames::video_distance`),
+    // never the live view's zoom or pan, so the quarter turn only rolls the picture.
     if model.get_quarter_turn() {
         scene.camera_roll += std::f32::consts::FRAC_PI_2;
-        scene.camera_pan = frames::turned_pan(scene.camera_pan, std::f32::consts::FRAC_PI_2);
     }
     if !scene.engine.is_ray() && ui.global::<crate::OpticalModel>().get_include_video() {
         scene.optical_diagnostics = Some(crate::bridge::optical_overlay::presentation(ui));

@@ -8,6 +8,7 @@ import { AttachmentsView } from "components/attachments_view.slint";
 import { Toast } from "components/toast.slint";
 import { CompareWindow } from "compare_window.slint";
 import { CompareModel, CompareMetricRow } from "models/compare.slint";
+import { MaterialReferenceWindow, MaterialReferenceModel, RefRow, RefChip, RefHeader, RefTick, RefGuide, RefHover, CurveSeries, BandRow, ColorRow, VariantRow, DataRow } from "material_reference_window.slint";
 import { RoughPlannerWindow } from "rough_planner_window.slint";
 import { LocateWindow } from "locate_window.slint";
 import { RigWindow, RigViewRow } from "rig_window.slint";
@@ -139,6 +140,9 @@ export {
     RawTextModel, RawTextDiffRow,
     // The visual compare window and its model -- see ui/models/compare.slint.
     CompareWindow, CompareModel, CompareMetricRow,
+    // The Material Reference window, global and row structs -- see ui/material_reference_window.slint.
+    MaterialReferenceWindow, MaterialReferenceModel, RefRow, RefChip, RefHeader, RefTick, RefGuide,
+    RefHover, CurveSeries, BandRow, ColorRow, VariantRow, DataRow,
     // The Rough Planner window, global and its row structs -- see ui/rough_planner_window.slint.
     RoughPlannerWindow, RoughPlanModel, RoughPlanResult, RoughPlanStoneGroup, RoughMetric, RoughCutRow, SavedRoughPlanRow, RoughStoneRow, RoughFinding,
     // The photo-locating windows and their row structs -- see ui/locate_window.slint, ui/rig_window.slint.
@@ -348,6 +352,11 @@ export component MainWindow inherits Window {
                 title: "Render Jobs...";
                 activated => { RenderJobsModel.panel_open = true; }
             }
+            // The Remote Coordinator dialog: set up a remote machine and switch to its library.
+            MenuItem {
+                title: "Remote Rendering...";
+                activated => { RemoteWorkerModel.open_dialog(); }
+            }
             // "Export Cutting Sheet (HTML)..."/"Export Cutting Sheet (PDF)..."/"Export Diagram (PNG)..."
             // live on the command bar's own File menu (`editor_command_bar/file_menu.slint`).
         }
@@ -512,6 +521,11 @@ export component MainWindow inherits Window {
             MenuItem {
                 title: "Glossary";
                 activated => { HelpModel.open_glossary(""); }
+            }
+            // Every material in one table, with a details page each (`gui::material_reference`).
+            MenuItem {
+                title: "Material Reference...";
+                activated => { EditorModel.open_material_reference(""); }
             }
             // The keyboard-shortcuts overlay and the worked-example walkthrough.
             MenuItem {

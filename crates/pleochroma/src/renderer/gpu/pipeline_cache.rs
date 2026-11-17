@@ -4,9 +4,64 @@
 //! replace each other's material variants. Identical shards may race: either complete
 //! blob contains the same pipeline, so last-writer-wins is harmless and needs no lock.
 //! wgpu still validates shader modules, pipelines and driver cache compatibility.
-use std::{path::PathBuf, sync::OnceLock};
+use std::{
+    cell::Cell,
+    path::PathBuf,
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
+    },
+};
 
 static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+/// Shards the persistent cache did not have, or whose stored blob the driver outgrew: pipelines
+/// this process compiled from source.
+static FRESH_COMPILES: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// The part of [`FRESH_COMPILES`] counted on this thread.
+    static THREAD_FRESH_COMPILES: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many pipelines this process compiled from source instead of loading them from the
+/// persistent cache, since it started.
+///
+/// Only counts while a cache folder is set
+/// ([`configured`]) and the device keeps driver data; without one every compile is fresh and
+/// nothing is counted. A job that wants to know whether a stretch of work compiled anything
+/// compares this number before and after.
+#[must_use]
+pub fn fresh_compiles() -> u64 {
+    FRESH_COMPILES.load(AtomicOrdering::Relaxed)
+}
+
+/// The part of [`fresh_compiles`] counted on the calling thread.
+///
+/// These are pipelines this thread compiled from source. A step that runs on one thread compares the number before and after, which stays
+/// exact while other threads compile at the same time (the process-wide count would include
+/// theirs).
+#[must_use]
+pub fn fresh_compiles_on_this_thread() -> u64 {
+    THREAD_FRESH_COMPILES.with(Cell::get)
+}
+
+/// Counts one fresh compile, process-wide and on this thread.
+#[cfg(not(target_arch = "wasm32"))]
+fn count_fresh_compile() {
+    FRESH_COMPILES.fetch_add(1, AtomicOrdering::Relaxed);
+    THREAD_FRESH_COMPILES.with(|count| count.set(count.get() + 1));
+}
+
+/// Whether a shard's driver data says the pipeline was compiled just now: no blob was stored
+/// before (`stored` is `None`: a missing file, or a new adapter or driver folder), or the driver
+/// data grew beyond it (the stored blob was rejected, or the pipeline was not in it).
+#[cfg(not(target_arch = "wasm32"))]
+const fn compiled_fresh(stored: Option<u64>, now: usize) -> bool {
+    match stored {
+        None => true,
+        Some(bytes) => now as u64 > bytes,
+    }
+}
 
 /// Enables best-effort native pipeline persistence. Call before acquiring devices.
 /// Returns false if a directory was already configured (the first one wins).
@@ -84,6 +139,14 @@ pub(crate) fn load_blob(info: &wgpu::AdapterInfo, shard: &str) -> Option<Vec<u8>
     }
 }
 
+/// Counts one pipeline about to compile from source because no stored blob exists for its shard.
+/// Called before the compile, so a job watching [`fresh_compiles`] sees the rise while the
+/// compile runs, not after it.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn note_missing_blob() {
+    count_fresh_compile();
+}
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) const fn load_blob(_info: &wgpu::AdapterInfo, _shard: &str) -> Option<Vec<u8>> {
     None
@@ -142,26 +205,117 @@ fn write_atomic(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     result
 }
 
+/// Whether the driver's data must be written: unless it is byte for byte what `load_blob` handed
+/// the driver (`loaded`), the stored shard is stale or missing.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn persist(cache: &wgpu::PipelineCache, info: &wgpu::AdapterInfo, shard: &str) {
+fn needs_write(loaded: Option<&[u8]>, data: &[u8]) -> bool {
+    loaded != Some(data)
+}
+
+/// Writes `data` atomically unless it equals `loaded`; returns whether a file was written.
+/// An unchanged shard keeps its file, its modified time and its scan state untouched.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_if_changed(
+    path: &std::path::Path,
+    loaded: Option<&[u8]>,
+    data: &[u8],
+) -> std::io::Result<bool> {
+    if !needs_write(loaded, data) {
+        return Ok(false);
+    }
+    write_atomic(path, data).map(|()| true)
+}
+
+/// Saves the driver's data for one shard. `loaded` is the blob [`load_blob`] returned for it
+/// (`None` when there was none); an unchanged blob is not rewritten.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn persist(
+    cache: &wgpu::PipelineCache,
+    info: &wgpu::AdapterInfo,
+    shard: &str,
+    loaded: Option<&[u8]>,
+) {
     let Some(path) = cache_file(info, shard) else {
         return;
     };
     let Some(data) = cache.get_data() else {
         return;
     };
-    match write_atomic(&path, &data) {
-        Ok(()) => {
+    // The file on disk is what `load_blob` handed the driver; read its size before replacing it.
+    let stored = std::fs::metadata(&path).ok().map(|meta| meta.len());
+    // A shard with no stored blob was counted when it loaded (`note_missing_blob`), before the
+    // compile; only a stored blob that the driver outgrew is counted here.
+    if stored.is_some() && compiled_fresh(stored, data.len()) {
+        count_fresh_compile();
+    }
+    match write_if_changed(&path, loaded, &data) {
+        Ok(true) => {
             tracing::debug!(shard, bytes = data.len(), path = %path.display(), "pipeline cache saved");
         }
+        Ok(false) => {
+            tracing::debug!(shard, bytes = data.len(), "pipeline cache unchanged");
+        }
         Err(error) => {
-            tracing::debug!(%error, shard, path = %path.display(), "pipeline cache save skipped");
+            // The first failure is a warning: a cache that cannot be written makes every start
+            // compile the shaders again, which otherwise looks like a slow start and nothing more.
+            static WARNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if WARNED.swap(true, AtomicOrdering::Relaxed) {
+                tracing::debug!(%error, shard, path = %path.display(), "pipeline cache save skipped");
+            } else {
+                tracing::warn!(
+                    %error,
+                    path = %path.display(),
+                    "the GPU pipeline cache cannot be saved; every start compiles the shaders again"
+                );
+            }
         }
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) const fn persist(_cache: &wgpu::PipelineCache, _info: &wgpu::AdapterInfo, _shard: &str) {
+pub(crate) const fn persist(
+    _cache: &wgpu::PipelineCache,
+    _info: &wgpu::AdapterInfo,
+    _shard: &str,
+    _loaded: Option<&[u8]>,
+) {
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod fresh_tests {
+    use super::{compiled_fresh, needs_write};
+
+    #[test]
+    fn a_missing_blob_is_a_fresh_compile() {
+        assert!(compiled_fresh(None, 4096));
+    }
+
+    #[test]
+    fn an_unchanged_blob_is_a_cache_hit() {
+        assert!(!compiled_fresh(Some(4096), 4096));
+        assert!(!compiled_fresh(Some(4096), 100));
+    }
+
+    #[test]
+    fn a_grown_blob_is_a_fresh_compile() {
+        assert!(compiled_fresh(Some(4096), 4097));
+    }
+
+    #[test]
+    fn skipping_an_unchanged_write_does_not_change_the_fresh_count_decision() {
+        let blob = vec![7u8; 4096];
+        assert!(!needs_write(Some(blob.as_slice()), &blob));
+        assert!(!compiled_fresh(Some(blob.len() as u64), blob.len()));
+        assert!(needs_write(None, &blob));
+        assert!(compiled_fresh(None, blob.len()));
+        let grown = vec![7u8; 4097];
+        assert!(needs_write(Some(blob.as_slice()), &grown));
+        assert!(compiled_fresh(Some(blob.len() as u64), grown.len()));
+        let same_size = vec![8u8; 4096];
+        assert!(needs_write(Some(blob.as_slice()), &same_size));
+        assert!(!compiled_fresh(Some(blob.len() as u64), same_size.len()));
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

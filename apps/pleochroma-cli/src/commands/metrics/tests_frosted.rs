@@ -21,6 +21,7 @@ fn measured_with(design: &Design, tilt: bool) -> Measured {
         &scoring,
         CANONICAL_LIGHTING_PRESET,
         tilt,
+        false,
     )
     .expect("measures")
 }
@@ -90,6 +91,25 @@ fn a_frosted_design_is_measured_on_the_frosted_stone() {
         environment,
     );
     assert_eq!(table_bits(&frosted.table_up), table_bits(&direct));
+}
+
+/// The zone shares and Contrast of a frosted stone are a repeatable estimate, and they move
+/// with the frosting like the other figures.
+#[test]
+fn the_zone_shares_of_a_frosted_design_repeat_and_differ_from_the_polished_stone() {
+    let design = frosted_template();
+    let frosted = measured_of(&design).table_up.aset.expect("zone shares");
+    assert_eq!(
+        Some(frosted),
+        measured_of(&design).table_up.aset,
+        "a frosted measurement repeats exactly"
+    );
+    let polished = measured_of(&testing::template())
+        .table_up
+        .aset
+        .expect("zone shares");
+    assert_ne!(frosted, polished, "frosted facets scatter the traced light");
+    assert!((0.0..=100.0).contains(&frosted.contrast));
 }
 
 /// The three tilt averages as exact bits.

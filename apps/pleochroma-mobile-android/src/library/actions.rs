@@ -28,6 +28,8 @@ use crate::{AppWindow, LibraryModel, Shell, TagChipData, design::Shared, push::t
 pub(super) const DIALOG_DELETE: i32 = 3001;
 /// The dialog id of the list of files an import could not read.
 pub(super) const DIALOG_IMPORT_FAILED: i32 = 3002;
+/// The sentence a delete adds when synced designs are among the selected ones.
+const SYNCED_DELETE_NOTE: &str = "The next sync does not bring them back.";
 
 /// The platform services, from the app state.
 fn platform_of(rt: &Runtime) -> Option<Arc<dyn Platform>> {
@@ -211,24 +213,18 @@ pub(super) fn toggle_ignore_selected(window: &AppWindow) {
 
 /// Asks before the selected designs are deleted.
 pub(super) fn ask_delete_selected(window: &AppWindow) {
-    let ids = runtime::with(|rt| {
-        let ids: Vec<EntryId> = list::selected_cards(rt)
-            .iter()
-            .map(|card| card.id)
-            .collect();
+    let (ids, any_synced) = runtime::with(|rt| {
+        let cards = list::selected_cards(rt);
+        let ids: Vec<EntryId> = cards.iter().map(|card| card.id).collect();
+        let any_synced = cards.iter().any(|card| card.synced);
         rt.pending_delete.clone_from(&ids);
-        ids
+        (ids, any_synced)
     })
     .unwrap_or_default();
     if ids.is_empty() {
         return;
     }
-    let body = format!(
-        "{} will be removed from this device's library, together with the cutting progress and \
-         recent items kept for {}. This cannot be undone.",
-        designs(ids.len()),
-        if ids.len() == 1 { "it" } else { "them" },
-    );
+    let body = delete_body(ids.len(), any_synced);
     window.global::<Shell>().invoke_show_dialog(
         DIALOG_DELETE,
         "Delete Designs?".into(),
@@ -236,6 +232,22 @@ pub(super) fn ask_delete_selected(window: &AppWindow) {
         "Delete".into(),
         "Cancel".into(),
     );
+}
+
+/// The question of "Delete Designs?" for `count` designs; `any_synced` says that a design
+/// copied from the paired computer is among them (a sync does not bring it back).
+fn delete_body(count: usize, any_synced: bool) -> String {
+    let body = format!(
+        "{} will be removed from this device's library, together with the cutting progress and \
+         recent items kept for {}. This cannot be undone.",
+        designs(count),
+        if count == 1 { "it" } else { "them" },
+    );
+    if any_synced {
+        format!("{body} {SYNCED_DELETE_NOTE}")
+    } else {
+        body
+    }
 }
 
 /// Answers the Library's dialogs. Returns false for an id that is not the Library's.
@@ -493,6 +505,16 @@ pub(super) fn open_entry(window: &AppWindow, state: &Shared, id: EntryId) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_delete_question_warns_about_synced_designs() {
+        let plain = delete_body(2, false);
+        assert!(plain.starts_with("2 designs will be removed from this device's library"));
+        assert!(plain.ends_with("This cannot be undone."));
+        let synced = delete_body(1, true);
+        assert!(synced.starts_with("1 design will be removed"));
+        assert!(synced.ends_with("This cannot be undone. The next sync does not bring them back."));
+    }
 
     #[test]
     fn the_delete_message_counts_and_names_the_open_design() {

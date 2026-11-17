@@ -1,5 +1,7 @@
 //! Everything specific to talking to a remote `pleochroma-worker`: claiming a one-time
-//! enrollment token ([`enroll`]), owning the mutual-TLS socket and driving one render
+//! enrollment token ([`enroll`]) or a pairing link ([`pair`]), the saved address list and
+//! how the coordinator is verified ([`route`]), finding a moved coordinator again
+//! ([`rediscover`]), owning the mutual-TLS socket and driving one render
 //! request against it ([`remote_render`]), the preview-then-handoff state machine that
 //! decides when a live viewport brings a remote worker in ([`handoff`]), the live
 //! viewport's per-epoch remote chunk lane ([`live_lane`]), the one rule deciding
@@ -13,7 +15,10 @@ pub mod guard;
 pub mod handoff;
 pub mod hdr_asset;
 pub mod live_lane;
+pub mod pair;
+pub mod rediscover;
 pub mod remote_render;
+pub mod route;
 
 pub use guard::{
     LiveDispatch, inclusions_refusal, live_remote_dispatch, remote_can_render, zoned_scene_refusal,

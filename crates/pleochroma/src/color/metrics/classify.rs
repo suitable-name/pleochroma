@@ -47,7 +47,11 @@ pub(super) enum RayClassification {
     Windowed,
     /// Trapped internally, absorbed, or exited but not visibly returned to the
     /// observer (head-shadowed or unlit).
-    Extinct,
+    ///
+    /// `exit_dir` is the unit direction of the upward exit that was head-shadowed or unlit;
+    /// `None` for a ray that never exited upward (bounce budget, side exit, no hit). The
+    /// zone shares read it ([`super::aset`]); no other counter does.
+    Extinct { exit_dir: Option<Vec3> },
     /// Exited upward and was visibly returned to the observer. Carries the Fire
     /// `(angle_deg, weight)` pair if the F-line/C-line companion traces also both
     /// exited upward through the same facet after the same number of bounces (the F/C
@@ -239,7 +243,9 @@ fn classify_entry(
                 if let Some(d) = detail {
                     d.reason = reason;
                 }
-                return RayClassification::Extinct;
+                return RayClassification::Extinct {
+                    exit_dir: Some(exit_dir),
+                };
             }
 
             // The Fire measurement costs two more full traces per returned ray; the sweep
@@ -259,7 +265,7 @@ fn classify_entry(
                 exit_cos_theta: exit_d.exit_cos_theta,
             })
         }
-        RayFate::Absorbed => RayClassification::Extinct,
+        RayFate::Absorbed => RayClassification::Extinct { exit_dir: None },
     }
 }
 
@@ -351,7 +357,7 @@ mod tests {
             None => (0, None),
             Some(RayClassification::EntryBlocked) => (1, None),
             Some(RayClassification::Windowed) => (2, None),
-            Some(RayClassification::Extinct) => (3, None),
+            Some(RayClassification::Extinct { .. }) => (3, None),
             Some(RayClassification::Invalid) => (5, None),
             Some(RayClassification::Returned(r)) => (
                 4,
@@ -420,7 +426,8 @@ mod tests {
                         };
                         let mut detail = super::super::image_types::RayDetail::default();
                         let legacy = classify_aperture_sample(&ctx, u, v, sub_right, sub_up);
-                        extinct += usize::from(matches!(legacy, Some(RayClassification::Extinct)));
+                        extinct +=
+                            usize::from(matches!(legacy, Some(RayClassification::Extinct { .. })));
                         returned +=
                             usize::from(matches!(legacy, Some(RayClassification::Returned(_))));
                         assert_eq!(

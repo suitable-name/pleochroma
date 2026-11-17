@@ -36,14 +36,24 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fmt,
-    io::BufReader,
+    io::{self, BufReader},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+#[cfg(feature = "pairing")]
+mod fixed_name;
 mod key_file;
 
 pub use key_file::write_private_key_pem;
+
+/// The fixed DNS name every coordinator certificate carries, whatever addresses it has.
+///
+/// A client built with `client_config_fixed_name` (the `pairing` feature) verifies the server against this name
+/// instead of the dialed address, so a coordinator whose address changes keeps working. The
+/// `.invalid` top-level domain is reserved (RFC 2606) and never resolves; the name is only
+/// ever compared against the certificate, never looked up. Trust still rests on the CA pin.
+pub const COORDINATOR_TLS_NAME: &str = "coordinator.pleochroma.invalid";
 
 /// A SHA-256 client-certificate fingerprint, as stored in an [`Allowlist`].
 pub type Fingerprint = [u8; 32];
@@ -250,6 +260,34 @@ pub fn client_config(
     Ok(Arc::new(config))
 }
 
+/// [`client_config`] for a pairing client: the server is verified against
+/// [`COORDINATOR_TLS_NAME`] whatever address was dialed.
+///
+/// Everything else matches [`client_config`] (TLS 1.3 only, the same CA, the same client
+/// certificate), and the chain is still checked by `rustls`'s own `webpki` verifier. A server
+/// certificate that lacks the fixed name (a coordinator older than 0.12.0) is checked against
+/// the dialed name instead, as [`client_config`] does. Older clients and builds without the
+/// `pairing` feature keep using [`client_config`].
+///
+/// # Errors
+///
+/// [`TlsError::Rustls`] if `ca` is empty or `cert_chain`/`key` don't form a valid, matching
+/// certificate and private key.
+#[cfg(feature = "pairing")]
+pub fn client_config_fixed_name(
+    ca: rustls::RootCertStore,
+    cert_chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+) -> Result<Arc<rustls::ClientConfig>, TlsError> {
+    let verifier = Arc::new(fixed_name::FixedNameVerifier::new(ca)?);
+    let config = rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
+        .with_client_auth_cert(cert_chain, key)?;
+
+    Ok(Arc::new(config))
+}
+
 /// The SHA-256 fingerprint of a DER-encoded certificate -- the identity an
 /// [`Allowlist`] entry names.
 ///
@@ -299,6 +337,8 @@ pub fn fingerprint_from_hex(s: &str) -> Option<Fingerprint> {
 /// whitespace and a `#`-prefixed comment (conventionally the `--name` it was issued
 /// under, e.g. `... # laptop`). Blank lines and `#`-comment lines are ignored. Revoking a
 /// client is deleting its line -- meant to be hand-editable, not just machine-written.
+/// The trailing comment is the device's name as the coordinator window shows it
+/// ([`Allowlist::entries`]); a line without one is an unnamed device.
 ///
 /// A line that isn't blank, a comment, or 64 hex characters is a load error rather than
 /// silently skipped: a typo silently dropping an entry would fail open (nobody notices a
@@ -306,6 +346,32 @@ pub fn fingerprint_from_hex(s: &str) -> Option<Fingerprint> {
 #[derive(Debug, Default, Clone)]
 pub struct Allowlist {
     fingerprints: HashSet<Fingerprint>,
+    entries: Vec<AllowlistEntry>,
+}
+
+/// One allowlist line: the fingerprint and the name written after it, if any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllowlistEntry {
+    /// The client certificate's fingerprint.
+    pub fingerprint: Fingerprint,
+    /// The trailing `# name` comment, trimmed; `None` for a bare fingerprint (a line written
+    /// before names were kept, or by hand).
+    pub name: Option<String>,
+}
+
+impl AllowlistEntry {
+    /// The name to show: the stored one, or "Unnamed device (middle dot) 3B9E..." with the first
+    /// four hex characters of the fingerprint in upper case.
+    #[must_use]
+    pub fn display_name(&self) -> String {
+        self.name.as_ref().map_or_else(
+            || {
+                let hex = fingerprint_to_hex(&self.fingerprint);
+                format!("Unnamed device \u{b7} {}\u{2026}", hex[..4].to_uppercase())
+            },
+            Clone::clone,
+        )
+    }
 }
 
 impl Allowlist {
@@ -321,8 +387,10 @@ impl Allowlist {
     pub fn load(path: &Path) -> Result<Self, TlsError> {
         let contents = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
         let mut fingerprints = HashSet::new();
+        let mut entries = Vec::new();
         for (i, raw_line) in contents.lines().enumerate() {
-            let line = raw_line.split('#').next().unwrap_or("").trim();
+            let (code, comment) = raw_line.split_once('#').unwrap_or((raw_line, ""));
+            let line = code.trim();
             if line.is_empty() {
                 continue;
             }
@@ -332,9 +400,55 @@ impl Allowlist {
                     line_number: i + 1,
                     line: raw_line.to_string(),
                 })?;
-            fingerprints.insert(fp);
+            if fingerprints.insert(fp) {
+                let name = comment.trim();
+                entries.push(AllowlistEntry {
+                    fingerprint: fp,
+                    name: (!name.is_empty()).then(|| name.to_string()),
+                });
+            }
         }
-        Ok(Self { fingerprints })
+        Ok(Self {
+            fingerprints,
+            entries,
+        })
+    }
+
+    /// Every entry in file order, each fingerprint once (the first line wins).
+    #[must_use]
+    pub fn entries(&self) -> &[AllowlistEntry] {
+        &self.entries
+    }
+
+    /// Removes every line of `fp` from the allowlist file at `path`.
+    ///
+    /// Comments, blank lines and all other entries stay. Returns whether a line was removed
+    /// (`false` if `fp` was not listed or the file does not exist).
+    ///
+    /// The file is rewritten atomically: the new text goes to a temporary file next to it,
+    /// which then replaces it. A running coordinator re-reads the file on its next check, so
+    /// the device is refused from then on.
+    ///
+    /// # Errors
+    ///
+    /// The I/O error from reading, writing or replacing the file.
+    pub fn remove(path: &Path, fp: &Fingerprint) -> io::Result<bool> {
+        rewrite_allowlist(path, fp, &AllowlistEdit::Remove)
+    }
+
+    /// Sets the name of `fp` in the allowlist file at `path`.
+    ///
+    /// Its line becomes `fingerprint  # name` (a bare fingerprint when `name` is empty after
+    /// trimming). The name goes through [`sanitize_allowlist_label`]. Comments, blank lines
+    /// and the other entries stay as they are. Returns whether `fp` was found.
+    ///
+    /// The file is rewritten atomically, as [`Allowlist::remove`] does.
+    ///
+    /// # Errors
+    ///
+    /// The I/O error from reading, writing or replacing the file.
+    pub fn rename(path: &Path, fp: &Fingerprint, name: &str) -> io::Result<bool> {
+        rewrite_allowlist(path, fp, &AllowlistEdit::Rename(name))
     }
 
     /// Whether `fp` is in the allowlist.
@@ -354,6 +468,71 @@ impl Allowlist {
     pub fn is_empty(&self) -> bool {
         self.fingerprints.is_empty()
     }
+}
+
+/// What [`rewrite_allowlist`] does to the lines of one fingerprint.
+enum AllowlistEdit<'a> {
+    /// Drop the line.
+    Remove,
+    /// Rewrite the line with this name.
+    Rename(&'a str),
+}
+
+/// Applies `edit` to every line of `fp` in the file at `path` and replaces the file
+/// atomically (temporary file, then rename), under [`ALLOWLIST_APPEND_LOCK`]. Lines of other
+/// fingerprints, comments, blank lines and each line's own ending are kept byte for byte.
+fn rewrite_allowlist(path: &Path, fp: &Fingerprint, edit: &AllowlistEdit<'_>) -> io::Result<bool> {
+    let _guard = ALLOWLIST_APPEND_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+
+    let mut found = false;
+    let mut out = String::with_capacity(contents.len() + 32);
+    for line in contents.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\r', '\n']);
+        let ending = &line[body.len()..];
+        let code = body.split('#').next().unwrap_or("").trim();
+        if fingerprint_from_hex(code).as_ref() != Some(fp) {
+            out.push_str(line);
+            continue;
+        }
+        found = true;
+        if let AllowlistEdit::Rename(name) = edit {
+            out.push_str(&fingerprint_to_hex(fp));
+            let name = sanitize_allowlist_label(name);
+            let name = name.trim();
+            if !name.is_empty() {
+                out.push_str("  # ");
+                out.push_str(name);
+            }
+            out.push_str(ending);
+        }
+    }
+    if !found {
+        return Ok(false);
+    }
+
+    let mut tmp_name = path.as_os_str().to_owned();
+    tmp_name.push(".tmp");
+    let tmp = PathBuf::from(tmp_name);
+    let written = std::fs::write(&tmp, out.as_bytes()).and_then(|()| {
+        if let Ok(meta) = std::fs::metadata(path) {
+            // Best effort: the replacement keeps the original's permissions.
+            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+        }
+        std::fs::rename(&tmp, path)
+    });
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(true)
 }
 
 /// Replaces `\r`, `\n`, and `#` in `label` with `_`.
@@ -628,6 +807,122 @@ mod tests {
         append_to_allowlist(&path, &fp, "laptop").unwrap();
         let list = Allowlist::load(&path).unwrap();
         assert!(list.contains(&fp));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A fresh directory for one test, removed by the caller.
+    fn test_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "pleochroma-net-allowlist-{tag}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn entries_carry_names_and_unnamed_devices_get_a_fallback() {
+        let dir = test_dir("entries");
+        let path = dir.join("allowlist.txt");
+        let named = patterned_fingerprint(0);
+        let bare = patterned_fingerprint(0x3b);
+        std::fs::write(
+            &path,
+            format!(
+                "# header\n{}  # Niklas's S23 \n{}\n{}  #\n",
+                fingerprint_to_hex(&named),
+                fingerprint_to_hex(&bare),
+                fingerprint_to_hex(&named),
+            ),
+        )
+        .unwrap();
+
+        let list = Allowlist::load(&path).unwrap();
+        let entries = list.entries();
+        assert_eq!(entries.len(), 2, "a repeated fingerprint is listed once");
+        assert_eq!(entries[0].fingerprint, named);
+        assert_eq!(entries[0].name.as_deref(), Some("Niklas's S23"));
+        assert_eq!(entries[0].display_name(), "Niklas's S23");
+        assert_eq!(entries[1].fingerprint, bare);
+        assert_eq!(entries[1].name, None);
+        // Byte 0 of `bare` is 0x3b, byte 1 is 0x3c: "3b3c".
+        assert_eq!(
+            entries[1].display_name(),
+            "Unnamed device \u{b7} 3B3C\u{2026}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn remove_drops_only_that_fingerprint_and_keeps_the_rest() {
+        let dir = test_dir("remove");
+        let path = dir.join("allowlist.txt");
+        let a = patterned_fingerprint(0);
+        let b = patterned_fingerprint(1);
+        std::fs::write(
+            &path,
+            format!(
+                "# keep me\r\n{}  # a\r\n\r\n{}  # b",
+                fingerprint_to_hex(&a),
+                fingerprint_to_hex(&b)
+            ),
+        )
+        .unwrap();
+
+        assert!(Allowlist::remove(&path, &a).unwrap());
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            contents,
+            format!("# keep me\r\n\r\n{}  # b", fingerprint_to_hex(&b))
+        );
+        let list = Allowlist::load(&path).unwrap();
+        assert!(!list.contains(&a));
+        assert!(list.contains(&b));
+        assert!(!dir.join("allowlist.txt.tmp").exists());
+
+        assert!(!Allowlist::remove(&path, &a).unwrap(), "already gone");
+        assert!(!Allowlist::remove(&dir.join("missing.txt"), &a).unwrap());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rename_writes_the_comment_and_keeps_other_lines() {
+        let dir = test_dir("rename");
+        let path = dir.join("allowlist.txt");
+        let a = patterned_fingerprint(0);
+        let b = patterned_fingerprint(1);
+        std::fs::write(
+            &path,
+            format!(
+                "# header\n{}\n{}  # old name\n",
+                fingerprint_to_hex(&a),
+                fingerprint_to_hex(&b)
+            ),
+        )
+        .unwrap();
+
+        assert!(Allowlist::rename(&path, &a, "Workshop laptop").unwrap());
+        assert!(Allowlist::rename(&path, &b, "evil\n# x").unwrap());
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            contents,
+            format!(
+                "# header\n{}  # Workshop laptop\n{}  # evil__ x\n",
+                fingerprint_to_hex(&a),
+                fingerprint_to_hex(&b)
+            )
+        );
+        let list = Allowlist::load(&path).unwrap();
+        assert_eq!(list.entries()[0].name.as_deref(), Some("Workshop laptop"));
+
+        // An empty name clears it back to a bare fingerprint.
+        assert!(Allowlist::rename(&path, &a, "  ").unwrap());
+        let list = Allowlist::load(&path).unwrap();
+        assert_eq!(list.entries()[0].name, None);
+        assert!(!Allowlist::rename(&path, &patterned_fingerprint(9), "x").unwrap());
 
         std::fs::remove_dir_all(&dir).ok();
     }

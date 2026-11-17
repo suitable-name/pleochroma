@@ -87,6 +87,7 @@ pub(super) fn reduce(
         } else {
             0.0
         },
+        aset: None,
     };
     Ok(PoseResult {
         metrics,

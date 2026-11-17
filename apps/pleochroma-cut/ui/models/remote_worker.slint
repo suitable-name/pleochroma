@@ -73,6 +73,42 @@ export global RemoteWorkerModel {
     // in that order (`gui::remote::advanced_in_use`, which holds the rule and its tests).
     pure callback advanced_in_use(int, int, int, int, int, int) -> bool;
 
+    // The saved remote was paired through a pairing link (verified by its fixed certificate
+    // name), and the one-line summary of its saved addresses: "192.168.1.20:7878 (+1 more)".
+    in property <bool> endpoint_paired: false;
+    in property <string> endpoint_address_summary: "";
+    // What the last search for a moved coordinator found: "Studio PC moved to 192.168.1.40".
+    in property <string> rediscovery_status: "";
+
+    // Pairing with a pasted link. 0 = nothing pending (the paste field shows), 1 = the link was
+    // read and waits for the user to confirm, 2 = pairing is running on a background thread.
+    in property <int> pair_stage: 0;
+    // The computer the pending link names, how to reach it, and the name of the coordinator
+    // this pairing would replace ("" when none is saved).
+    in property <string> pair_name: "";
+    in property <string> pair_address_summary: "";
+    in property <string> pair_replaces: "";
+    // Plain-word reason the last link or pairing failed ("" when none).
+    in property <string> pair_error: "";
+    // Set by the dialog when it closes and cleared when it opens again. A pairing that fails
+    // after the dialog closed drops its offer (and the code in it) instead of keeping it.
+    in-out property <bool> pair_dialog_closed: false;
+    // The pasted text goes to Rust at once and the field is cleared; Rust keeps only the parsed
+    // offer until it is confirmed or cancelled.
+    callback read_pairing_link(string);
+    callback confirm_pairing();
+    callback cancel_pairing();
+
+    // After a pairing succeeded while the render settings keep the new computer out ("Live
+    // Render" and/or the export Compute pills on "This computer only"), Rust raises this and the
+    // window asks "Render on <name>?". `use_remote_final_too` says final pictures (still and
+    // tilt-video exports) are excluded as well, so the question names them. The answer comes back
+    // through `use_remote_answered`; Rust closes the question.
+    in property <bool> use_remote_prompt_open: false;
+    in property <string> use_remote_name: "";
+    in property <bool> use_remote_final_too: false;
+    callback use_remote_answered(bool);
+
     callback pick_cert_dir(string);
     callback denoise_toggled(bool);
     callback remote_batch_lanes_changed(int);

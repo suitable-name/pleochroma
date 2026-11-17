@@ -117,8 +117,9 @@ pub(super) fn check_2d(
         (Ok(a), Ok(b)) => (a, b),
         (Err(message), _) | (_, Err(message)) => return Checked2d::Refused(message),
     };
-    match plan_sweep_2d(design, across.0, &range_a, down.0, &range_b) {
-        Ok(plan) => {
+    plan_sweep_2d(design, across.0, &range_a, down.0, &range_b).map_or_else(
+        |error| Checked2d::Refused(refusal_text(&error)),
+        |plan| {
             let seconds = estimate_seconds_2d(
                 plan.len(),
                 tilt_average,
@@ -127,9 +128,8 @@ pub(super) fn check_2d(
             );
             let summary = summary_line(&plan, seconds);
             Checked2d::Ready { plan, summary }
-        }
-        Err(error) => Checked2d::Refused(refusal_text(&error)),
-    }
+        },
+    )
 }
 
 /// Whether a sweep of `cells` angle pairs asks before it runs: it uses tilt averages and is
@@ -165,7 +165,7 @@ pub(super) fn axis_fields(angles: &[f64], previous_step: &str) -> Fields {
 }
 
 /// The figures the map can show for `outcome`: the fast ones, the yield when the rough has a
-/// volume, and the tilt averages when the sweep asked for them.
+/// volume, Contrast when a cell measured it, and the tilt averages when the sweep asked for them.
 pub(super) fn figures_of(outcome: &Sweep2dOutcome) -> Vec<SweepMetric> {
     SweepMetric::ALL
         .into_iter()
@@ -173,7 +173,7 @@ pub(super) fn figures_of(outcome: &Sweep2dOutcome) -> Vec<SweepMetric> {
             SweepMetric::TiltBrilliance
             | SweepMetric::TiltWindowing
             | SweepMetric::TiltExtinction => outcome.tilt_average,
-            SweepMetric::Yield => outcome
+            SweepMetric::Yield | SweepMetric::Contrast => outcome
                 .cells
                 .iter()
                 .any(|cell| metric.value_of(cell.metrics.as_ref()).is_some()),
@@ -198,7 +198,7 @@ pub(super) struct Pick2d {
 
 /// The Two Tiers form as it was when the dialog went back to One Tier, so coming back finds
 /// it as it was left.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SavedForm {
     /// The entries of the two tier combos.
     pub a_index: i32,
@@ -288,13 +288,10 @@ impl TwoTier {
 
     /// Puts the figure at `index` of [`Self::figures`] on the map; `false` for no such one.
     pub(super) fn set_figure_index(&mut self, index: usize) -> bool {
-        match self.figures().get(index) {
-            Some(&metric) => {
-                self.figure = metric;
-                true
-            }
-            None => false,
-        }
+        self.figures().get(index).copied().is_some_and(|metric| {
+            self.figure = metric;
+            true
+        })
     }
 
     /// Whether the cell `(col, row)` finished.
@@ -421,6 +418,7 @@ mod tests {
             yield_pct: None,
             warning_count: 0,
             has_girdle: true,
+            aset: None,
             tilt: None,
         }
     }

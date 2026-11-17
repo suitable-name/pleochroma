@@ -22,7 +22,7 @@ mod tests;
 pub use batch_client::{
     BatchClient, BatchEvent, BatchWatch, MAX_BATCH_REQUEST_BYTES, items_fitting,
 };
-pub use handshake::{connect_and_handshake, test_connection};
+pub use handshake::{connect_and_handshake, test_connection, verify_announced};
 pub use one_shot::{spawn_final_image_request, spawn_remote_render};
 pub use payload_setting::set_payload_choice;
 pub use persistent::spawn_remote_connection;

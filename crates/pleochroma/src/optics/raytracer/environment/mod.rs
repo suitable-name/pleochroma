@@ -46,6 +46,8 @@ mod sun;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_aset_zones;
+#[cfg(test)]
 mod tests_hdr_exposure;
 #[cfg(test)]
 mod tests_hdr_rotation;
@@ -85,6 +87,7 @@ pub use tray_shadow::{
 
 // nee.rs, rig.rs
 pub(super) use nee::{environment_nee_pdf, environment_supports_nee, sample_environment_for_nee};
+pub use rig::aset_zone_amplitudes;
 #[cfg(feature = "beam")]
 pub(crate) use rig::horizon_blend;
 pub(crate) use rig::{

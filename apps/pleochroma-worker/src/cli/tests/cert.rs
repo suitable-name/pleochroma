@@ -132,8 +132,142 @@ fn cert_issue_client_and_issue_token_accept_a_role() {
     };
     assert_eq!(parsed.role, PeerRole::Worker);
 
-    let argv = ["cert", "issue-token", "--role", "admin"].map(String::from);
+    // `--role admin` is a real token request now; `issue-client` still refuses it.
+    let argv = [
+        "cert",
+        "issue-token",
+        "--ca",
+        "pki/ca.pem",
+        "--admin-addr",
+        "127.0.0.1:7879",
+        "--name",
+        "box",
+        "--role",
+        "admin",
+    ]
+    .map(String::from);
+    let Command::CertIssueToken(parsed) = parse(&argv).unwrap() else {
+        panic!("expected CertIssueToken")
+    };
+    assert_eq!(parsed.role, PeerRole::Admin);
+
+    let argv = [
+        "cert",
+        "issue-client",
+        "--dir",
+        "pki",
+        "--name",
+        "box",
+        "--out",
+        "b",
+        "--role",
+        "admin",
+    ]
+    .map(String::from);
     assert!(parse(&argv).unwrap_err().contains("--role"));
+
+    let argv = ["cert", "issue-token", "--role", "bogus"].map(String::from);
+    let err = parse(&argv).unwrap_err();
+    assert!(err.contains("--role") && err.contains("monitor"), "{err}");
+}
+
+fn issue_token_argv(extra: &[&str]) -> Vec<String> {
+    let mut argv: Vec<String> = [
+        "cert",
+        "issue-token",
+        "--ca",
+        "pki/ca.pem",
+        "--admin-addr",
+        "127.0.0.1:7879",
+        "--name",
+        "phone",
+    ]
+    .map(String::from)
+    .to_vec();
+    argv.extend(extra.iter().map(ToString::to_string));
+    argv
+}
+
+fn parsed_token_args(extra: &[&str]) -> Result<CertIssueTokenArgs, String> {
+    match parse(&issue_token_argv(extra))? {
+        Command::CertIssueToken(args) => Ok(args),
+        other => panic!("expected CertIssueToken, got {other:?}"),
+    }
+}
+
+#[test]
+fn cert_issue_token_role_monitor_parses() {
+    let args = parsed_token_args(&["--role", "monitor"]).unwrap();
+    assert_eq!(args.role, PeerRole::Monitor);
+    assert!(args.addresses.is_empty());
+    assert!(!args.no_qr);
+}
+
+#[test]
+fn cert_issue_token_address_is_repeatable_up_to_three() {
+    let args = parsed_token_args(&[
+        "--address",
+        "192.168.1.20:7878",
+        "--address",
+        "10.0.0.5:7878",
+    ])
+    .unwrap();
+    assert_eq!(
+        args.addresses,
+        vec![
+            "192.168.1.20:7878".parse().unwrap(),
+            "10.0.0.5:7878".parse().unwrap()
+        ]
+    );
+
+    let three = parsed_token_args(&[
+        "--address",
+        "10.0.0.1:7878",
+        "--address",
+        "10.0.0.2:7878",
+        "--address",
+        "10.0.0.3:7878",
+    ])
+    .unwrap();
+    assert_eq!(three.addresses.len(), 3);
+
+    let err = parsed_token_args(&[
+        "--address",
+        "10.0.0.1:7878",
+        "--address",
+        "10.0.0.2:7878",
+        "--address",
+        "10.0.0.3:7878",
+        "--address",
+        "10.0.0.4:7878",
+    ])
+    .unwrap_err();
+    assert!(err.contains("--address") && err.contains('3'), "{err}");
+}
+
+#[test]
+fn cert_issue_token_address_refuses_what_a_link_cannot_hold() {
+    for bad in [
+        "192.168.1.20",
+        "192.168.1.20:0",
+        "host.lan:7878",
+        "[::1]:7878",
+        "",
+    ] {
+        let err = parsed_token_args(&["--address", bad]).unwrap_err();
+        assert!(err.contains("--address"), "{bad:?}: {err}");
+    }
+    let err = parsed_token_args(&["--address", "10.0.0.1:7878", "--address", "10.0.0.1:7878"])
+        .unwrap_err();
+    assert!(err.contains("twice"), "{err}");
+    let err = parsed_token_args(&["--address"]).unwrap_err();
+    assert!(err.contains("--address"), "{err}");
+}
+
+#[test]
+fn cert_issue_token_no_qr_flag_turns_the_qr_off() {
+    assert!(!parsed_token_args(&[]).unwrap().no_qr);
+    assert!(parsed_token_args(&["--no-qr"]).unwrap().no_qr);
 }
 
 #[test]
@@ -162,6 +296,8 @@ fn parses_cert_issue_token() {
             admin_addr: "127.0.0.1:7879".to_string(),
             name: "laptop".to_string(),
             role: PeerRole::Viewer,
+            addresses: Vec::new(),
+            no_qr: false,
         })
     );
 }

@@ -288,14 +288,12 @@ fn dispatch_render(
         intent: request.intent,
     };
 
-    {
-        let mut acc = accumulator
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Declares the requested range too: a FRAME outside it is a protocol
-        // bug and is never summed -- see `Accumulator::begin_request_for_range`.
-        acc.begin_request_for_range(request_id, request.first_sample, request.samples);
-    }
+    // Declares the requested range too: a FRAME outside it is a protocol
+    // bug and is never summed -- see `Accumulator::begin_request_for_range`.
+    accumulator
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .begin_request_for_range(request_id, request.first_sample, request.samples);
 
     let s = stream
         .as_mut()

@@ -71,9 +71,11 @@ fn material_rows_list_diamond_with_its_optics() {
     let ri: f32 = diamond.ri_text.parse().expect("the index is a number");
     assert!((2.40..2.43).contains(&ri), "Diamond's index reads {ri}");
     assert_eq!(diamond.sg_text, "3.52");
+    assert_eq!(diamond.dispersion_text, "0.044", "the B-G figure");
     assert!(!diamond.is_custom);
     let detail = diamond.detail_text();
     assert!(detail.starts_with("RI "), "{detail}");
+    assert!(detail.contains("Dispersion 0.044"), "{detail}");
     assert!(detail.ends_with("SG 3.52"), "{detail}");
 
     let names: Vec<String> = rows
@@ -1143,11 +1145,15 @@ fn a_design_with_no_material_has_an_empty_identity() {
 }
 
 #[test]
-fn the_material_identity_gives_a_family_line_and_four_chips() {
+fn the_material_identity_gives_a_family_line_and_the_fact_chips() {
     let mut state = state();
     state.session = template_session(0);
     let identity = material_identity(&state);
-    assert_eq!(identity.family, "Cubic \u{b7} isotropic \u{b7} built-in");
+    assert_eq!(
+        identity.family, "Cubic \u{b7} isotropic",
+        "the built-in origin is a tag, not part of the line"
+    );
+    assert!(identity.builtin);
     assert!(identity.ri.starts_with("RI 2.4"), "{}", identity.ri);
     assert!(
         identity.critical.starts_with("Critical 24."),
@@ -1159,10 +1165,9 @@ fn the_material_identity_gives_a_family_line_and_four_chips() {
         "{}",
         identity.critical
     );
-    assert!(
-        identity.dispersion.starts_with("Disp. 0."),
-        "{}",
-        identity.dispersion
+    assert_eq!(
+        identity.dispersion, "Disp. 0.044",
+        "the chip shows the B-G dispersion"
     );
     assert_eq!(identity.specific_gravity, "SG 3.52");
     assert_eq!(stone_view(&state).identity, identity);
@@ -1170,7 +1175,149 @@ fn the_material_identity_gives_a_family_line_and_four_chips() {
     assert_eq!(select_material(&mut state, "Quartz"), Ok(true));
     let quartz = material_identity(&state);
     assert!(quartz.family.contains("uniaxial"), "{}", quartz.family);
-    assert!(quartz.family.ends_with("built-in"), "{}", quartz.family);
+    assert!(!quartz.family.contains("built-in"), "{}", quartz.family);
+    assert!(quartz.builtin);
+}
+
+#[test]
+fn a_built_in_identity_has_the_mohs_and_toughness_chips_and_a_cleavage_line() {
+    let mut state = state();
+    state.session = template_session(0);
+    let diamond = material_identity(&state);
+    assert!(diamond.mohs.starts_with("Mohs "), "{}", diamond.mohs);
+    assert!(
+        diamond.toughness.starts_with("Toughness ") && !diamond.toughness.contains(':'),
+        "{}",
+        diamond.toughness
+    );
+    let grade = diamond.toughness.trim_start_matches("Toughness ");
+    assert!(
+        grade.chars().next().is_some_and(char::is_uppercase),
+        "the grade keeps its capital: {grade}"
+    );
+    assert!(
+        diamond.cleavage_line.starts_with("Cleavage "),
+        "{}",
+        diamond.cleavage_line
+    );
+    assert!(diamond.cleavage_warns, "diamond has a perfect cleavage");
+}
+
+#[test]
+fn the_toughness_chip_follows_the_gem_data_table() {
+    let mut state = state();
+    state.session = template_session(0);
+    // The table grades Topaz Poor (the GIA care page), whatever a mockup showed.
+    assert_eq!(select_material(&mut state, "Topaz"), Ok(true));
+    let topaz = material_identity(&state);
+    assert_eq!(topaz.toughness, "Toughness Poor");
+    assert!(!topaz.toughness_is_range);
+    assert!(topaz.cleavage_warns, "topaz has a perfect basal cleavage");
+    assert!(topaz.family.starts_with("Orthorhombic"), "{}", topaz.family);
+
+    // A range reads "Fair\u{2013}good" and takes a row of its own on the card.
+    assert_eq!(select_material(&mut state, "Emerald"), Ok(true));
+    let emerald = material_identity(&state);
+    assert_eq!(emerald.toughness, "Toughness Fair\u{2013}good");
+    assert!(emerald.toughness_is_range);
+}
+
+#[test]
+fn a_material_no_source_grades_has_no_toughness_chip() {
+    let mut state = state();
+    state.session = template_session(0);
+    assert_eq!(select_material(&mut state, "Glass (N-BK7)"), Ok(true));
+    let glass = material_identity(&state);
+    assert_eq!(glass.mohs, "Mohs 5.5");
+    assert_eq!(glass.toughness, "", "no published grade, no chip");
+}
+
+#[test]
+fn a_custom_material_has_neither_the_mohs_nor_the_toughness_chip() {
+    let mut state = state();
+    state.session = template_session(0);
+    let form = CustomMaterialInput {
+        name: "Glass Z".to_owned(),
+        ri: "1.62".to_owned(),
+        ..CustomMaterialInput::default()
+    };
+    assert_eq!(add_custom_material(&mut state, &form), Ok(true));
+    let identity = material_identity(&state);
+    assert_eq!(identity.mohs, "");
+    assert_eq!(identity.toughness, "");
+    assert_eq!(identity.cleavage_line, "");
+    assert!(!identity.cleavage_warns);
+    assert!(!identity.builtin, "a custom material has no Built-in tag");
+}
+
+#[test]
+fn the_material_details_page_reads_the_shared_details_model() {
+    let mut state = state();
+    assert!(
+        material_details(&state).is_none(),
+        "no material, no details"
+    );
+    state.session = template_session(0);
+    let details = material_details(&state).expect("Diamond has details");
+    assert_eq!(details.title, "Diamond");
+    assert!(!details.subtitle.is_empty());
+    assert!(!details.rays.is_empty(), "one absorption curve per ray");
+    assert!(details.colors.iter().any(|row| row.face_up));
+    let labels: Vec<&str> = details
+        .gem_rows
+        .iter()
+        .map(|row| row.label.as_str())
+        .collect();
+    for wanted in ["Hardness", "Toughness", "Cleavage", "Specific gravity"] {
+        assert!(labels.contains(&wanted), "{wanted} is missing: {labels:?}");
+    }
+    // The optics belong to their own card, not to Durability and Cutting.
+    for moved in ["Refractive index", "Birefringence", "Dispersion"] {
+        assert!(
+            !labels.contains(&moved),
+            "{moved} left the card: {labels:?}"
+        );
+    }
+    assert!(
+        details
+            .optics_rows
+            .iter()
+            .any(|row| row.label == "Birefringence"),
+        "the Optics card has the birefringence"
+    );
+    let chips = details.chips.join(" | ");
+    assert!(chips.contains("Dispersion 0.044"), "{chips}");
+    assert!(
+        details.chips.iter().all(|chip| !chip.starts_with("SG ")),
+        "the gravity is a row, not a chip: {chips}"
+    );
+    assert!(!details.ri_curves.is_empty());
+    assert!(!details.source_groups.is_empty(), "the citations");
+}
+
+#[test]
+fn the_specific_gravity_row_is_one_line_with_its_range() {
+    let mut state = state();
+    state.session = template_session(0);
+    assert_eq!(select_material(&mut state, "Topaz"), Ok(true));
+    let details = material_details(&state).expect("Topaz has details");
+    let row = details
+        .gem_rows
+        .iter()
+        .find(|row| row.label == "Specific gravity")
+        .expect("the gravity row");
+    assert!(
+        row.value.starts_with("3."),
+        "the figure first: {}",
+        row.value
+    );
+    // Toughness is Poor in the table.
+    let toughness = details
+        .gem_rows
+        .iter()
+        .find(|row| row.label == "Toughness")
+        .expect("the toughness row");
+    assert!(toughness.value.starts_with("Poor"), "{}", toughness.value);
 }
 
 #[test]

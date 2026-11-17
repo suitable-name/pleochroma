@@ -28,6 +28,7 @@ fn plain_material<'a>(name: &'a str, bands: Option<&'a str>) -> CustomMaterialPa
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     }
 }
 

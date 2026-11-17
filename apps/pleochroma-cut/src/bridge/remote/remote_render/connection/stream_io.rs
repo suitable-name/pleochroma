@@ -30,6 +30,11 @@ pub(super) fn to_remote_update(
             request_id,
             samples_done,
         }),
+        ApplyOutcome::Preparing { done, total } => Some(RemoteUpdate::Preparing {
+            request_id,
+            done,
+            total,
+        }),
         ApplyOutcome::Done { cancelled } => Some(RemoteUpdate::Done {
             request_id,
             cancelled,

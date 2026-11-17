@@ -80,6 +80,7 @@ const NOT_YET_EVALUATED: EvaluatedMetrics = EvaluatedMetrics {
         windowing_pct: 0.0,
         extinction_pct: 0.0,
         doubling_arcmin: 0.0,
+        aset: None,
     },
     graph_brilliance: [0.0; 19],
     graph_extinction: [0.0; 19],
@@ -268,9 +269,9 @@ impl Shared {
                 .is_some_and(|pending| !pending.request.same_profile_inputs(current))
     }
 
-    fn publish(&self, evaluated: EvaluatedMetrics) {
+    fn publish(&self, evaluated: &EvaluatedMetrics) {
         let mut state = self.lock();
-        state.published = Some(evaluated);
+        state.published = Some(*evaluated);
         state.version += 1;
     }
 }
@@ -304,7 +305,7 @@ fn run(shared: &Shared) {
         else {
             continue;
         };
-        shared.publish(EvaluatedMetrics {
+        shared.publish(&EvaluatedMetrics {
             metrics,
             graph_brilliance,
             graph_extinction,
@@ -507,15 +508,12 @@ pub(super) fn push_if_fresh<T, M>(
     cam_pitch_deg: f32,
 ) where
     T: ComponentHandle + 'static,
-    M: Fn(&T, f32, f32, f32, f32, f32, f32, [f32; 19], [f32; 19], [f32; 19], f32)
-        + Send
-        + 'static
-        + Clone,
+    M: Fn(&T, GemOpticalMetrics, [f32; 19], [f32; 19], [f32; 19], f32) + Send + 'static + Clone,
 {
     let (version, evaluated) = worker.latest();
     if ui_idle && version > *pushed_version {
         *pushed_version = version;
-        push_metrics_to_ui(ui_weak, update_metrics, evaluated.snapshot(cam_pitch_deg));
+        push_metrics_to_ui(ui_weak, update_metrics, &evaluated.snapshot(cam_pitch_deg));
     }
 }
 
@@ -539,8 +537,8 @@ fn push_snapshot_if_due(
     version: u64,
     pushed_version: &mut u64,
     pushed_pitch_deg: &mut Option<f32>,
-    snapshot: FrameMetricsSnapshot,
-    push: impl FnOnce(FrameMetricsSnapshot),
+    snapshot: &FrameMetricsSnapshot,
+    push: impl FnOnce(&FrameMetricsSnapshot),
 ) -> bool {
     let cam_pitch_deg = snapshot.cam_pitch_deg;
     if !metrics_push_due(version, *pushed_version, cam_pitch_deg, *pushed_pitch_deg) {
@@ -565,17 +563,14 @@ pub(super) fn push_if_changed<T, M>(
     cam_pitch_deg: f32,
 ) where
     T: ComponentHandle + 'static,
-    M: Fn(&T, f32, f32, f32, f32, f32, f32, [f32; 19], [f32; 19], [f32; 19], f32)
-        + Send
-        + 'static
-        + Clone,
+    M: Fn(&T, GemOpticalMetrics, [f32; 19], [f32; 19], [f32; 19], f32) + Send + 'static + Clone,
 {
     let (version, evaluated) = worker.latest();
     push_snapshot_if_due(
         version,
         pushed_version,
         pushed_pitch_deg,
-        evaluated.snapshot(cam_pitch_deg),
+        &evaluated.snapshot(cam_pitch_deg),
         |snapshot| push_metrics_to_ui(ui_weak, update_metrics, snapshot),
     );
 }
@@ -692,7 +687,7 @@ mod tests {
                     version,
                     version_seen,
                     pitch_seen,
-                    NOT_YET_EVALUATED.snapshot(pitch),
+                    &NOT_YET_EVALUATED.snapshot(pitch),
                     |_| pushes += 1,
                 )
             };

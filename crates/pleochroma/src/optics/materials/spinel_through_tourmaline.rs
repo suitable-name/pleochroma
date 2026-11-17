@@ -180,39 +180,33 @@ impl GemMaterial {
             //
             // Source: Caltech GRR 1935, the small green crystal, Usakos, Namibia (3.645 mm),
             // `data/reference_spectra/variant_tourmaline_verdelite_grr1935_green_
-            // {eperpc,eparc}.csv`, fitted per ray with energy Gaussians. The UV edge is a
-            // stand-in whose visible tail is the measurement. The bands are the mix that
-            // matches the dealer photos of green tourmaline (median hue 121, L* 52): the
-            // elbaite spectrum at 3.5 x and the measured Yellow variant at 5.5 x, the Pink
-            // variant's Mn3+ at 0.7 x (it greys the green window to olive), and the elbaite's
-            // Fe2+ at 1.45 x with the yellow part at 0.9 x to hold the hue. Eight energy
-            // Gaussians a ray (dE2000 0.01 against the fit). Stored per model unit (per mm x
-            // 9.905, the face-up path of a 7 mm stone).
+            // {eperpc,eparc}.csv`, fitted per ray with four free-centre energy Gaussians
+            // (the `tourmaline.verdelite` variant carries the same fit; model / data 0.94-1.03
+            // at 550-750 nm). The UV edge is a stand-in whose visible tail is the measurement.
+            // Strength: ONE factor 0.34 x the crystal over every band, the edge included (owner
+            // rule: measured values win), stored per model unit (per mm x 0.34 x 9.905, the
+            // face-up path of a 7 mm stone). Restored 2026-11-16: the dealer-photo mix of
+            // 2026-11-03 (3.5 x the elbaite plus 5.5 x the Yellow variant, then 1.45 x / 0.9 x
+            // with 0.7 x the Pink variant's Mn3+; swatch L*52 C*46 h 124) is superseded: an
+            // external reference render of the same designs sides with the pale green.
             // Calibration record: docs/chromophores/calibration-records.md#tourmaline
-            // Swatch L*52 C*46 h 124 (o-ray L*44 C*68 h 114, e-ray L*66 C*38 h 131); edge
-            // o : e at 400 nm 3.3, Fe2+ o : e at 711 nm 1.15.
+            // Calibration record: docs/chromophores/calibration-records.md#loyd-v0111-round-2026-11-16
+            // Swatch L*91.4 C*20.4 h 148.1 (o-ray L*89.9 C*27.2 h 142.3, e-ray L*94.2 C*9.8
+            // h 174.9); edge o : e at 400 nm 2.75, Fe2+ o : e at 711 nm 1.16.
             absorption: AbsorptionTensor::uniaxial(
                 vec![
                     // o-ray (E perp c)
-                    AbsorptionBand::energy(386.6, 4_111.5, 234.0),
-                    AbsorptionBand::energy(301.0, 9_911.9, 28.94),
-                    AbsorptionBand::energy(711.4, 2_185.4, 8.817),
-                    AbsorptionBand::energy(315.6, 13_521.2, 7.735),
-                    AbsorptionBand::energy(620.3, 3_473.7, 1.501),
-                    AbsorptionBand::energy(1_066.1, 2_706.1, 0.761_9),
-                    AbsorptionBand::energy(542.2, 2_626.8, 0.673_9),
-                    AbsorptionBand::energy(444.4, 4_554.1, 0.358_4),
+                    AbsorptionBand::energy(300.0, 12_178.0, 5.999),
+                    AbsorptionBand::energy(620.0, 3_490.0, 0.307_9),
+                    AbsorptionBand::energy(711.4, 2_186.0, 1.740),
+                    AbsorptionBand::energy(1_156.1, 2_500.0, 0.716_1),
                 ],
                 vec![
                     // e-ray (E par c)
-                    AbsorptionBand::energy(367.9, 3_657.5, 166.0),
-                    AbsorptionBand::energy(300.0, 8_738.0, 36.38),
-                    AbsorptionBand::energy(708.9, 2_419.0, 8.018),
-                    AbsorptionBand::energy(307.4, 8_241.9, 2.336),
-                    AbsorptionBand::energy(1_180.0, 2_500.0, 2.126),
-                    AbsorptionBand::energy(524.8, 7_326.0, 0.603_9),
-                    AbsorptionBand::energy(479.6, 6_873.2, 0.328_3),
-                    AbsorptionBand::energy(539.3, 2_079.8, 0.236_4),
+                    AbsorptionBand::energy(300.0, 8_738.0, 7.171),
+                    AbsorptionBand::energy(524.8, 7_326.0, 0.119),
+                    AbsorptionBand::energy(708.9, 2_419.0, 1.580),
+                    AbsorptionBand::energy(1_180.0, 2_500.0, 0.419),
                 ],
             ),
             // c lies in the table plane (`Vec3::X`, not the Vec3::Y default), since tourmaline

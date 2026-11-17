@@ -1,0 +1,94 @@
+name: Windows Console Twins
+
+# Gives every Windows worker program of a release its console twin: for each asset
+# `pleochroma-worker*.exe` it attaches `pleochroma-worker*.com` under the same name
+# (`pleochroma-worker-windows-scalar-gpu.exe` gets `pleochroma-worker-windows-scalar-gpu.com`).
+#
+# The `.com` is not a copy of the worker. It is the small console launcher
+# `apps/pleochroma-worker/src/bin/console.rs`, which starts the `.exe` of its own name, waits
+# for it and returns its output and exit code; `cmd` and PowerShell try `.COM` before `.EXE`,
+# so typing the program's name in a terminal goes through it. The launcher uses only the
+# standard library and no worker code, so it is built here with plain `rustc` in seconds, from
+# the release's own tag. It needs no PGO: it only starts the program. One build serves every
+# variant (scalar, AVX2, CPU, GPU).
+#
+# Run by hand (Actions -> Windows Console Twins -> Run workflow) for worker programs uploaded
+# by hand; it replaces the twins it attached before. The "Build Worker" workflow attaches
+# the twins of the programs it builds itself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag; empty selects the latest published release'
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  console-twins:
+    name: Attach the console twins
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Find the release and its Windows worker programs
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if (-not $tag) {
+            $tag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+          }
+          if (-not $tag) { throw 'No published release found.' }
+          $names = @(gh release view $tag --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name')
+          $workers = @($names | Where-Object { $_ -match '^pleochroma-worker.*\.exe$' -and $_ -notmatch 'console' })
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "workers=$($workers -join ',')" >> $env:GITHUB_OUTPUT
+          if ($workers.Count -eq 0) {
+            Write-Host "Release $tag has no Windows worker program yet: nothing to attach. Upload them first, then run this workflow again."
+          } else {
+            Write-Host "Release ${tag}: $($workers -join ', ')"
+          }
+
+      - name: Check out the release's source
+        if: steps.release.outputs.workers != ''
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Build and test the launcher
+        if: steps.release.outputs.workers != ''
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          $src = 'apps/pleochroma-worker/src/bin/console.rs'
+          rustc +stable --edition 2024 --test $src -o console-tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'The launcher tests do not compile.' }
+          ./console-tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'The launcher tests failed.' }
+          rustc +stable --edition 2024 -C opt-level=3 -C codegen-units=1 -C strip=symbols `
+            --crate-name pleochroma_worker_console $src -o pleochroma-worker-console.exe
+          if ($LASTEXITCODE -ne 0) { throw 'The launcher does not compile.' }
+
+      - name: Attach one .com per worker program
+        if: steps.release.outputs.workers != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          WORKERS: ${{ steps.release.outputs.workers }}
+        run: |
+          New-Item -ItemType Directory -Force twins | Out-Null
+          foreach ($exe in $env:WORKERS -split ',') {
+            $com = Join-Path twins ($exe -replace '\.exe$', '.com')
+            Copy-Item -Force pleochroma-worker-console.exe $com
+            gh release upload $env:RELEASE_TAG $com --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw "Uploading $com failed." }
+            Write-Host "attached $(Split-Path -Leaf $com)"
+          }

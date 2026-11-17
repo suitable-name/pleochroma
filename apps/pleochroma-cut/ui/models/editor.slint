@@ -173,10 +173,38 @@ export global EditorModel {
     in property <string> critical_angle_text: "";
     // --- R2S ---
     // The Stone tab's identity card: the material's crystal family ("Trigonal · uniaxial (-) ·
-    // built-in") and its dispersion n_F - n_C ("0.018"). Both "" while the design names no known
-    // material (`gui::editor::view::inspector::material_identity`).
+    // built-in") and its dispersion in the B-G convention ("0.044"), with the chip's tooltip. All
+    // three are "" while the design names no known material
+    // (`gui::editor::view::inspector::material_identity`).
     in property <string> material_family_text: "";
     in property <string> material_dispersion_text: "";
+    in property <string> material_dispersion_tip: "";
+    // The material facts on the identity card (`gui::editor::view::inspector::push_gem_card`):
+    // the SG, Mohs and Toughness chips, one cleavage line and, for a custom material with no
+    // data, one muted line. `gem_card_shown` is false while no known material is named.
+    // `gem_name` is the material the facts describe; the library view shows them only while it
+    // names the material on show. `gem_sg` ("3.53") and `gem_mohs` ("8", "7.5-8") are bare
+    // values for their chips, `gem_toughness` is the whole chip text ("Toughness Fair"); each is
+    // "" while no source gives the value. `gem_cleavage` is the cleavage text ("perfect basal
+    // {001}") and `gem_cleavage_warns` is true when it is a cutting risk. `gem_empty` is true for
+    // a custom material with no gem data at all. Care, fracture and sources live on the details
+    // page.
+    in property <bool> gem_card_shown: false;
+    in property <string> gem_name: "";
+    in property <string> gem_sg: "";
+    in property <string> gem_mohs: "";
+    in property <string> gem_toughness: "";
+    in property <string> gem_cleavage: "";
+    in property <bool> gem_cleavage_warns: false;
+    in property <bool> gem_empty: false;
+    // The identity chips of the material `gem_name` names, for the library card (which has no
+    // design to read them from): `gem_ri` ("1.6200"), `gem_critical` ("38.10°") and
+    // `gem_dispersion` ("0.014", the B-G figure). Each is "" while no material is named.
+    in property <string> gem_ri: "";
+    in property <string> gem_critical: "";
+    in property <string> gem_dispersion: "";
+    // Open the Material Reference window on the material with this name.
+    callback open_material_reference(string);
     // --- end R2S ---
     // The design's color combo: "Material Default" (the material's own color), the material's
     // color variants, the nine generic presets (only for a material that looks the same in every
@@ -256,6 +284,11 @@ export global EditorModel {
     callback gear_apply(int, string);
     in property <bool> gear_remap_open: false;
     in property <[GearRemapRow]> gear_remap_rows: [];
+    // The gear change the dialog is about (tooth counts) and how many rows fall between two
+    // teeth of the new gear; Rust sets all three where the dialog opens and on a rounding change.
+    in property <int> gear_remap_from_gear: 0;
+    in property <int> gear_remap_to_gear: 0;
+    in property <int> gear_remap_rounded_count: 0;
     callback gear_remap_confirm();
     callback gear_remap_cancel();
 

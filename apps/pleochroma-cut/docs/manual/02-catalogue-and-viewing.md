@@ -230,8 +230,14 @@ floats over it as glass:
   into a **View** menu), **Tilt Curve** and **Optical Diagnostics**, the accent
   **Export** button and the **?** button.
 - **Left:** the **FACE-UP** figures card (Brilliance, Fire, Scintillation, Windowing,
-  Extinction, with a bar for each, then Axis and Doubling when set). Click the card
-  to copy the five numbers (**Copy the Five Gemological Numbers**); the chevron in its
+  Extinction and **Contrast**, with a bar for each; below them, in the Advanced
+  interface, the **Zones (ASET-style)** block: a stacked bar and a legend of four
+  cells, Red, Green, Blue and Dark, with a bare number each and the note "% of the
+  face" beside the block's title, then the line "Dark = Leak 9 % + Lost 12 %" that splits
+  the Dark share; then Axis and Doubling when set). The **?** button in the header opens
+  "How the Face-Up Figures Are Measured" (below) as a popover beside the card, with a
+  picture of the zones and an **Open in the Manual** link. Click the card to copy the figures
+  (**Copy the Face-Up Figures**); the chevron in its
   header folds it to one line such as "Bril 55.7 · Wind 12.1 · Ext 32.2". It folds by
   itself in a narrow view, and the choice is remembered. A flagged value carries an
   amber dot and is announced as outside the usual range.
@@ -257,9 +263,9 @@ floats over it as glass:
 | **Front** / **Top** buttons | Snap to the canonical poses: girdle edge-on with index 0 towards you, or straight down onto the table. Distance and lighting stay as they were |
 | **Turn 90°** button | Turns the stone a quarter turn about its vertical axis and keeps the viewing angle, distance and lighting: an oval that runs top to bottom then lies across the picture, ready for a landscape export |
 | Right-drag, or Shift + left-drag | Move the light; with an HDR map loaded, turn the map instead |
-| Alt + left-drag, or Ctrl + Shift + left-drag | Tilt and turn the stone on the tray: vertical movement tilts, horizontal movement turns (Stone Pose, below). **Reset Camera** keeps the pose |
+| Alt + left-drag, or Ctrl + Shift + left-drag | Turn the stone itself, freely and the same way the orbit does, while the camera, the lights and the tray stay put (Stone Pose, below). **Reset Camera** keeps the pose |
 | Scroll | Zoom |
-| Click the FACE-UP figures card | Copy the five gemological numbers to the clipboard |
+| Click the FACE-UP figures card | Copy the face-up figures to the clipboard: Brilliance, Fire Index, Scintillation, Windowing, Extinction and, when measured, Contrast and the zones |
 | Mouse button, bottom left | Show or hide this list of gestures in the view |
 
 (Shift + left-drag exists because some laptop trackpads cannot produce a
@@ -330,7 +336,8 @@ genuine right-drag gesture.)
       to 75° and **blue** from 75° to 90° overhead, **black** below the horizon.
       There is no white balance and no head shadow, so you can see where in the stone
       the light returns from. It is a diagnostic view, not a photograph, and its figures
-      are scored as the Grading tray.
+      are scored as the Grading tray. The FACE-UP card's **Zones (ASET-style)** count
+      these same zones, as shares of the face (below).
   - **Studio** (the analytic studio rig): **D65 Daylight (6500K)**, **Incandescent
     (3200K)**, **Incandescent A (2856K)**, **Gem Studio Ring Lights** and **Dramatic
     Dark Spotlight**. A dark velvet backdrop with a key softbox, a fill and sixteen
@@ -391,18 +398,26 @@ genuine right-drag gesture.)
   | Grading tray | Grading tray (D65 hemisphere + head shadow) | 48° / 72° | 1× | White | off | azimuth 0°, elevation 85° (looking almost straight down), fitted to the stone |
   | Daylight Sun | Daylight sky + direct sun | 30° / 55° | 1.5× | White | on | not set |
   | Window daylight | Window daylight | 40° / 30° | 1.2× | White | on | not set |
-  | Presentation | Gem Studio Ring Lights | 48° / 54° | 1.4× | Black | off | not set |
+  | Presentation | Gem Studio Ring Lights | 48° / 72° | 1.4× | Black | on | product shot, see below |
 
-  The first seven are viewing setups to judge a stone by. **Presentation** is the showcase
-  look of a jeweler's photo: the studio ring lights over black velvet, half a stop brighter,
-  for the most saturated color and the crispest sparkle when a picture should show the stone
-  off rather than measure it.
+  The first seven are viewing setups to judge a stone by. **Presentation** is the product shot
+  of a jeweler's photo: the studio ring lights, raised to 72° so the glossy tray does not mirror
+  them, over black velvet, brighter than the meter, for the
+  most saturated color and the crispest sparkle when a picture should show the stone off rather
+  than measure it. Applying it also lays the stone out like **Product Shot** (see Stone Pose
+  below), for the design on screen: the camera drops to 15°, the stone stands facing the camera
+  on the tray with its Stone Shadow and a Tray Reflection of 4 %, so the front shows to the
+  camera with a mirror image on the floor below it. The pose depends on the design, so it is worked out when you apply the
+  lighting, not stored in it; an export that fans out over lightings lays the stone out for the
+  export's picture shape the same way. The lighting is still just a lighting afterwards:
+  change the Tray Reflection, the Stone Pose or the camera as you like.
 
   The views on a white or grey tray switch the **Stone Shadow** on, so the stone sits on the
   paper; it shows best from a low angle. On black velvet nothing of it shows, and the
-  Grading tray's even dome casts none worth drawing, so those views switch it off. No view
-  switches on the **Tray Reflection**: a glossy tray mirrors the studio lamps as bright
-  blobs, so add it yourself where it suits the picture.
+  Grading tray's even dome casts none worth drawing, so those views switch it off; on the
+  Presentation view the stone stands on the tray, so it is on there too. Only **Presentation**
+  switches on the **Tray Reflection**: on the other views a glossy tray mirrors the studio lamps
+  as bright blobs, so add it yourself where it suits the picture.
 
   Every view uses the 16° head shadow. Under the Grading tray's evenly lit dome that
   shadow is the only thing that draws a face-up pattern; a larger one (Head Shadow, about
@@ -440,7 +455,7 @@ genuine right-drag gesture.)
   windowing and the tilt curves are the same on every choice. Windowing is light that
   leaves through the pavilion; the render shows what that light looks at. Saved settings
   and saved lightings keep their own backdrop choice.
-- **Stone Shadow** (Lighting tab, SURROUNDINGS) — off by default; five of the built-in
+- **Stone Shadow** (Lighting tab, SURROUNDINGS) — off by default; six of the built-in
   views switch it on (see the table above).
   The stone casts its shadow and colored light onto the backdrop, as a stone on paper
   does. A ruby tints its shadow red; a dispersive stone can show rainbow fringes.
@@ -450,8 +465,8 @@ genuine right-drag gesture.)
   Live viewing computes a Preview map in the background. A camera orbit reuses it;
   a change to the light rebuilds it. Exports, jobs, final images and batches compute a
   Final map before tracing. The setting belongs to saved lighting and this design's
-  lighting. Tilt views and videos do not show the stone shadow yet. Metrics and
-  catalogue previews omit it.
+  lighting. Tilt views do not show the stone shadow; a tilt video draws it only when its own
+  **Stone Shadow** switch is on (Chapter 14). Metrics and catalogue previews omit it.
 - **Tray Reflection** (Lighting tab, SURROUNDINGS, under Stone Shadow) — a
   0–100 % slider in steps of 1, "Off" at 0 (the default). It turns the tray under the stone into a
   glossy surface; the value is how much light the surface reflects when seen straight on. About
@@ -460,8 +475,9 @@ genuine right-drag gesture.)
   reaches the pavilion from below; what the surface does not reflect is the ordinary tray,
   including the Stone Shadow when that is on. It needs a studio light with a backdrop, so the
   row dims with an HDR map, As Lit or "Contrast view (ASET-style)"; while it is dimmed the
-  row shows its name and the reason chip instead of a slider, as the Stone Shadow row does. The setting belongs to saved lighting and this design's lighting. Tilt views and videos do not show it ("Tilt views don't show the tray
-  reflection."). Metrics and catalogue previews omit it. The path cache declines it, and so does
+  row shows its name and the reason chip instead of a slider, as the Stone Shadow row does. The setting belongs to saved lighting and this design's lighting. Tilt views do not show it ("Tilt views don't show the tray
+  reflection."); a tilt video draws it only when its own **Tray Reflection** switch is on
+  (Chapter 14). Metrics and catalogue previews omit it. The path cache declines it, and so does
   beam tracing (in a build with the `beam` feature), with a note each; with the Spectral GPU
   renderer, a graphics card that cannot run it leaves the render to the processor.
 - **Stone Pose** (Lighting tab, SURROUNDINGS, under Tray Reflection) — stands the stone on the
@@ -499,14 +515,18 @@ genuine right-drag gesture.)
   While the stone is posed, a chip over the Live Render picture reads "Stone Pose · tilted 70°"
   (with the current tilt; "Stone Pose · rotated" for a stone that is only turned or spun). It
   is a button: its note says "Stand the stone as designed", and a
-  click resets the pose. You can also pose the stone in the picture itself: **Alt + drag** or
-  **Ctrl + Shift + drag** tilts it (vertical movement) and turns it (horizontal movement);
-  Spin is set with its slider. Ctrl + Shift + drag is there because some Linux window managers
-  take Alt + drag to move the window. While a drag or a slider is held the Stone Shadow is not
+  click resets the pose. You can also turn the stone freely in the picture itself with
+  **Alt + drag** or **Ctrl + Shift + drag**. The stone moves with the hand, the way the camera
+  orbit moves it: dragging down rolls its top towards you, dragging up away from you, and
+  dragging sideways turns it about the vertical. The stone never stops at table up or table
+  down; it keeps turning over, like the orbit, and the sliders follow. Ctrl + Shift + drag is
+  there because some Linux window managers take Alt + drag to move the window. While a drag or a slider is held the Stone Shadow is not
   rebuilt (the picture shows the stone without it) and the shadow comes back a moment after you
   let go; the Tray Reflection stays on, so the mirror image moves while you drag.
 
-  What shows the stone as designed, whatever the pose: tilt views and tilt videos, the metrics
+  What shows the stone as designed, whatever the pose: tilt views and tilt videos (a tilt video
+  can add the Stone Shadow and the Tray Reflection around the stone as options of its section;
+  the stone's pose stays as designed), the metrics
   and figures (the FACE-UP card, the tilt curves), catalogue previews and thumbnails, and the
   Edit tab (the Edit view, including its Solid view, is never posed). The Solid mode of the Live
   Render view shows the posed stone. **Optical Diagnostics** is off while the stone is posed
@@ -571,8 +591,156 @@ material by name, so the ordering never affects what is restored.
 (percentage of light returned to the eye), Fire (a unitless index of
 spectral flare), Scintillation (percentage), Windowing (percentage of the
 face that reads as see-through rather than reflective — turns red above
-10%), and Extinction (percentage of the face that reads as dark shadow
-instead of bright — turns amber above 12%). These figures describe a clear stone with polished facets: when the stone has inclusions, a surface finish or play-of-color, the tooltip adds "Figures ignore ..." (Chapters 26 to 28).
+10%), Extinction (percentage of the face that reads as dark shadow
+instead of bright — turns amber above 12%), and Contrast (0 to 100: how finely the
+viewer's own shadow is broken up across the face). The Advanced interface adds the
+Zones (ASET-style) shares. "How the Face-Up Figures Are Measured" (below) defines each one.
+These figures describe a clear stone with polished facets: when the stone has inclusions, a surface finish or play-of-color, the tooltip adds "Figures ignore ..." (Chapters 26 to 28).
+
+### How the Face-Up Figures Are Measured
+
+Every figure on the FACE-UP card is counted from the same pass of traced rays, so
+none of them hides a weight or a tuned constant. This section says what is traced,
+what each number counts and how to check one by hand. The card's **?** button opens
+the short version of it, a popover that opens beside the card (its right edge plus a small
+gap, at the card's top) with a side view of the zones: Green 0° to 45°, Red 45° to 75° and
+Blue 75° to 90° above the girdle plane, Dark below it. Escape or **Close** shuts it, and
+**Open in the Manual** in that popover brings you here.
+
+**The rays.** The program looks straight down at the table through a grid of 18 by
+18 spots laid over the stone. The grid is the stone's width across its short axis, and
+only the spots inside a disc that covers about 95 % of that half-width are used: 180
+spots. From each spot it sends five rays, from five slightly different eye
+directions, into the stone, so at most 900 rays are traced. They are traced at one
+wavelength, 589 nm (the sodium d-line), with up to 10 bounces inside the stone. Fire
+is the only figure that also uses other wavelengths. Neighboring spots are about 6.3
+% of the girdle width apart, so a pattern finer than that averages out. On an
+elongated outline (an oval, an emerald) the grid covers the short axis, so the
+far ends of the stone are outside every face-up figure.
+
+**What happens to a ray.** A ray ends in one of four ways, and each way is counted in
+exactly one place:
+
+- It leaves **upward**, toward the viewer's side. Where it goes decides its zone
+  (below). If that direction is lit and outside the head shadow, it also counts as
+  **Brilliance**; if it is in the head shadow or not lit, it counts as **Extinction**.
+- It leaves **through the pavilion**. That is **Windowing**, and it is the **Leak** part
+  of Dark.
+- It **never leaves**: no exit within the 10 bounces, or it goes out sideways. That
+  is **Lost**, the other part of Dark, and it counts as Extinction.
+- It does not enter at all (a blocked or invalid entry). It is in no figure.
+
+**Zones (ASET-style).** The block under the bars says, for the whole face, which part
+of the sky the light comes from. The zones are the ones the lighting **Contrast view
+(ASET-style)** paints, measured by the elevation of the direction in which a ray
+leaves the stone, above the girdle plane and with the sky fixed overhead:
+
+| Zone | Elevation of the exit direction | Reads as |
+|---|---|---|
+| **Green** | 0° to 45° | light from low in the sky |
+| **Red** | 45° to 75° | light from higher up |
+| **Blue** | 75° to 90° | light from where your own head is: the shadow you cast |
+| **Dark** | below the girdle plane, or never out | **Leak** plus **Lost** |
+
+Each ray adds one share to the zone of its exit direction, so a share is a percentage
+of the rays that hit the stone, which is an area share of the face. There is no
+weighting by brightness. The sky ranges are the published sharp ones. This program
+blends the zone edges so that a ray near 45° or 75° counts partly in both zones; the
+blend runs from 43.4° to 46.6° around 45° and from 71.1° to 80.4° around 75°. That
+smoothing is the program's own. **Dark** is the **Leak** (the same rays as Windowing,
+and the part that corresponds to ASET's leakage) plus **Lost** (no exit within 10
+bounces, or out sideways). **Lost is not an ASET zone**. Only the refracted light
+counts: the glare from the first surface, which the Contrast view draws, is not in
+the shares.
+
+The shares do not depend on the lighting. Under any rig they are the same numbers, and
+the zones stay overhead even when the camera tilts away from face-up, as in the
+Contrast view. Face-up they are exactly the viewer's frame. The Baseline strip, Compare
+and the Angle Sweep all measure face-up.
+
+**Contrast.** One number from 0 to 100. It is **Pleochroma's own measure, not an AGS or
+GIA figure**: neither organization publishes a numeric formula. They describe the
+quality in words, as the relative size, arrangement and contrast of bright and dark
+areas seen face-up (Moses, Reinitz, Johnson, King, Shigley, "A foundation for grading
+the overall cut quality of round brilliant-cut diamonds", Gems & Gemology, Fall 2004,
+40(3), 202-228), and Contrast is one way to put a number to the "pattern" wording of that
+paper. The formula:
+
+- For each spot of the grid, take its **Blue share** *b*: the part of its rays that leave
+  in the blue zone, from 0 to 1 (a spot with no ray that hits the stone has none).
+- Take every pair of spots that are **left-right or up-down neighbors** on the grid and
+  both on the stone (328 pairs on a full disc).
+- **Contrast = 100 x the mean of |b(i) - b(j)| over those pairs.** With no pair it is 0.
+
+Only Blue counts as shadow. Dark (Leak and Lost) is not the viewer's shadow, but an edge
+between a Blue spot and a Dark spot counts as one, like an edge between a Blue spot and
+a bright one; the Dark share beside the figure shows when that matters.
+
+A worked example on a grid of 3 by 3 spots, with the Blue share of each spot (the
+numbers are 0 or 1 to keep it short):
+
+| | | |
+|---|---|---|
+| 1 | 1 | 0 |
+| 1 | 1 | 0 |
+| 1 | 1 | 0 |
+
+There are 12 neighbor pairs (6 left-right, 6 up-down). Only the 3 pairs across the middle
+boundary differ, by 1 each, so Contrast = 100 x 3 / 12 = **25**. A single blue spot in
+the centre of an otherwise bright grid differs from its 4 neighbors: 100 x 4 / 12 =
+**33.3**. A checkerboard of blue and bright spots differs in every pair and reads **100**.
+A face that is all bright, all blue, or one smooth blue patch reads low.
+
+How to read it: a **high** value means finely broken-up shadow, many small patches
+beside bright ones. It is not a better grade, and it does not mean AGS Ideal, which asks
+for contrast distributed evenly. A low value means no shadow or one big smooth shadow. The
+amount of shadow is the Blue share, which is shown beside it. In the comparisons
+(Baseline strip, Compare, Angle Sweep) a **higher** Contrast is counted as better, and a
+change of less than **4 points** reads as "about the same".
+
+**How steady the numbers are.** The grid is fixed, so Contrast can move a few points when
+the stone is turned a little under it, or when a facet edge slides across a spot. One
+spot changing from bright to Blue moves Contrast by at most about 1.2 points, and the 4
+point threshold allows for a few such spots. Contrast is the noisiest on a frosted
+stone, whose figures are a reproducible random estimate. On a birefringent stone each of
+the two images counts for half, so a doubled facet shows as half-Blue spots. A concave
+tier is handled as the other figures handle it: a ray that leaves through a groove wall
+is scored as having left.
+
+**The two identities.** Because every ray is counted exactly once, these two hold on the
+card under every lighting, within rounding:
+
+- **Red + Green + Blue + Leak + Lost = 100 %**, apart from the rare rays that are in no
+  class.
+- **Extinction = Lost + (Red + Green + Blue) - Brilliance.** Red + Green + Blue is all the
+  light that leaves upward; Brilliance is the lit part of it outside your head's shadow;
+  the rest of it, together with Lost, is Extinction. Dark is also Windowing plus Lost,
+  as the card's line "Dark = Leak ... % + Lost ... %" shows.
+
+**Where the figures show.**
+
+- The **Live Render FACE-UP card**: the Contrast row in both interfaces; the **Zones
+  (ASET-style)** block (a stacked bar and a legend of four equal cells, Red, Green, Blue and Dark, each
+  with its share as a bare number, and the Leak and Lost split of Dark in the line "Dark =
+  Leak ... % + Lost ... %") only in the **Advanced** interface. The block's note reads "%
+  of the face": the numbers are percentages of the face. The shares are the same under every
+  lighting.
+- The **Edit** figures card: the Contrast cell and its change since the Baseline (no zones block,
+  to keep the card short).
+- The **Baseline strip**, **Compare** and the **Angle Sweep** (Chapters 5, 14 and 21).
+- The command line: `pleochroma-cli metrics` prints Contrast and the six zone figures
+  in the "Optics, table up" group, and the flag `--aset-grid` adds the 18 by 18 grid of
+  Blue shares that Contrast is computed from ("." marks a spot off the stone), with the
+  line "Contrast = 100 x mean |difference| over the ... pairs = ...". The grid is in the
+  text report only, so a cutter can recompute the figure with a spreadsheet.
+
+**Copying.** Click the card (its accessible name is **Copy the Face-Up Figures**) and the
+clipboard gets "Optical Metrics:" and one line for each figure: Brilliance, Fire Index,
+Scintillation, Windowing, Extinction, Contrast (for example "Contrast: 27.3") and, in the
+Advanced interface once measured, "Zones (ASET-style): Red 44.0% · Green 19.0% · Blue 16.1%
+· Dark 20.9% (Leak 9.0%, Lost 11.9%)".
+
+ASET is a registered trademark of the Gemological Institute of America, Inc. (GIA). Pleochroma is not affiliated with or endorsed by GIA or the American Gem Society.
 
 ## The Parameters Dock
 
@@ -636,10 +804,22 @@ and, except where it says otherwise, is saved in the design and can be undone.
 
 ![The Stone tab of the Parameters dock.](../../../../assets/parameters_stone.png)
 
-**Material and color.** The tab opens with an identity card: the material's name, chips
-for its family, dispersion, the effective refractive index (**RI**) and the critical angle (**Critical**) (a click on the RI chip opens the
-**RI Override**, Advanced) and a **Material Menu** (the "..." button) holding **RI
-Override**, **New/Edit Material...** and, while a preview runs, **Preview Color**. Below it
+**Material and color.** The tab opens with an identity card: the material's name with its
+family line under it, and a **Material Menu** (the "..." button) holding **RI Override**,
+**New/Edit Material...**, **Material Reference...** and, while a preview runs, **Preview
+Color**. Under the name, chips give the material's facts, in this order: **RI** (the
+effective refractive index; a click on it opens the **RI Override** in the Advanced
+interface), **Critical** (the critical angle), **Dispersion** (B–G), **SG** (specific
+gravity), **Mohs** (hardness) and **Toughness** with its grade (for example "Toughness
+Poor" for a topaz).
+A chip is left out when no source gives its value, never filled with "Not recorded". The
+card's **cleavage line** follows: "Cleavage: ..." in muted text, and in amber with a
+warning mark when the cleavage is a cutting risk (perfect, good or distinct). A custom
+material with no gem data shows "No gem data yet — add it in the Material Editor" there,
+and the link opens the editor. At the card's foot the **Material Details...** button opens
+the Material Reference window on this material, for care, fracture, sources, the weight and
+the curves (Chapter 6). The former Gem Data fold card is gone: its facts are the chips and
+the cleavage line. Below the card
 are the **Material** combo (built-in materials, then your own, then "Custom RI...") and
 **Preview As...**, then the body color as a list of tiles (one per color of the
 material; a stone with two body colors shows split tiles) plus a **Custom** tile that
@@ -863,6 +1043,9 @@ freshly ray-traced.
 - **Extinction % (Shadows)** — the percentage of the face reading as dark,
   dead shadow instead of bright.
 
+Contrast and the zone shares have no tilt curve yet: the zones stay overhead, so a tilted
+reading would not be the viewer's own shadow.
+
 Choose a **Tilt Axis** — 0° (length), 45°, 90° (width), or 135° — to see
 the sweep along one particular compass direction around the stone, or turn
 on **All** to overlay all four at once. Three badges report the face-up
@@ -882,13 +1065,11 @@ polished ones, while a design without frosting is swept exactly as before.
 floating card with a live mini-render of the stone at exactly that tilt
 and axis, plus the interpolated value of each visible curve at that point.
 
-**If you change material after a curve was already computed and cached**,
-the dialog shows a banner: "This cached curve was rendered with
-&lt;old material&gt;, not the current material (&lt;current&gt;)." with a
-**Re-Render Fresh** button. Clicking Re-Render always computes a genuinely
-fresh sweep for the current material; opening the dialog while the cached
-curve belongs to a different material triggers this recompute
-automatically, without you needing to notice or click anything.
+**The curves always belong to the stone as it is loaded.** Opening the
+dialog sweeps the current design, material and light, and a change to the
+facets while it is open starts a new sweep by itself. When the curves on
+screen no longer describe the stone, a **Stale: Design Changed** badge
+appears with a **Recompute** button that sweeps it again.
 
 A **Copy 181-Point Data Table** button at the bottom copies the full
 numeric sweep (all four axes) to the clipboard for your own analysis.

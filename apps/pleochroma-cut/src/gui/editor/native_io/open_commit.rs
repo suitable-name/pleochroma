@@ -33,7 +33,7 @@ use crate::{
     },
 };
 use pleochroma_cut_core::{History, native::LoadedDesign as DesignFileLoaded};
-use pleochroma_editor::EditorSession;
+use pleochroma_editor::{EditorSession, material_lookup::with_pattern_notice};
 use restore_material::restore_custom_material;
 use slint::ComponentHandle;
 use std::{
@@ -157,6 +157,8 @@ pub(super) fn open_design_file(
         .draft
         .then_some(" It was saved as an unsolved draft; add a scale-reference tier to finish it.");
     let printed_proportions = loaded.printed_proportions;
+    // Read before the design moves into the session: a pattern that cannot apply says so.
+    let (status_text, pattern_problem) = with_pattern_notice("", &loaded.design);
     state.borrow_mut().replace_wholesale(EditorState {
         deep_solve_result_generation: None,
         session: EditorSession::with_history(loaded.design, History::new()),
@@ -204,11 +206,11 @@ pub(super) fn open_design_file(
     show_toast(
         ui,
         &format!(
-            "{status_lead}{}{}",
+            "{status_lead}{}{}{status_text}",
             material_note.unwrap_or_default(),
             draft_note.unwrap_or_default()
         ),
-        if material_unresolved || loaded.draft {
+        if material_unresolved || loaded.draft || pattern_problem {
             "warning"
         } else {
             "success"
@@ -234,6 +236,7 @@ pub(super) fn open_plain_asc(
     );
     match crate::gui::editor::loading::design_from_asc_text(&file_name, asc_text, None) {
         Ok(loaded) => {
+            let (pattern_note, pattern_problem) = with_pattern_notice("", &loaded.design);
             commit_plain_design(
                 ui,
                 state,
@@ -247,10 +250,14 @@ pub(super) fn open_plain_asc(
                 ui,
                 &format!(
                     "Loaded '{}' (plain .asc -- authored meet constraints and detached \
-                     facets are not available; open the .psdd design file for those).",
+                     facets are not available; open the .psdd design file for those).{pattern_note}",
                     asc_path.display()
                 ),
-                "success",
+                if pattern_problem {
+                    "warning"
+                } else {
+                    "success"
+                },
             );
         }
         Err(e) => show_toast(ui, &format!("Cannot open: {e}"), "error"),
@@ -282,6 +289,7 @@ pub(super) fn open_converted_design(
     match crate::gui::editor::loading::design_from_asc_text(&asc_file_name, &asc_text, None) {
         Ok(mut loaded) => {
             loaded.design.apply_imported_frosting(&frosting);
+            let (pattern_note, pattern_problem) = with_pattern_notice("", &loaded.design);
             commit_plain_design(
                 ui,
                 state,
@@ -304,10 +312,10 @@ pub(super) fn open_converted_design(
                 &format!(
                     "Loaded '{}' as .asc cutting instructions. Save writes a new \
                      .psdd design file named after '{asc_file_name}'; the original file is \
-                     never changed.{notes}",
+                     never changed.{notes}{pattern_note}",
                     source_path.display()
                 ),
-                if warnings.is_empty() {
+                if warnings.is_empty() && !pattern_problem {
                     "success"
                 } else {
                     "warning"

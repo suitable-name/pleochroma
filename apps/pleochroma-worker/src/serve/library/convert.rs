@@ -1,10 +1,10 @@
-//! Wire conversions between `pleochroma_net::library`'s wire types and
-//! `pleochroma_vault`'s local storage-layer types, in both directions: request-side
-//! (`from_*`) validates and narrows a wire filter into the vault's own
+//! Wire conversions between `pleochroma_net::library`'s wire types and `pleochroma_vault`'s local
+//! storage-layer types, in both directions.
+//!
+//! Request-side (`from_*`) validates and narrows a wire filter into the vault's own
 //! [`RangeFilter`]/[`PerformanceFilter`]; response-side (`to_*`) builds a
-//! [`DesignSummary`]/[`DesignRecord`] from a vault row, stamping in the summary's
-//! content-hash `version` and the revision-token `design_version`/`version` via
-//! `super::version_hash`.
+//! [`DesignSummary`]/[`DesignRecord`] from a vault row, stamping in the summary's content-hash
+//! `version` and the revision-token `design_version`/`version` via `super::version_hash`.
 
 use pleochroma_net::{
     library::{

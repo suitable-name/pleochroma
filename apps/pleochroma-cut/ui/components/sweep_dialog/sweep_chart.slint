@@ -15,6 +15,8 @@ component SeriesPill inherits Rectangle {
     in property <string> text;
     in property <color> tone;
     in property <bool> shown;
+    // A dashed line gets a short dash sample in place of the dot.
+    in property <bool> dashed;
     callback toggled();
 
     height: 22px;
@@ -48,12 +50,27 @@ component SeriesPill inherits Rectangle {
         clicked => { root.toggled(); }
     }
 
-    Rectangle {
+    if !root.dashed: Rectangle {
         x: 9px;
         y: (parent.height - self.height) / 2;
         width: 8px;
         height: 8px;
         border-radius: 4px;
+        background: root.shown ? root.tone : Theme.text-disabled;
+    }
+    // Two dashes, the pattern of the line itself.
+    if root.dashed: Rectangle {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: 4px;
+        height: 2px;
+        background: root.shown ? root.tone : Theme.text-disabled;
+    }
+    if root.dashed: Rectangle {
+        x: 14px;
+        y: (parent.height - self.height) / 2;
+        width: 4px;
+        height: 2px;
         background: root.shown ? root.tone : Theme.text-disabled;
     }
     pill_label := Text {
@@ -68,6 +85,15 @@ component SeriesPill inherits Rectangle {
 
 export component SweepChart inherits VerticalLayout {
     spacing: 6px;
+
+    // Tells Rust the plot's pixel size (for the dash length) and to redraw the lines.
+    function report_size() {
+        if SweepModel.plot_width != plot.width || SweepModel.plot_height != plot.height {
+            SweepModel.plot_width = plot.width;
+            SweepModel.plot_height = plot.height;
+            SweepModel.plot_resized();
+        }
+    }
 
     // Which lines the chart draws.
     HorizontalLayout {
@@ -84,6 +110,7 @@ export component SweepChart inherits VerticalLayout {
             text: column.title;
             tone: SweepStyle.series_color(column.series);
             shown: column.shown;
+            dashed: SweepStyle.series_dashed(column.series);
             toggled => { SweepModel.toggle_series(column.series); }
         }
         Rectangle { horizontal-stretch: 1; }
@@ -100,6 +127,11 @@ export component SweepChart inherits VerticalLayout {
         border-color: Theme.chart-border;
         border-radius: Theme.radius-sm;
         clip: true;
+
+        // Rust cuts the dashed line into dashes of a fixed pixel length, so it needs the size.
+        init => { root.report_size(); }
+        changed width => { root.report_size(); }
+        changed height => { root.report_size(); }
 
         // Reference lines at 25, 50 and 75 percent of the height.
         Rectangle { y: plot.height * 0.25; width: 100%; height: 1px; background: Theme.chart-grid; }

@@ -263,6 +263,15 @@ pub enum SessionUpdate {
     Preview { request_id: u32 },
     /// A `PROGRESS` ping for the current epoch.
     Progress { request_id: u32, samples_done: u32 },
+    /// A `PREPARING` notice for the current epoch: the server is building its shader cache
+    /// and has traced nothing yet, `done` of `total` steps (`total == 0`: unknown). Proof of
+    /// life like `Progress`; a caller shows "preparing" text and keeps its stall deadline
+    /// moving.
+    Preparing {
+        request_id: u32,
+        done: u32,
+        total: u32,
+    },
     /// `DONE` for the current epoch.
     Done {
         request_id: u32,
@@ -318,6 +327,16 @@ fn to_update(event: &StreamEvent, outcome: ApplyOutcome) -> SessionUpdate {
             SessionUpdate::Progress {
                 request_id: p.request_id,
                 samples_done,
+            }
+        }
+        ApplyOutcome::Preparing { done, total } => {
+            let StreamEvent::Preparing(p) = event else {
+                unreachable!("Preparing outcome only ever comes from applying a Preparing event")
+            };
+            SessionUpdate::Preparing {
+                request_id: p.request_id,
+                done,
+                total,
             }
         }
         ApplyOutcome::Done { cancelled } => {
@@ -773,6 +792,48 @@ mod tests {
                     message: "internal error while tracing this request".to_string(),
                     request_id: None,
                 }),
+            ]
+        );
+    }
+
+    /// `PREPARING` reaches `on_update` as liveness with its counts, ahead of any sample, and
+    /// a stale epoch's notice is dropped.
+    #[test]
+    fn run_client_session_reports_preparing_as_liveness() {
+        let mut wire = Vec::new();
+        for (request_id, done, total) in [(1, 0, 40), (1, 12, 40), (0, 5, 40)] {
+            write_stream_event(
+                &mut wire,
+                &StreamEvent::Preparing(crate::messages::Preparing {
+                    request_id,
+                    done,
+                    total,
+                }),
+                None,
+            )
+            .unwrap();
+        }
+
+        let mut cursor = Cursor::new(wire);
+        let mut acc = Accumulator::new(1, 1);
+        acc.begin_request(1);
+        let mut updates = Vec::new();
+        run_client_session(&mut cursor, &mut acc, |u| updates.push(u)).unwrap();
+
+        assert_eq!(
+            updates,
+            vec![
+                SessionUpdate::Preparing {
+                    request_id: 1,
+                    done: 0,
+                    total: 40
+                },
+                SessionUpdate::Preparing {
+                    request_id: 1,
+                    done: 12,
+                    total: 40
+                },
+                SessionUpdate::StaleDropped { request_id: 0 },
             ]
         );
     }

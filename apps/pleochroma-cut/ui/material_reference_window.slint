@@ -1,0 +1,63 @@
+// The Material Reference window: every built-in and custom material in one sortable table, and a
+// details page per material (curves, spectra, colors, variants, gem data).
+//
+// A separate top-level `Window`, non-modal so it can stay open beside the design, created, shown and
+// hidden from Rust (`gui::material_reference`). Everything it shows comes from its OWN instance of
+// `MaterialReferenceModel`. Escape closes it; the "?" buttons open the manual through this window's
+// own `HelpModel`.
+//
+// Sizing: the whole content hangs off an x/y-positioned wrapper, so no layout constraint inside it
+// reaches the window (the window's min AND max come from its content tree otherwise -- see
+// `app.slint`'s sizing notes); the window's own `min-width`/`min-height` are the only limits. The
+// table drops its less important columns, and the details page stacks its columns, as the window
+// narrows.
+import { Theme } from "theme.slint";
+import { MaterialReferenceModel, RefRow, RefChip, RefHeader, RefTick, RefGuide, RefHover, CurveSeries, BandRow, ColorRow, VariantRow, DataRow } from "models/material_reference.slint";
+import { ReferencePage } from "components/material_reference/ref_table.slint";
+import { DetailPage } from "components/material_reference/detail_page.slint";
+
+export { MaterialReferenceModel, RefRow, RefChip, RefHeader, RefTick, RefGuide, RefHover, CurveSeries, BandRow, ColorRow, VariantRow, DataRow }
+
+export component MaterialReferenceWindow inherits Window {
+    title: "Material Reference \u{2014} Pleochroma Cut";
+    // See `MainWindow`'s `icon` (app.slint) for why every window sets it.
+    icon: @image-url("../assets/icon.png");
+    preferred-width: 1180px;
+    preferred-height: 780px;
+    min-width: 640px;
+    min-height: 480px;
+    background: Theme.bg-darkest;
+    default-font-family: "Segoe UI";
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+
+        // Escape closes the window; the pages' own key handling sits inside this scope and
+        // passes the key on.
+        window_keys := FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    MaterialReferenceModel.close();
+                    return accept;
+                }
+                return reject;
+            }
+
+            if MaterialReferenceModel.page == 0: ReferencePage {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+            }
+            if MaterialReferenceModel.page == 1: DetailPage {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+    }
+}

@@ -1,6 +1,12 @@
 # pleochroma-worker
 
-Headless server and CLI for a `pleochroma` design library.
+The Pleochroma coordinator: a window by default, and a headless server and command line
+for a `pleochroma` design library. Wire protocol **45**: every app, the coordinator and
+every worker must run the same version.
+
+Started with no arguments, the program opens the coordinator window (see
+[The coordinator window](#the-coordinator-window)). Every command below runs with
+`--headless` (see [`--headless`](#--headless-the-command-line-and-servers)).
 
 `serve` is the **coordinator**. It always answers read-only catalogue queries —
 search, filter options, fetch a design, fetch an attachment — over mutual TLS, so a
@@ -23,36 +29,50 @@ enrollment tokens so a viewer never needs a bundle copied to it by hand. `join`
 
 | Feature | Default | Adds |
 |---|---|---|
-| *(none)* | ✅ | Library server, `cert`, mutual TLS, enrollment |
-| `worker` | off | Render capacity — `RenderRequest`, `render`, `join`, the coordinator's worker port, `Backend` advertisement |
-| `gpu` | off | GPU tracing; implies `worker`, since GPU without render capacity is meaningless |
+| *(none)* | always | Library server, `cert`, mutual TLS, enrollment |
+| `worker` | off alone | Render capacity — `RenderRequest`, `render`, `join`, the coordinator's worker port, `Backend` advertisement |
+| `gpu` | **default** | GPU tracing; implies `worker`, since GPU without render capacity is meaningless |
+| `gui` | **default** | The coordinator window, its tray or menu-bar item and pairing with a QR code; implies `worker` |
 | `adaptive-sampling` | off | Adaptive live passes of protocol v37 on the own lane and through a coordinator; implies `worker`; an optional, parked feature. Without it a render connection answers every `LivePassRequest` `UNSUPPORTED_REQUEST` and keeps serving, and a coordinator refuses them instead of forwarding. `beam` implies it |
 | `beam` | off | Whole beam tiles of protocol v38 on the own lane and through a coordinator; implies `worker`; retired. Without it a render connection answers every beam-tile request `UNSUPPORTED_REQUEST` and keeps serving, and a coordinator does not forward them |
 
-A default build does not compile `pleochroma` in at all — see [GPU](#gpu).
+The default features are `gui,gpu`. A headless server build, without the window and its
+dependencies, is `cargo build -p pleochroma-worker --release --no-default-features --features worker`
+(add `gpu` for GPU tracing). A build without `gui` always runs headless, with or without the
+flag.
 
-## Icon, and why this binary keeps its console
+## Icon, and the Windows console twin
 
 `build.rs` embeds `assets/icon.ico` as a Windows resource — emerald, so it is
 distinguishable from `pleochroma-cut`'s cyan at a glance. Regenerate both with
 `python scripts/make-icons.py`.
 
-There is deliberately **no** `windows_subsystem = "windows"` here, unlike `pleochroma-cut`.
-This is a command-line tool: `render` prints progress, `serve` streams `tracing` output
-for the life of the server, and `cert` prints fingerprints an operator has to read.
-Marking it a Windows-subsystem binary would detach stdout from the parent console, so
-`pleochroma-worker serve` run from a terminal would print nothing at all. The icon is
-cosmetic; the console is the interface.
+With the `gui` feature the Windows binary is a Windows-subsystem program, like
+`pleochroma-cut`: double-clicking it opens the window with no console behind it. That would
+detach stdout from a terminal, so a second, tiny program ships beside it:
+`pleochroma-worker-console` (built by the same `cargo build`). Packaging renames it to
+`pleochroma-worker.com`, and `cmd` and PowerShell try `.com` before `.exe`, so typing
+`pleochroma-worker` in a terminal starts the twin. It runs the real program with the same
+arguments and streams, waits for it, and returns its exit code. See
+[The Windows console twin](#the-windows-console-twin). A build without `gui` keeps its console
+and needs no twin.
 
 ## Documentation map
 
 This file is the operator's reference: how to build it, every command and flag, both
-certificate workflows, and troubleshooting. Two companion documents hold the material
-that doesn't belong in a command reference:
+certificate workflows, and troubleshooting. These hold the material that doesn't belong
+in a command reference:
 
 - [`docs/security.md`](docs/security.md) — the trust model. Who may connect and how,
-  both enrollment paths and what a stolen token would get an attacker, what each
-  security-relevant flag weakens, and what this explicitly does *not* protect against.
+  both enrollment paths and what a stolen token would get an attacker, pairing links and
+  the code lifecycle, the fixed certificate name, discovery, the Monitor and Admin roles,
+  the never-remote list and the audit line, how secrets are kept out of logs and the
+  clipboard, what each security-relevant flag weakens, and what this explicitly does
+  *not* protect against.
+- [`packaging/README.md`](packaging/README.md) — the Linux service files (systemd and
+  OpenRC templates for `serve` and `join`).
+- The manual's Coordinator chapter — the window, the wizard, pairing and remote
+  administration for people who use the app rather than the command line.
 - [`docs/architecture.md`](docs/architecture.md) — how it works inside. The
   tracer/emitter split, cancellation and `request_id` epochs, the threading model, the
   coordinator's job execution over joined workers, and the GPU backend, with diagrams.
@@ -73,7 +93,93 @@ A worker that also serves adaptive live passes (optional, see the feature table)
 A worker that also serves beam tiles (retired, see the feature table) builds with
 `--features beam`, or `--features gpu,beam` for the GPU beam engine.
 
+## The coordinator window
+
+Run the program with no arguments (or double-click it) and it opens the **coordinator
+window**. This is the default since 0.12.0 and needs a `gui` build (the default features).
+
+```
+pleochroma-worker
+pleochroma-worker --minimized      # start hidden in the tray (Windows, Linux) or menu bar (macOS)
+pleochroma-worker --config <file>  # use another settings file
+```
+
+- **First run: the wizard.** A short wizard asks what this computer is for: run a
+  coordinator here, or only monitor or manage one elsewhere. For a coordinator it then
+  asks for a name, the library (a library file, rendering only with no library, or an
+  existing coordinator folder moved over from a headless setup, which keeps every paired
+  device), who may connect (devices on the network, or only this computer), what renders
+  (graphics card and processor, graphics card only, or processor only), and whether to
+  start at login and keep the computer awake. When it finishes it creates the certificate
+  authority and the server certificate, starts the coordinator and opens the pairing
+  dialog.
+- **Pairing.** Pairing makes a one-time code, 180 seconds, shown as a QR code and a link.
+  A phone scans it; on a computer, copy the link instead (it is masked on screen and kept
+  out of the clipboard history). The same dialog pairs render computers ("Add a render
+  computer"). A page of the window lists the devices, with Rename and Remove access.
+  How the codes are protected is in [`docs/security.md`](docs/security.md).
+- **Remote administration.** Off by default. With it on, a phone or computer paired as
+  Monitor (look only) or Admin can manage this coordinator; the window can also switch
+  between this coordinator and others you added.
+- **Tray and menu bar.** The window keeps the coordinator running when closed (Windows and
+  Linux tray; where a Linux desktop has no tray host, closing minimizes instead). The menu
+  has Open, the status, Connect a phone and Quit. One coordinator window runs per user and
+  folder: starting a second brings the first forward and exits.
+- **Where it keeps things.** Settings in `%APPDATA%\Pleochroma\coordinator.toml`
+  (`~/Library/Application Support/Pleochroma/` on macOS, `$XDG_CONFIG_HOME/pleochroma/` or
+  `~/.config/pleochroma/` on Linux); keys, certificates (`pki/`), jobs, the asset cache and
+  logs (`logs/`, 14 days) in `%LOCALAPPDATA%\Pleochroma`,
+  `~/Library/Application Support/Pleochroma` or `$XDG_DATA_HOME/pleochroma`. A headless
+  run keeps today's paths, relative to the working directory and the flags you pass.
+- **No display.** On a machine without one the program says so and tells you to use
+  `--headless`.
+
+### macOS
+
+In 0.12.0 the window runs from the plain binary, with a menu-bar item. Packaging it as an
+app bundle, signing and notarizing it, and the Info.plist entries are the owner's work and
+are not part of the source tree. One entry is needed for pairing and discovery to work from
+a bundle: macOS asks the user before an app may talk to devices on the local network and
+shows the text of `NSLocalNetworkUsageDescription`. Suggested text for the owner:
+
+> Pleochroma Coordinator announces itself on your local network and lets your phone and
+> your other computers find it and pair with it.
+
+Because the coordinator announces `_pleochroma._tcp`, the bundle also needs
+`NSBonjourServices` with the entry `_pleochroma._tcp`.
+
+## `--headless`: the command line and servers
+
+`--headless` runs the program as before, never opening a window. **Every command in this
+file needs it**: `pleochroma-worker --headless serve ...`, `--headless render ...`,
+`--headless join ...`, `--headless cert ...`. The flag may stand anywhere on the line.
+
+- **Deprecation.** A command given without `--headless` still runs in 0.12.0, with one
+  warning on standard error: `warning: "serve" without --headless is deprecated; add --headless`.
+  Change scripts, service files and shortcuts now. A bare
+  line with no command, or only `--minimized`, `--config <file>`, `--no-update-check` or
+  `--radv-workaround <on|off>`, opens the window.
+- **Services.** Use `--headless` in every service. The Linux templates already do (see
+  [`packaging/README.md`](packaging/README.md)).
+- **Global flags** (anywhere on the line): `--headless`; `--minimized` (window only);
+  `--config <file>`, the settings file.
+
+### The Windows console twin
+
+A Windows build with the window has no console, so a terminal gets its prompt back at once
+and loses the output and the exit code. `pleochroma-worker.com` sits next to
+`pleochroma-worker.exe` and fixes that: `cmd` and PowerShell start a `.com` before a `.exe`,
+so `pleochroma-worker --headless serve ...` typed in a terminal runs through it, with the
+output, Ctrl-C and the exit code of the real program. The twin never adds `--headless`
+itself: a line with a command, `--headless`, `--help` or `--version` is waited for, and a
+bare line opens the window detached so the prompt returns. Cargo builds it as
+`pleochroma-worker-console.exe`; packaging renames it to `pleochroma-worker.com` and ships
+both files in the same folder.
+
 ## Command reference
+
+Every command line below needs `--headless` added in front of the command (shown here as
+`pleochroma-worker --headless render ...`, and so on); the examples carry it.
 
 Argument parsing is hand-rolled (no `clap`) — `-h`/`--help` anywhere in the
 argument list, or no arguments at all, prints help and exits; this is verified
@@ -85,25 +191,26 @@ one level further into `cert`'s five sub-subcommands. The combined usage lines
 below are a README convenience, not what any single `--help` invocation prints.
 
 ```
-pleochroma-worker render --scene <scene.json> --out <render.png> --width <px> --height <px> --samples <n> [--threads <n>] [--only-gpu | --only-cpu]
-pleochroma-worker serve  [--bind <host:port>] [--allow-remote] [--db <path>] [--max-connections <n>] [--max-preauth-per-ip <n>]
+pleochroma-worker --headless render --scene <scene.json> --out <render.png> --width <px> --height <px> --samples <n> [--threads <n>] [--only-gpu | --only-cpu]
+pleochroma-worker --headless serve  [--bind <host:port>] [--allow-remote] [--db <path>] [--max-connections <n>] [--max-preauth-per-ip <n>]
                      [--render] [--threads <n>] [--only-gpu | --only-cpu]
                      --ca <ca.pem> --cert <server.pem> --key <server.key> [--allowlist <path>] [--trust-any-client-cert]
                      [--enroll-bind <host:port>] [--no-enroll]
                      [--worker-bind <host:port>] [--worker-enroll-bind <host:port>] [--worker-allowlist <path>] [--no-workers]
                      [--interactive-workers <n|all>] [--pin-interactive-worker <label>] [--max-job-memory-mib <n>]
                      [--whole-image-secs <secs>] [--whole-image-pixel-samples <n>] [--jobs-per-viewer <n>]
-                     [--payload-encoding <auto|raw|lz4|zstd[:LEVEL]>]
-pleochroma-worker serve  [--bind <host:port>] [--render] [--threads <n>] [--only-gpu | --only-cpu] [--db <path>] [--max-connections <n>] --insecure-no-tls
-pleochroma-worker join   <coordinator-host:port> [--cert-dir <dir>] [--slots <k>] [--threads <n>] [--only-gpu | --only-cpu]
+                     [--payload-encoding <auto|raw|lz4|zstd[:LEVEL]>] [--allow-remote-admin]
+pleochroma-worker --headless serve  [--bind <host:port>] [--render] [--threads <n>] [--only-gpu | --only-cpu] [--db <path>] [--max-connections <n>] --insecure-no-tls
+pleochroma-worker --headless join   <coordinator-host:port> [--cert-dir <dir>] [--slots <k>] [--threads <n>] [--only-gpu | --only-cpu]
                          [--payload-encoding <auto|raw|lz4|zstd[:LEVEL]>]
                          [--token <GW1-...> [--enroll-addr <host:port>]]
 
-pleochroma-worker cert init         --dir <pki-dir>
-pleochroma-worker cert issue-server --dir <pki-dir> --host <name> [--host <name> ...] --ip <addr> [--ip <addr> ...]
-pleochroma-worker cert issue-client --dir <pki-dir> --name <label> --out <bundle-dir> [--role viewer|worker]
-pleochroma-worker cert issue-token  --ca <ca.pem> --admin-addr <host:port> --name <label> [--role viewer|worker]
-pleochroma-worker cert claim        --token <token> --addr <host:port> --out <bundle-dir>
+pleochroma-worker --headless cert init         --dir <pki-dir>
+pleochroma-worker --headless cert issue-server --dir <pki-dir> --host <name> [--host <name> ...] --ip <addr> [--ip <addr> ...]
+pleochroma-worker --headless cert issue-client --dir <pki-dir> --name <label> --out <bundle-dir> [--role viewer|worker]
+pleochroma-worker --headless cert issue-token  --ca <ca.pem> --admin-addr <host:port> --name <label> [--role viewer|worker|monitor|admin]
+                                    [--address <ip:port> ...] [--no-qr]
+pleochroma-worker --headless cert claim        --token <token> --addr <host:port> --out <bundle-dir>
 ```
 
 ### `render` — trace a scene straight to a PNG, no networking
@@ -164,7 +271,7 @@ std::fs::write("scene.json", serde_json::to_string_pretty(&scene)?)?;
 Example, with a scene built as above:
 
 ```
-pleochroma-worker render --scene scene.json --out render.png --width 800 --height 600 --samples 16
+pleochroma-worker --headless render --scene scene.json --out render.png --width 800 --height 600 --samples 16
 ```
 
 writes an 800x600 PNG to the given path.
@@ -285,6 +392,7 @@ one regardless of what was advertised.
 | `--interactive-workers <n\|all>` | `all` | **Advanced.** How many of the fastest idle joined workers a live-view request takes besides the own lane: `all` is every idle one that accepts the image. `0` keeps the live view on the own lane alone (or, without `--render`, on the single fastest idle worker) — the lowest-latency path over a slow link. `worker` builds only. |
 | `--pin-interactive-worker <label>` | none | **Advanced.** When a live-view request takes joined workers (the default, unless `--interactive-workers 0` is combined with `--render`), use the worker whose certificate label is `<label>` first — the `--name` its worker certificate was issued with; `worker:<label>` also works — while it is connected, idle and accepts the image size. Otherwise the fastest-idle-worker rule applies, and the log says so once per change. `worker` builds only. |
 | `--allow-remote` | off | Required to bind any non-loopback address, TLS or not — exposing this worker beyond localhost must be an explicit, visible choice. |
+| `--allow-remote-admin` | off | Let monitor and admin devices manage this coordinator over the viewer port. Without it such a device is refused, and `cert issue-token --role monitor\|admin` is refused too. Their certificates go in `allowlist-monitors.txt` and `allowlist-admins.txt` next to `--ca`. See [`docs/security.md`](docs/security.md#remote-administration-monitor-and-admin). |
 | `--ca <path>` | — | CA certificate that issued both `--cert` and every trusted client certificate. Required unless `--insecure-no-tls`. |
 | `--cert <path>` | — | This coordinator's own certificate (from `cert issue-server`), used on the viewer and the worker port. |
 | `--key <path>` | — | This coordinator's own private key. |
@@ -297,14 +405,14 @@ Minimal loopback example, no TLS setup needed (library only; add `--render` on a
 port here):
 
 ```
-pleochroma-worker serve --insecure-no-tls
+pleochroma-worker --headless serve --insecure-no-tls
 ```
 
 Real remote example, once certificates exist (see below) — a coordinator that also
 renders itself (drop `--render` for a library + joined-workers-only coordinator):
 
 ```
-pleochroma-worker serve --ca pki\ca.pem --cert pki\server.pem --key pki\server.key --allow-remote --bind 0.0.0.0:7878 --render
+pleochroma-worker --headless serve --ca pki\ca.pem --cert pki\server.pem --key pki\server.key --allow-remote --bind 0.0.0.0:7878 --render
 ```
 
 (`--allowlist` defaults to `pki\allowlist-viewers.txt` — or an existing
@@ -314,8 +422,8 @@ issue-client` runs have added to it.)
 ### `join` — render for a coordinator over an outbound connection (`worker` builds)
 
 ```
-pleochroma-worker join coordinator.example:7880 --cert-dir worker-cert [--slots 2] [--only-cpu]
-pleochroma-worker join --coordinator coordinator.example:7880 --token GW1-... --cert-dir worker-cert
+pleochroma-worker --headless join coordinator.example:7880 --cert-dir worker-cert [--slots 2] [--only-cpu]
+pleochroma-worker --headless join --coordinator coordinator.example:7880 --token GW1-... --cert-dir worker-cert
 ```
 
 Dials the coordinator's **worker port** over mutual TLS with a **worker** certificate
@@ -401,7 +509,7 @@ transits the wire.
 | `cert init` | `--dir <pki-dir>` | Generates a new CA keypair + self-signed certificate (10-year lifetime) in `--dir`. **Refuses to run if `--dir` already has one** (regenerating it would invalidate every certificate already issued from it) — there is no `--force`. |
 | `cert issue-server` | `--dir <pki-dir>`, at least one of `--host <name>` / `--ip <addr>` (both repeatable) | Issues the server's own certificate — the one `serve` presents on its viewer and worker ports (5-year lifetime), signed by the CA in `--dir`. `--host`/`--ip` become Subject Alternative Names — TLS ignores Common Name entirely, so a viewer connecting by IP address specifically needs an `--ip` SAN, not just a `--host` DNS name. |
 | `cert issue-client` | `--dir <pki-dir>`, `--name <label>`, `--out <bundle-dir>`, optional `--role viewer\|worker` | Issues one client certificate (5-year lifetime), signed by the CA in `--dir`, and writes a self-contained bundle (`ca.pem`, `client.pem`, `client.key`) to `--out` for copying to that machine. Also computes the certificate's SHA-256 fingerprint and appends it to the role's allowlist: `<pki-dir>/allowlist-viewers.txt` (default role; or a pre-role `allowlist.txt` while only that exists) or `<pki-dir>/allowlist-workers.txt` (`--role worker`, Common Name `worker:<label>`). A viewer `--name` may not start with `worker:`. |
-| `cert issue-token` | `--ca <ca.pem>`, `--admin-addr <host:port>`, `--name <label>`, optional `--role viewer\|worker` | Asks a **running** `serve` for a one-time, **180-second** enrollment token and prints it. `--admin-addr` is the viewer enrollment listener (7879) for viewers and the worker one (7881) for `--role worker`; each listener refuses a token for the other role. The certificate is minted immediately but held in that process's memory — nothing on disk, nothing in the allowlist, until it is claimed. Honoured only from a loopback peer that also presents the operator secret in `<pki-dir>/issue.secret` (created by `serve` on first start, owner-only); the command reads it from the directory holding `--ca`, so run it as a user who can read that directory. |
+| `cert issue-token` | `--ca <ca.pem>`, `--admin-addr <host:port>`, `--name <label>`, optional `--role viewer\|worker\|monitor\|admin`, `--address <ip:port>` (up to 3), `--no-qr` | Asks a **running** `serve` for a one-time, **180-second** enrollment token and prints it, together with a `pleochroma://pair` link and a QR code of the link (`--no-qr` prints the code and link only; all of it goes to the terminal, never a log). `--address` names the coordinator addresses to put in the link; without it the link carries this machine's LAN addresses on the coordinator port (the enrollment port minus one). `--admin-addr` is the viewer enrollment listener (7879) for viewer, monitor and admin codes and the worker one (7881) for `--role worker`; each listener refuses a token for the other role. A `monitor` (look only) or `admin` (look and change) code works only while the coordinator runs with `serve --allow-remote-admin`; it yields a certificate named `monitor:<label>` or `admin:<label>`. The certificate is minted immediately but held in that process's memory — nothing on disk, nothing in the allowlist, until it is claimed. Honoured only from a loopback peer that also presents the operator secret in `<pki-dir>/issue.secret` (created by `serve` on first start, owner-only); the command reads it from the directory holding `--ca`, so run it as a user who can read that directory. |
 | `cert claim` | `--token <token>`, `--addr <host:port>`, `--out <bundle-dir>` | Redeems a token on the machine being enrolled, writing the same three-file bundle `issue-client` would. Verifies the enrollment listener against the CA fingerprint carried in the token **before** sending the secret. Single use. (A render worker normally claims through `join --token` instead, which does the same and then joins.) |
 
 **Directory layout** (`--dir`):
@@ -462,20 +570,20 @@ was, from its own clock's point of view, "not yet valid."
 For air-gapped or offline setups, or any time nothing can dial out to a running `serve`.
 
 ```
-pleochroma-worker cert init --dir pki
+pleochroma-worker --headless cert init --dir pki
 # INFO pleochroma_worker::pki: pleochroma-worker cert init: wrote pki\ca.pem and pki\ca.key -- CA expires <date+10y> (UTC)
 
-pleochroma-worker cert issue-server --dir pki --host localhost --ip 127.0.0.1
+pleochroma-worker --headless cert issue-server --dir pki --host localhost --ip 127.0.0.1
 # INFO pleochroma_worker::pki: pleochroma-worker cert issue-server: wrote pki\server.pem and pki\server.key (SANs: localhost, 127.0.0.1) -- expires <date+5y> (UTC)
 
-pleochroma-worker cert issue-client --dir pki --name my-laptop --out bundle-my-laptop
+pleochroma-worker --headless cert issue-client --dir pki --name my-laptop --out bundle-my-laptop
 # INFO pleochroma_worker::pki: pleochroma-worker cert issue-client: wrote viewer bundle "my-laptop" to bundle-my-laptop (ca.pem, client.pem, client.key)
 #      -- fingerprint <64 hex chars> added to pki\allowlist-viewers.txt -- expires <date+5y> (UTC)
 
 # copy bundle-my-laptop/{ca.pem,client.pem,client.key} to the viewer's machine
 # (this is exactly what apps/pleochroma-cut's WorkerSettings.cert_dir should point at)
 
-pleochroma-worker serve --ca pki\ca.pem --cert pki\server.pem --key pki\server.key --allow-remote --bind 0.0.0.0:7878 --render
+pleochroma-worker --headless serve --ca pki\ca.pem --cert pki\server.pem --key pki\server.key --allow-remote --bind 0.0.0.0:7878 --render
 ```
 
 (`--render` makes this machine render the viewer's requests itself; leave it out when
@@ -494,14 +602,14 @@ per-viewer step changes.
 
 ```
 # On the coordinator host: serve is already running, and logged its enrollment listener at startup.
-pleochroma-worker serve --ca pki\ca.pem --cert pki\server.pem --key pki\server.key                     --allow-remote --bind 0.0.0.0:7878
+pleochroma-worker --headless serve --ca pki\ca.pem --cert pki\server.pem --key pki\server.key                     --allow-remote --bind 0.0.0.0:7878
 
 # On the coordinator host, in another shell -- loopback only, uses the CA file you already have:
-pleochroma-worker cert issue-token --ca pki\ca.pem --admin-addr 127.0.0.1:7879 --name my-laptop
+pleochroma-worker --headless cert issue-token --ca pki\ca.pem --admin-addr 127.0.0.1:7879 --name my-laptop
 # GW1-XXXXX-XXXXX-...   (valid 180 seconds, single use)
 
 # On the machine being enrolled, within 180 seconds (or use the GUI's token field):
-pleochroma-worker cert claim --token GW1-XXXXX-XXXXX-... --addr coordinator.example:7879 --out certs
+pleochroma-worker --headless cert claim --token GW1-XXXXX-XXXXX-... --addr coordinator.example:7879 --out certs
 # writes certs/{ca.pem,client.pem,client.key} -- the same layout Workflow A produces,
 # so pleochroma-cut's WorkerSettings.cert_dir works unchanged either way
 ```
@@ -523,13 +631,13 @@ the PKI directory.
 
 ```
 # On the coordinator host (serve running; its worker enrollment listener logged at startup):
-pleochroma-worker cert issue-token --ca pki\ca.pem --admin-addr 127.0.0.1:7881 --name gpu-box --role worker
+pleochroma-worker --headless cert issue-token --ca pki\ca.pem --admin-addr 127.0.0.1:7881 --name gpu-box --role worker
 # GW1-XXXXX-...   (valid 180 seconds, single use)
 
 # On the render machine, within 180 seconds -- claims, stores the bundle, then joins:
-pleochroma-worker join --coordinator coordinator.example:7880 --token GW1-XXXXX-... --cert-dir worker-cert
+pleochroma-worker --headless join --coordinator coordinator.example:7880 --token GW1-XXXXX-... --cert-dir worker-cert
 # later restarts need no token:
-pleochroma-worker join coordinator.example:7880 --cert-dir worker-cert
+pleochroma-worker --headless join coordinator.example:7880 --cert-dir worker-cert
 ```
 
 Or by hand: `cert issue-client --dir pki --name gpu-box --out bundle-gpu-box --role
@@ -577,7 +685,7 @@ unparsable (`src/main.rs`). Nothing else needs to be configured for this to
 work — set the variable before running either subcommand:
 
 ```
-RUST_LOG=debug pleochroma-worker serve --insecure-no-tls
+RUST_LOG=debug pleochroma-worker --headless serve --insecure-no-tls
 ```
 
 The default `info` level already surfaces the events most worth seeing —

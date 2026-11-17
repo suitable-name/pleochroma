@@ -128,6 +128,21 @@ fn metrics_defaults_and_flags() {
 }
 
 #[test]
+fn metrics_takes_the_aset_grid_flag_for_the_text_report_only() {
+    let Command::Metrics(plain) = parsed("metrics a.psdd") else {
+        panic!("expected metrics");
+    };
+    assert!(!plain.aset_grid);
+    let Command::Metrics(grid) = parsed("metrics a.psdd --ri 1.76 --aset-grid") else {
+        panic!("expected metrics");
+    };
+    assert!(grid.aset_grid);
+    assert_eq!(grid.format, ReportFormat::Text);
+    assert!(error("metrics a.psdd --aset-grid --json").contains("text report"));
+    assert!(error("metrics a.psdd --csv --aset-grid").contains("text report"));
+}
+
+#[test]
 fn metrics_refuses_two_formats_and_two_materials() {
     assert!(error("metrics a.asc --json --csv").contains("not both"));
     assert!(error("metrics a.asc --material Ruby --ri 1.77").contains("give one of"));
@@ -802,7 +817,7 @@ fn render_engine_is_an_explicit_override_and_unknown_words_are_refused() {
 }
 
 #[test]
-fn stone_shadow_is_an_explicit_still_render_override() {
+fn stone_shadow_is_an_explicit_render_and_tilt_video_override() {
     assert_eq!(render_args("render a.job.json").stone_shadow, None);
     assert_eq!(
         render_args("render a.job.json --stone-shadow on").stone_shadow,
@@ -813,17 +828,22 @@ fn stone_shadow_is_an_explicit_still_render_override() {
         Some(false)
     );
     assert!(parse(&argv("render a.job.json --stone-shadow maybe")).is_err());
-    let refusal = error("tilt-video a.job.json --stone-shadow on");
-    assert!(
-        refusal.contains("Tilt videos do not show the stone shadow yet."),
-        "{refusal}"
+    // A tilt video takes the same override and draws the scene it gives.
+    assert_eq!(
+        render_args("tilt-video a.job.json --out-dir v --stone-shadow on").stone_shadow,
+        Some(true)
     );
+    assert_eq!(
+        render_args("tilt-video a.job.json --out-dir v --stone-shadow off").stone_shadow,
+        Some(false)
+    );
+    assert!(parse(&argv("tilt-video a.job.json --stone-shadow maybe")).is_err());
 }
 
 /// `--tray-reflection` takes the percent of the app's slider and keeps the fraction the scene
-/// carries; it is a still-render override only.
+/// carries; `render` and `tilt-video` both take it.
 #[test]
-fn tray_reflection_is_a_percent_still_render_override() {
+fn tray_reflection_is_a_percent_render_and_tilt_video_override() {
     assert_eq!(render_args("render a.job.json").tray_reflection, None);
     assert_eq!(
         render_args("render a.job.json --tray-reflection 0").tray_reflection,
@@ -849,9 +869,14 @@ fn tray_reflection_is_a_percent_still_render_override() {
         );
     }
     assert!(parse(&argv("render a.job.json --tray-reflection")).is_err());
-    let refusal = error("tilt-video a.job.json --tray-reflection 4");
+    // A tilt video takes the same percent override.
+    assert_eq!(
+        render_args("tilt-video a.job.json --out-dir v --tray-reflection 4").tray_reflection,
+        Some(0.04)
+    );
+    let refusal = error("tilt-video a.job.json --tray-reflection 101");
     assert!(
-        refusal.contains("Tilt videos do not show the tray reflection yet."),
+        refusal.contains("--tray-reflection needs a percent from 0 to 100"),
         "{refusal}"
     );
 }

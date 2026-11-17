@@ -14,6 +14,10 @@ use pleochroma_net::{
 };
 use std::io::{Read, Write};
 
+/// The refusal text for a Monitor or Admin `HELLO` while no port serves remote
+/// administration.
+const REMOTE_ADMIN_REFUSAL: &str = "refusing to pair: remote administration is not available";
+
 /// What [`read_and_check_hello`] decided about the peer's `HELLO`.
 pub enum HelloCheck {
     /// A same-version `HELLO` of the port's role: continue with the build check and
@@ -24,10 +28,11 @@ pub enum HelloCheck {
     Refused(ErrorMsg),
 }
 
-/// Reads the peer's `HELLO` and classifies it for a listener serving `port`: a different
-/// protocol version, or a role (claimed or certified) this port does not serve, becomes
-/// [`HelloCheck::Refused`] with a message naming what both sides have; everything else
-/// is [`HelloCheck::Accepted`] for the caller's own build-compatibility gate.
+/// Reads the peer's `HELLO` and classifies it for a listener serving `port`.
+///
+/// A different protocol version, or a role (claimed or certified) this port does not serve, becomes
+/// [`HelloCheck::Refused`] with a message naming what both sides have; everything else is
+/// [`HelloCheck::Accepted`] for the caller's own build-compatibility gate.
 ///
 /// `cert_role` is the role of the peer's client certificate (`None` only for
 /// `--insecure-no-tls`, which has no certificate to check).
@@ -39,6 +44,33 @@ pub fn read_and_check_hello<S: Read>(
     stream: &mut S,
     port: PeerRole,
     cert_role: Option<PeerRole>,
+) -> Result<HelloCheck, NetError> {
+    read_hello_then(stream, |hello| check_role(hello, port, cert_role))
+}
+
+/// [`read_and_check_hello`] for the VIEWER port when remote administration may be on: a Monitor or
+/// Admin `HELLO` is judged by [`check_role_with_admin`] with `policy`.
+///
+/// Everything else is judged exactly as [`read_and_check_hello`] does.
+///
+/// # Errors
+///
+/// See [`read_and_check_hello`].
+pub fn read_and_check_hello_admin<S: Read>(
+    stream: &mut S,
+    cert_role: Option<PeerRole>,
+    policy: AdminPolicy,
+) -> Result<HelloCheck, NetError> {
+    read_hello_then(stream, |hello| {
+        check_role_with_admin(hello, PeerRole::Viewer, cert_role, policy)
+    })
+}
+
+/// Reads the peer's `HELLO` under the total deadline and hands it to `decide`; a version
+/// mismatch is answered with a refusal before `decide` is asked.
+fn read_hello_then<S: Read>(
+    stream: &mut S,
+    decide: impl FnOnce(Hello) -> HelloCheck,
 ) -> Result<HelloCheck, NetError> {
     // A total deadline for the whole read, on top of the per-read idle timeout: a peer that
     // trickles one byte at a time inside that window must still be cut off (see
@@ -58,11 +90,87 @@ pub fn read_and_check_hello<S: Read>(
             }));
         }
     };
-    Ok(check_role(hello, port, cert_role))
+    Ok(decide(hello))
 }
 
-/// The role half of [`read_and_check_hello`]: only a consistent `HELLO` whose role --
-/// and whose certificate's role -- is the port's own passes.
+/// What the viewer port knows about a remote administration peer before it reads its `HELLO`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdminPolicy {
+    /// Remote administration is switched on (`--allow-remote-admin`, with TLS).
+    pub enabled: bool,
+    /// The peer certificate's fingerprint is on the allowlist of its role
+    /// (`allowlist-monitors.txt` or `allowlist-admins.txt`).
+    pub listed: bool,
+}
+
+/// The role half of [`read_and_check_hello_admin`].
+///
+/// [`check_role`], except that on the viewer port a consistent Monitor or Admin `HELLO` passes when
+/// remote administration is on, the certificate is of the same role, and its fingerprint is on that
+/// role's allowlist.
+///
+/// Every other case, including every case with remote administration off and every case on
+/// the worker port, is exactly [`check_role`]'s answer.
+#[must_use]
+pub fn check_role_with_admin(
+    hello: Hello,
+    port: PeerRole,
+    cert_role: Option<PeerRole>,
+    policy: AdminPolicy,
+) -> HelloCheck {
+    let admin_hello = matches!(hello.role, PeerRole::Monitor | PeerRole::Admin);
+    if port != PeerRole::Viewer || !admin_hello || !policy.enabled || !hello.role_is_consistent() {
+        return check_role(hello, port, cert_role);
+    }
+    let refuse = |message: String| {
+        HelloCheck::Refused(ErrorMsg {
+            code: error_codes::ROLE_REFUSED,
+            message,
+            request_id: None,
+        })
+    };
+    if cert_role != Some(hello.role) {
+        return refuse(format!(
+            "refusing to pair: this {} connection needs {}, not {} -- pair this device with {} \
+             from the coordinator",
+            role_name(hello.role),
+            certificate_phrase(Some(hello.role)),
+            certificate_phrase(cert_role),
+            if hello.role == PeerRole::Admin {
+                "an admin code"
+            } else {
+                "a monitor code"
+            }
+        ));
+    }
+    if !policy.listed {
+        return refuse(format!(
+            "refusing to pair: this {} certificate is not on the coordinator's list of trusted \
+             {}s (it may have been removed)",
+            role_name(hello.role),
+            role_name(hello.role)
+        ));
+    }
+    HelloCheck::Accepted(hello)
+}
+
+/// "a viewer certificate", "an admin certificate", ... or "no certificate", for refusals.
+const fn certificate_phrase(role: Option<PeerRole>) -> &'static str {
+    match role {
+        None => "no certificate",
+        Some(PeerRole::Viewer) => "a viewer certificate",
+        Some(PeerRole::Worker) => "a worker certificate",
+        Some(PeerRole::Monitor) => "a monitor certificate",
+        Some(PeerRole::Admin) => "an admin certificate",
+    }
+}
+
+/// The role half of [`read_and_check_hello`]: only a consistent `HELLO` whose role -- and whose
+/// certificate's role -- is the port's own passes.
+///
+/// A Monitor or Admin `HELLO` is always refused here; the viewer port's remote administration goes
+/// through [`check_role_with_admin`].
+#[must_use]
 pub fn check_role(hello: Hello, port: PeerRole, cert_role: Option<PeerRole>) -> HelloCheck {
     let refuse = |message: String| {
         HelloCheck::Refused(ErrorMsg {
@@ -83,6 +191,11 @@ pub fn check_role(hello: Hello, port: PeerRole, cert_role: Option<PeerRole>) -> 
             }
         ));
     }
+    // Remote administration roles: with remote administration off (or on the worker port) a
+    // Monitor or Admin HELLO is refused whatever certificate it carries.
+    if matches!(hello.role, PeerRole::Monitor | PeerRole::Admin) {
+        return refuse(REMOTE_ADMIN_REFUSAL.to_string());
+    }
     if let Some(cert) = cert_role
         && cert != port
     {
@@ -95,12 +208,16 @@ pub fn check_role(hello: Hello, port: PeerRole, cert_role: Option<PeerRole>) -> 
                 PeerRole::Worker =>
                     "joining workers need a worker certificate (`cert issue-client --role worker` or \
                      `cert issue-token --role worker`)",
+                PeerRole::Monitor | PeerRole::Admin => "remote administration is not available",
             }
         ));
     }
     match (port, hello.role) {
         (PeerRole::Viewer, PeerRole::Viewer) | (PeerRole::Worker, PeerRole::Worker) => {
             HelloCheck::Accepted(hello)
+        }
+        (PeerRole::Monitor | PeerRole::Admin, _) | (_, PeerRole::Monitor | PeerRole::Admin) => {
+            refuse(REMOTE_ADMIN_REFUSAL.to_string())
         }
         (PeerRole::Viewer, PeerRole::Worker) => refuse(
             "refusing to pair: this is a VIEWER port -- `pleochroma-worker join` must dial the \
@@ -116,9 +233,10 @@ pub fn check_role(hello: Hello, port: PeerRole, cert_role: Option<PeerRole>) -> 
     }
 }
 
-/// Logs and writes `refusal` in place of `WELCOME` -- best-effort, like
-/// `super::connection::refuse_for_capacity`: the peer may already have hung up, and the
-/// warning logged here is the meaningful outcome either way.
+/// Logs and writes `refusal` in place of `WELCOME`.
+///
+/// Best-effort, like `super::connection::refuse_for_capacity`: the peer may already have hung up,
+/// and the warning logged here is the meaningful outcome either way.
 pub fn send_refusal<S: Write>(stream: &mut S, refusal: &ErrorMsg) {
     tracing::warn!("{} (code {})", refusal.message, refusal.code);
     let _ = pleochroma_net::messages::write_message(stream, refusal);
@@ -148,7 +266,7 @@ mod tests {
         }
     }
 
-    fn refused_code(check: &HelloCheck) -> Option<u32> {
+    const fn refused_code(check: &HelloCheck) -> Option<u32> {
         match check {
             HelloCheck::Accepted(_) => None,
             HelloCheck::Refused(e) => Some(e.code),
@@ -193,13 +311,26 @@ mod tests {
     #[test]
     fn the_role_matrix_accepts_only_matching_hello_and_certificate_roles() {
         let viewer = Hello::viewer(PROTOCOL_VERSION, [1; 8], [2; 8]);
-        let roles = [PeerRole::Viewer, PeerRole::Worker];
-        for port in roles {
+        let ports = [PeerRole::Viewer, PeerRole::Worker];
+        let roles = [
+            PeerRole::Viewer,
+            PeerRole::Worker,
+            PeerRole::Monitor,
+            PeerRole::Admin,
+        ];
+        for port in ports {
             for claimed in roles {
-                for cert in [None, Some(PeerRole::Viewer), Some(PeerRole::Worker)] {
+                for cert in [None, Some(PeerRole::Viewer), Some(PeerRole::Worker)]
+                    .into_iter()
+                    .chain(roles.into_iter().skip(2).map(Some))
+                {
                     let hello = match claimed {
                         PeerRole::Viewer => viewer.clone(),
                         PeerRole::Worker => worker_hello(),
+                        PeerRole::Monitor | PeerRole::Admin => Hello {
+                            role: claimed,
+                            ..viewer.clone()
+                        },
                     };
                     let check = check_role(hello, port, cert);
                     let ok = claimed == port && cert.is_none_or(|c| c == port);
@@ -211,6 +342,184 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// A Monitor or Admin HELLO is refused with `ROLE_REFUSED` on both ports, with or
+    /// without a certificate, and the text says remote administration is not available.
+    #[test]
+    fn a_monitor_or_admin_hello_is_refused_as_not_available() {
+        for role in [PeerRole::Monitor, PeerRole::Admin] {
+            for port in [PeerRole::Viewer, PeerRole::Worker] {
+                for cert in [None, Some(role), Some(PeerRole::Viewer)] {
+                    let hello = Hello {
+                        role,
+                        ..Hello::viewer(PROTOCOL_VERSION, [1; 8], [2; 8])
+                    };
+                    let HelloCheck::Refused(refusal) = check_role(hello, port, cert) else {
+                        panic!("{role:?} on {port:?} with {cert:?} must be refused");
+                    };
+                    assert_eq!(refusal.code, error_codes::ROLE_REFUSED);
+                    assert!(
+                        refusal
+                            .message
+                            .contains("remote administration is not available"),
+                        "{}",
+                        refusal.message
+                    );
+                }
+            }
+        }
+    }
+
+    fn admin_hello(role: PeerRole) -> Hello {
+        Hello {
+            role,
+            ..Hello::viewer(PROTOCOL_VERSION, [1; 8], [2; 8])
+        }
+    }
+
+    /// The viewer port's role matrix with remote administration on and off, the certificate
+    /// on its allowlist or not: a Monitor or Admin `HELLO` passes only when the setting is
+    /// on, the certificate has the same role and it is listed. Everything else is
+    /// `check_role`'s answer.
+    #[test]
+    fn the_admin_matrix_with_remote_administration_on_and_off() {
+        let certs = [
+            None,
+            Some(PeerRole::Viewer),
+            Some(PeerRole::Worker),
+            Some(PeerRole::Monitor),
+            Some(PeerRole::Admin),
+        ];
+        for enabled in [false, true] {
+            for listed in [false, true] {
+                for claimed in [
+                    PeerRole::Viewer,
+                    PeerRole::Worker,
+                    PeerRole::Monitor,
+                    PeerRole::Admin,
+                ] {
+                    for cert in certs {
+                        let hello = match claimed {
+                            PeerRole::Viewer => Hello::viewer(PROTOCOL_VERSION, [1; 8], [2; 8]),
+                            PeerRole::Worker => worker_hello(),
+                            PeerRole::Monitor | PeerRole::Admin => admin_hello(claimed),
+                        };
+                        let policy = AdminPolicy { enabled, listed };
+                        let check =
+                            check_role_with_admin(hello.clone(), PeerRole::Viewer, cert, policy);
+                        let admin_claim = matches!(claimed, PeerRole::Monitor | PeerRole::Admin);
+                        let ok = if admin_claim {
+                            enabled && listed && cert == Some(claimed)
+                        } else {
+                            claimed == PeerRole::Viewer
+                                && cert.is_none_or(|c| c == PeerRole::Viewer)
+                        };
+                        assert_eq!(
+                            refused_code(&check),
+                            (!ok).then_some(error_codes::ROLE_REFUSED),
+                            "on={enabled} listed={listed} claimed={claimed:?} cert={cert:?}"
+                        );
+                        if !(admin_claim && enabled) {
+                            assert_eq!(
+                                refused_code(&check),
+                                refused_code(&check_role(hello, PeerRole::Viewer, cert)),
+                                "outside an enabled admin claim the answer is check_role's"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The refusal texts of the admin gate say what is wrong in plain words.
+    #[test]
+    fn the_admin_refusals_say_what_is_wrong() {
+        let on = AdminPolicy {
+            enabled: true,
+            listed: true,
+        };
+        let text = |hello: Hello, cert: Option<PeerRole>, policy: AdminPolicy| {
+            let HelloCheck::Refused(refusal) =
+                check_role_with_admin(hello, PeerRole::Viewer, cert, policy)
+            else {
+                panic!("must be refused");
+            };
+            refusal.message
+        };
+        let off = text(
+            admin_hello(PeerRole::Admin),
+            Some(PeerRole::Admin),
+            AdminPolicy {
+                enabled: false,
+                listed: true,
+            },
+        );
+        assert!(
+            off.contains("remote administration is not available"),
+            "{off}"
+        );
+        let wrong = text(admin_hello(PeerRole::Admin), Some(PeerRole::Viewer), on);
+        assert!(
+            wrong.contains("an admin certificate") && wrong.contains("a viewer certificate"),
+            "{wrong}"
+        );
+        let monitor_as_admin = text(admin_hello(PeerRole::Admin), Some(PeerRole::Monitor), on);
+        assert!(
+            monitor_as_admin.contains("a monitor certificate"),
+            "{monitor_as_admin}"
+        );
+        let unlisted = text(
+            admin_hello(PeerRole::Monitor),
+            Some(PeerRole::Monitor),
+            AdminPolicy {
+                enabled: true,
+                listed: false,
+            },
+        );
+        assert!(
+            unlisted.contains("not on the coordinator's list"),
+            "{unlisted}"
+        );
+    }
+
+    /// The worker port never serves administration, the setting notwithstanding; a passing
+    /// administration `HELLO` is read through `read_and_check_hello_admin`.
+    #[test]
+    fn the_worker_port_refuses_admin_and_the_reader_applies_the_policy() {
+        let on = AdminPolicy {
+            enabled: true,
+            listed: true,
+        };
+        for role in [PeerRole::Monitor, PeerRole::Admin] {
+            assert_eq!(
+                refused_code(&check_role_with_admin(
+                    admin_hello(role),
+                    PeerRole::Worker,
+                    Some(role),
+                    on
+                )),
+                Some(error_codes::ROLE_REFUSED)
+            );
+            let accepted =
+                read_and_check_hello_admin(&mut framed(&admin_hello(role)), Some(role), on)
+                    .unwrap();
+            assert!(
+                matches!(&accepted, HelloCheck::Accepted(hello) if hello.role == role),
+                "{role:?}"
+            );
+            let refused = read_and_check_hello_admin(
+                &mut framed(&admin_hello(role)),
+                Some(role),
+                AdminPolicy {
+                    enabled: false,
+                    listed: true,
+                },
+            )
+            .unwrap();
+            assert_eq!(refused_code(&refused), Some(error_codes::ROLE_REFUSED));
         }
     }
 

@@ -206,6 +206,8 @@ mod view;
 pub(in crate::gui) use compare::close_compare_window;
 // Saved color variants take their `user.<uuid>` keys from the design id generator.
 pub(in crate::gui) use state::fresh_design_uuid;
+// The Gem Data card of the Stone tab, which the library view fills for its own material.
+pub(in crate::gui) use view::push_gem_card;
 
 /// Releases the handles (database, editor state, compare window) the editor's thread-locals
 /// hold for a previous main window. See `gui::window_release`.

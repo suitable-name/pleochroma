@@ -42,9 +42,10 @@ pub const FRAME_OVERHEAD_BYTES: usize = 64;
 /// released (a link in the `Raw` tiers, or an incompressible stream, does not need them).
 const RELEASE_AFTER_RAW_FRAMES: u32 = 8;
 
-/// The adaptive-compression state of one peer connection. Cheap to share by reference:
-/// the methods take `&self` and lock a private mutex that only the connection's own
-/// emitter thread ever contends for.
+/// The adaptive-compression state of one peer connection.
+///
+/// Cheap to share by reference: the methods take `&self` and lock a private mutex that only
+/// the connection's own emitter thread ever contends for.
 #[derive(Debug)]
 pub struct PeerLink {
     peer: String,

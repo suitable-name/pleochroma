@@ -80,7 +80,10 @@ fn slugify(name: &str) -> String {
 #[must_use]
 pub fn claim_error_message(err: &ClaimError) -> String {
     match err {
-        ClaimError::InvalidToken(e) => format!("That doesn't look like a valid token: {e}"),
+        // Plain words only: the underlying error can name a character of the token.
+        ClaimError::InvalidToken(_) => "That doesn't look like a valid enrollment token. \
+             Check that it was copied completely."
+            .to_string(),
         ClaimError::InvalidAddr(msg) => format!("Enrollment address is invalid: {msg}"),
         ClaimError::Connect { addr, source } => format!(
             "Could not reach {addr}: {source}. Check the address and that the worker's \
@@ -185,7 +188,20 @@ pub fn claim_and_write_bundle(
     bundle_dir: &Path,
 ) -> Result<PathBuf, String> {
     let bundle = pleochroma_net::enroll::claim(token, addr).map_err(|e| claim_error_message(&e))?;
+    write_bundle(&bundle, bundle_dir)
+}
 
+/// Writes a claimed `bundle` into `bundle_dir` as `ca.pem`, `client.pem` and `client.key`
+/// (creating the folder) and returns the folder. Shared by the token redemption above and the
+/// pairing-link flow ([`super::pair`]).
+///
+/// # Errors
+///
+/// A message naming the file that could not be created or written.
+pub fn write_bundle(
+    bundle: &pleochroma_net::enroll::ClaimedBundle,
+    bundle_dir: &Path,
+) -> Result<PathBuf, String> {
     std::fs::create_dir_all(bundle_dir)
         .map_err(|e| format!("could not create {}: {e}", bundle_dir.display()))?;
     let ca_path = bundle_dir.join("ca.pem");
@@ -196,9 +212,8 @@ pub fn claim_and_write_bundle(
     std::fs::write(&cert_path, &bundle.client_cert_pem)
         .map_err(|e| format!("could not write {}: {e}", cert_path.display()))?;
     pleochroma_net::tls::write_private_key_pem(&key_path, &bundle.client_key_pem)?;
-    // `bundle.client_key_pem` (a `Zeroizing<String>`) is overwritten in place when
-    // `bundle` drops at the end of this function -- see `ClaimedBundle`'s own doc
-    // comment.
+    // `bundle.client_key_pem` (a `Zeroizing<String>`) is overwritten in place when the
+    // caller's `bundle` drops -- see `ClaimedBundle`'s own doc comment.
 
     Ok(bundle_dir.to_path_buf())
 }
@@ -272,6 +287,15 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn claim_error_message_for_a_bad_token_never_repeats_a_character_of_it() {
+        let message = claim_error_message(&ClaimError::InvalidToken(
+            pleochroma_net::token::TokenError::InvalidCharacter('Q'),
+        ));
+        assert!(!message.contains('Q'), "{message}");
+        assert!(message.to_lowercase().contains("token"), "{message}");
     }
 
     #[test]

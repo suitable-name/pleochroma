@@ -6,7 +6,8 @@
 //! the builder-style constructors, [`body_color`] the body-color presets, [`lookup`]
 //! [`GemMaterial::by_name`] and the accessors, and [`optics`] the biaxial-indicatrix,
 //! extraordinary-index and GPU-routing methods. `zoned` holds the zoned-absorption
-//! helpers; Ametrine (`ametrine`, bicolour quartz) is the only zoned built-in.
+//! helpers; Ametrine (`ametrine`, bicolour quartz) is the only zoned built-in. `provenance`
+//! holds the published source of each built-in's dispersion curve and absorption spectrum.
 
 use super::{absorption::AbsorptionTensor, dispersion::DispersionModel};
 use glam::Vec3;
@@ -51,6 +52,7 @@ mod look;
 mod lookup;
 mod optics;
 mod peridot_through_benitoite;
+mod provenance;
 mod rutile;
 mod spinel_through_tourmaline;
 mod tanzanite_through_cubic_zirconia;
@@ -62,6 +64,7 @@ mod zircon_through_topaz;
 mod zoned;
 pub use ametrine::{AMETRINE_AMETHYST_FE_PPMA, AMETRINE_CITRINE_FE_PPMA, ametrine_zoning};
 pub use look::{MOONSTONE_PRESET, MaterialLook};
+pub use provenance::{OpticsProvenance, optics_provenance};
 pub use zoned::{
     ZONE_SWATCH_FALLBACK_MODEL_WIDTH, face_up_swatch, zone_swatches, zone_swatches_at_scale,
     zone_swatches_face_up, zone_swatches_face_up_at_scale,

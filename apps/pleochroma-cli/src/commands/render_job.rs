@@ -114,6 +114,7 @@
 //! the job a token of its own, so a tilt video never mixes frames made with and without it.
 
 mod raw_sink;
+mod shader_hint;
 
 use crate::{
     args::{Exposure, JobCommandKind, RenderJobArgs},
@@ -151,7 +152,10 @@ use raw_sink::{RawFileSink, RawTarget};
 use std::{
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError, atomic::AtomicBool},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -178,6 +182,9 @@ struct StreamSink<'a> {
     /// The latest estimate, which a plain video line repeats.
     last_eta: Option<f64>,
     notes: Vec<String>,
+    /// Set at the first progress report that shows a traced sample, which ends the watch for
+    /// the shader-compiling line.
+    samples_started: Option<&'a AtomicBool>,
 }
 
 impl<'a> StreamSink<'a> {
@@ -192,7 +199,14 @@ impl<'a> StreamSink<'a> {
             last_line: None,
             last_eta: None,
             notes: Vec::new(),
+            samples_started: None,
         }
+    }
+
+    /// Sets `flag` when the first sample has been traced.
+    const fn with_samples_started(mut self, flag: &'a AtomicBool) -> Self {
+        self.samples_started = Some(flag);
+        self
     }
 
     /// Ends the line a terminal is rewriting, so the next text starts on a fresh one.
@@ -222,6 +236,11 @@ impl<'a> StreamSink<'a> {
 
 impl JobSink for StreamSink<'_> {
     fn progress(&mut self, progress: &JobProgress) {
+        if progress.fraction > 0.0
+            && let Some(flag) = self.samples_started
+        {
+            flag.store(true, Ordering::Release);
+        }
         if let Some(note) = &progress.note {
             self.note(note);
         }
@@ -1056,7 +1075,9 @@ fn run_with_process_settings(
     // Ctrl+C is not trapped: a video's frames are written atomically, so the next run
     // continues from them.
     let cancel = AtomicBool::new(false);
-    let mut sink = StreamSink::new(progress, args.kind.word(), terminal, args.quiet);
+    let samples_started = AtomicBool::new(false);
+    let mut sink = StreamSink::new(progress, args.kind.word(), terminal, args.quiet)
+        .with_samples_started(&samples_started);
     if args.local != LocalEngines::Cpu && !gpu_compiled_in() {
         sink.note("this build has no GPU support; rendering on the CPU.");
     }
@@ -1073,7 +1094,12 @@ fn run_with_process_settings(
     for note in notes {
         sink.note(note);
     }
-    let ended = run_job(job, &job_folder(&args.job), options, &cancel, &mut sink);
+    // The line about compiling shaders goes to standard error, never with `--quiet`, and only
+    // when this run can use the graphics card at all.
+    let watching = !args.quiet && args.local != LocalEngines::Cpu && gpu_compiled_in();
+    let ended = shader_hint::while_rendering(watching, &samples_started, || {
+        run_job(job, &job_folder(&args.job), options, &cancel, &mut sink)
+    });
     drop(settings);
     sink.finish();
     ended

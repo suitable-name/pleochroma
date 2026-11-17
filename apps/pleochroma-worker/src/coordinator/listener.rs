@@ -1,13 +1,18 @@
-//! The worker port (default 7880, separate from the viewer port): where
-//! `pleochroma-worker join` workers dial in. Mutual TLS with WORKER client certificates only
-//! (`crate::serve::Auth` with role `Worker`, `allowlist-workers.txt`), a `HELLO` that
-//! must say `PeerRole::Worker` and carry the worker's `RenderCapability`, the full
-//! build-compatibility gate, then `WELCOME.registration = Some(worker_id)` and the
-//! connection moves into the [`Registry`].
+//! The worker port (default 7880, separate from the viewer port): where `pleochroma-worker join`
+//! workers dial in.
+//!
+//! Mutual TLS with WORKER client certificates only (`crate::serve::Auth` with role `Worker`,
+//! `allowlist-workers.txt`), a `HELLO` that must say `PeerRole::Worker` and carry the worker's
+//! `RenderCapability`, the full build-compatibility gate, then `WELCOME.registration =
+//! Some(worker_id)` and the connection moves into the [`Registry`].
 
 use super::registry::{Registry, WorkerInfo};
-use crate::serve::{
-    self, Auth, ConnectionLimiter, ConnectionSlot, HelloCheck, TlsStream, accept_tls,
+use crate::{
+    control::{
+        shutdown::{ConnectionSet, Latch, ListenerStop},
+        table::ConnectionTable,
+    },
+    serve::{self, Auth, ConnectionLimiter, ConnectionSlot, HelloCheck, TlsStream, accept_tls},
 };
 use pleochroma_net::{
     handshake,
@@ -17,7 +22,11 @@ use std::{
     net::{SocketAddr, TcpListener},
     sync::Arc,
     thread,
+    time::Duration,
 };
+
+/// How often a joined computer's table entry checks that the computer is still registered.
+const TABLE_GUARD_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Everything the worker port needs, gathered by `crate::serve::start`.
 pub struct WorkerListenerConfig {
@@ -33,16 +42,36 @@ pub struct WorkerListenerConfig {
     pub max_connections: usize,
     /// Where joined workers are registered.
     pub registry: Arc<Registry>,
+    /// The coordinator's table of live connections: every worker that joins is listed in it
+    /// (with a kill switch) until it leaves the registry, so the status shows it online and
+    /// the window can disconnect it.
+    pub table: ConnectionTable,
 }
 
-/// Binds the worker port and accepts joining workers on a background thread, one
-/// short-lived thread per connection (TLS, `HELLO`, `WELCOME`, then hand-over to the
-/// registry). Returns the bound address.
+/// A running worker port: where it listens and what stops it.
+pub struct WorkerListener {
+    /// The bound address (the real port when the configured one was `0`).
+    pub addr: SocketAddr,
+    /// Stops the accept loop; see [`ListenerStop`].
+    pub stop: ListenerStop,
+    /// Raised when the accept loop thread has ended.
+    pub exited: Latch,
+    /// The worker sockets still in their TLS / `HELLO` handshake. A worker that finished
+    /// joining is no longer here: it lives in the [`Registry`], which closes it.
+    pub connections: ConnectionSet,
+}
+
+/// Binds the worker port and accepts joining workers on a background thread, one short-lived thread
+/// per connection (TLS, `HELLO`, `WELCOME`, then hand-over to the registry).
+///
+/// Returns the bound address with what stops the listener.
+///
+/// The accept loop ends when [`WorkerListener::stop`] is raised, which also frees the port.
 ///
 /// # Errors
 ///
 /// A human-readable message if the bind fails.
-pub fn spawn_worker_listener(config: WorkerListenerConfig) -> Result<SocketAddr, String> {
+pub fn spawn_worker_listener(config: WorkerListenerConfig) -> Result<WorkerListener, String> {
     let listener = TcpListener::bind(config.bind_addr)
         .map_err(|e| format!("failed to bind the worker port {}: {e}", config.bind_addr))?;
     let bound = listener
@@ -59,8 +88,20 @@ pub fn spawn_worker_listener(config: WorkerListenerConfig) -> Result<SocketAddr,
             .max_connections
             .saturating_mul(serve::PRE_AUTH_HANDSHAKE_MULTIPLIER),
     );
+    let stop = ListenerStop::new(bound);
+    let loop_stop = stop.clone();
+    let exited = Latch::new();
+    let exit_guard = exited.exit_guard();
+    let connections = ConnectionSet::new();
+    let loop_connections = connections.clone();
     thread::spawn(move || {
+        let _exit = exit_guard;
         for incoming in listener.incoming() {
+            // Right after the accept, before the stream is looked at: the wake-up
+            // connection of `ListenerStop::stop` is dropped here.
+            if loop_stop.is_stopped() {
+                return;
+            }
             match incoming {
                 Ok(stream) => {
                     let peer = stream.peer_addr().ok();
@@ -72,9 +113,11 @@ pub fn spawn_worker_listener(config: WorkerListenerConfig) -> Result<SocketAddr,
                         );
                         continue;
                     };
+                    let tracked = loop_connections.register(&stream);
                     let config = Arc::clone(&config);
                     thread::spawn(move || {
                         let _handshake_slot = handshake_slot;
+                        let _tracked = tracked;
                         accept_worker(stream, peer, &config);
                     });
                 }
@@ -82,7 +125,12 @@ pub fn spawn_worker_listener(config: WorkerListenerConfig) -> Result<SocketAddr,
             }
         }
     });
-    Ok(bound)
+    Ok(WorkerListener {
+        addr: bound,
+        stop,
+        exited,
+        connections,
+    })
 }
 
 /// TLS (role + allowlist), the connection cap, then [`register_worker`].
@@ -91,10 +139,17 @@ fn accept_worker(
     peer: Option<SocketAddr>,
     config: &WorkerListenerConfig,
 ) {
+    // A second handle to the socket: the table's kill switch for this connection.
+    let kill_switch = stream.try_clone().ok();
     let Some((mut tls, cert_role)) = accept_tls(stream, &config.tls_config, &config.auth, peer)
     else {
         return; // accept_tls already logged why
     };
+    let certificate = tls
+        .conn
+        .peer_certificates()
+        .and_then(<[_]>::first)
+        .map(|c| c.clone().into_owned());
     let slot = match config.limiter.try_acquire() {
         Ok(slot) => slot,
         Err(active) => {
@@ -112,9 +167,45 @@ fn accept_worker(
                 capacity.threads,
                 capacity.gpus
             );
+            // Listed in the table once it has joined (a refused connection never shows).
+            if let Some(certificate) = certificate {
+                let tracked =
+                    config
+                        .table
+                        .register_certificate(&certificate, cert_role, peer, kill_switch);
+                keep_listed_while_joined(tracked, Arc::clone(&config.registry), worker_id);
+            }
         }
         Ok(None) => {} // refused; already logged
         Err(e) => tracing::warn!("worker connection {peer:?}: handshake failed: {e}"),
+    }
+}
+
+/// Keeps `tracked` (the worker's entry in the connection table) alive for as long as
+/// `worker_id` is registered, then drops it, which removes the entry and reports the device as
+/// disconnected. The registry owns the connection, not this listener, so a small thread
+/// watches for the registry entry to go (a dropped worker, a disconnect or the shutdown).
+fn keep_listed_while_joined(
+    tracked: crate::control::table::TrackedConnection,
+    registry: Arc<Registry>,
+    worker_id: u32,
+) {
+    let spawned = thread::Builder::new()
+        .name("worker-table-guard".to_owned())
+        .spawn(move || {
+            let _tracked = tracked;
+            while registry
+                .workers()
+                .iter()
+                .any(|(info, _)| info.worker_id == worker_id)
+            {
+                thread::sleep(TABLE_GUARD_INTERVAL);
+            }
+        });
+    if let Err(error) = spawned {
+        // The closure (and with it the entry) is dropped: the worker still works, it is only
+        // not listed.
+        tracing::warn!("worker port: the connection list could not follow a worker ({error})");
     }
 }
 

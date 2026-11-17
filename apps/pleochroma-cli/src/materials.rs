@@ -198,6 +198,7 @@ fn library_material(row: &CustomMaterialRow) -> LibraryMaterial<'_> {
         per_axis_dispersion_json: row.per_axis_dispersion_json.as_deref(),
         inclusion_families_json: row.inclusion_families_json.as_deref(),
         structure_json: row.structure_json.as_deref(),
+        gem_data_json: row.gem_data_json.as_deref(),
     }
 }
 
@@ -419,6 +420,7 @@ mod tests {
             c_axis_second_azimuth_deg: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         }
     }
 

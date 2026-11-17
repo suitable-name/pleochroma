@@ -12,7 +12,8 @@ troubleshoot a connection that has gone quiet.
 
 The coordinator's operator sets it up with the worker software's own README
 (`apps/pleochroma-worker/README.md`: "Setting up a coordinator with joined
-workers"). The app connects to the coordinator's **viewer** port — 7878 unless
+workers"). Since 0.12.0 the coordinator also has a window of its own, with a wizard,
+pairing by QR code or link and remote administration; Chapter 30 covers it. The app connects to the coordinator's **viewer** port — 7878 unless
 the operator chose another — never to the workers themselves.
 
 The app talks to exactly **one** remote. If you have several render
@@ -25,18 +26,18 @@ dropped.)
 ## Update the App and Every Worker Together
 
 The app and its workers must run the same version. The current version of the wire protocol
-is 44, which carries Stone Shadow, Tray Reflection, the HDR map's turn, the stone estimator, the stone's place in the picture and its Stone Pose (Chapter 2). Each worker builds its own map: a Preview map for the live
+is 45, which carries the coordinator roles for remote administration, Stone Shadow, Tray Reflection, the HDR map's turn, the stone estimator, the stone's place in the picture and its Stone Pose (Chapter 2). Each worker builds its own map: a Preview map for the live
 viewport, a Final map for everything else (exports, jobs, final images, batches and adaptive
 passes); map bytes are never sent over the wire. The Tray Reflection travels as one number
 (the surface's head-on reflectance), and each worker builds the mirror from the stone itself. A worker can render whole beam tiles of a
 beam-traced stone (Chapter 9), and the finished tiles come back to the app; this
 needs protocol 38 or later. A worker on an older version, such as one
-still running protocol 42, is **refused** when the app connects, for every remote render
+still running protocol 44, is **refused** when the app connects, for every remote render
 whether beam tracing is on or not. After you update the app, update every worker (and every
 coordinator that workers join) to the same release and restart them, then use **Test
 Connection** to check each one.
 
-Every worker must be on protocol 44 (version 0.11). The app sends the estimator with the scene
+Every worker must be on protocol 45 (version 0.12.0). The app sends the estimator with the scene
 (Chapter 9, "Exit Collection"), and a worker renders with the estimator the app sends, never
 with one of its own, so a picture shared between this computer and the workers is drawn with
 one estimator.
@@ -46,7 +47,7 @@ built without it answers every beam-tile request with "unsupported request" (cod
 keeps the connection; a standard coordinator does not forward beam tiles. A beam build of
 the app then draws those tiles on this computer or on another worker, as it does for a lost
 worker (Chapter 9), and with Remote Only the export fails.
-A beam build and a standard build of one version still pair at the handshake (protocol 44).
+A beam build and a standard build of one version still pair at the handshake (protocol 45).
 
 Adaptive sampling is an optional build feature too (`adaptive-sampling`, which a `beam` build
 includes). A worker or coordinator built without it answers every adaptive live-pass request
@@ -94,7 +95,7 @@ with a folder dialog.
 If instead you have an **enrollment address** and a short-lived **token**
 (starting `GW1-...`) from whoever manages the worker:
 
-1. Click **Remote** in the top toolbar to open the **Remote Coordinator**
+1. Choose **File > Remote Rendering...** to open the **Remote Coordinator**
    panel, then **Set Up Remote Coordinator** (or the edit icon of the one
    already configured).
 2. Paste the enrollment address into **Enrollment address (host:port, from
@@ -122,7 +123,21 @@ before trying again.
 
 ![The Remote Coordinator dialog with an endpoint entered.](../../../../assets/remote_coordinator.png)
 
-In the **Remote Coordinator** panel, fill in the form:
+**The quick way: a pairing link.** If the coordinator has a window, this needs no
+address and no certificate folder. On the coordinator choose **Connect a computer**
+(Chapter 30, "Pairing Another Computer") and copy the link it shows. In the app open
+**File > Remote Rendering...**, which opens the **Remote Coordinator** dialog. Under
+**Connect with a Pairing Link** paste the link into **Paste pairing link** and press
+Enter or **Review**. Nothing connects yet: the dialog shows "Pair with *name*?" with the
+coordinator's address, and, if a coordinator is already set up here, an amber line "This
+replaces *the old one*". **Pair** (or **Replace and Pair**) connects; **Cancel** forgets
+the link. The link works once and for three minutes, it is used once and is not kept, and
+the certificates arrive with the pairing. A coordinator paired this way reads "Paired with
+a pairing link. It is found again if its address changes."; after a search for a moved
+coordinator the dialog says, for example, "Studio PC moved to 192.168.1.40.". Both
+computers must be on the same network.
+
+**By hand.** Without a link, fill in the form in the **Remote Coordinator** panel:
 
 - **Name** — a label for your own reference (e.g. "Office coordinator").
 - **Address (host:port)** — the coordinator's viewer port, e.g.
@@ -192,7 +207,7 @@ Where the choice lives:
 
 Click **Test Connection**. While it runs, the button shows "Testing...".
 On success you'll see something like "Compatible -- coordinator (3
-workers) (protocol v44)" (or "CPU, 16 threads" / a GPU description for a
+workers) (protocol v45)" (or "CPU, 16 threads" / a GPU description for a
 coordinator that renders on its own with `--render` and has no workers
 joined yet, or "library only (no render capacity)" if the remote only
 serves the design library — a coordinator with no joined workers and no
@@ -344,7 +359,211 @@ Once you've confirmed the worker is reachable again, just retry — with
 Local + Remote selected, the app will pick it back up on the next attempt
 without any further configuration.
 
+## Running the Coordinator or a Render Computer as a Linux Service
+
+A coordinator or a render computer that stays on all the time should start by
+itself at boot and run under its own user, not under your login. This section
+sets that up on Linux, with **systemd** (most distributions) or **OpenRC**
+(Gentoo). The templates are in the worker's folder
+`apps/pleochroma-worker/packaging/`; its `README.md` lists every file and where
+it goes. Run the commands as root, or put `sudo` in front of them.
+
+The service runs the program with `--headless`, so it never opens a window. A
+program built with the window needs that flag; without it the program prints a
+deprecation warning. Use the flag in every command that a service runs.
+
+### 1. Create the Service User and Its Folders
+
+On most distributions:
+
+```
+useradd --system --user-group --home-dir /var/lib/pleochroma --shell /usr/sbin/nologin pleochroma
+```
+
+On Gentoo the login-less shell is `/sbin/nologin`:
+
+```
+useradd --system --user-group --home-dir /var/lib/pleochroma --shell /sbin/nologin pleochroma
+```
+
+Then make the folders. Only the service user may read them, because the
+certificate authority's private key lives there:
+
+```
+install -d -o pleochroma -g pleochroma -m 0700 /var/lib/pleochroma
+install -d -o pleochroma -g pleochroma -m 0700 /var/lib/pleochroma/pki
+install -d -o pleochroma -g pleochroma -m 0700 /var/lib/pleochroma/worker-cert
+```
+
+Use `pki` on a coordinator and `worker-cert` on a render computer; a computer
+that does both makes both. The coordinator keeps its design library
+(`facet_diagrams.sqlite`, or the file you name with `--db`), its `jobs` folder and
+its `asset-cache` folder next to the library, so put the library file into
+`/var/lib/pleochroma` too and let the service user own it:
+
+```
+install -o pleochroma -g pleochroma -m 0600 facet_diagrams.sqlite /var/lib/pleochroma/
+```
+
+### 2. Install the Program
+
+Copy the program you built (`cargo build -p pleochroma-worker --release`, with
+`--features gpu` to render on a graphics card) to `/usr/local/bin`:
+
+```
+install -m 0755 pleochroma-worker /usr/local/bin/pleochroma-worker
+```
+
+A coordinator that does not render itself needs no `worker` feature. A render
+computer (`join`) and a coordinator started with `--render` need it.
+
+### 3. Set Up the Certificates as the Service User
+
+Run the certificate commands as the service user, so every file belongs to it.
+`-H` sets its home folder; the full paths make the starting folder irrelevant.
+
+On a coordinator, create the certificate authority and the server certificate.
+Give the server certificate every name or address that the app and the workers
+will use:
+
+```
+sudo -H -u pleochroma pleochroma-worker --headless cert init --dir /var/lib/pleochroma/pki
+sudo -H -u pleochroma pleochroma-worker --headless cert issue-server --dir /var/lib/pleochroma/pki --host render-server --ip 192.168.1.20
+```
+
+While the coordinator runs with TLS, it issues the server certificate again by
+itself when the computer's network addresses change, so a new address from DHCP
+does not need a new `issue-server`.
+
+On a render computer, get a worker certificate once. On the coordinator,
+request a token (see "Pairing a Phone or Another Computer" below, with
+`--role worker` and `--admin-addr 127.0.0.1:7881`), then on the render computer
+redeem it within 180 seconds:
+
+```
+sudo -H -u pleochroma pleochroma-worker --headless cert claim --token GW1-XXXXX-XXXXX-... --addr render-server:7881 --out /var/lib/pleochroma/worker-cert
+```
+
+Instead of a token you can copy a bundle made on the coordinator with
+`cert issue-client --role worker`; its three files (`ca.pem`, `client.pem`,
+`client.key`) go into `/var/lib/pleochroma/worker-cert`, owned by `pleochroma`.
+
+### 4. Graphics Card Access
+
+To render on a graphics card the service user needs the device files in
+`/dev/dri`. Look at their groups, then add the user to them:
+
+```
+ls -l /dev/dri
+usermod -aG video,render pleochroma
+```
+
+Some systems have only `video`; use the groups that `ls -l` shows. A service
+reads its groups when it starts, so restart it after the change. The systemd
+templates have the matching line `SupplementaryGroups=video render`, commented
+out; remove the `#` if you use it. A program built without the `gpu` feature
+needs none of this.
+
+On a computer with an AMD graphics card the program switches on its workaround
+for Mesa's RADV driver by itself (about 10 % slower, correct pictures), and
+leaves NVIDIA and Intel cards alone. To force it on or off, uncomment the
+`PLEOCHROMA_RADV_WORKAROUND` line in the template and set it to `on` or `off`.
+
+### 5. Install and Start the Service
+
+Edit the placeholders first: the address (`--bind` for a coordinator, the
+coordinator's worker address for a render computer) and the certificate folders.
+A coordinator uses the ports 7878 (viewers), 7879 (viewer enrollment), 7880
+(joining workers) and 7881 (worker enrollment); open them in the firewall as
+far as you need them. A render computer opens no port, because `join` dials out.
+
+**systemd:**
+
+```
+cp pleochroma-coordinator.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now pleochroma-coordinator
+systemctl status pleochroma-coordinator
+```
+
+For a render computer use `pleochroma-worker.service` and the name
+`pleochroma-worker`.
+
+**OpenRC:**
+
+```
+install -m 0755 pleochroma-coordinator /etc/init.d/pleochroma-coordinator
+install -m 0644 pleochroma-coordinator.confd /etc/conf.d/pleochroma-coordinator
+rc-update add pleochroma-coordinator default
+rc-service pleochroma-coordinator start
+```
+
+For a render computer use `pleochroma-worker` and `pleochroma-worker.confd`. In
+OpenRC the arguments are in the file in `/etc/conf.d`, not in the init script.
+
+When you stop the coordinator, it shuts down cleanly and exits with status 0. A
+render computer's `join` has no shutdown step of its own: the stop signal ends
+it at once. Both start again at boot, and a render computer reconnects by itself
+when the coordinator restarts.
+
+### 6. Read the Logs
+
+systemd keeps them in the journal:
+
+```
+journalctl -u pleochroma-coordinator -f
+```
+
+OpenRC writes files into `/var/log/pleochroma/`: `coordinator.log` and
+`coordinator.err` (`worker.log` and `worker.err` for a render computer).
+
+```
+tail -f /var/log/pleochroma/coordinator.log
+```
+
+The default level is `info`. For more detail set `RUST_LOG=debug` in the
+template, as the commented line shows. The program also logs the addresses it
+listens on, including the enrollment ports.
+
+### Pairing a Phone or Another Computer
+
+A server with a screen can show the coordinator window instead, which pairs by QR code
+or link without any command line (Chapter 30). A server with no screen cannot show a
+pairing window, so make a one-time token
+with the command line, on the server itself, as the service user. The command
+reads a secret file in the certificate folder that only that user can read, and
+the coordinator accepts the request only from the same computer:
+
+```
+sudo -H -u pleochroma pleochroma-worker --headless cert issue-token --ca /var/lib/pleochroma/pki/ca.pem --admin-addr 127.0.0.1:7879 --name my-phone
+```
+
+The command prints a token that starts `GW1-`. It works once and for 180
+seconds. In the app, use Option B above ("Redeem an Enrollment Token"): the
+enrollment address is the server's own address with port 7879, for example
+`render-server:7879`. For a render computer use `--role worker` and port 7881,
+and redeem the token as shown in step 3.
+
+To take a device's access away, delete its line from `allowlist-viewers.txt` (or
+`allowlist-workers.txt`) in `/var/lib/pleochroma/pki`; no restart is needed.
+
+### Updating
+
+The app, the coordinator and every render computer must run the same version
+(see "Update the App and Every Worker Together"). To update a computer:
+
+1. stop the service (`systemctl stop pleochroma-coordinator` or
+   `rc-service pleochroma-coordinator stop`);
+2. replace the program (`install -m 0755 pleochroma-worker /usr/local/bin/pleochroma-worker`);
+3. start the service (`systemctl start pleochroma-coordinator` or
+   `rc-service pleochroma-coordinator start`).
+
+Update the coordinator and its render computers together, then use **Test
+Connection** in the app. A computer on another version is refused when it
+connects.
+
 ## Next Steps
 
-Continue to Chapter 11 for how the app saves your work and the file
-formats it uses, or Chapter 12 for a consolidated troubleshooting list.
+Continue to Chapter 30 for the coordinator's own window, its pairing and its remote
+administration, to Chapter 11 for how the app saves your work and the file
+formats it uses, or to Chapter 12 for a consolidated troubleshooting list.

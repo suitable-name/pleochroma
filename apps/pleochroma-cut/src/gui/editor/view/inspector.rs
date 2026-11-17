@@ -27,8 +27,16 @@ use crate::{
         },
     },
 };
-use pleochroma::optics::materials::{CrystalSystem, GemMaterial, OpticalCharacter};
-use pleochroma_cut_core::{Design, TierFrosting, critical_angle_deg};
+use pleochroma::optics::materials::GemMaterial;
+use pleochroma_cut_core::{
+    Design, TierFrosting, critical_angle_deg, material::built_in_specific_gravity,
+};
+use pleochroma_editor::material_reference::{
+    CustomGemData, GemFacts, Origin, dispersion_chip_text,
+    facts::{cleavage_warns, toughness_chip_text},
+    family_line,
+    text::dispersion_chip_tooltip,
+};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::sync::{Arc, Mutex};
 
@@ -91,45 +99,157 @@ fn body_color_readout(design: &Design, custom: &[GemMaterial], stone_width_mm: f
         })
 }
 
+/// The material called `name` and where it comes from: a custom material first, then a built-in.
+fn find_material<'a>(name: &str, custom: &'a [GemMaterial]) -> Option<(&'a GemMaterial, Origin)> {
+    custom
+        .iter()
+        .find(|m| m.name.eq_ignore_ascii_case(name))
+        .map(|m| (m, Origin::Custom))
+        .or_else(|| {
+            GemMaterial::built_in()
+                .iter()
+                .find(|m| m.name.eq_ignore_ascii_case(name))
+                .map(|m| (m, Origin::Natural))
+        })
+}
+
 /// The Stone tab's identity card lines: the crystal family of the design's material
-/// (`Trigonal · uniaxial (-) · built-in`) and its dispersion `n_F - n_C` (`0.018`). Both are
-/// empty while the design names no known material.
-fn material_identity(design: &Design, custom: &[GemMaterial]) -> (String, String) {
-    let Some(name) = design.material.name.as_deref() else {
-        return (String::new(), String::new());
+/// (`Trigonal · uniaxial (-) · built-in`, the shared `family_line`), its dispersion in the
+/// B-G convention (`0.044`) and that chip's tooltip. All three are empty while the design names
+/// no known material.
+fn material_identity(design: &Design, custom: &[GemMaterial]) -> (String, String, String) {
+    let Some((material, origin)) = design
+        .material
+        .name
+        .as_deref()
+        .and_then(|name| find_material(name, custom))
+    else {
+        return (String::new(), String::new(), String::new());
     };
-    let custom_hit = custom.iter().find(|m| m.name.eq_ignore_ascii_case(name));
-    let found = custom_hit.or_else(|| {
-        GemMaterial::built_in()
+    (
+        family_line(material, origin),
+        dispersion_chip_text(material),
+        dispersion_chip_tooltip(material),
+    )
+}
+
+/// The material facts of the Stone tab's identity card (and the library card) as display text.
+/// Every field is empty while no source gives the value, and the card leaves it out.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct GemChips {
+    /// The material the facts describe.
+    name: String,
+    /// The refractive index (`1.6200`), for the library card, which has no design to read it from.
+    ri: String,
+    /// The critical angle (`38.10°`), for the library card.
+    critical: String,
+    /// The dispersion in the B-G convention (`0.014`), for the library card.
+    dispersion: String,
+    /// The specific gravity (`3.53`).
+    sg: String,
+    /// The Mohs figure (`8`, `7.5–8`).
+    mohs: String,
+    /// The whole toughness chip (`Toughness Poor`), from `toughness_chip_text`.
+    toughness: String,
+    /// The cleavage (`perfect basal {001}`).
+    cleavage: String,
+    /// Whether the cleavage is a cutting risk (`cleavage_warns`).
+    cleavage_warns: bool,
+    /// Whether this is a custom material with no gem data at all.
+    empty: bool,
+}
+
+/// The cleavage line's text: a built-in material's cleavage starts in lower case (`perfect basal
+/// {001}`, `none`); a custom material's own words stay as the user typed them.
+fn cleavage_text(facts: &GemFacts) -> String {
+    let Some(cleavage) = facts.cleavage.as_deref().map(str::trim) else {
+        return String::new();
+    };
+    if facts.user_entered {
+        return cleavage.to_owned();
+    }
+    let mut chars = cleavage.chars();
+    chars
+        .next()
+        .map(|c| c.to_lowercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+/// The specific gravity chip's figure (`3.53`): the representative value of a built-in material
+/// or the figure the user entered for a custom one (`custom_sg`). `None` when none is recorded.
+fn sg_figure(name: &str, is_custom: bool, custom_sg: Option<f64>) -> Option<String> {
+    if is_custom {
+        return custom_sg.map(|sg| format!("{sg:.2}"));
+    }
+    built_in_specific_gravity(name).map(|sg| format!("{:.2}", sg.representative))
+}
+
+/// The identity-card facts of `material` (`name` as the design or the library view names it).
+/// `custom_sg` is the specific gravity the user entered for a custom material.
+fn gem_chips(
+    name: &str,
+    material: &GemMaterial,
+    origin: Origin,
+    facts: &GemFacts,
+    custom_sg: Option<f64>,
+) -> GemChips {
+    let is_custom = origin == Origin::Custom;
+    let sg = sg_figure(&material.name, is_custom, custom_sg);
+    let n_d = f64::from(material.dispersion.n_d());
+    GemChips {
+        name: name.to_owned(),
+        ri: format!("{n_d:.4}"),
+        critical: format!("{:.2}\u{b0}", critical_angle_deg(n_d)),
+        dispersion: dispersion_chip_text(material),
+        empty: is_custom && facts.is_empty() && sg.is_none(),
+        sg: sg.unwrap_or_default(),
+        mohs: facts.hardness.clone().unwrap_or_default(),
+        toughness: toughness_chip_text(facts).unwrap_or_default(),
+        cleavage: cleavage_text(facts),
+        cleavage_warns: cleavage_warns(facts),
+    }
+}
+
+/// Pushes the identity card's material facts for the material called `name`: the card is hidden
+/// while `name` is `None` or names no known material. Called for the design's material by
+/// [`refresh_design_settings`] and for the material a library design is shown in by the
+/// library view. `custom_gem` is `RenderContext::custom_material_gem_data` and `custom_sg` is
+/// `RenderContext::custom_material_specific_gravity`: the figures the user entered for a custom
+/// material.
+pub(in crate::gui) fn push_gem_card(
+    ui: &MainWindow,
+    name: Option<&str>,
+    custom: &[GemMaterial],
+    custom_gem: &[(String, CustomGemData)],
+    custom_sg: &[(String, f64)],
+) {
+    let model = ui.global::<EditorModel>();
+    let card = name.and_then(|name| {
+        let (material, origin) = find_material(name, custom)?;
+        let entered = custom_gem
             .iter()
-            .find(|m| m.name.eq_ignore_ascii_case(name))
+            .find(|(n, _)| n.eq_ignore_ascii_case(&material.name))
+            .map(|(_, data)| data);
+        let sg = custom_sg
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(&material.name))
+            .map(|(_, sg)| *sg);
+        let facts = GemFacts::for_material(&material.name, origin == Origin::Custom, entered);
+        Some(gem_chips(&material.name, material, origin, &facts, sg))
     });
-    let Some(material) = found else {
-        return (String::new(), String::new());
-    };
-    let system = match material.crystal_system {
-        CrystalSystem::Cubic => "Cubic",
-        CrystalSystem::Tetragonal => "Tetragonal",
-        CrystalSystem::Hexagonal => "Hexagonal",
-        CrystalSystem::Trigonal => "Trigonal",
-        CrystalSystem::Orthorhombic => "Orthorhombic",
-        CrystalSystem::Monoclinic => "Monoclinic",
-        CrystalSystem::Triclinic => "Triclinic",
-    };
-    let character = match material.optical_character {
-        OpticalCharacter::Isotropic => "isotropic",
-        OpticalCharacter::UniaxialPositive => "uniaxial (+)",
-        OpticalCharacter::UniaxialNegative => "uniaxial (-)",
-        OpticalCharacter::BiaxialPositive => "biaxial (+)",
-        OpticalCharacter::BiaxialNegative => "biaxial (-)",
-    };
-    let origin = if custom_hit.is_some() {
-        "custom"
-    } else {
-        "built-in"
-    };
-    let family = format!("{system} \u{b7} {character} \u{b7} {origin}");
-    (family, format!("{:.3}", material.dispersion.delta_f_c()))
+    let shown = card.is_some();
+    let card = card.unwrap_or_default();
+    model.set_gem_card_shown(shown);
+    model.set_gem_name(card.name.into());
+    model.set_gem_ri(card.ri.into());
+    model.set_gem_critical(card.critical.into());
+    model.set_gem_dispersion(card.dispersion.into());
+    model.set_gem_sg(card.sg.into());
+    model.set_gem_mohs(card.mohs.into());
+    model.set_gem_toughness(card.toughness.into());
+    model.set_gem_cleavage(card.cleavage.into());
+    model.set_gem_cleavage_warns(card.cleavage_warns);
+    model.set_gem_empty(card.empty);
 }
 
 /// Whether the design's material is a custom material whose color is a physics recipe -- the
@@ -282,11 +402,20 @@ pub(super) fn refresh_design_settings(
         let n_d = design.effective_refractive_index_with(&ctx.custom_materials);
         ui.global::<EditorModel>()
             .set_ri_source_text(ri_source_text(&design.material, &ctx.custom_materials).into());
-        let (family, dispersion) = material_identity(design, &ctx.custom_materials);
+        let (family, dispersion, dispersion_tip) = material_identity(design, &ctx.custom_materials);
         ui.global::<EditorModel>()
             .set_material_family_text(family.into());
         ui.global::<EditorModel>()
             .set_material_dispersion_text(dispersion.into());
+        ui.global::<EditorModel>()
+            .set_material_dispersion_tip(dispersion_tip.into());
+        push_gem_card(
+            ui,
+            design.material.name.as_deref(),
+            &ctx.custom_materials,
+            &ctx.custom_material_gem_data,
+            &ctx.custom_material_specific_gravity,
+        );
         // Custom materials can change any time, independently of `design` -- this
         // option LIST is always refreshed; only the in-out `*_index`/`*_text`
         // selections below are gated on `delta`.
@@ -704,6 +833,96 @@ mod tests {
         assert_eq!(chips.len(), 2);
         assert!(!chips[0].detached);
         assert!(chips[1].detached);
+    }
+
+    // --- the identity card's material facts ---
+
+    fn chips_of(name: &str) -> GemChips {
+        let (material, origin) = find_material(name, &[]).expect("built-in material");
+        let facts = GemFacts::for_material(&material.name, false, None);
+        gem_chips(&material.name, material, origin, &facts, None)
+    }
+
+    #[test]
+    fn topaz_reads_poor_toughness_and_a_perfect_cleavage_warning() {
+        let topaz = chips_of("Topaz");
+        assert_eq!(topaz.toughness, "Toughness Poor");
+        assert_eq!(topaz.mohs, "8");
+        assert!(
+            topaz.cleavage.starts_with("perfect basal"),
+            "{}",
+            topaz.cleavage
+        );
+        assert!(topaz.cleavage_warns);
+        assert!(!topaz.empty);
+        let sg: f64 = topaz.sg.parse().expect("a figure");
+        assert!((3.4..3.7).contains(&sg), "{}", topaz.sg);
+    }
+
+    #[test]
+    fn a_stone_without_cleavage_reads_none_and_does_not_warn() {
+        let glass = chips_of("Glass (N-BK7)");
+        assert!(!glass.cleavage_warns);
+        let diamond = chips_of("Diamond");
+        assert_eq!(diamond.mohs, "10");
+        assert!(diamond.cleavage_warns, "octahedral cleavage is perfect");
+        let ri: f64 = diamond.ri.parse().expect("a figure");
+        assert!((2.40..2.43).contains(&ri), "{}", diamond.ri);
+        assert!(diamond.critical.ends_with('\u{b0}'));
+    }
+
+    #[test]
+    fn a_missing_value_is_left_empty_not_worded() {
+        // Glass has no toughness grade: the chip is simply absent.
+        let glass = chips_of("Glass (N-BK7)");
+        assert_eq!(glass.toughness, "");
+        assert!(!glass.empty);
+    }
+
+    #[test]
+    fn a_custom_material_without_data_is_empty_until_it_has_a_gravity() {
+        let (material, _) = find_material("Diamond", &[]).expect("built-in material");
+        let facts = GemFacts::for_material("Mine", true, None);
+        let bare = gem_chips("Mine", material, Origin::Custom, &facts, None);
+        assert!(bare.empty);
+        assert_eq!(
+            (bare.sg.as_str(), bare.mohs.as_str(), bare.cleavage.as_str()),
+            ("", "", "")
+        );
+        let with_sg = gem_chips("Mine", material, Origin::Custom, &facts, Some(3.9));
+        assert!(!with_sg.empty);
+        assert_eq!(with_sg.sg, "3.90");
+    }
+
+    #[test]
+    fn a_custom_material_shows_the_data_the_user_entered() {
+        let (material, _) = find_material("Diamond", &[]).expect("built-in material");
+        let data = CustomGemData {
+            mohs: Some((7.5, 8.0)),
+            cleavage: Some("Perfect basal".to_owned()),
+            ..CustomGemData::default()
+        };
+        let facts = GemFacts::for_material("Mine", true, Some(&data));
+        let chips = gem_chips("Mine", material, Origin::Custom, &facts, None);
+        assert!(!chips.empty);
+        assert_eq!(chips.mohs, "7.5\u{2013}8");
+        // The user's own words keep their case; the leading word still raises the warning.
+        assert_eq!(chips.cleavage, "Perfect basal");
+        assert!(chips.cleavage_warns);
+        let mild = CustomGemData {
+            cleavage: Some("Imperfect basal".to_owned()),
+            ..CustomGemData::default()
+        };
+        let facts = GemFacts::for_material("Mine", true, Some(&mild));
+        assert!(!gem_chips("Mine", material, Origin::Custom, &facts, None).cleavage_warns);
+    }
+
+    #[test]
+    fn the_dispersion_chip_is_the_b_g_figure() {
+        let design = EditorState::fresh().design.clone();
+        assert_eq!(material_identity(&design, &[]).1, "");
+        let (material, _) = find_material("Diamond", &[]).expect("built-in material");
+        assert_eq!(dispersion_chip_text(material), "0.044");
     }
 
     /// A refresh must not take a slider's value back while its commit is pending, and must

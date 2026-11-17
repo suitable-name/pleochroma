@@ -57,7 +57,8 @@ pub(super) fn label_text(origin: &str, seconds: u64) -> String {
 }
 
 /// The place of a figure in the cells: Live Render's order (brilliance, fire, scintillation,
-/// windowing, extinction), then the rest as `DeltaFigure::ALL` has them.
+/// windowing, extinction), then Contrast, then the rest as `DeltaFigure::ALL` has them. The
+/// remaining figures rank from 10 up (index 5 and above, plus 5), so Contrast's 5 sits between.
 const fn display_rank(figure: DeltaFigure) -> usize {
     match figure {
         DeltaFigure::Brilliance => 0,
@@ -65,6 +66,7 @@ const fn display_rank(figure: DeltaFigure) -> usize {
         DeltaFigure::Scintillation => 2,
         DeltaFigure::Windowing => 3,
         DeltaFigure::Extinction => 4,
+        DeltaFigure::Contrast => 5,
         other => 5 + other.index(),
     }
 }

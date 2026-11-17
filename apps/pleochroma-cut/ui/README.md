@@ -59,7 +59,7 @@ window's own handle.
 | `SolidPreviewModel` | `models/solid_preview.slint` | The Edit tab's solid-inspection viewport |
 | `SweepModel` | `models/sweep.slint` | The Angle Sweep dialog (Edit > Angle Sweep...): the form, the run's progress, and the table, chart and readout of the finished sweep; the dialog is `components/sweep_dialog.slint` |
 | `TemplateGalleryModel` | `models/templates.slint` | The New Design dialog's template gallery |
-| `Theme` | `theme.slint` | The color palette and other design tokens. Read from `.slint`; exported to Rust only for its `high-contrast` flag, which every color token switches on (Rust sets it per window: `gui::preferences`). Use `Theme` tokens, never hex literals, so the high-contrast palette reaches new code (see "Colours and high contrast" below) |
+| `Theme` | `theme.slint` (a re-export stub; the file is `crates/pleochroma-ui-kit/ui/theme.slint`) | The color palette and other design tokens. Read from `.slint`; exported to Rust only for its `high-contrast` flag, which every color token switches on (Rust sets it per window: `gui::preferences`). Use `Theme` tokens, never hex literals, so the high-contrast palette reaches new code (see "Colours and high contrast" below) |
 | `TierTableModel` | `models/tier_table.slint` | The few callbacks the tier table and the Tier form need from Rust beyond `EditorModel`'s edits: the multi-select Offset box, the "+ Add" facet box and the Rotate buttons read what was typed as a number or a small calculation (`eval_number`) and say in a toast when they cannot; `any_detached` lets the Simple interface note a detached tier. Rust: `gui::editor::tier_table_model` |
 | `TiltModel`, `TiltVideoExportModel` | `models/tilt.slint` | Tilt performance graphs; the tilt-video export section |
 | `TutorialsModel` | `models/tutorials.slint` | The tutorial browser (Help > Tutorials...), the welcome dialog and the empty state's library hint. Rust: `gui::editor::guide::browser` |
@@ -188,3 +188,13 @@ and Enter, and a screen-reader label. Pass it a `hint`: one plain sentence sayin
    screen readers"), put a `HelpButton` in the header, and decide what Simple mode hides.
    Add the new file to `CONVERTED_FILES` in `tests/theme_tokens.rs` once it holds no colour
    literal.
+
+## The shared kit
+
+`theme.slint`, `shared/*.slint` and `components/kit/{kit,figures,icons,inputs,panel,parts,rig_thumb,table}.slint`
+moved to the `crates/pleochroma-ui-kit` crate (`ui/` at the same relative paths), so the coordinator and
+the Android app, and a packaged crate, import them without reaching into this folder. The files at
+those paths here are stubs that re-export every item from `@pleochroma-kit/<same path>`, so the
+imports inside this folder stay as they are. `build.rs` registers the library with
+`pleochroma_ui_kit::library_paths()`. Edit the kit's file, never the stub. Other kit files
+(`stone.slint`, `r2r.slint`, `r3c.slint`) stay here.

@@ -1,0 +1,207 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { HelpModel } from "../../models/help.slint";
+import { KitButton, KitChip } from "../kit/kit.slint";
+
+// A wrapped paragraph whose height is the measured height of its own wrapped text at the width the
+// layout gives it, so the popover has no dead gaps and the text never overlaps what follows.
+component FitNote inherits Text {
+    wrap: word-wrap;
+    height: self.preferred-height;
+}
+
+// One definition: the term in bold and its wrapped text beside it, a two-column list in the
+// `KitLabelRow` style (12 px, a fixed label column).
+component DefRow inherits Rectangle {
+    in property <string> term;
+    in property <string> body;
+    height: body_text.height + 1px;
+    Text { x: 0px; y: 0px; width: 84px; text: root.term; font-size: 12px; font-weight: 700; color: Theme.text-primary; }
+    body_text := FitNote { x: 94px; y: 0px; width: parent.width - 94px; text: root.body; font-size: 12px; color: Theme.text-secondary; }
+}
+
+// A side view of the hemisphere above the girdle plane with the stone in the middle and the eye
+// straight above it. Green 0-45, red 45-75 and blue 75-90 degrees above the girdle plane on each
+// side; dark below it. Every zone is named once, outside the arc, with a leader line; the angle
+// ranges are in the legend under the diagram. The viewbox is 400 x 180; the half-circle's centre is
+// (200, 150), its radius 112.
+component ZoneDiagram inherits Rectangle {
+    height: 180px;
+    Path {
+        width: 100%; height: 100%;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 400; viewbox-height: 180;
+        fill: Theme.aset-green.with-alpha(0.55);
+        MoveTo { x: 200; y: 150; } LineTo { x: 88; y: 150; }
+        ArcTo { x: 120.8; y: 70.8; radius-x: 112; radius-y: 112; sweep: true; }
+        Close { }
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 400; viewbox-height: 180;
+        fill: Theme.aset-green.with-alpha(0.55);
+        MoveTo { x: 200; y: 150; } LineTo { x: 312; y: 150; }
+        ArcTo { x: 279.2; y: 70.8; radius-x: 112; radius-y: 112; sweep: false; }
+        Close { }
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 400; viewbox-height: 180;
+        fill: Theme.aset-red.with-alpha(0.6);
+        MoveTo { x: 200; y: 150; } LineTo { x: 120.8; y: 70.8; }
+        ArcTo { x: 171.0; y: 41.8; radius-x: 112; radius-y: 112; sweep: true; }
+        Close { }
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 400; viewbox-height: 180;
+        fill: Theme.aset-red.with-alpha(0.6);
+        MoveTo { x: 200; y: 150; } LineTo { x: 279.2; y: 70.8; }
+        ArcTo { x: 229.0; y: 41.8; radius-x: 112; radius-y: 112; sweep: false; }
+        Close { }
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 400; viewbox-height: 180;
+        fill: Theme.aset-blue.with-alpha(0.7);
+        MoveTo { x: 200; y: 150; } LineTo { x: 171.0; y: 41.8; }
+        ArcTo { x: 229.0; y: 41.8; radius-x: 112; radius-y: 112; sweep: true; }
+        Close { }
+    }
+    // Below the girdle plane.
+    Rectangle { x: parent.width * 20 / 400; y: parent.height * 150 / 180; width: parent.width * 360 / 400; height: parent.height * 26 / 180; background: Theme.aset-dark.with-alpha(0.5); }
+    // The girdle plane.
+    Rectangle { x: parent.width * 20 / 400; y: parent.height * 150 / 180 - 0.5px; width: parent.width * 360 / 400; height: 1px; background: Theme.text-secondary; }
+    // The stone, a small brilliant in profile.
+    Path {
+        width: 100%; height: 100%;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 400; viewbox-height: 180;
+        fill: Theme.bg-elevated;
+        stroke: Theme.text-secondary;
+        stroke-width: 1px;
+        MoveTo { x: 188; y: 142; } LineTo { x: 212; y: 142; } LineTo { x: 220; y: 149; }
+        LineTo { x: 200; y: 167; } LineTo { x: 180; y: 149; } Close { }
+    }
+    // Leader lines from each zone to its label, and from the eye to the arc.
+    Path {
+        width: 100%; height: 100%;
+        viewbox-x: 0; viewbox-y: 0; viewbox-width: 400; viewbox-height: 180;
+        stroke: Theme.text-muted;
+        stroke-width: 1px;
+        fill: transparent;
+        MoveTo { x: 200; y: 17; } LineTo { x: 200; y: 38; }
+        MoveTo { x: 215; y: 40; } LineTo { x: 233; y: 24; }
+        MoveTo { x: 256; y: 54; } LineTo { x: 276; y: 42; }
+        MoveTo { x: 97; y: 107; } LineTo { x: 79; y: 100; }
+    }
+    // The eye, at the apex, straight above the stone.
+    Rectangle { x: parent.width * 196 / 400; y: parent.height * 8 / 180; width: 8px; height: 8px; border-radius: 4px; background: Theme.text-primary; }
+    Text { x: parent.width * 150 / 400; y: parent.height * 5 / 180; width: parent.width * 42 / 400; text: "eye"; font-size: 10px; color: Theme.text-primary; horizontal-alignment: right; }
+    Text { x: parent.width * 236 / 400; y: parent.height * 8 / 180; text: "Blue"; font-size: 11px; font-weight: 700; color: Theme.aset-blue; }
+    Text { x: parent.width * 280 / 400; y: parent.height * 33 / 180; text: "Red"; font-size: 11px; font-weight: 700; color: Theme.aset-red; }
+    Text { x: parent.width * 20 / 400; y: parent.height * 92 / 180; width: parent.width * 56 / 400; text: "Green"; font-size: 11px; font-weight: 700; color: Theme.aset-green; horizontal-alignment: right; }
+    Text { x: parent.width * 26 / 400; y: parent.height * 157 / 180; text: "Dark: below the girdle plane"; font-size: 10px; color: Theme.text-primary; }
+    Text { x: parent.width * 220 / 400; y: parent.height * 157 / 180; width: parent.width * 156 / 400; text: "girdle plane (0\u{b0})"; font-size: 10px; color: Theme.text-primary; horizontal-alignment: right; }
+}
+
+// "How the Face-Up Figures Are Measured": the popover the face-up card's "?" button opens
+// (`ViewportModel.figures_help_open`). Its owner places it beside the card. One scroll area holds
+// everything, the trademark note included; the footer holds only the manual link and Close.
+// `content_height` is the height that fits the content, so the owner can cap it.
+export component FiguresHelp inherits Rectangle {
+    out property <length> content_height: 14px + 22px + 9px + body_lay.preferred-height + 9px + 32px + 14px;
+    property <length> cw: root.width - 28px - 16px;
+
+    background: Theme.surface-dialog;
+    border-color: Theme.border-subtle;
+    border-width: 1px;
+    border-radius: Theme.radius-md;
+    clip: true;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "How the Face-Up Figures Are Measured";
+
+    // Takes the keyboard focus when it opens, so Escape closes it like the other popovers.
+    init => { help_keys.focus(); }
+    help_keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                ViewportModel.figures_help_open = false;
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 9px;
+        HorizontalLayout {
+            height: 22px;
+            spacing: 8px;
+            Text { horizontal-stretch: 1; text: "How the Face-Up Figures Are Measured"; font-size: 14px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+            Rectangle {
+                width: 22px;
+                height: 22px;
+                border-radius: 6px;
+                background: close_touch.has-hover ? Theme.bg-card-hover : transparent;
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Close";
+                accessible-action-default => { ViewportModel.figures_help_open = false; }
+                Text { width: 100%; height: 100%; text: "\u{d7}"; font-size: 16px; color: Theme.text-secondary; horizontal-alignment: center; vertical-alignment: center; }
+                close_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { ViewportModel.figures_help_open = false; }
+                }
+            }
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            min-height: 0px;
+            body_lay := VerticalLayout {
+                x: 0px;
+                width: root.cw;
+                spacing: 9px;
+                FitNote { text: "One pass of up to 900 rays, straight at the face from where you look: 180 spots on an 18 \u{d7} 18 grid over the stone, five eye directions each, traced at 589 nm until they leave the stone. Every figure below counts those rays; nothing is weighted that is not named here."; font-size: 12px; color: Theme.text-primary; }
+                Rectangle { height: 1px; background: Theme.border-subtle; }
+                Text { text: "ZONES (ASET-STYLE)  \u{b7}  the same zones as the Contrast view"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: Theme.text-muted; overflow: elide; }
+                ZoneDiagram { }
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 6px;
+                    KitChip { text: "Green 0\u{2013}45\u{b0}"; ink: Theme.aset-green; }
+                    KitChip { text: "Red 45\u{2013}75\u{b0}"; ink: Theme.aset-red; }
+                    KitChip { text: "Blue 75\u{2013}90\u{b0}"; ink: Theme.aset-blue; }
+                }
+                FitNote { text: "The shares are the same under any lighting: every ray the same weight, and the lighting you chose does not change them. Each ray counts in the zone its exit direction points to, measured as height above the girdle plane. The edges are this program's blended edges (the published ranges are sharp, about 45\u{b0} and 75\u{b0}): 43.4\u{b0} to 46.6\u{b0} and 71.1\u{b0} to 80.4\u{b0}, as the Contrast view blends them, so a ray on an edge counts partly in both zones. To see the zones on the stone, choose the lighting Contrast view (ASET-style)."; font-size: 12px; color: Theme.text-secondary; }
+                Rectangle { height: 1px; background: Theme.border-subtle; }
+                DefRow { term: "Brilliance"; body: "Rays that leave upward, outside your head's shadow, and see a light of the current lighting."; }
+                DefRow { term: "Fire"; body: "How much rainbow color the stone throws."; }
+                DefRow { term: "Scintillation"; body: "Sparkle as the light or stone moves."; }
+                DefRow { term: "Windowing"; body: "The share of the face that looks see-through: the rays that leak out of the pavilion."; }
+                DefRow { term: "Extinction"; body: "The share of the face that looks dead dark."; }
+                DefRow { term: "Contrast"; body: "100 \u{d7} the average difference in Blue share between neighboring spots of the grid (left-right and up-down pairs). No blue, or one solid blue patch, reads near 0; the viewer's shadow broken into many small patches reads high. A checkerboard would read 100. This is this program's own measure, not an AGS or GIA figure; high means finely broken-up shadow, not a better grade."; }
+                DefRow { term: "Zones"; body: "Where the light each spot of the face shows comes from. Red + Green + Blue is all the light that leaves upward; Brilliance is the lit part of it outside your head's shadow."; }
+                DefRow { term: "Dark"; body: "Leak (the same rays as Windowing; ASET's leakage) plus Lost inside (no exit within 10 bounces, or out sideways). Lost is not an ASET zone. The card shows the split."; }
+                Rectangle { height: 1px; background: Theme.border-subtle; }
+                FitNote { text: "ASET is a registered trademark of GIA. Pleochroma is not affiliated with GIA or the American Gem Society."; font-size: 10px; color: Theme.text-muted; }
+            }
+        }
+        HorizontalLayout {
+            height: 32px;
+            spacing: 8px;
+            Rectangle {
+                width: manual_text.preferred-width;
+                accessible-role: AccessibleRole.button;
+                accessible-label: "Open in the Manual";
+                accessible-action-default => { HelpModel.open_topic("02-catalogue-and-viewing#how-the-face-up-figures-are-measured"); }
+                manual_text := Text { height: 100%; text: "Open in the Manual"; font-size: 12px; color: manual_touch.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan; vertical-alignment: center; }
+                manual_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { HelpModel.open_topic("02-catalogue-and-viewing#how-the-face-up-figures-are-measured"); }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            KitButton { text: "Close"; h: 28px; clicked => { ViewportModel.figures_help_open = false; } }
+        }
+    }
+}

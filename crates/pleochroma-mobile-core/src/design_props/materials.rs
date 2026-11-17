@@ -1,6 +1,7 @@
-//! The material catalogue and the edits that choose a material: the rows the picker
-//! lists, picking one, the refractive-index override, the body color and the custom
-//! materials made in the compact form.
+//! The material catalogue and the edits that choose a material.
+//!
+//! That covers the rows the picker lists, picking one, the refractive-index override, the
+//! body color and the custom materials made in the compact form.
 //!
 //! A material pick is one undoable `Edit::SetMaterial` on the design, and it also records
 //! the pick as the render material name in the settings (the render follows the design
@@ -22,7 +23,7 @@
 use std::sync::OnceLock;
 
 use pleochroma::optics::materials::{
-    CrystalSystem, GemMaterial, OpticalCharacter,
+    GemMaterial,
     body_color::preset_label_for_rgb,
     variants::{
         ColorVariant, MATERIAL_DEFAULT_LABEL, TensorRank, VariantProvenance, built_in_variants,
@@ -40,6 +41,13 @@ use pleochroma_editor::{
         entry_for_selection, listed_variants, selection_with_entry,
     },
     material_lookup::{EditorMaterialLookup, traced_material_for},
+    material_reference::{
+        DetailContext, GemFacts, MaterialDetail, Origin,
+        detail::DetailRow,
+        dispersion_chip_text,
+        facts::{cleavage_warns, toughness_chip_text},
+        family_line, material_detail,
+    },
 };
 use pleochroma_web_core::custom_material::{
     BuiltCustomMaterial, CustomMaterialForm, build_custom_material,
@@ -64,7 +72,8 @@ pub struct MaterialRow {
     pub name: String,
     /// The refractive index at the sodium D line, three decimals.
     pub ri_text: String,
-    /// The dispersion (`n_F - n_C`), three decimals.
+    /// The dispersion between the B and G lines (the figure gem references print), three
+    /// decimals.
     pub dispersion_text: String,
     /// The specific gravity, two decimals; empty when none is on file.
     pub sg_text: String,
@@ -75,7 +84,7 @@ pub struct MaterialRow {
 }
 
 impl MaterialRow {
-    /// The supporting line of the row: `RI 2.417 · Dispersion 0.025 · SG 3.52` (no SG part
+    /// The supporting line of the row: `RI 2.417 · Dispersion 0.044 · SG 3.52` (no SG part
     /// when none is on file).
     #[must_use]
     pub fn detail_text(&self) -> String {
@@ -91,6 +100,9 @@ impl MaterialRow {
     }
 }
 
+/// The end of a built-in material's family line, which the card shows as a tag instead.
+const BUILT_IN_SUFFIX: &str = " \u{b7} built-in";
+
 /// What the Stone tab's material row shows for the design's current material.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterialSummary {
@@ -104,7 +116,7 @@ pub struct MaterialSummary {
 struct BuiltIn {
     name: String,
     ri: f32,
-    dispersion: f32,
+    dispersion: String,
     specific_gravity: Option<f64>,
 }
 
@@ -118,7 +130,7 @@ fn built_ins() -> &'static [BuiltIn] {
             .map(|gem| BuiltIn {
                 name: gem.name.clone(),
                 ri: gem.dispersion.n_d(),
-                dispersion: gem.dispersion.delta_f_c(),
+                dispersion: dispersion_chip_text(gem),
                 specific_gravity: built_in_specific_gravity(&gem.name)
                     .map(|specific_gravity| specific_gravity.representative),
             })
@@ -143,7 +155,7 @@ pub fn material_rows(state: &AppState, query: &str) -> Vec<MaterialRow> {
         .map(|material| MaterialRow {
             name: material.name.clone(),
             ri_text: format!("{:.3}", material.ri),
-            dispersion_text: format!("{:.3}", material.dispersion),
+            dispersion_text: material.dispersion.clone(),
             sg_text: material
                 .specific_gravity
                 .map_or_else(String::new, |value| format!("{value:.2}")),
@@ -160,7 +172,7 @@ pub fn material_rows(state: &AppState, query: &str) -> Vec<MaterialRow> {
     let custom = customs.into_iter().map(|gem| MaterialRow {
         name: gem.name.clone(),
         ri_text: format!("{:.3}", gem.dispersion.n_d()),
-        dispersion_text: format!("{:.3}", gem.dispersion.delta_f_c()),
+        dispersion_text: dispersion_chip_text(gem),
         sg_text: state
             .props
             .snapshot_for(&gem.name)
@@ -563,9 +575,9 @@ pub fn material_summary(state: &AppState) -> MaterialSummary {
         || "This material is not in the catalogue.".to_owned(),
         |gem| {
             let optics = format!(
-                "RI {:.3} \u{b7} Dispersion {:.3}",
+                "RI {:.3} \u{b7} Dispersion {}",
                 gem.dispersion.n_d(),
-                gem.dispersion.delta_f_c()
+                dispersion_chip_text(&gem)
             );
             specific_gravity.map_or_else(
                 || optics.clone(),
@@ -579,20 +591,62 @@ pub fn material_summary(state: &AppState) -> MaterialSummary {
     }
 }
 
-/// The facts the Stone tab's material card shows as a family line and four chips. Every field is
+/// The facts the Stone tab's material card shows.
+///
+/// A family line, up to six chips and a line about cleavage and fracture. Every field is
 /// empty when the design names no known material (or the fact is not on file).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MaterialIdentity {
-    /// `Cubic · isotropic · built-in`.
+    /// `Orthorhombic · biaxial (+)`; a custom material's line ends in `· custom`. The built-in
+    /// origin is not part of the line: the card shows it as the `builtin` tag.
     pub family: String,
+    /// Whether the material is a built-in one (the card tags it `Built-in`).
+    pub builtin: bool,
     /// `RI 2.417`: the effective index, so an RI override shows here.
     pub ri: String,
     /// `Critical 24.4°`, from the effective index.
     pub critical: String,
-    /// `Disp. 0.044`.
+    /// `Disp. 0.044`: the dispersion between the B and G lines.
     pub dispersion: String,
     /// `SG 3.52`.
     pub specific_gravity: String,
+    /// `Mohs 8.5`; empty for a material with no recorded hardness (every custom material).
+    pub mohs: String,
+    /// `Toughness Poor` or `Toughness Fair–good` (the shared chip text, never
+    /// abbreviated); empty for a material no source grades and for a custom material.
+    pub toughness: String,
+    /// Whether `toughness` names a range, so the chip is too long for half a row and takes a
+    /// row of its own.
+    pub toughness_is_range: bool,
+    /// `Cleavage distinct {110} · fracture uneven to conchoidal`, or the part that is recorded;
+    /// empty when neither is.
+    pub cleavage_line: String,
+    /// Whether the cleavage is strong enough to be a cutting risk (the shared
+    /// `cleavage_warns` rule), so the card shows the line as a warning.
+    pub cleavage_warns: bool,
+}
+
+/// `text` with its first letter in lower case (`Fair to good` becomes `fair to good`).
+fn lowercase_first(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_lowercase().chain(chars).collect()
+    })
+}
+
+/// The line under the fact chips: the cleavage and the fracture of `facts`, whichever are
+/// recorded.
+fn cleavage_line(facts: &GemFacts) -> String {
+    match (facts.cleavage.as_deref(), facts.fracture.as_deref()) {
+        (Some(cleavage), Some(fracture)) => format!(
+            "Cleavage {} \u{b7} fracture {}",
+            lowercase_first(cleavage),
+            lowercase_first(fracture)
+        ),
+        (Some(cleavage), None) => format!("Cleavage {}", lowercase_first(cleavage)),
+        (None, Some(fracture)) => format!("Fracture {}", lowercase_first(fracture)),
+        (None, None) => String::new(),
+    }
 }
 
 /// The Stone tab's material card for the design as it stands. Cheap (no spectra).
@@ -608,36 +662,28 @@ pub fn material_identity(state: &AppState) -> MaterialIdentity {
     let Some(gem) = lookup.lookup(name) else {
         return MaterialIdentity::default();
     };
-    let system = match gem.crystal_system {
-        CrystalSystem::Cubic => "Cubic",
-        CrystalSystem::Tetragonal => "Tetragonal",
-        CrystalSystem::Hexagonal => "Hexagonal",
-        CrystalSystem::Trigonal => "Trigonal",
-        CrystalSystem::Orthorhombic => "Orthorhombic",
-        CrystalSystem::Monoclinic => "Monoclinic",
-        CrystalSystem::Triclinic => "Triclinic",
-    };
-    let character = match gem.optical_character {
-        OpticalCharacter::Isotropic => "isotropic",
-        OpticalCharacter::UniaxialPositive => "uniaxial (+)",
-        OpticalCharacter::UniaxialNegative => "uniaxial (-)",
-        OpticalCharacter::BiaxialPositive => "biaxial (+)",
-        OpticalCharacter::BiaxialNegative => "biaxial (-)",
-    };
-    let origin = if state
+    let is_custom = state
         .props
         .custom_materials
         .iter()
-        .any(|custom| custom.name.eq_ignore_ascii_case(name))
-    {
-        "custom"
+        .any(|custom| custom.name.eq_ignore_ascii_case(name));
+    let origin = if is_custom {
+        Origin::Custom
     } else {
-        "built-in"
+        Origin::Natural
     };
+    // The phone has no entry form for a custom material's gem data, so a custom material has
+    // none to show.
+    let facts = GemFacts::for_material(name, is_custom, None);
     let index = design.effective_refractive_index_with(&state.props.custom_materials);
     let usable = index.is_finite() && index > 1.0;
+    let line = family_line(&gem, origin);
+    let toughness = toughness_chip_text(&facts).unwrap_or_default();
     MaterialIdentity {
-        family: format!("{system} \u{b7} {character} \u{b7} {origin}"),
+        family: line
+            .strip_suffix(BUILT_IN_SUFFIX)
+            .map_or_else(|| line.clone(), str::to_owned),
+        builtin: !is_custom,
         ri: if usable {
             format!("RI {index:.3}")
         } else {
@@ -648,11 +694,298 @@ pub fn material_identity(state: &AppState) -> MaterialIdentity {
         } else {
             String::new()
         },
-        dispersion: format!("Disp. {:.3}", gem.dispersion.delta_f_c()),
+        dispersion: format!("Disp. {}", dispersion_chip_text(&gem)),
         specific_gravity: design
             .material
             .effective_specific_gravity_with(&lookup)
             .map_or_else(String::new, |value| format!("SG {value:.2}")),
+        mohs: facts
+            .hardness
+            .as_deref()
+            .map_or_else(String::new, |hardness| format!("Mohs {hardness}")),
+        toughness_is_range: toughness.contains('\u{2013}'),
+        toughness,
+        cleavage_line: cleavage_line(&facts),
+        cleavage_warns: cleavage_warns(&facts),
+    }
+}
+
+/// One curve of the Material Details page: a refractive-index curve or the absorption of one ray.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailCurve {
+    /// The direction's label (`α`, `ω (ordinary)`, `nβ 1.7427`).
+    pub label: String,
+    /// The palette position of the line: 0 cyan, 1 amber, 2 purple.
+    pub ink: i32,
+    /// The curve as path data in a 0..100 square.
+    pub path: String,
+    /// The direction's daylight color for its chip; `None` for an index curve.
+    pub swatch: Option<[u8; 3]>,
+}
+
+/// A labelled gridline position of the spectrum chart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetailTick {
+    /// The label (`500 nm`).
+    pub text: String,
+    /// The horizontal position in the 0..100 square.
+    pub position: f32,
+}
+
+/// One row of the Color by Light card: a direction (or the face-up color) in both lights.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailColor {
+    /// The direction's label, or `Face up`.
+    pub label: String,
+    /// The color in daylight, sRGB bytes.
+    pub daylight: [u8; 3],
+    /// The color under a 3200 K lamp, sRGB bytes.
+    pub incandescent: [u8; 3],
+    /// Whether this is the face-up row.
+    pub face_up: bool,
+}
+
+/// One labelled value of a card of the details page (Durability and Cutting, Optics, Variants,
+/// Sources).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailLine {
+    /// The label (`Hardness`).
+    pub label: String,
+    /// The value (`8.5 (Mohs)`, or `Not recorded`).
+    pub value: String,
+    /// A note about the value (a disagreement of sources); empty when there is none.
+    pub note: String,
+}
+
+/// What the Stone tab's Material Details page shows for the design's material.
+///
+/// One column, in the order of the shared details page: the header chips, Durability and
+/// Cutting, Optics, Refractive Index, Absorption Spectrum, Color by Light, Variants and
+/// Sources.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MaterialDetailsView {
+    /// The material's name.
+    pub title: String,
+    /// The crystal family line (`Chrysoberyl · Orthorhombic · biaxial (+) · built-in`).
+    pub subtitle: String,
+    /// The header chips (refractive index, birefringence, dispersion, Mohs, `Color change`);
+    /// the specific gravity is a row of Durability and Cutting instead, because a chip cannot
+    /// carry its range.
+    pub chips: Vec<String>,
+    /// One absorption curve per ray, all on one scale.
+    pub rays: Vec<DetailCurve>,
+    /// The wavelength gridlines of the spectrum.
+    pub spectrum_ticks: Vec<DetailTick>,
+    /// The band summary under the spectrum.
+    pub spectrum_summary: String,
+    /// One row per direction, then the face-up row.
+    pub colors: Vec<DetailColor>,
+    /// What the color change and the face-up color assume; empty when there is nothing to say.
+    pub color_note: String,
+    /// Durability and Cutting: hardness, toughness, cleavage, parting, fracture and one
+    /// specific-gravity row (`3.53 (3.49–3.57) · about 1.9 ct at 7 mm`, the weight part only
+    /// while the design is solved and has a stone width), as the desktop details page words them.
+    pub gem_rows: Vec<DetailLine>,
+    /// The Optics card: crystal system, optic character, birefringence, critical angle and the
+    /// rest of the shared rows.
+    pub optics_rows: Vec<DetailLine>,
+    /// The color variants beyond Material Default, with where each comes from; empty when the
+    /// material has only its own color.
+    pub variants: Vec<DetailLine>,
+    /// The citations, one entry per group (`Optics`, `Color`, `Gem data`, ...); the value holds
+    /// one line per citation.
+    pub source_groups: Vec<DetailLine>,
+    /// The care notes as one paragraph; empty when there are none.
+    pub care: String,
+    /// The citations line, empty when there are none.
+    pub sources: String,
+    /// One refractive-index curve per direction.
+    pub ri_curves: Vec<DetailCurve>,
+    /// The index readout under the curves (`nD 1.7427 (β) · Dispersion B–G 0.0171, ...`).
+    pub ri_readout: String,
+    /// The index at the top edge of the index plot, three decimals.
+    pub ri_top: String,
+    /// The index at the bottom edge of the index plot, three decimals.
+    pub ri_bottom: String,
+}
+
+/// The Material Details page for the design's material, `None` while the design names no material
+/// the catalogue knows.
+///
+/// Works out the spectra and curves of the shared details model, so ask only when the page opens
+/// or the material, the custom materials or the stone width change.
+#[must_use]
+pub fn material_details(state: &AppState) -> Option<MaterialDetailsView> {
+    let design = &state.session.design;
+    let name = design.material.name.as_deref()?;
+    let custom_sg = state.props.custom_specific_gravity();
+    let lookup =
+        EditorMaterialLookup::new(&state.props.custom_materials).with_specific_gravity(&custom_sg);
+    // The finished volume of the solved design at its stone width, for the weight estimate of
+    // the specific-gravity row; none while no solve matches the design or no width is set.
+    let generation = state.session.current_generation();
+    let design_volume = state.solve.current_tiers(generation).and_then(|solved| {
+        design
+            .yield_report_with(solved, &lookup)
+            .finished_volume_mm3
+    });
+    let context = DetailContext {
+        stone_width_mm: design.girdle_diameter_mm.unwrap_or(0.0),
+        custom_sg: custom_sg
+            .iter()
+            .find(|(own, _)| own.eq_ignore_ascii_case(name))
+            .map(|(_, specific_gravity)| *specific_gravity),
+        design_volume,
+        ..DetailContext::default()
+    };
+    material_detail(name, &lookup, &context).map(|detail| details_view(&detail))
+}
+
+/// One label, value and note of the shared details model as a page line.
+fn row_line(row: &DetailRow) -> DetailLine {
+    DetailLine {
+        label: row.label.clone(),
+        value: row.value.clone(),
+        note: row.note.clone(),
+    }
+}
+
+/// The Durability rows, then one row for the specific gravity: its range, and what the design
+/// weighs ("This design: about 1.9 ct at 7 mm" loses its lead-in).
+fn durability_lines(detail: &MaterialDetail) -> Vec<DetailLine> {
+    let mut gem_rows: Vec<DetailLine> = detail.durability.rows.iter().map(row_line).collect();
+    let sg_value = detail.weight.design_line.as_deref().map_or_else(
+        || detail.weight.sg_text.clone(),
+        |design_line| {
+            format!(
+                "{} \u{b7} {}",
+                detail.weight.sg_text,
+                design_line
+                    .strip_prefix("This design: ")
+                    .unwrap_or(design_line)
+            )
+        },
+    );
+    gem_rows.push(DetailLine {
+        label: "Specific gravity".to_owned(),
+        value: sg_value,
+        note: detail.weight.basis_note.clone().unwrap_or_default(),
+    });
+    gem_rows
+}
+
+/// The header chips in plain words; the specific gravity is not one (see the field).
+fn header_chips(detail: &MaterialDetail) -> Vec<String> {
+    detail
+        .header
+        .chips
+        .iter()
+        .filter(|chip| !chip.text.starts_with("SG "))
+        .map(|chip| {
+            chip.text
+                .strip_prefix("Biref. ")
+                .map(|rest| format!("Birefringence {rest}"))
+                .or_else(|| {
+                    chip.text
+                        .strip_prefix("Disp. ")
+                        .map(|rest| format!("Dispersion {rest}"))
+                })
+                .unwrap_or_else(|| chip.text.clone())
+        })
+        .collect()
+}
+
+/// The variants list, only when the material has more than one.
+fn variant_lines(detail: &MaterialDetail) -> Vec<DetailLine> {
+    if detail.variants.len() <= 1 {
+        return Vec::new();
+    }
+    detail
+        .variants
+        .iter()
+        .map(|variant| DetailLine {
+            label: variant.label.clone(),
+            value: variant.source_line.clone(),
+            note: if variant.user {
+                "Saved by you".to_owned()
+            } else if variant.estimated {
+                "Estimate".to_owned()
+            } else {
+                String::new()
+            },
+        })
+        .collect()
+}
+
+/// The phone's one-column form of the shared details model.
+fn details_view(detail: &MaterialDetail) -> MaterialDetailsView {
+    let ink = |position: usize| i32::try_from(position).unwrap_or(0);
+
+    MaterialDetailsView {
+        title: detail.name.clone(),
+        subtitle: detail.header.family_line.clone(),
+        chips: header_chips(detail),
+        rays: detail
+            .spectrum
+            .series
+            .iter()
+            .map(|series| DetailCurve {
+                label: series.label.clone(),
+                ink: ink(series.ink),
+                path: series.absorption_path.clone(),
+                swatch: Some(series.swatch),
+            })
+            .collect(),
+        spectrum_ticks: detail
+            .spectrum
+            .x_ticks
+            .iter()
+            .map(|tick| DetailTick {
+                text: tick.text.clone(),
+                position: tick.position,
+            })
+            .collect(),
+        spectrum_summary: detail.spectrum.summary.clone(),
+        colors: detail
+            .colors
+            .rows
+            .iter()
+            .map(|row| DetailColor {
+                label: row.label.clone(),
+                daylight: row.daylight.srgb,
+                incandescent: row.incandescent.srgb,
+                face_up: row.face_up,
+            })
+            .collect(),
+        color_note: detail.colors.note.clone(),
+        gem_rows: durability_lines(detail),
+        optics_rows: detail.optics.rows.iter().map(row_line).collect(),
+        variants: variant_lines(detail),
+        source_groups: detail
+            .sources
+            .iter()
+            .map(|group| DetailLine {
+                label: group.title.clone(),
+                value: group.lines.join("\n"),
+                note: String::new(),
+            })
+            .collect(),
+        care: detail.durability.care.clone(),
+        sources: detail.durability.sources.clone(),
+        ri_curves: detail
+            .ri
+            .series
+            .iter()
+            .map(|series| DetailCurve {
+                label: format!("{} {}", series.label, series.nd_text),
+                ink: ink(series.ink),
+                path: series.path.clone(),
+                swatch: None,
+            })
+            .collect(),
+        ri_readout: detail.ri.readout.clone(),
+        ri_top: format!("{:.3}", detail.ri.top),
+        ri_bottom: format!("{:.3}", detail.ri.bottom),
     }
 }
 

@@ -34,22 +34,12 @@ export component PerformanceGraphDialog inherits Rectangle {
     in property <[string]> graph_windowing_extra_paths: TiltModel.graph_windowing_extra_paths;
     in property <bool> extra_axes_loading: TiltModel.extra_axes_loading;
     // True when the swept geometry, material or light changed since the last finished sweep
-    // (`AxesCacheKey` in `gui::tilt::tilt_profile`). Unlike `cache_is_stale`, which compares the
-    // material of a cached preview image, not these live sweep inputs.
+    // (`AxesCacheKey` in `gui::tilt::tilt_profile`).
     in property <bool> curves_stale: TiltModel.curves_stale;
     in property <float> cam_pitch_deg: TiltModel.cam_pitch_deg;
     in property <string> material_name: ViewportModel.material_options[ViewportModel.selected_material_index];
 
-    // Stale-cached-curve prompt: the `GemMaterial` name whatever cached curve/image
-    // the catalogue has on file for this design was rendered under -- pushed on every
-    // design selection. Empty string means "no cached data to compare against".
-    in property <string> cached_curve_material: TiltModel.cached_curve_material;
-    // Decided in Rust (`gui::tilt::tilt_profile::cached_curve_material_is_stale`), so the rule
-    // lives in one place.
-    pure callback is_cached_curve_material_stale(string, string) -> bool;
-    is_cached_curve_material_stale(c, m) => { TiltModel.is_cached_curve_material_stale(c, m) }
-    // Re-renders the tilt curve fresh against the CURRENT material rather than the one
-    // the cached curve/image was built with.
+    // Sweeps the tilt curve again with the loaded inputs, even when they match the last sweep.
     callback rerender_curve_with_current_material();
     rerender_curve_with_current_material => { TiltModel.rerender_curve_with_current_material(); }
 
@@ -95,12 +85,6 @@ export component PerformanceGraphDialog inherits Rectangle {
     property <bool> extra_axes_ready: root.graph_brilliance_extra_axes.length >= 4
         && root.graph_extinction_extra_axes.length >= 4
         && root.graph_windowing_extra_axes.length >= 4;
-
-    // Whether the cached curve's own material differs from the one currently loaded
-    // -- `false` whenever there is nothing cached to compare against yet
-    // (`cached_curve_material == ""`).
-    property <bool> cache_is_stale: root.cached_curve_material != ""
-        && root.is_cached_curve_material_stale(root.cached_curve_material, root.material_name);
 
     // The currently-selected axis's data, in the flat shape the summary badges and
     // hover tooltip's interpolation both want. Only meaningful once
@@ -346,9 +330,9 @@ export component PerformanceGraphDialog inherits Rectangle {
                 }
             }
 
-            // Curves stale against the live design. Skipped while `cache_is_stale` shows its
-            // own banner below, and while a sweep is in flight (`extra_axes_loading`).
-            if root.curves_stale && !root.cache_is_stale && !root.extra_axes_loading: StaleBadge {
+            // Curves stale against the live design. Skipped while a sweep is in flight
+            // (`extra_axes_loading`).
+            if root.curves_stale && !root.extra_axes_loading: StaleBadge {
                 recompute => { root.rerender_curve_with_current_material(); }
             }
 
@@ -360,48 +344,6 @@ export component PerformanceGraphDialog inherits Rectangle {
             // appends the note to this status line only when the shadow would apply.
             Text { text: TiltModel.hover_status; color:Theme.text-secondary; wrap:word-wrap; }
             if TiltModel.hover_inspect && TiltModel.hover_ready: Image { source:TiltModel.hover_preview_image; height:360px; image-fit:contain; }
-            // 2.5. Stale-cached-curve prompt: the design's cached preview was rendered with
-            // another material than the one loaded.
-            if root.cache_is_stale: Rectangle {
-                height: 34px;
-                background: Theme.notice-surface;
-                border-radius: Theme.radius-sm;
-                border-width: 1px;
-                border-color: Theme.notice-accent;
-
-                HorizontalLayout {
-                    padding-left: 10px;
-                    padding-right: 10px;
-                    spacing: 8px;
-                    alignment: space-between;
-
-                    Text {
-                        text: "This cached curve was rendered with " + root.cached_curve_material
-                            + ", not the current material (" + root.material_name + ").";
-                        font-size: 10px;
-                        font-weight: 600;
-                        color: Theme.notice-text;
-                        vertical-alignment: center;
-                    }
-
-                    VerticalLayout {
-                        alignment: center;
-                        ActionButton {
-                            width: 130px;
-                            height: 22px;
-                            text: "Re-Render Fresh";
-                            hint: "Trace the tilt curve again with the material that is loaded now, instead of the one the saved curve was made with.";
-                            fill: Theme.notice-accent;
-                            hover_fill: Theme.notice-accent-hover;
-                            edge: Theme.notice-accent;
-                            ink: Theme.text-on-accent;
-                            font_size: 10px;
-                            weight: 700;
-                            clicked => { root.rerender_curve_with_current_material(); }
-                        }
-                    }
-                }
-            }
 
             // 3. Channel Toggle Filters. Below 900px the caption moves onto its
             // own line above the pills, and the pills drop their long

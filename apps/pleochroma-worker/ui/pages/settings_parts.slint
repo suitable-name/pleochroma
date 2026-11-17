@@ -1,0 +1,336 @@
+// The small components the Settings sections share: the card, the heading, a switch line, a
+// number stepper, a text field that commits on Enter or on losing focus, the check rows and the
+// modal frame. Every one of them is pure (properties in, callbacks out); the sections wire them
+// to `SettingsState`.
+import { LineEdit } from "std-widgets.slint";
+import { Theme, KitCard, KitSwitch, KitIcon, KitIcons, CIcons } from "../frame.slint";
+import { ActivateScope } from "../focus.slint";
+
+// A card whose height follows its content. `danger` paints it red (the D9 switch).
+export component Panel inherits KitCard {
+    in property <bool> danger: false;
+    height: lay.preferred-height;
+    background: root.danger ? Theme.danger-surface : Theme.surface-raised;
+    border-color: root.danger ? Theme.danger-border : Theme.border-subtle;
+    lay := VerticalLayout {
+        padding: 12px;
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 8px;
+        @children
+    }
+}
+
+// A title and one hint line that wraps.
+export component Head inherits VerticalLayout {
+    in property <string> title;
+    in property <string> hint;
+    in property <bool> danger: false;
+    spacing: 2px;
+    Text {
+        text: root.title;
+        font-size: 13px;
+        font-weight: 650;
+        color: root.danger ? Theme.danger : Theme.text-primary;
+        wrap: word-wrap;
+    }
+    if root.hint != "": Text {
+        text: root.hint;
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}
+
+// A small note under a control.
+export component Note inherits Text {
+    font-size: 11px;
+    color: Theme.text-muted;
+    wrap: word-wrap;
+}
+
+// A switch with its label, and an optional note under the label.
+export component SwitchLine inherits VerticalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    callback toggled();
+    spacing: 2px;
+    HorizontalLayout {
+        spacing: 12px;
+        min-height: 28px;
+        VerticalLayout {
+            alignment: center;
+            KitSwitch {
+                on: root.on;
+                enabled: root.enabled;
+                label: root.label;
+                toggled => { root.toggled(); }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            font-size: 13px;
+            color: root.danger ? Theme.danger : Theme.text-primary;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+    if root.hint != "": HorizontalLayout {
+        padding-left: 46px;
+        Note { text: root.hint; }
+    }
+}
+
+// "-  64  +": a 32 px stepper. `zero-text` and `max-text` replace the number at the ends
+// ("Automatic", "All"). The caller stores the value in `changed`.
+export component NumStep inherits Rectangle {
+    in property <int> value;
+    in property <int> lo: 0;
+    in property <int> hi: 100;
+    in property <int> step: 1;
+    in property <string> unit;
+    in property <string> zero-text;
+    in property <string> max-text;
+    /// The accessible name of the value ("Job memory"); the buttons add "Decrease"/"Increase".
+    in property <string> label;
+    in property <length> w: 136px;
+    callback stepped(int);
+    property <string> shown: root.value <= root.lo && root.zero-text != "" ? root.zero-text : (root.value >= root.hi && root.max-text != "" ? root.max-text : "" + root.value + root.unit);
+    width: root.w;
+    height: 32px;
+    border-radius: 8px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-medium;
+    HorizontalLayout {
+        Rectangle {
+            width: 32px;
+            border-radius: 6px;
+            border-width: dec-fs.has-focus ? 2px : 0px;
+            border-color: Theme.accent-cyan-hover;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Decrease " + root.label;
+            accessible-enabled: root.value > root.lo;
+            accessible-action-default => { root.stepped(max(root.lo, root.value - root.step)); }
+            dec-fs := ActivateScope {
+                enabled: root.value > root.lo;
+                activated => { root.stepped(max(root.lo, root.value - root.step)); }
+            }
+            Text { text: "−"; font-size: 16px; color: root.value > root.lo ? Theme.text-secondary : Theme.text-disabled; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea {
+                enabled: root.value > root.lo;
+                mouse-cursor: pointer;
+                clicked => { root.stepped(max(root.lo, root.value - root.step)); }
+            }
+        }
+        Rectangle { width: 1px; background: Theme.border-subtle; }
+        Text {
+            horizontal-stretch: 1;
+            text: root.shown;
+            font-size: 13px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+            accessible-label: root.label + ": " + root.shown;
+        }
+        Rectangle { width: 1px; background: Theme.border-subtle; }
+        Rectangle {
+            width: 32px;
+            border-radius: 6px;
+            border-width: inc-fs.has-focus ? 2px : 0px;
+            border-color: Theme.accent-cyan-hover;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Increase " + root.label;
+            accessible-enabled: root.value < root.hi;
+            accessible-action-default => { root.stepped(min(root.hi, root.value + root.step)); }
+            inc-fs := ActivateScope {
+                enabled: root.value < root.hi;
+                activated => { root.stepped(min(root.hi, root.value + root.step)); }
+            }
+            Text { text: "+"; font-size: 16px; color: root.value < root.hi ? Theme.text-secondary : Theme.text-disabled; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea {
+                enabled: root.value < root.hi;
+                mouse-cursor: pointer;
+                clicked => { root.stepped(min(root.hi, root.value + root.step)); }
+            }
+        }
+    }
+}
+
+// A one-line text field. `committed` fires on Enter and when the field loses focus; a
+// value Rust pushes in replaces what was typed.
+export component TextSetting inherits Rectangle {
+    in property <string> text;
+    in property <string> placeholder;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback committed(string);
+    property <string> pushed: root.text;
+    height: 32px;
+    changed pushed => { edit.text = root.text; }
+    edit := LineEdit {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        placeholder-text: root.placeholder;
+        accessible-label: root.label;
+        enabled: root.enabled;
+        font-size: 13px;
+        accepted(value) => { root.committed(value); }
+        changed has-focus => {
+            if !self.has-focus {
+                root.committed(self.text);
+            }
+        }
+    }
+}
+
+// A label column plus a control, 32 px high (the control stretches).
+export component FormRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <length> label-width: 150px;
+    min-height: 32px;
+    spacing: 12px;
+    Text {
+        width: root.label-width;
+        text: root.label;
+        font-size: 12px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+        wrap: word-wrap;
+    }
+    @children
+}
+
+// One line of the network check: a mark (0 fine, 1 attention, 2 not known), a label and a value.
+export component StatusRow inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <int> level: 2;
+    in property <bool> last: false;
+    HorizontalLayout {
+        min-height: 26px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            KitIcon {
+                d: root.level == 1 ? CIcons.alert : (root.level == 0 ? KitIcons.check : CIcons.clock);
+                size: 16px;
+                stroke: 2.2px;
+                ink: root.level == 0 ? Theme.success : (root.level == 1 ? Theme.accent-amber : Theme.text-muted);
+            }
+        }
+        Text { width: 150px; text: root.label; font-size: 13px; font-weight: 600; color: Theme.text-primary; vertical-alignment: center; wrap: word-wrap; }
+        Text { horizontal-stretch: 1; text: root.value; font-size: 13px; color: Theme.text-secondary; vertical-alignment: center; wrap: word-wrap; }
+    }
+    if !root.last: Rectangle { height: 1px; background: Theme.border-subtle; }
+}
+
+// A small chip with a port number.
+export component PortChip inherits Rectangle {
+    in property <string> text;
+    height: 20px;
+    width: lbl.preferred-width + 14px;
+    border-radius: 10px;
+    background: Theme.bg-input;
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Port " + root.text;
+    lbl := Text { x: 7px; height: parent.height; text: root.text; font-size: 10px; font-weight: 600; color: Theme.text-muted; vertical-alignment: center; }
+}
+
+// A text button for the dialogs and the cards: `kind` 0 normal, 1 primary, 2 danger.
+export component Btn inherits Rectangle {
+    in property <string> text;
+    in property <int> kind: 0;
+    in property <bool> enabled: true;
+    /// Takes the keyboard focus when it appears (the safe button of a confirmation).
+    in property <bool> autofocus: false;
+    callback clicked();
+    height: 34px;
+    width: max(88px, lbl.preferred-width + 32px);
+    border-radius: 8px;
+    background: !root.enabled
+        ? (root.kind == 0 ? transparent : Theme.surface-disabled)
+        : (root.kind == 2
+            ? (ta.has-hover ? Theme.danger-surface-hover : Theme.danger-surface)
+            : (root.kind == 1
+                ? (ta.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan)
+                : (ta.has-hover ? Theme.bg-card-hover : Theme.bg-card)));
+    border-width: btn-fs.has-focus ? 2px : 1px;
+    border-color: btn-fs.has-focus ? Theme.accent-cyan-hover : (root.kind == 2 && root.enabled ? Theme.danger-border : (root.kind == 1 ? transparent : Theme.border-medium));
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    btn-fs := ActivateScope {
+        enabled: root.enabled;
+        autofocus: root.autofocus;
+        activated => { root.clicked(); }
+    }
+    lbl := Text {
+        text: root.text;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        color: !root.enabled ? Theme.text-disabled : (root.kind == 2 ? Theme.danger : (root.kind == 1 ? Theme.text-on-accent : Theme.text-primary));
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A modal card on a dimmed backdrop; a click on the backdrop closes it.
+export component Modal inherits Rectangle {
+    /// The dialog's accessible name.
+    in property <string> label;
+    callback dismissed();
+    background: Theme.overlay-backdrop;
+    TouchArea { clicked => { root.dismissed(); } }
+    // Escape closes the dialog from any control inside it.
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismissed();
+                return accept;
+            }
+            return reject;
+        }
+
+        Rectangle {
+            width: min(440px, root.width - 32px);
+            height: card.preferred-height;
+            border-radius: 12px;
+            background: Theme.popup-surface;
+            border-width: 1px;
+            border-color: Theme.border-medium;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: Theme.modal-shadow;
+            drop-shadow-offset-y: 8px;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: root.label;
+            // Swallows clicks inside the card.
+            TouchArea { }
+            card := VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                @children
+            }
+        }
+    }
+}

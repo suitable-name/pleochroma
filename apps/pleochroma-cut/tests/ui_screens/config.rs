@@ -1,7 +1,11 @@
 //! What a screenshot run is told through the environment, read once before the throw-away
 //! profile moves the working directory and redirects the user variables.
 
-use crate::support::library_source::{ENV_LIBRARY, LibrarySource, configured_source};
+use crate::support::{
+    SettingsSeed,
+    library_source::{ENV_LIBRARY, LibrarySource, configured_source},
+    remote_seed::{RemoteSeed, remote_from_env},
+};
 use std::{fs, path::PathBuf, time::Duration};
 
 /// Environment variable that overrides the output folder (default: the workspace `assets`).
@@ -15,6 +19,18 @@ pub const ENV_TIMEOUT: &str = "PLEOCHROMA_SCREENS_RENDER_TIMEOUT";
 pub const DEFAULT_SPP: u32 = 1024;
 /// How long a shot waits for a live render when [`ENV_TIMEOUT`] is not set.
 pub const DEFAULT_RENDER_TIMEOUT_SECS: u64 = 120;
+/// Environment variable naming a `settings.toml` whose `[settings.remote]` the live renders
+/// use (the owner's own settings file; it is read once and never written).
+pub const ENV_REMOTE: &str = "PLEOCHROMA_SCREENS_REMOTE";
+/// The shots that render on this computer even with [`ENV_REMOTE`] set: they show the remote
+/// choices themselves (the Compute card, the export dialogs' remote pills, the Remote
+/// Coordinator dialog with its placeholder endpoint), which keep their local-only look.
+const LOCAL_ONLY_SHOTS: [&str; 4] = [
+    "parameters_render",
+    "emerald_export_settings_4k",
+    "tilt_performance_export",
+    "remote_coordinator",
+];
 
 /// The message of the abort when no library database is configured.
 pub const MISSING_LIBRARY: &str = "set PLEOCHROMA_HARNESS_LIBRARY to the facet_diagrams.sqlite \
@@ -38,6 +54,10 @@ pub struct Config {
     pub library_note: Option<String>,
     /// Lower-case texts a shot must not show.
     pub private_words: Vec<String>,
+    /// The remote the live renders use, `None` when [`ENV_REMOTE`] is unset or unusable.
+    pub remote: Option<RemoteSeed>,
+    /// What the run says about [`ENV_REMOTE`]: the remote in use, or why it is not.
+    pub remote_note: Option<String>,
 }
 
 impl Config {
@@ -77,14 +97,41 @@ impl Config {
                 .is_none()
                 .then(|| format!("{ENV_LIBRARY} is not set"))
         });
+        let mut private_words = private_words();
+        let (remote, remote_note) = match remote_from_env(ENV_REMOTE) {
+            Ok(None) => (None, None),
+            Ok(Some(remote)) => {
+                remote.extend_private_words(&mut private_words);
+                let note = format!(
+                    "live renders use the remote of {ENV_REMOTE}; {} stay on this computer",
+                    LOCAL_ONLY_SHOTS.join(", ")
+                );
+                (Some(remote), Some(note))
+            }
+            Err(reason) => (
+                None,
+                Some(format!(
+                    "{ENV_REMOTE} is not used: {reason}; live renders stay local"
+                )),
+            ),
+        };
         Self {
             out_dir,
             spp,
             render_timeout: Duration::from_secs(seconds),
             library,
             library_note,
-            private_words: private_words(),
+            private_words,
+            remote,
+            remote_note,
         }
+    }
+
+    /// The settings file the shot `name` starts from: the existing install, plus the remote
+    /// when one is configured and the shot is not one of [`LOCAL_ONLY_SHOTS`].
+    #[must_use]
+    pub fn seed_for(&self, name: &str) -> SettingsSeed {
+        RemoteSeed::seed_for(self.remote.as_ref(), LOCAL_ONLY_SHOTS.contains(&name))
     }
 
     /// The first private fragment `text` contains, if any.

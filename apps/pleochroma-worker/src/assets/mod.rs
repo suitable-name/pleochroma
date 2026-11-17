@@ -68,8 +68,18 @@ pub const DEFAULT_DIR_NAME: &str = "asset-cache";
 /// the default directory is [`DEFAULT_DIR_NAME`] beside it.
 #[must_use]
 pub fn configured_location(anchor: &Path) -> (PathBuf, u64) {
+    // The environment wins; then the coordinator window's storage settings; then the default
+    // beside the anchor.
+    #[cfg(feature = "gui")]
+    let stored = crate::settings::storage_overrides();
+    #[cfg(not(feature = "gui"))]
+    let stored: Option<()> = None;
     let dir = std::env::var_os(CACHE_DIR_ENV).map_or_else(
         || {
+            #[cfg(feature = "gui")]
+            if let Some(stored) = &stored {
+                return stored.cache_dir.clone();
+            }
             anchor
                 .parent()
                 .unwrap_or_else(|| Path::new(""))
@@ -77,10 +87,23 @@ pub fn configured_location(anchor: &Path) -> (PathBuf, u64) {
         },
         PathBuf::from,
     );
+    let default_cap = {
+        #[cfg(feature = "gui")]
+        {
+            stored.as_ref().map_or(DEFAULT_CACHE_BYTES, |s| {
+                s.cache_mib.saturating_mul(1024 * 1024)
+            })
+        }
+        #[cfg(not(feature = "gui"))]
+        {
+            let _ = &stored;
+            DEFAULT_CACHE_BYTES
+        }
+    };
     let cap = std::env::var(CACHE_MIB_ENV)
         .ok()
         .and_then(|mib| mib.trim().parse::<u64>().ok())
-        .map_or(DEFAULT_CACHE_BYTES, |mib| mib.saturating_mul(1024 * 1024));
+        .map_or(default_cap, |mib| mib.saturating_mul(1024 * 1024));
     (dir, cap)
 }
 

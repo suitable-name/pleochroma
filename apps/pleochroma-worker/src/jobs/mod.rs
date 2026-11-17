@@ -56,11 +56,11 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, PoisonError, RwLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// Environment variable overriding the job directory.
@@ -76,8 +76,16 @@ const PAYLOAD_READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// The job directory and limits from the environment (see the module doc comment).
 #[must_use]
 pub fn configured_location(anchor: &Path) -> (PathBuf, Limits) {
+    // The environment wins; then the coordinator window's storage settings; then the default
+    // beside the anchor.
+    #[cfg(feature = "gui")]
+    let stored = crate::settings::storage_overrides();
     let dir = std::env::var_os(JOB_DIR_ENV).map_or_else(
         || {
+            #[cfg(feature = "gui")]
+            if let Some(stored) = &stored {
+                return stored.job_dir.clone();
+            }
             anchor
                 .parent()
                 .unwrap_or_else(|| Path::new(""))
@@ -86,6 +94,14 @@ pub fn configured_location(anchor: &Path) -> (PathBuf, Limits) {
         PathBuf::from,
     );
     let mut limits = Limits::default();
+    #[cfg(feature = "gui")]
+    if let Some(hours) = stored
+        .as_ref()
+        .and_then(|s| i64::try_from(s.job_retention_hours).ok())
+        .filter(|hours| *hours > 0)
+    {
+        limits.retention_secs = hours.saturating_mul(3600);
+    }
     if let Some(hours) = std::env::var(JOB_RETENTION_HOURS_ENV)
         .ok()
         .and_then(|text| text.trim().parse::<i64>().ok())
@@ -96,11 +112,33 @@ pub fn configured_location(anchor: &Path) -> (PathBuf, Limits) {
     (dir, limits)
 }
 
-/// The job store, the asset cache jobs' HDR maps live in, and the executor's stop flag.
+/// What happened to a job, as [`JobService::set_observer`]'s function is told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobChange {
+    /// A new job was stored.
+    Submitted,
+    /// A job started running, or ended (done, failed or cancelled).
+    Changed,
+}
+
+/// The function told about every job change: the job's owner key, how the job stands now, and
+/// what happened. It runs on the thread that made the change and must not block.
+pub type JobObserver =
+    Arc<dyn Fn(&str, &pleochroma_net::messages::JobInfo, JobChange) + Send + Sync>;
+
+/// The job store, the asset cache jobs' HDR maps live in, the executor's stop flag and, once
+/// [`JobService::start_executor`] ran, the executor thread.
 pub struct JobService {
     store: JobStore,
     assets: Option<Arc<AssetCache>>,
     stop: AtomicBool,
+    /// The executor thread started by [`Self::start_executor`], taken by [`Self::shutdown`].
+    executor: Mutex<Option<JoinHandle<()>>>,
+    /// Counts every change to the set of jobs or to a job's state, so a reader that keeps an
+    /// answer (the coordinator's job list) can tell it has gone stale.
+    generation: AtomicU64,
+    /// Told about every submit and every start or end of a job.
+    observer: RwLock<Option<JobObserver>>,
 }
 
 impl JobService {
@@ -111,6 +149,43 @@ impl JobService {
             store,
             assets,
             stop: AtomicBool::new(false),
+            executor: Mutex::new(None),
+            generation: AtomicU64::new(0),
+            observer: RwLock::new(None),
+        }
+    }
+
+    /// A number that changes whenever a job is submitted, starts, ends, is cancelled or is
+    /// deleted through this service.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    /// Registers the function told about job changes (the coordinator's activity feed). A
+    /// second call replaces the first.
+    pub fn set_observer(
+        &self,
+        observer: impl Fn(&str, &pleochroma_net::messages::JobInfo, JobChange) + Send + Sync + 'static,
+    ) {
+        *self
+            .observer
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(observer));
+    }
+
+    /// Records that job `id` changed: bumps [`Self::generation`] and tells the observer.
+    fn changed(&self, id: &pleochroma_net::messages::JobId, change: JobChange) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        let observer = self
+            .observer
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(observer) = observer
+            && let Some((owner, info)) = self.store.describe(id)
+        {
+            observer(&owner, &info, change);
         }
     }
 
@@ -160,14 +235,69 @@ impl JobService {
                     &lane,
                     service.assets.as_deref(),
                     &service.stop,
+                    &|id| service.changed(id, JobChange::Changed),
                 );
             })
     }
 
-    /// Asks the executor to stop after its current slice (for tests and shutdown).
+    /// Starts the executor thread on `lane` and keeps its handle, so [`Self::shutdown`] can
+    /// wait for it. [`Self::spawn_executor`] hands the handle to the caller instead.
+    ///
+    /// # Errors
+    ///
+    /// The I/O error if the thread cannot be spawned.
+    pub fn start_executor(self: &Arc<Self>, lane: RenderLane) -> std::io::Result<()> {
+        let handle = self.spawn_executor(lane)?;
+        *self.executor.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
+        Ok(())
+    }
+
+    /// Asks the executor to stop after its current job (for tests and shutdown).
+    ///
+    /// A job that is rendering is not interrupted: the executor looks at this flag only
+    /// between jobs, so it ends when that job ends.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release);
         self.store.wake_all();
+    }
+
+    /// Stops the executor (see [`Self::stop`]) and waits for its thread until `deadline`.
+    ///
+    /// Returns whether the thread ended in time. Without a [`Self::start_executor`] thread there is
+    /// nothing to wait for and the answer is `true`.
+    ///
+    /// Nothing needs saving here: the store writes a job's state file when the job is
+    /// submitted, claimed and finished, and a result file before its job is marked done.
+    /// What a timeout leaves behind is therefore exactly what a crash leaves, and the
+    /// store's start-up recovery handles it: the job that was rendering is still `running`
+    /// on disk, comes back queued with [`RESTART_NOTE`] and renders again from the
+    /// start; its progress (kept in memory only) is lost; every finished job, its picture
+    /// and every waiting job stay as they were.
+    pub fn shutdown(&self, deadline: Instant) -> bool {
+        self.stop();
+        let handle = self
+            .executor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        let Some(handle) = handle else {
+            return true;
+        };
+        while !handle.is_finished() {
+            if Instant::now() >= deadline {
+                tracing::warn!(
+                    "jobs: the job executor is still rendering; the job is left running on disk and renders \
+                     again from the start after the next start"
+                );
+                *self.executor.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if handle.join().is_err() {
+            tracing::error!("jobs: the job executor panicked");
+        }
+        true
     }
 }
 
@@ -273,11 +403,23 @@ pub fn serve_job<S: Read + Write + TimeoutRead>(
             };
         }
         JobRequest::Cancel { job_id } => match store.cancel(owner, &job_id, unix_now()) {
-            Ok(info) => JobResponse::Info(Box::new(info)),
+            Ok(info) => {
+                // A queued job ends here; a running one is stopped by the executor, which
+                // reports it when it has stopped.
+                if info.phase.is_terminal() {
+                    service.changed(&job_id, JobChange::Changed);
+                } else {
+                    service.generation.fetch_add(1, Ordering::AcqRel);
+                }
+                JobResponse::Info(Box::new(info))
+            }
             Err(error) => job_error_response(error),
         },
         JobRequest::Delete { job_id } => match store.delete(owner, &job_id) {
-            Ok(()) => JobResponse::Deleted { job_id },
+            Ok(()) => {
+                service.generation.fetch_add(1, Ordering::AcqRel);
+                JobResponse::Deleted { job_id }
+            }
             Err(error) => job_error_response(error),
         },
         JobRequest::List => JobResponse::List(store.list(owner)),
@@ -330,7 +472,10 @@ fn submit_job(service: &JobService, owner: &str, submit: &JobSubmit) -> JobRespo
         }
     }
     match service.store().submit(owner, submit, unix_now()) {
-        Ok(info) => JobResponse::Accepted(Box::new(info)),
+        Ok(info) => {
+            service.changed(&info.job_id, JobChange::Submitted);
+            JobResponse::Accepted(Box::new(info))
+        }
         Err(error) => job_error_response(error),
     }
 }

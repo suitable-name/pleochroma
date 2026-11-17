@@ -239,6 +239,14 @@ pub enum RemoteUpdate {
         request_id: u32,
         samples_done: u32,
     },
+    /// The server's graphics card is building its shader cache, so the request has no
+    /// samples yet (`StreamEvent::Preparing`). `done` of `total` build steps; `total == 0`
+    /// means unknown. Counts as liveness like `Progress`.
+    Preparing {
+        request_id: u32,
+        done: u32,
+        total: u32,
+    },
     Done {
         request_id: u32,
         cancelled: bool,
@@ -288,6 +296,7 @@ impl RemoteUpdate {
             | Self::Frame { request_id, .. }
             | Self::Preview { request_id }
             | Self::Progress { request_id, .. }
+            | Self::Preparing { request_id, .. }
             | Self::Done { request_id, .. }
             | Self::Failed { request_id, .. }
             | Self::Unsupported { request_id, .. }

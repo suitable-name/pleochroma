@@ -379,6 +379,7 @@ fn pruning_removes_only_rows_whose_owner_is_gone() {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     })
     .unwrap();
     db.save_material_zoning(&material("Kept colour", false))
@@ -442,6 +443,7 @@ fn plain_material(name: &str) -> CustomMaterialParams<'_> {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     }
 }
 

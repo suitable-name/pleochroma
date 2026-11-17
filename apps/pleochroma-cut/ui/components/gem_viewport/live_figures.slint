@@ -2,16 +2,25 @@ import { Theme } from "../../theme.slint";
 import { ViewportModel } from "../../models/viewport.slint";
 import { CrystalAxisModel } from "../../models/crystal_axis.slint";
 import { RenderEffectsModel } from "../../models/render_effects.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { TiltModel } from "../../models/tilt.slint";
+import { ExportModel } from "../../models/export.slint";
 import { KitFigure, KitFigures } from "../kit/kit.slint";
+import { FiguresHelp } from "figures_help.slint";
 
-// The five face-up figures (plus Axis and Doubling when the stone has them) on glass. A click
-// copies them. Open by default; folded to one line when `ViewportModel.figures_folded` says so,
+// The face-up figures (Contrast and, for a stone with a crystal axis, Axis and Doubling among them)
+// on glass, and in the Advanced interface the Zones (ASET-style) block. A click copies them; the
+// "?" in the header opens the popover that explains how they are measured. Open by default; folded to one line when `ViewportModel.figures_folded` says so,
 // and by itself on a narrow view (`narrow`, not remembered).
 //
 // The two states are two instances (`if`), so that `KitFigures` flipping its own `folded` never
 // leaves a stale binding behind when the view changes width.
 export component LiveFigures inherits Rectangle {
     in property <bool> narrow: false;
+    // Where the viewport's room for the popover ends (window coordinates): its right edge less the
+    // margin, and the top of its bottom row.
+    in property <length> view_right: 0px;
+    in property <length> view_bottom: 0px;
 
     // Mirrors `ViewportModel.figures_folded` (an `in` property: only `figures_folded_set` writes it).
     property <bool> wide_folded: ViewportModel.figures_folded;
@@ -19,6 +28,10 @@ export component LiveFigures inherits Rectangle {
     property <bool> narrow_open: false;
     property <bool> axis_set: CrystalAxisModel.axis_angle_text != "";
     property <bool> doubling_set: CrystalAxisModel.doubling_text != "";
+    // Contrast is measured (`ViewportModel.contrast` is negative until it is).
+    property <bool> contrast_set: ViewportModel.contrast >= 0.0;
+    // The zones block belongs to the Advanced interface; empty hides it.
+    property <[float]> zones_shown: GuideModel.shows_advanced() ? ViewportModel.aset_shares : [];
 
     pure function fig(name: string, value: string, part: float, ink: color, flag: bool) -> KitFigure {
         return { name: name, value: value, delta: "", part: part, ink: ink, trend: 0, flag: flag };
@@ -29,6 +42,7 @@ export component LiveFigures inherits Rectangle {
     property <KitFigure> scint: fig("Scintillation", Math.round(ViewportModel.scintillation_pct) + " %", ViewportModel.scintillation_pct / 100.0, Theme.accent-purple, false);
     property <KitFigure> wind: fig("Windowing", Math.round(ViewportModel.windowing_pct) + " %", ViewportModel.windowing_pct / 100.0, Theme.text-secondary, ViewportModel.windowing_pct > 10.0);
     property <KitFigure> ext: fig("Extinction", Math.round(ViewportModel.extinction_pct) + " %", ViewportModel.extinction_pct / 100.0, Theme.accent-amber, ViewportModel.extinction_pct > 12.0);
+    property <KitFigure> contrast: fig("Contrast", Math.round(ViewportModel.contrast) + "", ViewportModel.contrast / 100.0, Theme.aset-blue, false);
     property <KitFigure> axis: fig("Axis", CrystalAxisModel.axis_angle_text, 0.0, Theme.accent-purple, false);
     property <KitFigure> doubling: fig("Doubling", CrystalAxisModel.doubling_text, 0.0, Theme.accent-emerald, false);
 
@@ -40,19 +54,28 @@ export component LiveFigures inherits Rectangle {
         root.fire,
         root.scint,
     ];
-    property <[KitFigure]> open_list: root.axis_set
+    property <[KitFigure]> open_plain: root.axis_set
         ? (root.doubling_set
             ? [root.bril, root.fire, root.scint, root.wind, root.ext, root.axis, root.doubling]
             : [root.bril, root.fire, root.scint, root.wind, root.ext, root.axis])
         : (root.doubling_set
             ? [root.bril, root.fire, root.scint, root.wind, root.ext, root.doubling]
             : [root.bril, root.fire, root.scint, root.wind, root.ext]);
+    // The same list with the Contrast row after Extinction.
+    property <[KitFigure]> open_with_contrast: root.axis_set
+        ? (root.doubling_set
+            ? [root.bril, root.fire, root.scint, root.wind, root.ext, root.contrast, root.axis, root.doubling]
+            : [root.bril, root.fire, root.scint, root.wind, root.ext, root.contrast, root.axis])
+        : (root.doubling_set
+            ? [root.bril, root.fire, root.scint, root.wind, root.ext, root.contrast, root.doubling]
+            : [root.bril, root.fire, root.scint, root.wind, root.ext, root.contrast]);
+    property <[KitFigure]> open_list: root.contrast_set ? root.open_with_contrast : root.open_plain;
 
     width: figures_lay.preferred-width;
     height: figures_lay.preferred-height;
 
-    // What the five numbers mean (the card's own tooltip is its description).
-    Tooltip { text: @markdown("Click to copy these five numbers. **Brilliance**: the share of light returned to the eye. **Fire**: how much rainbow color the stone throws. **Scintillation**: sparkle as the light or stone moves. **Windowing**: the share of the face that looks see-through. **Extinction**: the share that looks dead dark. For a stone with a crystal axis, **Axis** is the angle between that axis and the table normal, and **Doubling** is how far apart, in arc-minutes, the two images of a birefringent stone fall. See the glossary.\{RenderEffectsModel.figures_note_suffix}"); }
+    // What the figures mean (the card's own tooltip is its description).
+    Tooltip { text: @markdown("Click to copy these figures. **Brilliance**: the share of light returned to the eye. **Fire**: how much rainbow color the stone throws. **Scintillation**: sparkle as the light or stone moves. **Windowing**: the share of the face that looks see-through. **Extinction**: the share that looks dead dark. For a stone with a crystal axis, **Axis** is the angle between that axis and the table normal, and **Doubling** is how far apart, in arc-minutes, the two images of a birefringent stone fall. **Contrast**: how finely the viewer's own shadow is broken up across the face, 0 to 100. **Zones (ASET-style)**: where the light each spot of the face shows comes from, as in the Contrast view (ASET-style): Red 45-75\u{b0} above the girdle plane, Green 0-45\u{b0}, Blue 75-90\u{b0} (where your head is), Dark below the girdle plane or lost inside. They do not depend on the lighting; away from face-up the zones stay overhead, as in the Contrast view. See the glossary.\{RenderEffectsModel.figures_note_suffix}"); }
 
     figures_lay := HorizontalLayout {
         alignment: start;
@@ -62,6 +85,11 @@ export component LiveFigures inherits Rectangle {
             folded: !root.narrow_open;
             show_bars: true;
             show_deltas: false;
+            aset: root.zones_shown;
+            aset_note: "% of the face";
+            aset_split: ViewportModel.aset_split_text;
+            show_help: true;
+            help => { ViewportModel.figures_help_open = !ViewportModel.figures_help_open; }
             copy => { ViewportModel.copy_metrics(); }
             fold_toggled(f) => { root.narrow_open = !f; }
         }
@@ -71,11 +99,26 @@ export component LiveFigures inherits Rectangle {
             folded: root.wide_folded;
             show_bars: true;
             show_deltas: false;
+            aset: root.zones_shown;
+            aset_note: "% of the face";
+            aset_split: ViewportModel.aset_split_text;
+            show_help: true;
+            help => { ViewportModel.figures_help_open = !ViewportModel.figures_help_open; }
             copy => { ViewportModel.copy_metrics(); }
             fold_toggled(f) => {
                 root.wide_folded = f;
                 ViewportModel.figures_folded_set(f);
             }
         }
+    }
+
+    // "How the Face-Up Figures Are Measured": opens beside the card, at its right edge plus 12 px
+    // and at the same top, so it stays next to the "?" that opened it. Its height follows its
+    // content up to the room the viewport has.
+    if ViewportModel.figures_help_open && !TiltModel.dialog_open && !ExportModel.is_open && !ViewportModel.material_editor_open: FiguresHelp {
+        x: root.width + 12px;
+        y: 0px;
+        width: min(460px, max(280px, root.view_right - root.absolute-position.x - root.width - 12px));
+        height: min(self.content_height, max(200px, root.view_bottom - root.absolute-position.y));
     }
 }

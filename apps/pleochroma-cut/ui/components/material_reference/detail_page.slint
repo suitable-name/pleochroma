@@ -1,0 +1,151 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { KitButton, KitSwatch } from "../kit/kit.slint";
+import { HelpButton } from "../help_button.slint";
+import { MaterialReferenceModel } from "../../models/material_reference.slint";
+import { RefPill } from "common.slint";
+import { RiCard } from "ri_card.slint";
+import { SpectrumCard } from "spectrum_card.slint";
+import { OpticsCard, DurabilityCard, ColorsCard, VariantsCard, EffectsCard, SourcesCard } from "info_cards.slint";
+
+// The Material Details page: the header (swatch, name, family line, chips, actions) over two columns
+// of cards; below 1100 px the columns stack. The order is Durability and Cutting, Optics, Refractive
+// Index, Absorption, Color by Direction, Variants, Effects, Sources.
+export component DetailPage inherits Rectangle {
+    property <bool> two_columns: root.width >= 1100px;
+
+    VerticalLayout {
+        padding: 16px;
+        padding-top: 14px;
+        spacing: 12px;
+
+        // Back and help.
+        HorizontalLayout {
+            height: 30px;
+            spacing: 10px;
+            KitButton {
+                text: "All Materials";
+                // A left chevron.
+                icon: "M15 6 L9 12 L15 18";
+                h: 30px;
+                hint: "Back to the table. The chosen row and the scroll position are kept.";
+                clicked => {
+                    MaterialReferenceModel.page = 0;
+                    MaterialReferenceModel.back();
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                alignment: center;
+                HelpButton {
+                    topic: "06-materials-and-refractive-index";
+                    hint: "Open the manual page on materials and the Material Reference";
+                }
+            }
+        }
+
+        // Header.
+        HorizontalLayout {
+            spacing: 14px;
+            VerticalLayout {
+                alignment: start;
+                KitSwatch {
+                    a: MaterialReferenceModel.header.swatch_day;
+                    b: MaterialReferenceModel.header.swatch_night;
+                    size: 56px;
+                    accessible-role: AccessibleRole.image;
+                    accessible-label: "Face-up color in daylight (upper left) and under a 3200 K lamp (lower right)";
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 3px;
+                Text {
+                    text: MaterialReferenceModel.header.name;
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    overflow: elide;
+                }
+                Text {
+                    text: MaterialReferenceModel.header.family;
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    overflow: elide;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 8px;
+                    KitButton {
+                        text: "Duplicate as Custom...";
+                        h: 30px;
+                        hint: "Open the Material Editor with this material as the template for a new custom material.";
+                        clicked => { MaterialReferenceModel.duplicate_as_custom(MaterialReferenceModel.header.name); }
+                    }
+                    KitButton {
+                        text: "Preview As";
+                        kind: 1;
+                        h: 30px;
+                        hint: "Show the open design in this material, for viewing only. The design is not changed.";
+                        clicked => { MaterialReferenceModel.preview_as(MaterialReferenceModel.header.name); }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for chip in MaterialReferenceModel.header.chips: RefPill {
+                text: chip.text;
+                hint: chip.tooltip;
+                highlight: chip.highlight;
+            }
+        }
+        Rectangle { height: 1px; background: Theme.border-subtle; }
+
+        // The cards.
+        ScrollView {
+            vertical-stretch: 1;
+            if root.two_columns: HorizontalLayout {
+                padding-right: 14px;
+                spacing: 12px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    preferred-width: 0px;
+                    spacing: 12px;
+                    alignment: start;
+                    DurabilityCard { }
+                    OpticsCard { two_cols: root.width >= 1240px; }
+                    RiCard { }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    preferred-width: 0px;
+                    spacing: 12px;
+                    alignment: start;
+                    SpectrumCard { }
+                    ColorsCard { }
+                    VariantsCard { }
+                    EffectsCard { }
+                    if MaterialReferenceModel.sources != "" || MaterialReferenceModel.source_groups.length > 0: SourcesCard { }
+                }
+            }
+            if !root.two_columns: VerticalLayout {
+                padding-right: 14px;
+                spacing: 12px;
+                alignment: start;
+                DurabilityCard { }
+                OpticsCard { two_cols: root.width >= 620px; }
+                RiCard { }
+                SpectrumCard { }
+                ColorsCard { }
+                VariantsCard { }
+                EffectsCard { }
+                if MaterialReferenceModel.sources != "" || MaterialReferenceModel.source_groups.length > 0: SourcesCard { }
+            }
+        }
+    }
+}

@@ -46,7 +46,8 @@ exporting a design of your own.
 10. [Remote Worker Setup](10-remote-worker-setup.md) — certificates,
     setting up the remote coordinator, testing the connection, full data vs.
     final picture transfer, how many pictures a catalogue batch keeps in
-    flight on it, HDR scenes, and troubleshooting a connection gone quiet.
+    flight on it, HDR scenes, troubleshooting a connection gone quiet, and running
+    a coordinator as a Linux service. Chapter 30 covers the coordinator's own window.
 11. [Saving and File Formats](11-saving-and-file-formats.md) — `.asc`
     versus this app's own `.psdd` design file, the cutting sheet and the meet
     points it tells the cutter to cut to, and where your files go.
@@ -139,6 +140,13 @@ exporting a design of your own.
     Patterns: zones of different colors in a custom material, made in the Color Pattern
     Editor (Stone, Slice and Crystal views, layer cards, the color picker and the
     Start From... gallery).
+30. [The Coordinator Window](30-the-coordinator-window.md) — the window of
+    `pleochroma-worker`: starting it and the first-run wizard, its pages (Overview,
+    Devices, Render computers, Jobs, Library, Log, Settings, Help another coordinator
+    and Tools), pairing a phone by QR code or link and pairing another computer, the
+    tray and start at login, remote administration (Monitor and Admin, what can never
+    be done remotely, the switcher and Add a coordinator), `--headless`, the Windows
+    `.com` and `.exe` pair, and notes for the Android app.
 
 ### Appendices
 
@@ -163,7 +171,8 @@ You do not need to read this front to back. Six common starting points:
   material, then Deep Solve/Optimize/Adopt to verify and improve it.
 - **Rendering a design:** read Chapters 9, 10 and 23 — exporting an image,
   setting up a remote coordinator if you want faster or higher-quality renders,
-  and collecting many renders as jobs that run one after another.
+  and collecting many renders as jobs that run one after another. To pair a phone
+  or run the coordinator yourself, read Chapter 30.
 - **Planning what to cut from a piece of rough:** read Chapter 15 — how to
   model your rough and rank the library's designs by the weight they yield from
   it.

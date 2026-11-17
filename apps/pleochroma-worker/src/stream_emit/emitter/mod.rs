@@ -416,6 +416,9 @@ impl LoopState {
 
         // The producer stopped adding samples: fail the request with an ERROR instead of
         // heartbeating a wedged lane forever (see `fail_stalled`).
+        if samples_done == 0 && crate::serve::warmup::preparing().is_some() {
+            self.stall_watch.restart();
+        }
         if !finished && let Some(window) = self.stall_watch.observe(samples_done) {
             self.stalled = true;
             let mut pace = HeartbeatPace {

@@ -143,6 +143,7 @@ pub fn save_pattern(
             c_axis_second_azimuth_deg: row.c_axis_second_azimuth_deg,
             inclusion_families_json: row.inclusion_families_json.as_deref(),
             structure_json: row.structure_json.as_deref(),
+            gem_data_json: row.gem_data_json.as_deref(),
         },
         &pattern_row,
         zoning_row.as_ref(),

@@ -73,19 +73,19 @@ pub fn wire(window: &AppWindow, state: &Rc<RefCell<AppState>>) {
     let weak = window.as_weak();
     model.on_job_save(move |row| {
         if let Some(window) = weak.upgrade() {
-            start(&window, |jobs| id_at(jobs, row).map(Op::Save));
+            start(&window, move |jobs| id_at(jobs, row).map(Op::Save));
         }
     });
     let weak = window.as_weak();
     model.on_job_cancel(move |row| {
         if let Some(window) = weak.upgrade() {
-            start(&window, |jobs| id_at(jobs, row).map(Op::Cancel));
+            start(&window, move |jobs| id_at(jobs, row).map(Op::Cancel));
         }
     });
     let weak = window.as_weak();
     model.on_job_delete(move |row| {
         if let Some(window) = weak.upgrade() {
-            start(&window, |jobs| id_at(jobs, row).map(Op::Delete));
+            start(&window, move |jobs| id_at(jobs, row).map(Op::Delete));
         }
     });
 }
@@ -98,7 +98,14 @@ fn id_at(jobs: &[JobInfo], row: i32) -> Option<JobId> {
 }
 
 /// Runs the request `choose` picks from the current rows, unless one is running already.
-fn start(window: &AppWindow, choose: impl FnOnce(&[JobInfo]) -> Option<Op>) {
+/// The request reaches the computer, so the local network access is asked for first (Android
+/// 17 blocks it until the user allows it); a refusal shows its reason and starts nothing.
+fn start(window: &AppWindow, choose: impl FnOnce(&[JobInfo]) -> Option<Op> + Send + 'static) {
+    crate::remote::with_local_network(window, move |window| start_now(window, choose));
+}
+
+/// [`start`] with the local network access in hand.
+fn start_now(window: &AppWindow, choose: impl FnOnce(&[JobInfo]) -> Option<Op>) {
     let model = window.global::<RemoteModel>();
     // Forget Server is erasing the credentials: no request may load them now (the page
     // disables its buttons too).
@@ -214,6 +221,8 @@ fn finish(window: &AppWindow, id: u64, result: Result<Outcome, String>) {
                 Some((Arc::clone(runtime.state.borrow().platform()), file))
             }
             Err(message) => {
+                // A computer that moved is looked for; Refresh then works again.
+                crate::remote::connect_failed(window, &message);
                 model.set_jobs_status(message.into());
                 None
             }

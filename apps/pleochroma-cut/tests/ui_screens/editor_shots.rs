@@ -12,6 +12,7 @@ use pleochroma_cut::{
 };
 use pleochroma_editor::material::gear_index_from_teeth;
 use slint::{ComponentHandle, Model};
+use std::time::{Duration, Instant};
 use uiprobe::screenshot::Shot;
 
 /// Inspector height of the Edit-view shots, in logical pixels (the app default is 340 px). It
@@ -25,6 +26,8 @@ const OPTIMIZER_SCROLL: f32 = 900.0;
 const RETARGET_TARGET: &str = "sapphire";
 /// Space around and between the parts of the composed shot, in physical pixels.
 const GAP: u32 = 48;
+/// How long the Diagram picture must stay unchanged before the crown shot trusts it.
+const DIAGRAM_QUIET: Duration = Duration::from_millis(1500);
 /// Status words of the compare pane while it still works on a frame.
 const BUSY_WORDS: [&str; 5] = ["tracing", "solving", "rendering", "waiting", "building"];
 
@@ -89,7 +92,9 @@ pub fn diagram_view_detail(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     let ui = sc.ui();
     let solid = ui.global::<SolidPreviewModel>();
     let _ = Sc::wait(30, || solid.get_has_diagram());
-    pump(1000);
+    // Opening the editor can deliver more than one three-panel picture; a late one would
+    // pass for the enlarged panel below, so the picture must settle first.
+    settle_diagram(&solid);
     let three_panels = solid.get_diagram_image();
     solid.set_diagram_enlarged_panel(0);
     // The enlarged panel is a replan of the diagram (what the pill's `changed` handler
@@ -98,8 +103,23 @@ pub fn diagram_view_detail(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     if !Sc::wait(30, || solid.get_diagram_image() != three_panels) {
         return Err("the enlarged Crown panel never arrived".to_owned());
     }
+    settle_diagram(&solid);
     pump(1000);
     sc.snap_main()
+}
+
+/// Waits until the Diagram picture has stayed the same for [`DIAGRAM_QUIET`] (at most 30 s).
+fn settle_diagram(solid: &SolidPreviewModel<'_>) {
+    let mut last = solid.get_diagram_image();
+    let mut since = Instant::now();
+    let _ = Sc::wait(30, || {
+        let now = solid.get_diagram_image();
+        if now != last {
+            last = now;
+            since = Instant::now();
+        }
+        since.elapsed() >= DIAGRAM_QUIET
+    });
 }
 
 /// Whether a compare status line says a frame is still being made.

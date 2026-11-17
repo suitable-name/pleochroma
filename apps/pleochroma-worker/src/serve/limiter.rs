@@ -1,6 +1,7 @@
-//! The connection caps: [`ConnectionLimiter`] (`--max-connections`, one instance per
-//! listener role -- viewers and joined workers are counted separately) and its RAII
-//! [`ConnectionSlot`]. See `crate::serve`'s "Robustness" section.
+//! The connection caps: [`ConnectionLimiter`] (`--max-connections`, one instance per listener role
+//! -- viewers and joined workers are counted separately) and its RAII [`ConnectionSlot`].
+//!
+//! See `crate::serve`'s "Robustness" section.
 
 use std::sync::{
     Arc,

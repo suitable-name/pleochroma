@@ -65,6 +65,7 @@ fn crystal_axis_columns_round_trip_and_none_stays_null() {
             c_axis_second_azimuth_deg: axis.and_then(|a| a.2),
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         })
         .expect("save custom material");
     };
@@ -160,6 +161,7 @@ fn render_physics_columns_round_trip_and_none_stays_null() {
                 c_axis_second_azimuth_deg: None,
                 inclusion_families_json: families,
                 structure_json: structure,
+                gem_data_json: None,
             })
             .expect("save custom material");
         };

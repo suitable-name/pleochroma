@@ -1,6 +1,7 @@
-//! The viewer side of a render-capable (`worker`) build: `HELLO`/`WELCOME` with the
-//! full build-compatibility gate and the coordinator's render advertisement, then
-//! [`super::requests::serve_requests`].
+//! The viewer side of a render-capable (`worker`) build.
+//!
+//! `HELLO`/`WELCOME` with the full build-compatibility gate and the coordinator's render
+//! advertisement, then [`super::requests::serve_requests`].
 
 use super::{
     BUILD_MISMATCH_CODE, NO_RENDER_CAPACITY_CODE, handle_non_render_message,
@@ -66,6 +67,9 @@ pub struct ViewerContext<'a> {
     pub assets: Option<&'a AssetCache>,
     /// The durable job service; `None` refuses job requests (no own render lane).
     pub jobs: Option<&'a Arc<JobService>>,
+    /// Called once the peer's `HELLO` was accepted (its role is right): the coordinator lists
+    /// the connection then and not before. `None` lists nothing.
+    pub admitted: Option<&'a dyn Fn()>,
 }
 
 /// Handles one connection end to end, always on the CPU.
@@ -127,6 +131,7 @@ pub fn handle_connection_with_gpu<S: Read + Write + TimeoutRead + TimeoutWrite>(
             coordinator: None,
             assets: None,
             jobs: None,
+            admitted: None,
         },
     )
 }
@@ -176,6 +181,10 @@ pub fn handle_viewer_connection<S: Read + Write + TimeoutRead + TimeoutWrite>(
             return Ok(());
         }
     };
+    // The `HELLO` is in and its role is right: the connection counts as connected now.
+    if let Some(admitted) = ctx.admitted {
+        admitted();
+    }
     let local_hello = handshake::local_hello();
 
     if let Some(result) =
@@ -261,14 +270,22 @@ pub fn handle_viewer_connection<S: Read + Write + TimeoutRead + TimeoutWrite>(
             session: session.as_ref(),
             assets: ctx.assets,
             jobs: ctx.jobs,
+            // A viewer's requests are listed as running renders; a plain connection has no
+            // identity key and shows as "Viewer".
+            viewer: Some(
+                ctx.coordinator
+                    .as_ref()
+                    .map_or("", |(_, viewer)| viewer.as_str()),
+            ),
         },
     )
 }
 
-/// This machine's own render capability: the backend `gpu` will actually trace on
-/// (`Gpu` iff an adapter was genuinely acquired, decided once so a worker never claims
-/// GPU while silently tracing on CPU), this build's limits. What a plain worker's
-/// `WELCOME` advertises and what a `join`ing worker reports in its `HELLO`. `hdr` is
+/// This machine's own render capability.
+///
+/// The backend `gpu` will actually trace on (`Gpu` iff an adapter was genuinely acquired, decided
+/// once so a worker never claims GPU while silently tracing on CPU), this build's limits. What a
+/// plain worker's `WELCOME` advertises and what a `join`ing worker reports in its `HELLO`. `hdr` is
 /// `false` here; a caller with an asset cache sets it.
 ///
 /// `--only-cpu` shows up here as a disabled `gpu` (hence `Cpu`); a later per-request
@@ -295,9 +312,10 @@ pub fn local_render_capability(gpu: &GpuBackend, threads: usize) -> RenderCapabi
     }
 }
 
-/// Logs why [`handshake::verify_compatible`] refused `local_hello`/`remote_hello`
-/// and writes an `ErrorMsg` in place of `WELCOME` -- best-effort, like
-/// [`super::refuse_for_capacity`].
+/// Logs why [`handshake::verify_compatible`] refused `local_hello`/`remote_hello` and writes an
+/// `ErrorMsg` in place of `WELCOME`.
+///
+/// Best-effort, like [`super::refuse_for_capacity`].
 pub fn refuse_incompatible_handshake<S: Write>(
     stream: &mut S,
     local_hello: &Hello,

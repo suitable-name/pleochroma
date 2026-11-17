@@ -26,6 +26,7 @@
 
 mod batch;
 mod image_compare;
+mod materials;
 mod parsers;
 #[cfg(test)]
 mod tests;
@@ -36,6 +37,8 @@ mod tests_batch;
 mod tests_beam;
 #[cfg(test)]
 mod tests_image_compare;
+#[cfg(test)]
+mod tests_materials;
 #[cfg(test)]
 mod tests_optics_tables;
 #[cfg(test)]
@@ -48,6 +51,7 @@ mod types;
 mod values;
 
 use image_compare::parse_image_compare;
+use materials::parse_materials;
 use parsers::{
     parse_census, parse_export, parse_info, parse_metrics, parse_optimize, parse_render_job,
     parse_retarget, parse_snap_meets, parse_solve, parse_sweep, parse_validate,
@@ -60,7 +64,8 @@ pub use types::AdaptiveArgs;
 pub use types::BeamArgs;
 pub use types::{
     Batch, CensusArgs, Command, ExportArgs, ExportFormat, Exposure, ImageCompareArgs, InfoArgs,
-    JobCommandKind, MaterialArg, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs, ReportFormat,
+    JobCommandKind, MarkdownTable, MaterialArg, MaterialColumn, MaterialFilter, MaterialScale,
+    MaterialsArgs, MaterialsFormat, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs, ReportFormat,
     ReportStyle, RetargetArgs, SnapLimit, SnapMeetsArgs, SolveArgs, SweepArgs, Topic, ValidateArgs,
     lighting_name, preset_name,
 };
@@ -89,6 +94,7 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
             rest.first().map_or(Topic::Root, |w| Topic::of(w)),
         )),
         "info" => parse_info(rest),
+        "materials" => parse_materials(rest),
         "solve" => parse_solve(rest),
         "metrics" => parse_metrics(rest),
         "validate" => parse_validate(rest),
@@ -102,9 +108,9 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         "tilt-video" => parse_render_job(JobCommandKind::TiltVideo, rest).map(Command::TiltVideo),
         "image-compare" => parse_image_compare(rest),
         other => Err(format!(
-            "unknown command {other:?} (expected info, solve, metrics, validate, optimize, \
-             retarget, sweep, snap-meets, export, census, render, tilt-video or image-compare; \
-             see --help)"
+            "unknown command {other:?} (expected info, materials, solve, metrics, validate, \
+             optimize, retarget, sweep, snap-meets, export, census, render, tilt-video or \
+             image-compare; see --help)"
         )),
     }
 }

@@ -14,7 +14,7 @@ use super::{
 use glam::Vec3;
 use pleochroma_net::{
     messages::{
-        Done, ErrorMsg, FrameHeader, NetError, PreviewConfig, PreviewHeader, Progress,
+        Done, ErrorMsg, FrameHeader, NetError, Preparing, PreviewConfig, PreviewHeader, Progress,
         RenderRequest, Stats, StreamEvent, TransferMode, error_codes,
     },
     radiance::EncodedPayload,
@@ -98,16 +98,28 @@ pub(super) fn emit_progress_heartbeat<S: Write>(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .samples_done;
-    pleochroma_net::messages::write_stream_event(
-        stream,
-        &StreamEvent::Progress(Progress {
-            request_id: request.request_id,
+    write_progress(stream, request.request_id, samples_done, emission_count)
+}
+
+/// The heartbeat event of a request: `PREPARING` while the graphics card builds its shader cache
+/// (`preparing` is `Some((done, total))`) and the request has traced nothing, else `PROGRESS`.
+/// Once samples exist the plain `PROGRESS` always returns.
+pub(super) const fn progress_event(
+    request_id: u32,
+    samples_done: u32,
+    preparing: Option<(u32, u32)>,
+) -> StreamEvent {
+    match preparing {
+        Some((done, total)) if samples_done == 0 => StreamEvent::Preparing(Preparing {
+            request_id,
+            done,
+            total,
+        }),
+        _ => StreamEvent::Progress(Progress {
+            request_id,
             samples_done,
         }),
-        None,
-    )?;
-    *emission_count += 1;
-    Ok(())
+    }
 }
 
 /// One periodic (cadence-elapsed) emission: `FRAME` (if [`TransferMode::LiveProgressive`]
@@ -202,21 +214,18 @@ pub(in crate::stream_emit) fn emit_tick<S: Write>(
     write_progress(stream, request.request_id, samples_done, emission_count)
 }
 
-/// Writes one `PROGRESS` and counts it as an emission.
+/// Writes one `PROGRESS` (or `PREPARING`, see [`progress_event`]) and counts it as an emission.
 fn write_progress<S: Write>(
     stream: &mut S,
     request_id: u32,
     samples_done: u32,
     emission_count: &mut u32,
 ) -> Result<(), NetError> {
-    pleochroma_net::messages::write_stream_event(
-        stream,
-        &StreamEvent::Progress(Progress {
-            request_id,
-            samples_done,
-        }),
-        None,
-    )?;
+    let event = progress_event(request_id, samples_done, crate::serve::warmup::preparing());
+    pleochroma_net::messages::write_stream_event(stream, &event, None)?;
+    // The same value goes to the coordinator status's "rendering now" list (this runs on the
+    // connection thread that owns the request's registry entry).
+    crate::control::renders::note_progress(samples_done);
     *emission_count += 1;
     Ok(())
 }
@@ -516,4 +525,40 @@ fn write_preview<S: Write>(
             Some(encoded.bytes),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_request_with_no_samples_hears_preparing_while_the_card_warms_up() {
+        let event = progress_event(7, 0, Some((12, 40)));
+        assert!(matches!(
+            event,
+            StreamEvent::Preparing(Preparing {
+                request_id: 7,
+                done: 12,
+                total: 40
+            })
+        ));
+    }
+
+    #[test]
+    fn progress_returns_once_samples_exist_or_the_warm_up_ends() {
+        assert!(matches!(
+            progress_event(7, 3, Some((12, 40))),
+            StreamEvent::Progress(Progress {
+                request_id: 7,
+                samples_done: 3
+            })
+        ));
+        assert!(matches!(
+            progress_event(7, 0, None),
+            StreamEvent::Progress(Progress {
+                request_id: 7,
+                samples_done: 0
+            })
+        ));
+    }
 }

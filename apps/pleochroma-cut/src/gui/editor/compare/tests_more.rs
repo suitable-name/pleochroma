@@ -45,7 +45,12 @@ fn the_figures_of_a_concave_stone_differ_from_its_flat_twin() {
         pleochroma::optics::LightingPreset::RingLights,
     );
     let strip = metrics.strip();
-    assert_eq!(strip.rows.len(), 5, "both sides are measured");
+    assert_eq!(
+        strip.rows.len(),
+        6,
+        "both sides are measured: the five table-up figures and Contrast"
+    );
+    assert_eq!(strip.rows[5].label, "Contrast");
     assert!(
         strip.rows.iter().any(|row| row.before != row.after),
         "the tools change at least one figure: {:?}",

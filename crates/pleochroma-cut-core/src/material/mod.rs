@@ -1,5 +1,6 @@
 //! The material model of a design: built-in and custom materials, their optical and
-//! render-physics data, and the specific-gravity table behind the carat estimate.
+//! render-physics data, the specific-gravity table behind the carat estimate, and the gem
+//! reference table (hardness, toughness, cleavage, care).
 //!
 //! Specific gravity feeds [`crate::yield_metrics`]' carat estimate. It is kept apart from
 //! volumetric yield, which needs no material data.
@@ -30,15 +31,60 @@
 //! and SG rises with iron). [`SpecificGravity::representative`] is the midpoint of the
 //! cited spread, not an average of the family's theoretical extremes.
 //!
-//! The table covers fourteen species, a subset of `GemMaterial::all_materials`. Optical
-//! entries without an SG row (the individual garnets among them) are left out on purpose:
-//! an SG row with no optical entry would let a picker offer a species it cannot render.
-//! [`MaterialSelection::specific_gravity_override`] lets a user enter the SG of a species
-//! this table does not cover.
+//! The table covers all 39 built-in materials of `GemMaterial::all_materials`; each has an
+//! optical entry, so no SG row offers a species that cannot be rendered.
+//! [`MaterialSelection::specific_gravity_override`] lets a user enter the SG of a species this
+//! table does not cover, such as the garnet group as a whole.
+//!
+//! Each representative figure and range is cited in a comment beside its row, from the Handbook
+//! of Mineralogy (measured density), the GIA gem encyclopedia, the International Gem Society
+//! property pages and its table of specific-gravity values, webmineral.com, Gems & Gemology
+//! Winter 1997 (Table 1, for YAG and GGG) and the Schott optical glass datasheets (for the two
+//! glasses). The garnet rows hold the values of the gem (Pyrope 3.74, Almandine 4.19), not the
+//! pure end-members (Handbook of Mineralogy: Pyrope 3.582, Almandine 4.318).
+//!
+//! Two rows are derived, not printed by any source: Morganite (the midpoint of the GIA range
+//! 2.80-2.91) and the Color-Change Garnet (the midpoint of the range merged from two Gems &
+//! Gemology studies). They are marked [`SgBasis::Derived`] and carry a basis note; every other
+//! row is [`SgBasis::Cited`]. A material with a single cited value stores it as both ends of its
+//! range. For Opal the sources differ (webmineral 1.9-2.3; the IGS table prints 1.25-2.23
+//! including porous material); webmineral is kept.
+//!
+//! # Gem data
+//!
+//! [`built_in_gem_data`] holds what a cutter reads beside the optics: Mohs hardness (a range),
+//! toughness (the GIA word scale), cleavage, parting, fracture and short care notes for each of
+//! the 39 built-in materials. Keys are the exact `GemMaterial::name` strings, like the SG table.
+//!
+//! - **Sources.** Every stored value carries the sources it comes from ([`Cited`], rendered
+//!   by [`GemSource::citation`] and [`GemSource::url`]). Mohs and care come from the GIA
+//!   gem-encyclopedia care pages, where GIA has no page from the GIA Gem Cleaning and Display
+//!   Chart (rev. Oct 2018), and for the laboratory-grown materials from Gems & Gemology,
+//!   Winter 1997, Table 1. Cleavage, parting and fracture come from the Handbook of
+//!   Mineralogy, which gives Miller indices; webmineral and Wikipedia are used only where the
+//!   Handbook has no page (opal, labradorite and the synthetics). The glasses use Schott's
+//!   optical-glass datasheets, and care text comes from the International Gem Society only
+//!   where GIA has no page.
+//! - **Differing sources.** The GIA care page is shown for toughness and Mohs, widened by the
+//!   Handbook of Mineralogy where it differs (spinel 7.5-8). A disagreement is kept as a
+//!   [`SourceNote`] ("Sources differ: ...") and never resolved silently. A lone outlier is not
+//!   used.
+//! - **Typical values.** The figures describe the species, not a single stone. A value taken
+//!   over from the species of a variety or from end-members ([`GemBasis::Inferred`]) and a
+//!   value computed from cited figures ([`GemBasis::Derived`]) are shown with their basis
+//!   note.
+//! - **No source, no value.** A value no gemological or mineralogical source gives is left
+//!   out rather than guessed: the toughness of the glasses, Benitoite and Titanite, and the
+//!   cleavage and fracture of GGG, are empty and read "Not graded" or "Not recorded".
+//!   Retail pages and search snippets are not sources.
+//! - **Durability only.** The table holds hardness, toughness, cleavage, parting, fracture and
+//!   care text. Remarks that belong to the physics-color side of the app are never stored
+//!   here.
 
 mod catalogue;
 pub mod color;
 mod custom_physics;
+mod gem_data;
 mod library_row;
 pub mod pattern;
 mod selection;
@@ -56,6 +102,11 @@ pub use custom_physics::{
     per_axis_dispersion_of_material, per_axis_dispersion_of_snapshot, per_axis_dispersion_to_json,
     structure_spec_from_json, structure_spec_to_json, with_custom_physics, with_custom_structure,
 };
+pub use gem_data::{
+    CareTopic, Cited, Cleavage, CleavageQuality, Confidence, CrystalForm, Fracture, GemBasis,
+    GemData, GemField, GemSource, MaterialOrigin, SourceNote, Toughness, ToughnessRange,
+    built_in_gem_data, cleavage_summary, fracture_summary, mohs_label, parting_summary,
+};
 pub use library_row::{
     LibraryMaterial, RayBandRows, absorption_bands_from_json, absorption_bands_to_json,
     absorption_ray_bands_from_json, absorption_ray_bands_to_json, biaxial_character_from_deltas,
@@ -70,5 +121,5 @@ pub use selection::{
     BuiltinMaterials, MaterialLookup, MaterialSelection, ResolvedMaterial,
     built_in_material_by_exact_name, built_in_refractive_index,
 };
-pub use specific_gravity::{SpecificGravity, built_in_specific_gravity};
+pub use specific_gravity::{SgBasis, SpecificGravity, built_in_specific_gravity};
 pub use variant_choice::{CUSTOM_VARIANT_KEY, CUSTOM_VARIANT_LABEL, VariantChoice};

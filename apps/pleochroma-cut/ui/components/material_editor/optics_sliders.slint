@@ -39,7 +39,7 @@ component OpticsSlider inherits VerticalLayout {
     }
 }
 
-// Refractive index, dispersion, specific gravity and birefringence sliders of the Gem Material
+// Refractive index, dispersion and birefringence sliders of the Gem Material
 // Editor. Each value is two-way bound to the same-named property of `MaterialEditorDialog`.
 //
 // Simple mode hides the birefringence slider (`GuideModel.shows_advanced()`); its value stays and
@@ -49,7 +49,6 @@ export component MaterialOpticsSliders inherits VerticalLayout {
 
     in-out property <float> ri_val: 2.417;
     in-out property <float> disp_val: 0.0256;
-    in-out property <float> sg_val: 0.0;
     in-out property <float> biref_val: 0.000;
     // False while the Dispersion section types the refractive-index curve as Sellmeier or
     // Cauchy coefficients (`material_editor/dispersion_coefficients.slint`): that curve fixes
@@ -80,19 +79,7 @@ export component MaterialOpticsSliders inherits VerticalLayout {
         value <=> root.disp_val;
     }
 
-    // Specific gravity. `0.0` means "not recorded" on the Rust side, not a real zero density.
-    // A recorded value lets a custom material's Est. Carat Weight fill in without a separate
-    // SG override in the Yield panel for every design that uses it.
-    OpticsSlider {
-        label: "Specific Gravity:";
-        hint: "Specific gravity: the density of the material compared with water. It is used to estimate carat weight. Leave it at 0 to leave it unrecorded.";
-        value_text: root.sg_val <= 0.0001 ? "not recorded" : "" + Math.round(root.sg_val * 100.0) / 100.0;
-        value_color: Theme.accent-amber;
-        minimum: 0.0;
-        maximum: 7.0;
-        step: 0.01;
-        value <=> root.sg_val;
-    }
+    // Specific gravity moved to the Gem Data section (a number field, blank = not recorded).
 
     // Birefringence (double refraction) slider. Advanced mode only.
     if GuideModel.shows_advanced() : OpticsSlider {

@@ -111,6 +111,14 @@ pub const RENDER_JOBS: &str = "23-render-jobs";
 pub const CRYSTAL_AXIS_STONE: &str = "25-crystal-axis#the-stone-tab";
 /// The Rough Planner's Crystal Axis panel and the orientation rule under it.
 pub const CRYSTAL_AXIS_ROUGH: &str = "25-crystal-axis#the-axis-of-the-rough";
+/// The materials chapter: the built-in table, refractive index and the Material Reference.
+pub const MATERIALS: &str = "06-materials-and-refractive-index";
+/// How the face-up figures (Brilliance, Fire Index, Scintillation and the zones) are measured.
+pub const FACE_UP_FIGURES: &str = "02-catalogue-and-viewing#how-the-face-up-figures-are-measured";
+/// The coordinator's own window: wizard, pages, pairing, the tray and remote administration.
+pub const COORDINATOR: &str = "30-the-coordinator-window";
+/// Pairing another computer with a coordinator's pairing link.
+pub const PAIRING_LINK: &str = "30-the-coordinator-window#pairing-another-computer";
 
 /// Every named topic: its name (the Slint property is the same name in lower case with
 /// hyphens, `TIER_FORM` is `HelpTopics.tier-form`) and its id.
@@ -164,6 +172,10 @@ pub const TOPICS: &[(&str, &str)] = &[
     ("RENDER_JOBS", RENDER_JOBS),
     ("CRYSTAL_AXIS_STONE", CRYSTAL_AXIS_STONE),
     ("CRYSTAL_AXIS_ROUGH", CRYSTAL_AXIS_ROUGH),
+    ("MATERIALS", MATERIALS),
+    ("FACE_UP_FIGURES", FACE_UP_FIGURES),
+    ("COORDINATOR", COORDINATOR),
+    ("PAIRING_LINK", PAIRING_LINK),
 ];
 
 /// The id of the named topic, e.g. `topic_id("TIER_FORM")`.

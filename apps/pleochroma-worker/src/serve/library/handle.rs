@@ -1,6 +1,7 @@
-//! The design library as one viewer connection sees it: a read-only [`Database`] that is
-//! opened by the connection's first library request, never for render, tilt,
-//! final-image, ping or asset traffic.
+//! The design library as one viewer connection sees it.
+//!
+//! A read-only [`Database`] that is opened by the connection's first library request, never for
+//! render, tilt, final-image, ping or asset traffic.
 //!
 //! A connection used only to render therefore never pays for opening the library, and never
 //! fails because it cannot be opened.
@@ -25,6 +26,9 @@ pub struct LibraryHandle {
     /// Filled by the first successful open. A failed open leaves it empty, so the next
     /// library request tries again.
     db: OnceCell<Database>,
+    /// A coordinator running without a design library (see [`Self::absent`]): nothing is
+    /// ever opened and every library request gets the "no library" error.
+    absent: bool,
 }
 
 impl LibraryHandle {
@@ -36,6 +40,22 @@ impl LibraryHandle {
             path,
             peer,
             db: OnceCell::new(),
+            absent: false,
+        }
+    }
+
+    /// A handle for a coordinator that has no design library.
+    ///
+    /// Nothing is opened, and every library request is answered with a plain "no library"
+    /// [`LibraryResponse::Error`] (code [`super::LIBRARY_ERROR_CODE`]). The connection stays usable
+    /// for everything else, rendering included.
+    #[must_use]
+    pub const fn absent(peer: Option<SocketAddr>) -> Self {
+        Self {
+            path: PathBuf::new(),
+            peer,
+            db: OnceCell::new(),
+            absent: true,
         }
     }
 
@@ -46,6 +66,7 @@ impl LibraryHandle {
             path: PathBuf::new(),
             peer: None,
             db: OnceCell::from(db),
+            absent: false,
         }
     }
 
@@ -66,6 +87,9 @@ impl LibraryHandle {
         if let Some(db) = self.db.get() {
             return Ok(db);
         }
+        if self.absent {
+            return Err("this coordinator runs without a design library".to_owned());
+        }
         let opened = open_library_database(&self.path)?;
         Ok(self.db.get_or_init(|| opened))
     }
@@ -74,9 +98,13 @@ impl LibraryHandle {
     ///
     /// A database that cannot be opened is logged in full and answered with the same
     /// generic [`LibraryResponse::Error`] a failed query gets; the connection stays
-    /// usable for every other request.
+    /// usable for every other request. A handle without a library ([`Self::absent`])
+    /// answers the plain "no library" error, without a log line per request.
     #[must_use]
     pub fn handle(&self, request: &LibraryRequest) -> LibraryResponse {
+        if self.absent {
+            return handlers::no_library();
+        }
         match self.database() {
             Ok(db) => handle_request(request, db),
             Err(message) => {

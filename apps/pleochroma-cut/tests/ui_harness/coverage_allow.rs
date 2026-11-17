@@ -119,10 +119,6 @@ pub const ALLOW: &[(&str, &str)] = &[
         "components/preferences_dialog.slint|PreferencesDialog|\"Check for New Versions\"",
         "network: switching it on calls UpdateModel.enabled_changed(true), which update_check::start_check turns into a GitHub request when a check is due",
     ),
-    (
-        "components/performance_graph_dialog.slint|PerformanceGraphDialog|\"Re-Render Fresh\"",
-        "long job: the button calls TiltModel.rerender_curve_with_current_material, which renders the tilt curve on the GPU (its direct-invoke row covers the callback)",
-    ),
     // ---- elements that exist only while a long job or a network exchange runs ----
     (
         "components/remote_worker_dialog.slint|RemoteWorkerDialog|tip-button-testing-connection",
@@ -299,6 +295,23 @@ pub const ALLOW: &[(&str, &str)] = &[
     (
         "components/color_pattern/*",
         "parts of the Color Pattern window (see color_pattern_window.slint above)",
+    ),
+    // ---- Material Reference window (scenarios/material_reference.rs) ----
+    (
+        "material_reference_window.slint|*",
+        "a secondary window: only the material_reference_window scenario reaches it (opened from Help > Material Reference... or the Stone tab's Material Details... button), pressing its headers, chips, switch, buttons and Escape by label and sweeping both pages at the default and the minimum size; the field-touch pass does not touch it",
+    ),
+    (
+        "components/material_reference/*",
+        "parts of the Material Reference window (see material_reference_window.slint above)",
+    ),
+    (
+        "components/kit/table.slint|*",
+        "KitSortHeader and KitTableRow are used by the Material Reference window only (see above)",
+    ),
+    (
+        "MaterialReferenceModel.duplicate_as_custom",
+        "opens the Material Editor in the main window on a copy of the material (the same path as Load Preset Template); the scenario leaves the button alone so no dialog stays open",
     ),
     (
         "Zoning.add_pattern",

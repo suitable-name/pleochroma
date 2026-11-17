@@ -36,8 +36,8 @@ use std::sync::atomic::Ordering;
 
 use pleochroma::{
     color::metrics::{
-        AxisProfile, FinishedStone, GemOpticalMetrics, MetricsCache, PROFILE_AZIMUTHS_DEG,
-        SweepProgress, compute_or_reuse_pose_metrics_finished,
+        AsetAreaShares, AxisProfile, FinishedStone, GemOpticalMetrics, MetricsCache,
+        PROFILE_AZIMUTHS_DEG, SweepProgress, compute_or_reuse_pose_metrics_finished,
         evaluate_all_axes_profiles_stepped_finished_threaded, total_evaluations,
     },
     geometry::{
@@ -167,7 +167,7 @@ pub fn tilt_lighting_note(preset_index: i32, map_loaded: bool) -> String {
     }
 }
 
-/// The five pose metrics (`GemOpticalMetrics`) as plain data, and what they were scored
+/// The pose metrics (`GemOpticalMetrics`) as plain data, and what they were scored
 /// under.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MetricsResultData {
@@ -186,6 +186,67 @@ pub struct MetricsResultData {
     /// The Doubling figure: the mean angular separation, in arc-minutes, between the two
     /// light modes of a birefringent stone (`0` for an isotropic one).
     pub doubling_arcmin: f32,
+    /// The Zones (ASET-style) shares and Contrast of the pose; `None` when the pose had no
+    /// geometry to trace. Appended last so the older fields keep their wire positions.
+    pub aset: Option<AsetSharesData>,
+}
+
+/// The Zones (ASET-style) area shares and Contrast of one pose as plain data: the six
+/// fields of [`AsetAreaShares`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AsetSharesData {
+    /// Red zone, percent of the rays that hit the stone (45 to 75 degrees above the girdle plane).
+    pub red_pct: f32,
+    /// Green zone, percent (0 to 45 degrees).
+    pub green_pct: f32,
+    /// Blue zone, percent (75 to 90 degrees).
+    pub blue_pct: f32,
+    /// Light that left through the pavilion, percent; equals the Windowing figure.
+    pub leak_pct: f32,
+    /// Light with no exit within the bounce budget, or that left sideways, percent.
+    pub lost_pct: f32,
+    /// The pattern Contrast, 0 to 100.
+    pub contrast: f32,
+}
+
+impl AsetSharesData {
+    /// `shares` as plain data.
+    #[must_use]
+    pub const fn from_shares(shares: AsetAreaShares) -> Self {
+        Self {
+            red_pct: shares.red_pct,
+            green_pct: shares.green_pct,
+            blue_pct: shares.blue_pct,
+            leak_pct: shares.leak_pct,
+            lost_pct: shares.lost_pct,
+            contrast: shares.contrast,
+        }
+    }
+
+    /// The shares back as the core's type.
+    #[must_use]
+    pub const fn to_shares(self) -> AsetAreaShares {
+        AsetAreaShares {
+            red_pct: self.red_pct,
+            green_pct: self.green_pct,
+            blue_pct: self.blue_pct,
+            leak_pct: self.leak_pct,
+            lost_pct: self.lost_pct,
+            contrast: self.contrast,
+        }
+    }
+}
+
+impl From<AsetAreaShares> for AsetSharesData {
+    fn from(shares: AsetAreaShares) -> Self {
+        Self::from_shares(shares)
+    }
+}
+
+impl From<AsetSharesData> for AsetAreaShares {
+    fn from(data: AsetSharesData) -> Self {
+        data.to_shares()
+    }
 }
 
 impl MetricsResultData {
@@ -200,6 +261,10 @@ impl MetricsResultData {
             extinction_pct: metrics.extinction_pct,
             scored_under,
             doubling_arcmin: metrics.doubling_arcmin,
+            aset: match metrics.aset {
+                Some(shares) => Some(AsetSharesData::from_shares(shares)),
+                None => None,
+            },
         }
     }
 }

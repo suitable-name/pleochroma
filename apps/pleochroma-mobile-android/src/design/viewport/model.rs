@@ -79,16 +79,16 @@ fn status_line(state: &AppState) -> String {
 }
 
 fn push_picture(model: &ViewportModel<'_>, viewport: &ViewportState) {
-    match viewport.image_rect() {
-        Some((x, y, width, height)) => {
+    viewport.image_rect().map_or_else(
+        || model.set_has_frame(false),
+        |(x, y, width, height)| {
             model.set_image_x(x);
             model.set_image_y(y);
             model.set_image_width(width);
             model.set_image_height(height);
             model.set_has_frame(true);
-        }
-        None => model.set_has_frame(false),
-    }
+        },
+    );
 }
 
 /// Length and angle in degrees of the segment from `from` to `to`.
@@ -146,15 +146,15 @@ fn push_tools(model: &ViewportModel<'_>, viewport: &ViewportState) {
             .as_ref()
             .is_some_and(pleochroma_editor::manipulate::ProvisionalSlice::may_keep),
     );
-    match slice.line {
-        Some(line) => {
+    slice.line.map_or_else(
+        || model.set_line_visible(false),
+        |line| {
             let (len, deg) = stem(line.start, line.end);
             model.set_line_x(line.start.0);
             model.set_line_y(line.start.1);
             model.set_line_len(len);
             model.set_line_deg(deg);
             model.set_line_visible(true);
-        }
-        None => model.set_line_visible(false),
-    }
+        },
+    );
 }

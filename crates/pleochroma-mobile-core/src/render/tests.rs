@@ -53,8 +53,8 @@ const CROWN: usize = 5;
 
 // ---- helpers -----------------------------------------------------------------------------
 
-/// A state over the round brilliant template with a small live sample target, no denoise,
-/// not solved yet.
+/// A Path-Traced state over the round brilliant template with a small live sample target, no
+/// denoise, not solved yet.
 fn unsolved_state() -> AppState {
     let platform: Arc<dyn Platform> = Arc::new(MockPlatform::default());
     let mut state = AppState::new(platform);
@@ -63,6 +63,7 @@ fn unsolved_state() -> AppState {
         template.fresh_spec(template.default_material_selection()),
         1,
     );
+    state.settings.render.engine = 0;
     state.settings.render.live_spp_compact = 8;
     state.settings.render.denoise = false;
     state.settings.render.backend = crate::settings::RenderBackend::DeviceCpu;

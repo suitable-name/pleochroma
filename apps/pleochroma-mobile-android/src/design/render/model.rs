@@ -68,9 +68,10 @@ pub(super) fn push(window: &AppWindow, state: &AppState) {
             choices
                 .iter()
                 .position(|&spp| spp == state.settings.render.live_spp_compact)
-                .unwrap_or(1),
+                .or_else(|| choices.iter().position(|&spp| spp == 32))
+                .unwrap_or(0),
         )
-        .unwrap_or(1)
+        .unwrap_or(0)
     });
     model.set_denoise(state.settings.render.denoise);
     model.set_light_drag(state.viewport.light_drag.on);

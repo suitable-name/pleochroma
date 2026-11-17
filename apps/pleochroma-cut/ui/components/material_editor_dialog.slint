@@ -23,6 +23,7 @@ import { MaterialInclusionFamilies } from "material_editor/inclusion_families.sl
 import { MaterialStructureParams } from "material_editor/structure_params.slint";
 import { MaterialColorSection } from "material_editor/color_section.slint";
 import { MaterialColorVariantsSection } from "material_editor/color_variants_section.slint";
+import { MaterialGemDataSection } from "material_editor/gem_data_section.slint";
 
 // The Gem Material Editor.
 //
@@ -54,6 +55,7 @@ export component MaterialEditorDialog inherits Rectangle {
     // range, an index below 1); the section says why.
     property <bool> can_save: root.optics_valid && !root.name_is_blank && !root.name_collides_with_builtin
         && disp_section.save_ok && curves_section.save_ok && structure_section.save_ok
+        && gem_section.save_ok
         && !Zoning.pattern_editor_open;
 
     // Why Save is not available, in plain words (the tooltip of the dimmed Save buttons).
@@ -63,7 +65,8 @@ export component MaterialEditorDialog inherits Rectangle {
         : (!root.optics_valid ? root.optics_validation_message
         : (!curves_section.save_ok ? "The per-axis curves cannot be used yet. The Per-Axis Curves section says why."
         : (!structure_section.save_ok ? "The Play-of-Color section needs its longest color to be at least its shortest."
-        : "The refractive-index coefficients cannot be used yet. The section above says why."))));
+        : (!gem_section.save_ok ? gem_section.save_blocked_reason
+        : "The refractive-index coefficients cannot be used yet. The section above says why.")))));
 
     // Saving over an existing custom name overwrites it, so both Save buttons first ask
     // "Overwrite?". `pending_apply` remembers which Save button was pressed (Save or
@@ -126,7 +129,9 @@ export component MaterialEditorDialog inherits Rectangle {
         // The Crystal Axis row's default direction (its state lives in `CrystalAxisEditorModel`).
         || CrystalAxisEditorModel.dirty
         // The per-axis curves, the inclusion families and the play-of-color structure.
-        || curves_section.dirty || families_section.dirty || structure_section.dirty;
+        || curves_section.dirty || families_section.dirty || structure_section.dirty
+        // The Gem Data section's entries.
+        || gem_section.dirty;
     property <bool> discard_confirm_open: false;
 
     // Pre-fills every optics field from the selected custom material's saved values
@@ -162,6 +167,12 @@ export component MaterialEditorDialog inherits Rectangle {
         // Every open rebuilds the physics state from the selected material (nothing leaks
         // from a previous open): mode, recipe, undo stack, locks and picked color.
         PhysicscolorModel.dialog_opened();
+        // A template asked for by name (the Material Reference's "Duplicate as Custom...") is
+        // loaded as if it had been picked in the combo, once; the request is then spent.
+        if (ViewportModel.material_editor_template != "") {
+            template_sel.choose_template(ViewportModel.material_editor_template);
+            ViewportModel.material_editor_template = "";
+        }
     }
 
     // A host choice (or a garnet's end-member mix) proposes RI, dispersion, birefringence, SG
@@ -417,7 +428,7 @@ export component MaterialEditorDialog inherits Rectangle {
 
                 // Base template selector and material name
                 // (`material_editor/template_selector.slint`).
-                MaterialTemplateSelector {
+                template_sel := MaterialTemplateSelector {
                     base_templates: root.base_templates;
                     selected_template_idx <=> root.selected_template_idx;
                     mat_name <=> root.mat_name;
@@ -439,12 +450,11 @@ export component MaterialEditorDialog inherits Rectangle {
                     disp_val <=> root.disp_val;
                 }
 
-                // Refractive index, dispersion, specific gravity and birefringence sliders
+                // Refractive index, dispersion and birefringence sliders
                 // (`material_editor/optics_sliders.slint`).
                 MaterialOpticsSliders {
                     ri_val <=> root.ri_val;
                     disp_val <=> root.disp_val;
-                    sg_val <=> root.sg_val;
                     biref_val <=> root.biref_val;
                     show_dispersion_sliders: disp_section.mode == 0;
                 }
@@ -504,6 +514,10 @@ export component MaterialEditorDialog inherits Rectangle {
                 // Color variants: the named colors of a material, built in and saved
                 // (`material_editor/color_variants_section.slint`).
                 MaterialColorVariantsSection {}
+
+                // Gem Data: the hardness, toughness, cleavage, fracture, care and source the
+                // user enters for this material (`material_editor/gem_data_section.slint`).
+                gem_section := MaterialGemDataSection { sg_val <=> root.sg_val; }
                     } // end body_col
                 } // end body := ScrollView
 

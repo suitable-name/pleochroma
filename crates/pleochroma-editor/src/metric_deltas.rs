@@ -1,8 +1,9 @@
 //! "Deltas in words": the optical figures of two stones side by side, and a few plain
 //! sentences about what changed between them.
 //!
-//! The compare window shows the five table-up figures of the "before" and the "after"
-//! stone ([`OpticalFigures`]: brilliance, windowing, extinction, fire, scintillation) and
+//! The compare window shows the table-up figures of the "before" and the "after" stone
+//! ([`OpticalFigures`]: brilliance, windowing, extinction, fire, scintillation and, when
+//! the stone was traced, Contrast and the zone shares) and
 //! can add the tilt averages ([`TiltAverages`], the mean over four axes and 181 angles).
 //! [`describe_metric_deltas`] turns the two sets into one to three short sentences,
 //! [`metric_rows`] into the rows of the small table beside them.
@@ -10,8 +11,8 @@
 //! # Noise thresholds
 //!
 //! Two stones are never measured to the last digit: the table-up figures come from an
-//! 18 x 18 grid of rays, of which a disc of roughly 250 cells is used, so one grid cell is
-//! worth about 0.4 of a point. A change in the last few cells (a facet edge sliding across
+//! 18 x 18 grid of rays, of which a disc of 180 cells is used, so one grid cell is
+//! worth about 0.56 of a point. A change in the last few cells (a facet edge sliding across
 //! a ray) is not something a cutter can see, so a figure that moved by less than its
 //! threshold reads "about the same" instead of being reported as a gain or a loss. The
 //! thresholds are named constants below, each with the reason for its size.
@@ -28,7 +29,7 @@
 use crate::sweep::TiltAverages;
 use pleochroma::{
     color::metrics::{
-        AxisProfile, FinishedStone, GemOpticalMetrics, SweepProgress,
+        AsetAreaShares, AxisProfile, FinishedStone, GemOpticalMetrics, SweepProgress,
         evaluate_all_axes_profiles_stepped_finished_threaded,
         evaluate_gem_optical_metrics_finished,
     },
@@ -62,6 +63,20 @@ pub const EXTINCTION_NOISE_POINTS: f32 = 2.0;
 /// the plain shares above for the same small change in the cut, so its threshold is a
 /// point higher.
 pub const SCINTILLATION_NOISE_POINTS: f32 = 3.0;
+
+/// Contrast changes under this many points (on its 0 to 100 scale) read "about the same".
+///
+/// One grid spot flipping from bright to blue moves at most four of the roughly 328
+/// neighbouring pairs, about 1.2 points of Contrast. Four points allow about three and a
+/// half such spots, the same slack the shares above have in cells.
+pub const CONTRAST_NOISE_POINTS: f32 = 4.0;
+
+/// A zone share (Red, Green, Blue or Dark) that moved by no more than this many percentage
+/// points is left out of [`aset_change_text`].
+///
+/// One grid cell is worth about 0.56 of a point of a share, so two points allow about
+/// three and a half cells, the same slack Brilliance has.
+pub const ASET_NOISE_POINTS: f32 = 2.0;
 
 /// Fire changes under this share of the "before" figure read "about the same".
 ///
@@ -99,7 +114,7 @@ pub const DEFAULT_SUBJECT: &str = "The after design";
 /// The camera pitch of the table-up measurement: looking straight down on the table.
 const TABLE_UP_PITCH_RAD: f32 = FRAC_PI_2;
 
-/// The five table-up figures of one stone.
+/// The table-up figures of one stone.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OpticalFigures {
     /// Share of the light returned to the eye, percent (higher is better).
@@ -112,6 +127,9 @@ pub struct OpticalFigures {
     pub fire_index: f32,
     /// Scintillation, percent (higher is more sparkle).
     pub scintillation_pct: f32,
+    /// The zone shares (ASET-style) and Contrast; `None` when the stone was not traced for
+    /// them.
+    pub aset: Option<AsetAreaShares>,
 }
 
 impl From<GemOpticalMetrics> for OpticalFigures {
@@ -122,6 +140,7 @@ impl From<GemOpticalMetrics> for OpticalFigures {
             extinction_pct: metrics.extinction_pct,
             fire_index: metrics.fire_index,
             scintillation_pct: metrics.scintillation_pct,
+            aset: metrics.aset,
         }
     }
 }
@@ -265,17 +284,20 @@ pub enum DeltaMetric {
     Fire,
     /// Scintillation: the on-off sparkle.
     Scintillation,
+    /// Contrast: how finely the viewer's own shadow is broken up across the face.
+    Contrast,
 }
 
 impl DeltaMetric {
     /// Every figure, most important first: the three that decide how the stone looks,
-    /// then fire, then scintillation.
-    pub const ALL: [Self; 5] = [
+    /// then fire, scintillation and Contrast.
+    pub const ALL: [Self; 6] = [
         Self::Brilliance,
         Self::Windowing,
         Self::Extinction,
         Self::Fire,
         Self::Scintillation,
+        Self::Contrast,
     ];
 
     /// The name of the figure.
@@ -287,10 +309,12 @@ impl DeltaMetric {
             Self::Extinction => "Extinction",
             Self::Fire => "Fire",
             Self::Scintillation => "Scintillation",
+            Self::Contrast => "Contrast",
         }
     }
 
-    /// The name of the figure's tilt average.
+    /// The name of the figure's tilt average. Contrast has no tilt average, so it keeps its
+    /// own name.
     #[must_use]
     pub const fn tilt_label(self) -> &'static str {
         match self {
@@ -299,6 +323,7 @@ impl DeltaMetric {
             Self::Extinction => "Tilt Extinction",
             Self::Fire => "Tilt Fire",
             Self::Scintillation => "Tilt Scintillation",
+            Self::Contrast => "Contrast",
         }
     }
 
@@ -314,7 +339,8 @@ impl DeltaMetric {
         matches!(self, Self::Brilliance | Self::Windowing | Self::Extinction)
     }
 
-    /// The figure of `figures`.
+    /// The figure of `figures`; NaN for Contrast when the stone carries no zone figures, so
+    /// that [`judge`] leaves it out.
     #[must_use]
     pub const fn value(self, figures: &OpticalFigures) -> f32 {
         match self {
@@ -323,6 +349,10 @@ impl DeltaMetric {
             Self::Extinction => figures.extinction_pct,
             Self::Fire => figures.fire_index,
             Self::Scintillation => figures.scintillation_pct,
+            Self::Contrast => match &figures.aset {
+                Some(aset) => aset.contrast,
+                None => f32::NAN,
+            },
         }
     }
 
@@ -334,6 +364,7 @@ impl DeltaMetric {
             Self::Windowing => WINDOWING_NOISE_POINTS,
             Self::Extinction => EXTINCTION_NOISE_POINTS,
             Self::Scintillation => SCINTILLATION_NOISE_POINTS,
+            Self::Contrast => CONTRAST_NOISE_POINTS,
             Self::Fire => FIRE_NOISE_FLOOR,
         }
     }
@@ -431,8 +462,8 @@ pub fn describe_metric_deltas(
 /// design", "The current design") as the thing that changed.
 ///
 /// One to three sentences about the table-up figures, most important first: the changes
-/// in brilliance, windowing and extinction; then the changes in fire and scintillation
-/// ("It also ..."); then the figures that stayed within their noise threshold ("Fire is
+/// in brilliance, windowing and extinction; then the changes in fire, scintillation and
+/// Contrast ("It also ..."); then the figures that stayed within their noise threshold ("Fire is
 /// about the same."). When nothing moved beyond its threshold the answer is the single
 /// sentence "No clear optical difference.". With `tilt` (the before and after tilt
 /// averages) one more sentence follows, about the tilt averages.
@@ -543,8 +574,44 @@ fn direction_phrase(change: MetricChange, tilt: bool) -> String {
         (DeltaMetric::Fire, _, false) => "shows less fire",
         (DeltaMetric::Scintillation, _, true) => "sparkles more",
         (DeltaMetric::Scintillation, _, false) => "sparkles less",
+        (DeltaMetric::Contrast, _, true) => "has more contrast",
+        (DeltaMetric::Contrast, _, false) => "has less contrast",
     };
-    format!("{words} ({:+.0} %)", change.change)
+    if change.metric == DeltaMetric::Contrast {
+        format!("{words} ({:+.0})", change.change)
+    } else {
+        format!("{words} ({:+.0} %)", change.change)
+    }
+}
+
+/// The largest moves of the zone shares from `before` to `after`, as "Blue -17, Dark -15".
+///
+/// Red, Green, Blue and Dark (Leak plus Lost) are compared; the two with the largest
+/// change that exceeds [`ASET_NOISE_POINTS`] are named, the larger first (a tie keeps the
+/// order Red, Green, Blue, Dark), each with its signed change in whole percentage points.
+/// "about the same" when no share moved that far. The zone shares carry no better or worse:
+/// no direction is better for every cut.
+#[must_use]
+pub fn aset_change_text(before: &AsetAreaShares, after: &AsetAreaShares) -> String {
+    let mut moves: Vec<(&str, f32)> = [
+        ("Red", after.red_pct - before.red_pct),
+        ("Green", after.green_pct - before.green_pct),
+        ("Blue", after.blue_pct - before.blue_pct),
+        ("Dark", after.dark_pct() - before.dark_pct()),
+    ]
+    .into_iter()
+    .filter(|(_, change)| change.is_finite() && change.abs() > ASET_NOISE_POINTS)
+    .collect();
+    if moves.is_empty() {
+        return "about the same".to_owned();
+    }
+    moves.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+    moves.truncate(2);
+    moves
+        .iter()
+        .map(|(name, change)| format!("{name} {change:+.0}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// "Fire is about the same." / "Brilliance and windowing are about the same."; `None`
@@ -584,21 +651,25 @@ pub struct MetricRow {
     pub before: String,
     /// The figure for the "after" stone.
     pub after: String,
-    /// The signed change, e.g. `+4.0 %`; for fire the relative change.
+    /// The signed change, e.g. `+4.0 %`; for fire the relative change, for Contrast the
+    /// change in points without a unit.
     pub change: String,
     /// Whether the change is better, worse or about the same.
     pub tone: Tone,
 }
 
-/// The table rows: the five table-up figures, then (with `tilt`) the three tilt averages.
+/// The table rows: the five table-up figures, Contrast (when both stones carry zone
+/// figures), then (with `tilt`) the three tilt averages.
 #[must_use]
 pub fn metric_rows(
     before: &OpticalFigures,
     after: &OpticalFigures,
     tilt: Option<(&TiltAverages, &TiltAverages)>,
 ) -> Vec<MetricRow> {
+    let has_aset = before.aset.is_some() && after.aset.is_some();
     let mut rows: Vec<MetricRow> = DeltaMetric::ALL
         .iter()
+        .filter(|&&metric| metric != DeltaMetric::Contrast || has_aset)
         .map(|&metric| {
             row(
                 metric.label(),
@@ -643,12 +714,10 @@ fn row(label: &'static str, metric: DeltaMetric, before: f32, after: f32, tilt: 
     let judged = judge(metric, before, after, tilt);
     let change = judged.map_or_else(
         || NOT_AVAILABLE.to_owned(),
-        |judged| {
-            if metric == DeltaMetric::Fire {
-                format!("{} %", signed(judged.change, 0))
-            } else {
-                format!("{} %", signed(judged.change, 1))
-            }
+        |judged| match metric {
+            DeltaMetric::Fire => format!("{} %", signed(judged.change, 0)),
+            DeltaMetric::Contrast => signed(judged.change, 1),
+            _ => format!("{} %", signed(judged.change, 1)),
         },
     );
     MetricRow {
@@ -661,11 +730,11 @@ fn row(label: &'static str, metric: DeltaMetric, before: f32, after: f32, tilt: 
 }
 
 /// A figure as a table cell: one decimal, with the percent sign unless it is the fire
-/// index.
+/// index or Contrast.
 fn figure_text(metric: DeltaMetric, value: f32) -> String {
     if !value.is_finite() {
         NOT_AVAILABLE.to_owned()
-    } else if metric == DeltaMetric::Fire {
+    } else if matches!(metric, DeltaMetric::Fire | DeltaMetric::Contrast) {
         format!("{value:.1}")
     } else {
         format!("{value:.1} %")

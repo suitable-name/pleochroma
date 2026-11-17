@@ -1,4 +1,4 @@
-use super::{shard_key, write_atomic};
+use super::{needs_write, shard_key, write_atomic, write_if_changed};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
@@ -74,5 +74,38 @@ fn failed_replacement_cleans_up_temporary_file() {
     assert!(write_atomic(&destination, b"cache").is_err());
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     std::fs::remove_dir(destination).unwrap();
+    std::fs::remove_dir(dir).unwrap();
+}
+
+#[test]
+fn an_unchanged_blob_is_not_rewritten() {
+    let dir = scratch_dir();
+    let path = dir.join("shard.bin");
+    write_atomic(&path, b"driver data").unwrap();
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    assert!(!needs_write(Some(b"driver data"), b"driver data"));
+    let written = write_if_changed(&path, Some(b"driver data"), b"driver data").unwrap();
+    assert!(!written);
+    assert_eq!(std::fs::read(&path).unwrap(), b"driver data");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        modified
+    );
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(dir).unwrap();
+}
+
+#[test]
+fn a_changed_or_new_blob_is_written() {
+    let dir = scratch_dir();
+    let path = dir.join("shard.bin");
+    assert!(write_if_changed(&path, None, b"first").unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"first");
+    assert!(write_if_changed(&path, Some(b"first"), b"second, longer").unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"second, longer");
+    assert!(write_if_changed(&path, Some(b"second, longer"), b"second, other").unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"second, other");
+    std::fs::remove_file(path).unwrap();
     std::fs::remove_dir(dir).unwrap();
 }

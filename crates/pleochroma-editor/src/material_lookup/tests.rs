@@ -457,3 +457,37 @@ fn the_applied_guess_badge_shows_only_while_the_material_is_the_applied_one() {
     );
     assert_eq!(applied_material_guess(&design, 1.76, None), None);
 }
+
+// --- a color pattern that cannot apply ---
+
+#[test]
+fn an_unsupported_pattern_version_renders_the_plain_material_and_is_named() {
+    use pleochroma_cut_core::material::pattern::{
+        PATTERN_FORMAT_VERSION, PatternAxis, TemplateId, template,
+    };
+    let mut design = fresh_design();
+    design.material.name = Some("Sapphire".to_string());
+    // No pattern: nothing to report.
+    assert_eq!(design_pattern_problem(&design), None);
+
+    let mut pattern = template(TemplateId::Uniform, PatternAxis::TABLE_NORMAL);
+    pattern.version = PATTERN_FORMAT_VERSION + 1;
+    design.material.color_pattern_override = Some(pattern);
+
+    let plain = GemMaterial::sapphire();
+    let rendered = with_design_pattern(plain.clone(), &design);
+    assert_eq!(rendered.absorption, plain.absorption);
+    assert_eq!(rendered.absorption_unit, plain.absorption_unit);
+    assert!(rendered.zoning.is_none());
+
+    let problem = design_pattern_problem(&design).expect("the version is refused");
+    assert!(
+        problem.contains("color pattern cannot be applied"),
+        "{problem}"
+    );
+    assert!(
+        problem.contains(&format!("Pattern format {}", PATTERN_FORMAT_VERSION + 1)),
+        "{problem}"
+    );
+    assert!(problem.contains("material's own color"), "{problem}");
+}

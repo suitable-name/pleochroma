@@ -4,7 +4,7 @@ version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
 authors = { workspace = true }
-description = "Coordinator and render worker for a pleochroma-backed design catalogue. `serve` (default build) is the coordinator: it serves pleochroma-net's read-only design-library protocol to viewers over mutual TLS and accepts joining render workers on a separate worker port. The optional `worker` feature adds render capacity -- `join` (dial a coordinator and render its requests), `serve --render` (render with the coordinator's own CPU/GPU) and `render` (a one-shot scene-to-PNG CLI)."
+description = "Coordinator and render worker for a pleochroma-backed design catalogue. The default build opens the coordinator window; `--headless serve` runs the coordinator without it: it serves pleochroma-net's read-only design-library protocol to viewers over mutual TLS and accepts joining render workers on a separate worker port. The `worker` feature (on by default through `gui`) adds render capacity -- `join` (dial a coordinator and render its requests), `serve --render` (render with the coordinator's own CPU/GPU) and `render` (a one-shot scene-to-PNG CLI). A headless library-only server is `--no-default-features`."
 license = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
@@ -12,10 +12,24 @@ documentation = "https://docs.rs/pleochroma-worker"
 keywords = ["gemstone", "raytracer", "server", "rendering", "spectral"]
 categories = ["command-line-utilities", "network-programming", "rendering"]
 publish = { workspace = true }
+# Both binaries are declared below; `src/bin/*` is not scanned for a third one.
+autobins = false
+# `cargo run -p pleochroma-worker` runs the program itself, not the console twin.
+default-run = "pleochroma-worker"
 
 [[bin]]
 name = "pleochroma-worker"
 path = "src/main.rs"
+
+# The console twin of `pleochroma-worker`, a tiny launcher that finds the sibling program,
+# runs it with the same arguments and standard streams, waits and returns its exit code.
+# Cargo cannot produce a `.com` file: packaging copies this binary's output to the worker's
+# own name with `.com` on Windows (`pleochroma-worker.com`; the `build-worker` and
+# `windows-console-twins` workflows do it); the launcher starts the `.exe` of its own name.
+# It needs no feature and no worker code, so it builds in every configuration.
+[[bin]]
+name = "pleochroma-worker-console"
+path = "src/bin/console.rs"
 
 [dependencies]
 # The new-version notice `main.rs` logs first (skipped with `--no-update-check` or
@@ -45,7 +59,23 @@ pleochroma = { workspace = true, features = ["serde", "stone-shadow"], optional 
 # `pleochroma-net`'s own `render` feature -- which pulls in `pleochroma`-dependent types like
 # `SceneState`/`RenderRequest` -- is turned on only by this crate's `worker` feature
 # below, never unconditionally).
-pleochroma-net = { workspace = true }
+pleochroma-net = { workspace = true, features = ["pairing"] }
+# `crate::settings`: `coordinator.toml` (serde + toml) and the encrypted settings backup
+# (Argon2id key derivation, AES-256-GCM).
+serde = { workspace = true }
+toml = { workspace = true }
+argon2 = "0.5.3"
+aes-gcm = "0.10.3"
+# Headless `serve`: Ctrl-C and SIGTERM shut the coordinator down cleanly (exit 0).
+ctrlc = { version = "3.4", features = ["termination"] }
+# The pairing QR code (the window's pairing dialog and `cert issue-token` in a terminal), and
+# for the coordinator window (`gui` feature) its clipboard copy
+# (kept out of clipboard history and monitoring), and the wizard's folder pickers.
+qrcode = { version = "0.14", default-features = false }
+arboard = { version = "3.7.0", default-features = false, optional = true }
+rfd = { workspace = true, optional = true }
+# The coordinator window (`gui` feature). The same features as Pleochroma Cut's window.
+slint = { workspace = true, optional = true, features = ["std", "backend-default", "renderer-femtovg", "renderer-software", "accessibility", "compat-1-2", "system-tray"] }
 # Durable server jobs (`worker` feature, `crate::jobs`): a stored job IS the desktop render
 # queue's `RenderJobFile` (`*.job.json`), and its states and recovery rule are that crate's.
 pleochroma-render-jobs = { workspace = true, optional = true }
@@ -100,7 +130,19 @@ zeroize = "1.9.1"
 # measures variants production never sends (unshuffled LZ4/zstd, zstd level 3).
 [dev-dependencies]
 lz4_flex = "0.14.0"
+# `tests/gui_screens.rs`: the coordinator window's screenshots (software renderer).
+uiprobe = { workspace = true, features = ["screenshots"] }
 zstd = "0.14.3"
+
+# The coordinator window's screenshots (`tests/gui_screens.rs`, written in wave 8).
+[[test]]
+name = "gui_screens"
+path = "tests/gui_screens.rs"
+required-features = ["gui"]
+# uiprobe needs its own single-threaded main; run it on request:
+# `cargo test -p pleochroma-worker --test gui_screens`.
+harness = false
+test = false
 
 # Renders real FRAME payloads with the production render core (needs `worker`; add
 # `gpu` to trace on the adapter).
@@ -116,11 +158,11 @@ name = "write_pgo_scene"
 required-features = ["worker"]
 
 [features]
-default = []
+default = ["gui", "gpu"]
 # The render path: `RenderRequest` handling, `stream_emit`, `render_core`, `render_cmd`,
-# the `render` subcommand, and `Backend` advertisement in `WELCOME`. Off by default --
-# see the crate docs on why serving the design library, not rendering, is this binary's
-# default, primary role. Turns on `pleochroma-net`'s own `render` feature too, which is what
+# the `render` subcommand, and `Backend` advertisement in `WELCOME`. On by default through
+# `gui`; `--no-default-features` builds the library-only server (see the crate docs on why
+# serving the design library is the coordinator's primary role). Turns on `pleochroma-net`'s own `render` feature too, which is what
 # actually gates `pleochroma` out of a default build's dependency tree (see that crate's
 # `Cargo.toml`) -- without that half, `pleochroma-net` would still pull `pleochroma` in via its
 # own unconditional dependency, and this feature alone wouldn't achieve anything.
@@ -134,9 +176,9 @@ worker = ["dep:pleochroma", "dep:pleochroma-dispatch", "dep:pleochroma-render-jo
 # wrapped by this crate's own `gpu_backend::GpuBackend`) for both `render` and `serve`,
 # falling back to the CPU tracer per batch whenever the GPU declines (no adapter,
 # `--only-cpu`, a scene past the adapter's buffer limits, or a lost device -- see
-# `gpu_backend`'s own doc comment; every material is GPU-supported). Off by
-# default even with `worker` on: `wgpu`/`pollster` is a real dependency tree, and a
-# render-capable server may still run on a machine with no GPU adapter at all.
+# `gpu_backend`'s own doc comment; every material is GPU-supported). On by default
+# (`default = ["gui", "gpu"]`); a headless server without a GPU adapter can build
+# `--no-default-features --features worker` to leave `wgpu`/`pollster` out.
 gpu = ["worker", "pleochroma/gpu"]
 # Adaptive live passes: `render_core::{live, live_cache}`, the own lane's
 # `serve::connection::live_pass` and the coordinator's forwarding relay (`coordinator::live_pass`).
@@ -150,13 +192,23 @@ adaptive-sampling = ["worker"]
 # connection. Implies `worker`; with `gpu` too the tiles also run on the GPU beam engine. Its tests
 # compile only with `RUSTFLAGS="--cfg beam_tests"` (scripts/run_beam_tests.sh).
 beam = ["worker", "adaptive-sampling", "pleochroma/beam"]
+# The coordinator window (`crate::gui`, `ui/app.slint`), on by default since 0.12.0. Implies
+# `worker`. It also makes the Windows build of `pleochroma-worker` a Windows-subsystem program
+# (no console; the `pleochroma-worker-console` twin carries the command line). A headless server
+# build is `--no-default-features --features worker` (add `gpu` for GPU rendering).
+gui = ["worker", "dep:slint", "dep:arboard", "dep:rfd"]
 
 [lints]
 workspace = true
 
 [build-dependencies]
+# The shared Slint kit and theme (`@pleochroma-kit` imports), as a library path for slint-build.
+pleochroma-ui-kit = { workspace = true }
 # Unconditional on purpose: a `[target.'cfg(windows)'.build-dependencies]` gate follows
 # the platform the build script is evaluated for, so a Windows binary cross-compiled
 # from Linux lost its icon. `build.rs` decides at run time from `CARGO_CFG_TARGET_OS`
 # whether to embed anything; `winresource` compiles on every host.
 winresource = { workspace = true }
+# Compiles `ui/app.slint` when the `gui` feature is on (`build.rs` checks `CARGO_FEATURE_GUI`).
+# Unconditional: a build script cannot be gated on its own package's features.
+slint-build = { workspace = true }

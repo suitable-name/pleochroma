@@ -22,6 +22,8 @@ mod support;
 
 use std::{
     cell::{Cell, RefCell},
+    fs,
+    path::{Path, PathBuf},
     process::ExitCode,
     rc::Rc,
 };
@@ -75,7 +77,7 @@ fn main() -> ExitCode {
         .jobs(Jobs::Auto)
         .sweep_options(sweep_options())
         .coverage(
-            Coverage::scan("ui")
+            Coverage::scan(coverage_scan_root())
                 .allow(&allow_list())
                 .gate_when(GateRule::Armed)
                 .label_props(&["reader_label", "slider_label"])
@@ -103,6 +105,61 @@ fn main() -> ExitCode {
             print_shutdown_summary();
         })
         .run()
+}
+
+/// The folder the coverage scan reads. The scan takes one root, but the theme, the palette and the
+/// kit widgets live in `crates/pleochroma-ui-kit/ui` and only stubs that re-export them are left
+/// under this crate's `ui/`. So the scan root is a copy (under `target/ui-harness/coverage-ui`)
+/// of this crate's `.slint` files with the kit's files at the same relative paths, which keeps
+/// the file keys of the allow list (`components/kit/table.slint|*`) as they were. Delete the
+/// folder after removing a `.slint` file.
+fn coverage_scan_root() -> PathBuf {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let kit = manifest.join("../../crates/pleochroma-ui-kit/ui");
+    let root = uiprobe::target_dir!()
+        .join("ui-harness")
+        .join("coverage-ui");
+    copy_slint_files(&kit, &kit, &root, None);
+    copy_slint_files(
+        &manifest.join("ui"),
+        &manifest.join("ui"),
+        &root,
+        Some(&kit),
+    );
+    root
+}
+
+/// Copies the `.slint` files under `dir` (relative to `base`) into `root`, leaving out the ones
+/// that `shadowed_by` also holds at the same relative path, and any file already identical.
+fn copy_slint_files(base: &Path, dir: &Path, root: &Path, shadowed_by: Option<&Path>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            copy_slint_files(base, &path, root, shadowed_by);
+            continue;
+        }
+        if path.extension().is_none_or(|ext| ext != "slint") {
+            continue;
+        }
+        let relative = path.strip_prefix(base).unwrap_or(&path);
+        if shadowed_by.is_some_and(|other| other.join(relative).is_file()) {
+            continue;
+        }
+        let Ok(text) = fs::read(&path) else {
+            continue;
+        };
+        let target = root.join(relative);
+        if fs::read(&target).is_ok_and(|old| old == text) {
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(&target, text);
+    }
 }
 
 /// The coverage allow list: `coverage_allow::ALLOW`.

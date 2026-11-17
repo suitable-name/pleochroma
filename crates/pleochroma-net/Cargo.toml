@@ -48,6 +48,12 @@ postcard = { workspace = true }
 # from bytes doesn't violate that.
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+# `netinfo` (the `pairing` feature): the machine's LAN interfaces and their IPv4 addresses,
+# for the coordinator's certificate names and its pairing links.
+if-addrs = { version = "0.13", optional = true }
+# `discovery` (the `pairing` feature): announces and finds coordinators on the LAN over mDNS
+# (`_pleochroma._tcp`). 0.13+ boxes `ServiceResolved`; adapt `discovery::browse` before bumping.
+mdns-sd = { version = "0.11.5", default-features = false, optional = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
@@ -78,6 +84,11 @@ compression = ["dep:lz4_flex", "dep:png", "dep:zstd"]
 # extension (a capability bit plus a separate `ZoningPayload` message; no change to
 # `SceneState`'s bytes or the protocol version), which needs `pleochroma`'s zone types.
 render = ["dep:pleochroma"]
+# Phone and computer pairing: the `pleochroma://pair` link (`pairing`), the LAN address list
+# (`netinfo`) and the client config that verifies a coordinator by its fixed certificate name
+# (`tls::client_config_fixed_name`). Off by default; the coordinator, the desktop app and the
+# phone turn it on.
+pairing = ["dep:if-addrs", "dep:mdns-sd"]
 
 # The integration test round-trips a real `SceneState` directly -- it needs `pleochroma`,
 # so (like `pleochroma`'s own `gpu`-only examples) it is skipped entirely by a default
@@ -85,6 +96,8 @@ render = ["dep:pleochroma"]
 [dev-dependencies]
 # `tests/scene_roundtrip.rs` checks that a scene.json without `engine` loads as Path-Traced.
 serde_json = { workspace = true }
+# `pairing`'s link fuzz tests (parse never panics; parse(build(x)) == x).
+proptest = "1"
 
 [[test]]
 name = "scene_roundtrip"

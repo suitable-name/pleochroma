@@ -7,7 +7,10 @@ use crate::{
         export_thread::filename_template::civil_from_unix_seconds,
         render_thread::{RenderContext, load_env_map},
     },
-    gui::{env_map_status_text, refresh_lighting_preset_options, show_toast},
+    gui::{
+        env_map_status_text, refresh_lighting_preset_options, show_toast,
+        solid_preview::preview_state::SolidPreviewState,
+    },
     settings::{
         LightingPreset as SavedLightingPreset, SettingsFile, SettingsPersister,
         model::{LightingValues, PITCH_RANGE_RAD, percent_from_surface_glare},
@@ -29,11 +32,18 @@ pub(in crate::gui) fn setup_lighting_preset_callbacks(
     render_ctx: &Arc<Mutex<RenderContext>>,
     settings_store: &Arc<SettingsPersister>,
     mesh_bounding_radius: &Arc<Mutex<f64>>,
+    preview_state: &Arc<SolidPreviewState>,
 ) {
     setup_suggest_lighting_name_callback(ui, render_ctx, settings_store);
     setup_save_lighting_preset_callback(ui, render_ctx, settings_store);
     setup_save_view_preset_callback(ui, render_ctx, settings_store);
-    setup_apply_lighting_preset_callback(ui, render_ctx, settings_store, mesh_bounding_radius);
+    setup_apply_lighting_preset_callback(
+        ui,
+        render_ctx,
+        settings_store,
+        mesh_bounding_radius,
+        preview_state,
+    );
     setup_rename_lighting_preset_callback(ui, settings_store);
     setup_delete_lighting_preset_callback(ui, settings_store);
     setup_toggle_preset_export_usable_callback(ui, settings_store);
@@ -201,6 +211,7 @@ fn setup_save_lighting_preset_callback(
                 tray_reflection: fields.tray_reflection,
                 env_map_yaw_deg: fields.env_map_yaw_deg,
                 env_map_follows_camera: fields.env_map_follows_camera,
+                product_shot: false,
             };
 
             let mut result = Ok(());
@@ -267,6 +278,7 @@ fn setup_save_view_preset_callback(
                 tray_reflection: fields.tray_reflection,
                 env_map_yaw_deg: fields.env_map_yaw_deg,
                 env_map_follows_camera: fields.env_map_follows_camera,
+                product_shot: false,
             };
 
             let mut result = Ok(());
@@ -322,16 +334,21 @@ fn keep_current_turn(values: &mut LightingValues, ctx: &RenderContext) {
 ///
 /// The camera pose is restored only when the preset carries one (`camera_yaw`/`camera_pitch`
 /// both `Some`). The HDR environment map is part of the look: a preset without one clears any
-/// loaded map ([`apply_environment`]).
+/// loaded map ([`apply_environment`]). A preset with `product_shot` (the built-in "Presentation")
+/// then lays the stone out like the Product Shot button, for the design on screen: the stone
+/// faces the camera on the tray, the camera drops to the product-shot elevation and the pan
+/// places the stone ([`super::stone_pose::product_shot`]).
 fn setup_apply_lighting_preset_callback(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
     settings_store: &Arc<SettingsPersister>,
     mesh_bounding_radius: &Arc<Mutex<f64>>,
+    preview_state: &Arc<SolidPreviewState>,
 ) {
     let render_ctx_apply = render_ctx.clone();
     let settings_store_apply = settings_store.clone();
     let mesh_bounding_radius_apply = mesh_bounding_radius.clone();
+    let preview_state_apply = Arc::clone(preview_state);
     let ui_weak_apply = ui.as_weak();
     ui.global::<ViewportModel>()
         .on_apply_lighting_preset(move |idx: i32| {
@@ -359,6 +376,16 @@ fn setup_apply_lighting_preset_callback(
             if fitted.is_some() {
                 values.camera_distance = fitted;
             }
+
+            // A product-shot lighting lays the stone out like the Product Shot button: the pose
+            // and the camera come from this design. Measured before the lock below, which the
+            // render thread shares; `None` for a stone that closes no solid, which then keeps
+            // its pose and camera.
+            let shot = if preset.product_shot {
+                super::stone_pose::product_shot_for_view(&ui, &render_ctx_apply)
+            } else {
+                None
+            };
 
             // Loading the HDR file is I/O, so it runs BEFORE the lock below. A map that cannot
             // be loaded (moved or deleted) leaves the current environment untouched, as in
@@ -389,13 +416,35 @@ fn setup_apply_lighting_preset_callback(
                 // Camera pose, only when the preset carries one; the pitch is clamped so a
                 // stored pose stays in range.
                 apply_camera_pose(&mut ctx, &values);
+                if let Some(shot) = &shot {
+                    super::stone_pose::write_product_shot(&mut ctx, shot);
+                }
                 apply_environment(&mut ctx, env_map_result.as_ref());
                 ctx.dirty = true;
+                // A preset that moved the camera or the stone (a view, the Presentation shot,
+                // the Grading tray) leaves the Solid raster at the old pose until it is redrawn.
+                if fitted.is_some()
+                    || shot.is_some()
+                    || values.camera_distance.is_some()
+                    || values.camera_pose().is_some()
+                    || values.pose_pan().is_some()
+                    || values.pose_stone_pose().is_some()
+                {
+                    super::camera_lighting::resubmit_at_current_pose(
+                        &ui,
+                        &ctx,
+                        &preview_state_apply,
+                    );
+                }
                 ctx.stone_pose
             };
 
-            settings_store_apply
-                .update(|s| persist_preset_values(s, &values, &preset, env_map_result.as_ref()));
+            settings_store_apply.update(|s| {
+                persist_preset_values(s, &values, &preset, env_map_result.as_ref());
+                if let Some(shot) = &shot {
+                    super::stone_pose::store_product_shot(&mut s.settings, shot);
+                }
+            });
             // The settings now hold this preset's look, so it is the cutter's normal
             // lighting: a design's own saved lighting that was showing is let go (it
             // stays saved) instead of being restored over this choice later.

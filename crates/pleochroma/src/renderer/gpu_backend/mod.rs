@@ -151,6 +151,8 @@ mod cache;
 mod cache_tests;
 mod limits;
 mod tool_routing;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod warm_plan;
 pub mod whitted;
 pub use cache::{
     CacheTier, GpuPathCache, HostSlab, MemoryHints, RAM_SLAB_BYTES, SlabSpan, VRAM_SLAB_BYTES,

@@ -626,6 +626,7 @@ fn adopted_row(name: &str, host: HostMaterial<'_>, adopted: &AdoptedColour) -> C
                 c_axis_second_azimuth_deg: None,
                 inclusion_families_json: None,
                 structure_json: None,
+                gem_data_json: None,
             }
         }
     }
@@ -693,6 +694,7 @@ pub fn adopt_stone(db: &Database, request: &AdoptRequest<'_>) -> Result<AdoptOut
             c_axis_second_azimuth_deg: row.c_axis_second_azimuth_deg,
             inclusion_families_json: row.inclusion_families_json.as_deref(),
             structure_json: row.structure_json.as_deref(),
+            gem_data_json: row.gem_data_json.as_deref(),
         },
         &zoning_row,
     )

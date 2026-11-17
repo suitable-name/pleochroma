@@ -95,6 +95,17 @@ pub(super) fn from_worker_item(
             LiveTransfer::FullData,
         )
     };
+    // The address list, the enrollment port and the fixed-name mark belong to the address and
+    // certificate folder they were saved with. Edit either by hand and the endpoint is a
+    // hand-entered one again (one address, the dialed name verified).
+    let keeps_route = previous.is_some_and(|p| {
+        p.connection.address == item.address.as_str()
+            && p.connection.cert_dir == item.cert_dir.as_str()
+    });
+    let (addresses, enroll_port, fixed_name) = match previous {
+        Some(p) if keeps_route => (p.addresses.clone(), p.enroll_port, p.fixed_name),
+        _ => (Vec::new(), 0, false),
+    };
     RemoteEndpoint {
         connection: WorkerSettings {
             name: item.name.to_string(),
@@ -109,6 +120,32 @@ pub(super) fn from_worker_item(
         },
         export_transfer: ExportTransfer::from_index(item.export_transfer_index),
         live_transfer,
+        addresses,
+        enroll_port,
+        fixed_name,
+    }
+}
+
+/// One line for the dialog: the first saved address and how many more there are.
+pub(super) fn address_summary(endpoint: &RemoteEndpoint) -> String {
+    let all = endpoint.endpoint_addresses();
+    match all.split_first() {
+        None => String::new(),
+        Some((first, [])) => first.clone(),
+        Some((first, rest)) => format!("{first} (+{} more)", rest.len()),
+    }
+}
+
+/// Tells the connection code the saved address list and verification mode of `remote`
+/// (`bridge::remote::route`), keyed by its certificate folder. Called whenever the saved
+/// endpoint loads, changes or is found at a new address.
+pub(super) fn publish_route(remote: Option<&RemoteEndpoint>) {
+    if let Some(endpoint) = remote {
+        crate::bridge::remote::route::publish(
+            &endpoint.connection.cert_dir,
+            &endpoint.endpoint_addresses(),
+            endpoint.fixed_name,
+        );
     }
 }
 
@@ -148,6 +185,10 @@ pub fn refresh_remote_ui(ui: &MainWindow, remote: Option<&RemoteEndpoint>) {
     let model = ui.global::<RemoteWorkerModel>();
     model.set_configured(remote.is_some());
     model.set_endpoint(to_worker_item(&remote.cloned().unwrap_or_default()));
+    publish_route(remote);
+    model.set_rediscovery_status("".into());
+    model.set_endpoint_paired(remote.is_some_and(|r| r.fixed_name));
+    model.set_endpoint_address_summary(remote.map(address_summary).unwrap_or_default().into());
     publish_availability(
         ui,
         if remote.is_some() {
@@ -179,6 +220,7 @@ mod tests {
             },
             export_transfer: ExportTransfer::FinalPicture,
             live_transfer: LiveTransfer::FinalPicture,
+            ..RemoteEndpoint::default()
         };
         let item = to_worker_item(&endpoint);
         assert_eq!(item.export_transfer_index, 1);
@@ -193,6 +235,51 @@ mod tests {
             fresh.connection.transfer_mode,
             TransferMode::LiveProgressive
         );
+    }
+
+    /// A paired endpoint keeps its address list and fixed-name mark when the form is saved
+    /// unchanged, and becomes a hand-entered one when the address or folder is edited.
+    #[test]
+    fn saving_the_form_keeps_a_paired_route_until_the_address_is_edited() {
+        let paired = RemoteEndpoint::default().paired(
+            "Studio PC",
+            vec!["192.168.1.20:7878".to_string(), "10.0.0.5:7878".to_string()],
+            7879,
+            "C:/certs/studio-pc",
+        );
+        let mut item = to_worker_item(&paired);
+        item.cadence_ms = 900;
+        let unchanged = from_worker_item(&item, Some(&paired));
+        assert_eq!(unchanged.addresses, paired.addresses);
+        assert_eq!(unchanged.enroll_port, 7879);
+        assert!(unchanged.fixed_name);
+        assert_eq!(unchanged.connection.cadence_ms, 900);
+
+        item.address = "somewhere-else.lan:7878".into();
+        let edited = from_worker_item(&item, Some(&paired));
+        assert!(edited.addresses.is_empty());
+        assert_eq!(edited.enroll_port, 0);
+        assert!(!edited.fixed_name);
+        assert_eq!(
+            edited.endpoint_addresses(),
+            vec!["somewhere-else.lan:7878".to_string()]
+        );
+
+        // A brand-new endpoint has no route to keep.
+        assert!(!from_worker_item(&to_worker_item(&paired), None).fixed_name);
+    }
+
+    #[test]
+    fn the_dialog_summarizes_the_address_list_in_one_line() {
+        assert_eq!(address_summary(&RemoteEndpoint::default()), "");
+        let one = RemoteEndpoint::default().moved_to(vec!["a:1".to_string()]);
+        assert_eq!(address_summary(&one), "a:1");
+        let three = RemoteEndpoint::default().moved_to(vec![
+            "a:1".to_string(),
+            "b:1".to_string(),
+            "c:1".to_string(),
+        ]);
+        assert_eq!(address_summary(&three), "a:1 (+2 more)");
     }
 
     /// The two full-data choices set the stream mode and a full-data live transfer.

@@ -1,4 +1,6 @@
-//! `Serialize` for [`SceneState`]: every field, in declaration order, except that the default
+//! `Serialize` for [`SceneState`], with some default fields left out of readable output.
+//!
+//! Every field is written, in declaration order, except that the default
 //! render-effects record, a `false` `stone_shadow`, a `0.0` `tray_reflection`, an unturned
 //! `hdr_orientation`, a `Branching` `estimator`, a centred `camera_pan` and an identity
 //! `stone_pose` are left out of human-readable output.

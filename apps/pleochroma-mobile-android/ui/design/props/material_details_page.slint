@@ -1,0 +1,600 @@
+// The Material Details page of the Stone tab (page 4, opened by "Material Details" on the
+// material card): the shared Material Reference details in one column, for the design's
+// material, in the order of the shared details page: the header chips, Durability and Cutting
+// (with the specific gravity and the weight of this design), Optics, the refractive-index
+// curves, the absorption spectrum with a chip per ray (a tap shows or hides that ray's curve),
+// the colors by light, the color variants and the sources. Nothing before the absorption
+// spectrum is folded.
+//
+// Rust fills the `details-*` properties of `PropsModel` when the page opens (and again when
+// the material or the stone width changes); the words are the ones the desktop's details
+// page uses, so a material reads the same everywhere. The back arrow returns to the settings.
+import { PleoPalette } from "@pleochroma-kit/shared/palette.slint";
+import { Theme } from "../../theme.slint";
+import { TopBar } from "../../shell/top_bar.slint";
+import { PageScroll } from "../../shell/page_scroll.slint";
+import { CurveItem, TickItem, PropsModel } from "props_model.slint";
+import { SectionHeader, Card, Swatch } from "props_parts.slint";
+
+global DetailStyle {
+    // The series colors of the charts: 0 cyan, 1 amber, 2 purple. A ray's own color shows in
+    // its chip swatch, never on the line, so a line stays readable on the dark chart.
+    public pure function ink(i: int) -> color {
+        return i == 1 ? PleoPalette.accent-amber : (i == 2 ? PleoPalette.accent-purple : PleoPalette.accent-cyan);
+    }
+}
+
+// A ray toggle: the ray's line color as a dot, its daylight color as a swatch, and its name.
+// An "on" chip is outlined in its line color. The tap target is `Theme.touch` high, the drawn
+// pill 32 px.
+component RayChip inherits Rectangle {
+    in property <string> text;
+    in property <color> ink;
+    in property <color> swatch;
+    in property <bool> on: true;
+    callback toggled();
+
+    height: Theme.touch;
+    width: pill.width;
+    accessible-role: AccessibleRole.checkbox;
+    accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        root.toggled();
+    }
+
+    pill := Rectangle {
+        height: 32px;
+        width: lay.preferred-width;
+        border-radius: 16px;
+        background: root.on ? Theme.surface : transparent;
+        border-width: 1px;
+        border-color: root.on ? root.ink : Theme.outline;
+
+        lay := HorizontalLayout {
+            padding-left: Theme.space-md;
+            padding-right: Theme.space-md;
+            spacing: Theme.space-sm;
+
+            VerticalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: root.on ? root.ink : Theme.outline;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 4px;
+                    background: root.swatch;
+                    border-width: 1px;
+                    border-color: Theme.outline;
+                }
+            }
+
+            Text {
+                text: root.text;
+                color: root.on ? Theme.on-surface : Theme.on-surface-variant;
+                font-size: Theme.text-label-large;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => {
+            root.toggled();
+        }
+    }
+}
+
+// A header chip: a pill with the text in one line (not a tap target; the whole row scrolls).
+// A highlighted chip ("Color change") is outlined and tinted in the accent.
+component HeaderChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> highlight: false;
+
+    height: 32px;
+    width: label.preferred-width + 2 * Theme.space-md;
+    border-radius: 16px;
+    background: root.highlight ? Theme.accent-surface : Theme.surface-highest;
+    border-width: 1px;
+    border-color: root.highlight ? Theme.accent : Theme.outline-variant;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    label := Text {
+        x: Theme.space-md;
+        height: parent.height;
+        text: root.text;
+        color: Theme.on-surface;
+        font-size: Theme.text-label-large;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+}
+
+// A chart on the dark chart background: wavelength gridlines, one path per curve (a curve is
+// drawn while its bit of `mask` is set), an optional strip of the visible colors, and the
+// wavelength labels. The paths come from Rust in a 0..100 square.
+component CurveChart inherits Rectangle {
+    in property <[CurveItem]> curves;
+    in property <[TickItem]> ticks;
+    in property <int> mask: 255;
+    in property <bool> strip: false;
+    // What the vertical axis shows: a caption in the top left corner, and optional labels
+    // of the top and bottom edge.
+    in property <string> caption;
+    in property <string> top-label: "";
+    in property <string> bottom-label: "";
+    in property <string> description;
+
+    pure function shown(i: int) -> bool {
+        return Math.mod(Math.floor(root.mask / Math.pow(2, i)), 2) == 1;
+    }
+
+    height: 188px;
+    background: PleoPalette.chart-bg;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: PleoPalette.chart-border;
+    clip: true;
+    accessible-role: AccessibleRole.image;
+    accessible-label: root.description;
+
+    Text {
+        x: 12px;
+        y: 6px;
+        text: root.caption;
+        font-size: Theme.text-label;
+        color: Theme.on-surface-variant;
+    }
+
+    plot := Rectangle {
+        x: 12px;
+        y: 26px;
+        width: parent.width - 24px;
+        height: parent.height - 26px - (root.strip ? 46px : 28px);
+
+        for tick in root.ticks: Rectangle {
+            x: plot.width * tick.position / 100.0;
+            width: 1px;
+            height: 100%;
+            background: PleoPalette.chart-grid;
+        }
+
+        Rectangle {
+            y: parent.height - 1px;
+            width: 100%;
+            height: 1px;
+            background: PleoPalette.chart-grid-mid;
+        }
+
+        for curve[i] in root.curves: Path {
+            visible: root.shown(i);
+            width: 100%;
+            height: 100%;
+            fit: fill;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            commands: curve.path;
+            stroke: DetailStyle.ink(curve.ink);
+            stroke-width: 2px;
+            fill: transparent;
+        }
+
+        if root.top-label != "": Text {
+            x: 4px;
+            y: 0px;
+            text: root.top-label;
+            font-size: Theme.text-label;
+            color: Theme.on-surface-variant;
+        }
+
+        if root.bottom-label != "": Text {
+            x: 4px;
+            y: parent.height - self.preferred-height - 2px;
+            text: root.bottom-label;
+            font-size: Theme.text-label;
+            color: Theme.on-surface-variant;
+        }
+    }
+
+    // The visible spectrum, 380 to 780 nm: data, so it keeps its colors in high contrast.
+    if root.strip: Rectangle {
+        x: plot.x;
+        y: plot.y + plot.height + 6px;
+        width: plot.width;
+        height: 10px;
+        border-radius: 2px;
+        background: @linear-gradient(90deg,
+            #2a0040 0%, #5a00a8 5%, #2d2dff 15%, #00c8ff 27.5%, #00e060 35%, #a8f000 45%,
+            #ffd000 52.5%, #ff4000 62.5%, #c00000 80%, #300000 100%);
+    }
+
+    for tick in root.ticks: Text {
+        x: plot.x + plot.width * tick.position / 100.0 - 28px;
+        y: parent.height - 22px;
+        width: 56px;
+        text: tick.text;
+        font-size: Theme.text-label;
+        color: Theme.on-surface-variant;
+        horizontal-alignment: center;
+    }
+}
+
+// One line of a card: the label on the left, the value (and a note under it) on the right.
+component DataLine inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> note: "";
+
+    height: max(Theme.row-height - Theme.space-md, body.preferred-height);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.note == "" ? root.label + ", " + root.value : root.label + ", " + root.value + ". " + root.note;
+
+    body := HorizontalLayout {
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-xs;
+        spacing: Theme.space-md;
+
+        Text {
+            width: 112px;
+            text: root.label;
+            color: Theme.on-surface-variant;
+            font-size: Theme.text-body;
+            vertical-alignment: top;
+            wrap: word-wrap;
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+
+            Text {
+                text: root.value;
+                color: Theme.on-surface;
+                font-size: Theme.text-body-large;
+                wrap: word-wrap;
+            }
+
+            if root.note != "": Text {
+                text: root.note;
+                color: Theme.on-surface-variant;
+                font-size: Theme.text-label;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+export component MaterialDetailsPage inherits Rectangle {
+    // Bit i set: ray i of the spectrum is drawn.
+    property <int> ray-mask: 255;
+
+    pure function ray-on(i: int) -> bool {
+        return Math.mod(Math.floor(root.ray-mask / Math.pow(2, i)), 2) == 1;
+    }
+
+    function toggle-ray(i: int) {
+        let bit = Math.pow(2, i);
+        root.ray-mask = root.ray-on(i) ? root.ray-mask - bit : root.ray-mask + bit;
+    }
+
+    // The bar and the scrolling body are placed by hand: in a layout the body would shrink to
+    // the width of its cards instead of the page.
+    Rectangle {
+        top-bar := TopBar {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            title: PropsModel.details-title;
+            show-back: true;
+            background: transparent;
+            back-clicked => {
+                PropsModel.open-page(0);
+            }
+        }
+
+        PageScroll {
+            x: 0px;
+            y: top-bar.height;
+            width: parent.width;
+            height: parent.height - top-bar.height;
+
+            HorizontalLayout {
+                padding-left: Theme.space-lg;
+                padding-right: Theme.space-lg;
+                padding-top: Theme.space-xs;
+                padding-bottom: Theme.space-xs;
+
+                Text {
+                    text: PropsModel.details-subtitle;
+                    color: Theme.on-surface-variant;
+                    font-size: Theme.text-body;
+                    wrap: word-wrap;
+                }
+            }
+
+            // The header chips (index, birefringence, dispersion, hardness, color change): one
+            // row that scrolls sideways, as the other chip rows of the app do.
+            if PropsModel.details-chips.length > 0: Flickable {
+                horizontal-stretch: 1;
+                height: Theme.touch;
+                content-width: header-chips.preferred-width;
+
+                header-chips := HorizontalLayout {
+                    x: 0px;
+                    y: 0px;
+                    width: self.preferred-width;
+                    height: parent.height;
+                    padding-left: Theme.space-lg;
+                    padding-right: Theme.space-lg;
+                    spacing: Theme.space-sm;
+
+                    for chip in PropsModel.details-chips: HeaderChip {
+                        text: chip;
+                        highlight: chip == "Color change";
+                    }
+                }
+            }
+
+            SectionHeader {
+                text: "Durability and Cutting";
+            }
+
+            Card {
+                VerticalLayout {
+                    for row in PropsModel.details-rows: DataLine {
+                        label: row.label;
+                        value: row.value;
+                        note: row.note;
+                    }
+
+                    if PropsModel.details-care != "": DataLine {
+                        label: "Care";
+                        value: PropsModel.details-care;
+                    }
+
+                    if PropsModel.details-sources != "": Text {
+                        text: PropsModel.details-sources;
+                        color: Theme.on-surface-variant;
+                        font-size: Theme.text-label;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if PropsModel.details-optics.length > 0: SectionHeader {
+                text: "Optics";
+            }
+
+            if PropsModel.details-optics.length > 0: Card {
+                VerticalLayout {
+                    for row in PropsModel.details-optics: DataLine {
+                        label: row.label;
+                        value: row.value;
+                        note: row.note;
+                    }
+                }
+            }
+
+            SectionHeader {
+                text: "Refractive Index";
+            }
+
+            Card {
+                VerticalLayout {
+                    spacing: Theme.space-sm;
+
+                    CurveChart {
+                        curves: PropsModel.details-ri-curves;
+                        ticks: PropsModel.details-ticks;
+                        caption: "Refractive index";
+                        top-label: PropsModel.details-ri-top;
+                        bottom-label: PropsModel.details-ri-bottom;
+                        description: "Refractive index against wavelength from 380 to 780 nanometers, one curve per direction.";
+                    }
+
+                    for curve in PropsModel.details-ri-curves: HorizontalLayout {
+                        spacing: Theme.space-sm;
+
+                        VerticalLayout {
+                            alignment: center;
+
+                            Rectangle {
+                                width: 16px;
+                                height: 4px;
+                                border-radius: 2px;
+                                background: DetailStyle.ink(curve.ink);
+                            }
+                        }
+
+                        Text {
+                            text: curve.label;
+                            color: Theme.on-surface;
+                            font-size: Theme.text-body;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: PropsModel.details-ri-readout;
+                        color: Theme.on-surface-variant;
+                        font-size: Theme.text-label;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            SectionHeader {
+                text: "Absorption Spectrum";
+            }
+
+            Card {
+                VerticalLayout {
+                    spacing: Theme.space-sm;
+
+                    CurveChart {
+                        curves: PropsModel.details-rays;
+                        ticks: PropsModel.details-ticks;
+                        mask: root.ray-mask;
+                        strip: true;
+                        caption: "Absorption (relative)";
+                        description: "Absorption spectrum from 380 to 780 nanometers, one curve per ray, over a strip of the visible colors.";
+                    }
+
+                    if PropsModel.details-rays.length > 1: Flickable {
+                        horizontal-stretch: 1;
+                        height: Theme.touch;
+                        content-width: ray-chips.preferred-width;
+
+                        ray-chips := HorizontalLayout {
+                            x: 0px;
+                            y: 0px;
+                            width: self.preferred-width;
+                            height: parent.height;
+                            spacing: Theme.space-xs;
+
+                            for ray[i] in PropsModel.details-rays: RayChip {
+                                text: ray.label;
+                                ink: DetailStyle.ink(ray.ink);
+                                swatch: ray.swatch;
+                                on: root.ray-on(i);
+                                toggled => {
+                                    root.toggle-ray(i);
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: PropsModel.details-summary;
+                        color: Theme.on-surface-variant;
+                        font-size: Theme.text-label;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            SectionHeader {
+                text: "Color by Light";
+            }
+
+            Card {
+                VerticalLayout {
+                    spacing: Theme.space-md;
+
+                    for row in PropsModel.details-colors: VerticalLayout {
+                        spacing: Theme.space-xs;
+
+                        if row.face-up: HorizontalLayout {
+                            spacing: Theme.space-md;
+
+                            for lamp[k] in ["Daylight", "Incandescent"]: VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: Theme.space-xs;
+
+                                Rectangle {
+                                    height: 48px;
+                                    border-radius: Theme.radius-md;
+                                    background: k == 0 ? row.daylight : row.incandescent;
+                                    border-width: 1px;
+                                    border-color: Theme.outline;
+                                    accessible-role: AccessibleRole.image;
+                                    accessible-label: row.label + " color in " + lamp;
+                                }
+
+                                Text {
+                                    text: lamp;
+                                    color: Theme.on-surface-variant;
+                                    font-size: Theme.text-label;
+                                }
+                            }
+                        }
+
+                        if !row.face-up: HorizontalLayout {
+                            spacing: Theme.space-sm;
+                            height: 36px;
+
+                            Text {
+                                text: row.label;
+                                color: Theme.on-surface;
+                                font-size: Theme.text-body;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+
+                                Swatch {
+                                    size: 28px;
+                                    tone: row.daylight;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+
+                                Swatch {
+                                    size: 28px;
+                                    tone: row.incandescent;
+                                }
+                            }
+                        }
+                    }
+
+                    if PropsModel.details-color-note != "": Text {
+                        text: PropsModel.details-color-note;
+                        color: Theme.on-surface-variant;
+                        font-size: Theme.text-label;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if PropsModel.details-variants.length > 0: SectionHeader {
+                text: "Color Variants";
+            }
+
+            if PropsModel.details-variants.length > 0: Card {
+                VerticalLayout {
+                    for row in PropsModel.details-variants: DataLine {
+                        label: row.label;
+                        value: row.value;
+                        note: row.note;
+                    }
+                }
+            }
+
+            if PropsModel.details-source-groups.length > 0: SectionHeader {
+                text: "Sources";
+            }
+
+            if PropsModel.details-source-groups.length > 0: Card {
+                VerticalLayout {
+                    for row in PropsModel.details-source-groups: DataLine {
+                        label: row.label;
+                        value: row.value;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: Theme.space-xl;
+            }
+        }
+    }
+}

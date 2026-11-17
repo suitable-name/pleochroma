@@ -1,0 +1,39 @@
+# /etc/conf.d/pleochroma-coordinator
+#
+# PLACEHOLDERS to change:
+#   --bind          the address the viewers connect to. 0.0.0.0:7878 listens on every
+#                   interface; the enrollment listener takes 7879, the worker port 7880
+#                   and the worker enrollment listener 7881 (all on the same host).
+#   --db            the design library. It is opened read-only and may be missing.
+#   --render        this computer renders too. Needs a build with the worker feature
+#                   (GPU needs the gpu feature). Remove it for a coordinator that only
+#                   serves the library and lets joined workers render.
+# --allow-remote is required for any address that is not loopback.
+coordinator_args="--bind 0.0.0.0:7878 --allow-remote \
+ --ca /var/lib/pleochroma/pki/ca.pem \
+ --cert /var/lib/pleochroma/pki/server.pem \
+ --key /var/lib/pleochroma/pki/server.key \
+ --db /var/lib/pleochroma/facet_diagrams.sqlite \
+ --render"
+
+# The cache folders of the GPU driver and the shader compiler live under the cache
+# folder; the service user's home is /var/lib/pleochroma.
+export XDG_CACHE_HOME="/var/lib/pleochroma/.cache"
+
+# Log level (the default is info).
+#export RUST_LOG="info"
+
+# Skip the one request at start that asks GitHub for a newer release (offline server).
+#export PLEOCHROMA_NO_UPDATE_CHECK=1
+
+# AMD GPU with Mesa's RADV driver: the worker turns its scheduler workaround on by itself
+# when it finds an AMD GPU on the amdgpu driver. Set this only to force it on or off.
+#export PLEOCHROMA_RADV_WORKAROUND="on"
+
+# Where the HDR map cache lives and how large it may grow (defaults: "asset-cache" next
+# to --db, 2048 MiB).
+#export PLEOCHROMA_ASSET_CACHE_DIR="/var/lib/pleochroma/asset-cache"
+#export PLEOCHROMA_ASSET_CACHE_MIB=2048
+
+# GPU rendering: the service user must be in the groups that own /dev/dri
+# (usermod -aG video,render pleochroma). Group changes need a service restart.

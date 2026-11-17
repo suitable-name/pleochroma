@@ -1,4 +1,4 @@
-import { LineEdit, ComboBox, SpinBox } from "std-widgets.slint";
+import { LineEdit, ComboBox, SpinBox, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { WorkerItem } from "../types.slint";
 import { RemoteWorkerModel } from "../models/remote_worker.slint";
@@ -11,6 +11,128 @@ import { TipButton } from "compact_controls.slint";
 import { ToggleRow } from "toggle_switch.slint";
 import { TipBox, FieldCaption } from "tip_box.slint";
 import { AdvancedNote } from "advanced_note.slint";
+
+// "Connect with a Pairing Link": paste the link the other computer shows under Connect a
+// computer, confirm who it names, and this computer pairs with it (the certificates arrive with
+// the pairing, so nothing is typed by hand). The pasted text goes to Rust at once and the field
+// is cleared; Rust keeps only the parsed offer (`gui::remote::pairing`).
+component PairingLinkSection inherits VerticalLayout {
+    property <string> link_text: "";
+    spacing: 6px;
+
+    Text {
+        text: "Connect with a Pairing Link";
+        font-size: 11px;
+        font-weight: 700;
+        color: Theme.text-primary;
+        accessible-role: AccessibleRole.text;
+    }
+
+    // Step 1: paste.
+    if RemoteWorkerModel.pair_stage == 0: VerticalLayout {
+        spacing: 6px;
+        Text {
+            text: "On the other computer, choose Connect a computer, copy the link, and paste it here.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            TipBox {
+                horizontal-stretch: 1;
+                hint: "Paste the pairing link from the other computer. It is used once and is not kept.";
+                LineEdit {
+                    placeholder-text: "Paste pairing link";
+                    input-type: InputType.password;
+                    text <=> root.link_text;
+                    accessible-label: "Pairing Link";
+                    accepted => {
+                        if (root.link_text != "") {
+                            RemoteWorkerModel.read_pairing_link(root.link_text);
+                            root.link_text = "";
+                        }
+                    }
+                }
+            }
+            TipButton {
+                text: "Review";
+                hint: "Read the link and show which computer it belongs to. Nothing connects yet.";
+                enabled: root.link_text != "";
+                clicked => {
+                    RemoteWorkerModel.read_pairing_link(root.link_text);
+                    root.link_text = "";
+                }
+            }
+        }
+    }
+
+    // Step 2: confirm, then pair.
+    if RemoteWorkerModel.pair_stage != 0: Rectangle {
+        background: Theme.surface-sunken;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+            Text {
+                text: "Pair with " + RemoteWorkerModel.pair_name + "?";
+                font-size: 12px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
+            }
+            Text {
+                text: RemoteWorkerModel.pair_address_summary;
+                font-size: 10px;
+                color: Theme.text-muted;
+                overflow: elide;
+                accessible-role: AccessibleRole.text;
+            }
+            if RemoteWorkerModel.pair_replaces != "": Text {
+                text: "This replaces " + RemoteWorkerModel.pair_replaces;
+                font-size: 10px;
+                color: Theme.accent-amber;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                TipButton {
+                    text: "Cancel";
+                    hint: "Do not pair. The link is forgotten.";
+                    horizontal-stretch: 1;
+                    enabled: RemoteWorkerModel.pair_stage == 1;
+                    clicked => { RemoteWorkerModel.cancel_pairing(); }
+                }
+                TipButton {
+                    text: RemoteWorkerModel.pair_stage == 2
+                        ? "Pairing…"
+                        : (RemoteWorkerModel.pair_error != ""
+                            ? "Try Again"
+                            : (RemoteWorkerModel.pair_replaces != "" ? "Replace and Pair" : "Pair"));
+                    hint: "Pair with this computer. Both computers must be on the same network.";
+                    horizontal-stretch: 1;
+                    primary: true;
+                    enabled: RemoteWorkerModel.pair_stage == 1;
+                    clicked => { RemoteWorkerModel.confirm_pairing(); }
+                }
+            }
+        }
+    }
+
+    if RemoteWorkerModel.pair_error != "": Text {
+        text: RemoteWorkerModel.pair_error;
+        font-size: 10px;
+        color: Theme.danger;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+}
 
 // Remote rendering: the form for the ONE remote endpoint this viewer renders with and browses
 // the library of (a coordinator, or a single worker started with `--render`). It shows the
@@ -74,6 +196,10 @@ export component RemoteWorkerDialog inherits PopupWindow {
         }
     }
 
+    // Closing the popup forgets a link that waits for confirmation: `header.slint` watches this
+    // popup's `is-open` (a `changed is-open` inside a `PopupWindow` breaks the Slint compiler's
+    // constant propagation) and sets `RemoteWorkerModel.pair_dialog_closed`.
+
     // Opens the form on the configured endpoint, or on defaults when there is none.
     function open_form() {
         root.editing = true;
@@ -92,7 +218,10 @@ export component RemoteWorkerDialog inherits PopupWindow {
 
     width: 420px;
     // Height is what `content` (the padded layout below) needs, not the anchor's height.
-    height: content.preferred-height;
+    // The most height the window leaves below the header (`header.slint` sets it from the
+    // window height, as it does for its other panels); the body scrolls past it.
+    in property <length> available_height: 100000px;
+    height: min(content.preferred-height, root.available_height);
 
     Rectangle {
         background: Theme.popup-surface;
@@ -118,6 +247,7 @@ export component RemoteWorkerDialog inherits PopupWindow {
                 return reject;
             }
 
+        ScrollView {
         content := VerticalLayout {
             padding: 16px;
             spacing: 12px;
@@ -308,7 +438,21 @@ export component RemoteWorkerDialog inherits PopupWindow {
                             clicked => { RemoteWorkerModel.remove_remote(); }
                         }
                     }
-                    Text { text: RemoteWorkerModel.endpoint.address; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                    Text { text: RemoteWorkerModel.endpoint_address_summary != "" ? RemoteWorkerModel.endpoint_address_summary : RemoteWorkerModel.endpoint.address; font-size: 10px; color: Theme.text-muted; overflow: elide; accessible-role: AccessibleRole.text; }
+                    if RemoteWorkerModel.endpoint_paired: Text {
+                        text: "Paired with a pairing link. It is found again if its address changes.";
+                        font-size: 9px;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    if RemoteWorkerModel.rediscovery_status != "": Text {
+                        text: RemoteWorkerModel.rediscovery_status;
+                        font-size: 9px;
+                        color: Theme.accent-emerald;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
                     if GuideModel.shows_advanced(): Text {
                         text: (RemoteWorkerModel.endpoint.transfer_mode_index == 0 ? "Live Progressive" : (RemoteWorkerModel.endpoint.transfer_mode_index == 1 ? "Full Data When Finished" : "Final Picture"))
                             + " · " + RemoteWorkerModel.endpoint.cadence_ms + "ms cadence · export transfer: "
@@ -383,6 +527,9 @@ export component RemoteWorkerDialog inherits PopupWindow {
                 wrap: word-wrap;
                 accessible-role: AccessibleRole.text;
             }
+
+            // Above the by-hand setup: a pairing link needs no address or certificate folder.
+            if !root.editing: PairingLinkSection {}
 
             if !RemoteWorkerModel.configured && !root.editing: TipButton {
                 text: "Set Up Remote Coordinator";
@@ -584,6 +731,7 @@ export component RemoteWorkerDialog inherits PopupWindow {
                     }
                 }
             }
+        }
         }
         }
     }

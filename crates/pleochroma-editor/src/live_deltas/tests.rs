@@ -3,6 +3,7 @@ use crate::{
     metric_deltas::{BRILLIANCE_NOISE_POINTS, TILT_NOISE_POINTS},
     sweep::TiltAverages,
 };
+use pleochroma::color::metrics::AsetAreaShares;
 
 fn metrics() -> RowMetrics {
     RowMetrics {
@@ -15,6 +16,7 @@ fn metrics() -> RowMetrics {
         warning_count: 0,
         has_girdle: true,
         tilt: None,
+        aset: None,
     }
 }
 
@@ -173,4 +175,72 @@ fn a_zero_change_carries_no_sign() {
     assert_eq!(signed(-0.01, 1), "0.0");
     assert_eq!(signed(1.84, 1), "+1.8");
     assert_eq!(signed(-3.0, 1), "\u{2212}3.0");
+}
+
+fn with_contrast(contrast: f32) -> RowMetrics {
+    RowMetrics {
+        aset: Some(AsetAreaShares {
+            red_pct: 40.0,
+            green_pct: 20.0,
+            blue_pct: 20.0,
+            leak_pct: 10.0,
+            lost_pct: 10.0,
+            contrast,
+        }),
+        ..metrics()
+    }
+}
+
+#[test]
+fn every_figures_index_is_its_position_in_all_and_contrast_comes_last() {
+    for (position, figure) in DeltaFigure::ALL.iter().enumerate() {
+        assert_eq!(figure.index(), position, "{figure:?}");
+    }
+    assert_eq!(DeltaFigure::ALL.len(), 11);
+    assert_eq!(DeltaFigure::ALL[10], DeltaFigure::Contrast);
+    assert_eq!(DeltaFigure::Contrast.index(), 10);
+}
+
+#[test]
+fn contrast_has_its_names_is_no_percentage_and_higher_is_better() {
+    assert_eq!(DeltaFigure::Contrast.label(), "Contrast");
+    assert_eq!(DeltaFigure::Contrast.short_label(), "Contr.");
+    assert!(!DeltaFigure::Contrast.is_percent());
+    assert!(!DeltaFigure::Contrast.is_tilt());
+    assert!(DeltaFigure::Contrast.higher_is_better());
+    assert_eq!(DeltaFigure::Contrast.value(&metrics()), None);
+    assert_eq!(
+        DeltaFigure::Contrast.value(&with_contrast(27.5)),
+        Some(27.5)
+    );
+}
+
+#[test]
+fn the_contrast_row_needs_both_sides_and_uses_the_four_point_threshold() {
+    let rows = figure_deltas(&metrics(), &with_contrast(20.0));
+    assert!(row(&rows, DeltaFigure::Contrast).is_none());
+    let rows = figure_deltas(&with_contrast(20.0), &metrics());
+    assert!(row(&rows, DeltaFigure::Contrast).is_none());
+
+    let rows = figure_deltas(&with_contrast(20.0), &with_contrast(24.0));
+    assert_eq!(tone(&rows, DeltaFigure::Contrast), DeltaTone::Same);
+    let rows = figure_deltas(&with_contrast(20.0), &with_contrast(25.0));
+    assert_eq!(tone(&rows, DeltaFigure::Contrast), DeltaTone::Better);
+    let contrast = row(&rows, DeltaFigure::Contrast).expect("row");
+    assert_eq!(contrast.text, "25.0 +5.0");
+    assert_eq!(contrast.tooltip, "Contrast: Baseline 20.0, now 25.0.");
+    let rows = figure_deltas(&with_contrast(25.0), &with_contrast(20.0));
+    assert_eq!(tone(&rows, DeltaFigure::Contrast), DeltaTone::Worse);
+}
+
+#[test]
+fn the_contrast_row_follows_the_tilt_rows() {
+    let mut before = with_contrast(20.0);
+    let mut after = with_contrast(30.0);
+    before.tilt = Some(tilt(30.0));
+    after.tilt = Some(tilt(30.0));
+    let rows = figure_deltas(&before, &after);
+    let order: Vec<usize> = rows.iter().map(|row| row.figure.index()).collect();
+    assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{order:?}");
+    assert_eq!(order.last(), Some(&10));
 }

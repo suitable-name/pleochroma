@@ -19,7 +19,10 @@
 //! - `PLEOCHROMA_SCREENS_SCALE`: the Slint scale factor of the preview window (default 2, so a
 //!   390 x 800 phone shot is 780 x 1600 pixels). A `SLINT_SCALE_FACTOR` you set yourself wins.
 //! - `PLEOCHROMA_SCREENS_TIMEOUT`: seconds a normal shot may take (default 40); a Render shot
-//!   gets twice that. A preview that is still running then is killed and the shot fails.
+//!   gets 180 s more. A preview that is still running then is killed and the shot fails.
+//!
+//! A Render shot passes no `--wait`: the preview captures it once the picture is finished. When
+//! the picture does not finish in time the preview says so in its log, and the shot fails.
 //!
 //! Only the PNG files named in [`SHOTS`] are written, and only when their shot succeeded. No
 //! file is ever deleted or renamed. Every written file is announced as
@@ -53,8 +56,11 @@ struct Shot {
 const PHONE: &str = "390x800";
 /// Seconds a library shot waits: a large library takes a while to open and list.
 const LIBRARY_WAIT: &str = "20";
-/// Seconds a render shot waits so the trace converges (the preview's own default is 8).
-const RENDER_WAIT: &str = "40";
+/// The longest the preview waits for a render shot's picture to finish (its
+/// `RENDER_SCREENSHOT_LIMIT`); a render shot gets this on top of the normal timeout.
+const RENDER_LIMIT: Duration = Duration::from_secs(180);
+/// What the preview logs when a render shot's picture did not finish in time.
+const UNFINISHED: &str = "the render did not finish in time";
 /// Seconds the Cutting Mode shot waits: the preview opens the mode after about a second and
 /// the step's diagram is drawn on a background thread.
 const CUTTING_WAIT: &str = "5";
@@ -78,8 +84,6 @@ const SHOTS: [Shot; 19] = [
             "ray",
             "--sheet",
             "peek",
-            "--wait",
-            "8",
         ],
     },
     Shot {
@@ -95,8 +99,6 @@ const SHOTS: [Shot; 19] = [
             "render",
             "--engine",
             "ray",
-            "--wait",
-            "8",
         ],
     },
     Shot {
@@ -144,8 +146,8 @@ const SHOTS: [Shot; 19] = [
             "1",
             "--view",
             "render",
-            "--wait",
-            RENDER_WAIT,
+            "--engine",
+            "path",
             "--sheet",
             "peek",
         ],
@@ -284,8 +286,8 @@ const SHOTS: [Shot; 19] = [
             "1",
             "--view",
             "render",
-            "--wait",
-            RENDER_WAIT,
+            "--engine",
+            "path",
         ],
     },
     Shot {
@@ -411,11 +413,15 @@ fn take(shot: &Shot, config: &Config) -> Result<(u32, u32), String> {
         .windows(2)
         .any(|pair| pair == ["--view", "render"]);
     let timeout = if is_render {
-        config.timeout * 2
+        config.timeout + RENDER_LIMIT
     } else {
         config.timeout
     };
+    // The preview's tracing lines go to stdout, its errors to stderr: both land in the log.
     let stderr = fs::File::create(&log).map_err(|e| format!("cannot create the log: {e}"))?;
+    let stdout = stderr
+        .try_clone()
+        .map_err(|e| format!("cannot share the log: {e}"))?;
     let mut command = Command::new(env!("CARGO_BIN_EXE_pleochroma-mobile-preview"));
     command
         .args(shot.args)
@@ -423,7 +429,7 @@ fn take(shot: &Shot, config: &Config) -> Result<(u32, u32), String> {
         .arg(&data)
         .arg("--screenshot")
         .arg(&raw)
-        .stdout(Stdio::null())
+        .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
     if std::env::var_os("SLINT_SCALE_FACTOR").is_none() {
         command.env("SLINT_SCALE_FACTOR", &config.scale);
@@ -431,6 +437,12 @@ fn take(shot: &Shot, config: &Config) -> Result<(u32, u32), String> {
     let outcome = run_with_timeout(&mut command, timeout);
     let _ = fs::remove_dir_all(&data);
     outcome?;
+    if is_render && fs::read_to_string(&log).is_ok_and(|text| text.contains(UNFINISHED)) {
+        return Err(format!(
+            "the picture did not finish in time (see {})",
+            log.display()
+        ));
+    }
 
     let (width, height) = image::image_dimensions(&raw)
         .map_err(|e| format!("no readable screenshot (see {}): {e}", log.display()))?;

@@ -290,6 +290,7 @@ impl Database {
         db.migrate_custom_material_absorption_bands()?;
         db.migrate_custom_material_crystal_axis()?;
         db.migrate_custom_material_inclusions()?;
+        db.migrate_custom_material_gem_data()?;
         db.migrate_shape_vocabulary()?;
         db.migrate_ignored_column()?;
         db.migrate_diagram_entries_timestamps()?;

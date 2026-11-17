@@ -143,6 +143,27 @@ impl GpuBackend {
         })
     }
 
+    /// How many pipelines this process compiled from source instead of loading them from the
+    /// persistent cache, since it started
+    /// ([`crate::renderer::gpu::pipeline_cache::fresh_compiles`]). A shader warm-up compares the
+    /// number before and after a step: a step that raises it built something fresh. Stays `0`
+    /// on a device that keeps no driver data, where the caller treats every step as fresh
+    /// ([`Self::persists_pipelines`] is `false`).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn fresh_pipeline_compiles() -> u64 {
+        crate::renderer::gpu::pipeline_cache::fresh_compiles()
+    }
+
+    /// The part of [`Self::fresh_pipeline_compiles`] counted on the calling thread
+    /// ([`crate::renderer::gpu::pipeline_cache::fresh_compiles_on_this_thread`]): a warm-up step
+    /// compares it before and after, exactly even while other threads compile.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn fresh_pipeline_compiles_on_this_thread() -> u64 {
+        crate::renderer::gpu::pipeline_cache::fresh_compiles_on_this_thread()
+    }
+
     /// One material per Path-Traced pipeline class, for a shader warm-up: `first` when the GPU
     /// traces it, then the first built-in material of every other class, in catalogue order.
     ///
@@ -190,6 +211,13 @@ impl GpuBackend {
         _cancel: &AtomicBool,
     ) -> GpuAccumulate {
         GpuAccumulate::Declined
+    }
+
+    /// The browser compiles every pipeline: nothing is counted.
+    #[cfg(target_arch = "wasm32")]
+    #[must_use]
+    pub const fn fresh_pipeline_compiles() -> u64 {
+        0
     }
 
     /// The browser keeps no pipelines between page loads.

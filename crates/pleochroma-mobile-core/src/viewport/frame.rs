@@ -1,6 +1,7 @@
-//! The viewport's raster work: a [`RasterJob`] describes one picture, a
-//! [`RasterWorker`] turns it into a [`RasterFrame`] with the same `pleochroma_solid`
-//! pipeline the web app and the desktop run.
+//! The viewport's raster work.
+//!
+//! A [`RasterJob`] describes one picture, a [`RasterWorker`] turns it into a
+//! [`RasterFrame`] with the same `pleochroma_solid` pipeline the web app and the desktop run.
 //!
 //! The worker is stateful, like the desktop's render thread: it keeps the
 //! planner/rasterizer pipeline, the mesh cache and the masts of the last committed
@@ -36,12 +37,13 @@ use pleochroma_solid::{
     live_update::{Clock, DEFAULT_PREVIEW_BUDGET},
     preview::{
         CameraPose, DEFAULT_MESH_BOUNDING_RADIUS, FacetOverlay, FrameGeometry, PickBuffer,
-        PreviewPipeline, RenderedFrame,
+        PreviewPipeline, RenderedFrame, restyle_for_theme,
         view::{
             RasterLimits, ReplanBasis, ReplanInputs, diagram_raster_size, facets_of_tiers,
             plan_job, plans_without_solver, raster_size_for_view, replan_basis, with_min_aspect,
         },
     },
+    raster::SolidStyle,
 };
 
 use super::ViewMode;
@@ -153,6 +155,14 @@ pub struct RasterJob {
     pub want_handles: bool,
     /// Whether `design` is the Slice tool's provisional clone.
     pub provisional: bool,
+    /// Whether the app's theme is high contrast: the Solid view is then drawn with
+    /// `SolidStyle::high_contrast()`. The library thumbnails leave it off, on purpose.
+    pub high_contrast: bool,
+}
+
+/// The planner's style for `job`: the high-contrast palette when the job asks for it.
+fn style_for_job(style: SolidStyle, job: &RasterJob) -> SolidStyle {
+    restyle_for_theme(style, job.high_contrast)
 }
 
 /// What a frame carries.
@@ -243,6 +253,7 @@ struct Seen {
     selected_tier: Option<usize>,
     enlarged_panel: i32,
     provisional: bool,
+    high_contrast: bool,
     mode: ViewMode,
     camera: CameraPose,
     size: (u32, u32),
@@ -260,6 +271,7 @@ impl Seen {
             selected_tier: job.selected_tier,
             enlarged_panel: job.enlarged_panel,
             provisional: job.provisional,
+            high_contrast: job.high_contrast,
             mode: job.mode,
             camera: job.camera,
             size: job.size,
@@ -276,6 +288,7 @@ impl Seen {
             || self.selected_tier != now.selected_tier
             || self.enlarged_panel != now.enlarged_panel
             || self.provisional != now.provisional
+            || self.high_contrast != now.high_contrast
     }
 
     fn needs_reproject(&self, now: &Self) -> bool {
@@ -344,10 +357,12 @@ impl RasterWorker {
         }
     }
 
-    /// Runs `job`. `is_current` says whether a newer job has superseded it (checked
-    /// before any work and before a follow-up pass); `emit` receives each finished frame
-    /// (one, or two when the first was `stale`). Emits nothing for a superseded job or
-    /// when nothing the picture depends on changed.
+    /// Runs `job`.
+    ///
+    /// `is_current` says whether a newer job has superseded it (checked before any work and
+    /// before a follow-up pass); `emit` receives each finished frame (one, or two when the
+    /// first was `stale`). Emits nothing for a superseded job or when nothing the picture
+    /// depends on changed.
     pub fn run(
         &mut self,
         job: &RasterJob,
@@ -446,7 +461,7 @@ impl RasterWorker {
                 follow_up: None,
             });
         }
-        let planned = PreviewPipeline::plan(
+        let mut planned = PreviewPipeline::plan(
             plan_job(ReplanInputs {
                 design: Arc::clone(&job.design),
                 generation: job.generation,
@@ -463,6 +478,7 @@ impl RasterWorker {
             DEFAULT_PREVIEW_BUDGET,
             &self.clock,
         );
+        planned.style = style_for_job(std::mem::take(&mut planned.style), job);
         let stale = planned.stale;
         let solved = planned
             .unsolvable_status

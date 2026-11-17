@@ -66,6 +66,7 @@ fn served_frame(scene: &SceneState) -> Vec<Vec3> {
             coordinator: None,
             assets: None,
             jobs: None,
+            admitted: None,
         },
     )
     .unwrap();

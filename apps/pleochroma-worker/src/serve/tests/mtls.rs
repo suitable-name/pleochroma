@@ -374,6 +374,8 @@ fn insecure_no_tls_with_a_non_loopback_bind_is_refused() {
         whole_image_pixel_samples: crate::cli::DEFAULT_WHOLE_IMAGE_PIXEL_SAMPLES,
         jobs_per_viewer: crate::cli::DEFAULT_JOBS_PER_VIEWER,
         payload_encoding: pleochroma_net::messages::adaptive::PayloadChoice::Auto,
+        allow_remote_admin: false,
+        no_library: false,
     };
     let bind_addr: SocketAddr = args.bind.parse().unwrap();
     let err = build_transport(&args, bind_addr).unwrap_err();
@@ -412,10 +414,74 @@ fn insecure_no_tls_with_a_loopback_bind_is_accepted() {
         whole_image_pixel_samples: crate::cli::DEFAULT_WHOLE_IMAGE_PIXEL_SAMPLES,
         jobs_per_viewer: crate::cli::DEFAULT_JOBS_PER_VIEWER,
         payload_encoding: pleochroma_net::messages::adaptive::PayloadChoice::Auto,
+        allow_remote_admin: false,
+        no_library: false,
     };
     let bind_addr: SocketAddr = args.bind.parse().unwrap();
     assert!(matches!(
         build_transport(&args, bind_addr).unwrap(),
         Transport::Insecure
     ));
+}
+
+/// `serve` over the certificates in `pki`, as the coordinator window starts it: no
+/// `--allowlist`, so the viewer allowlist is the default one next to the CA.
+fn tls_args_over(pki: &Path) -> crate::cli::ServeArgs {
+    let Ok(crate::cli::Command::Serve(args)) = crate::cli::parse(&["serve".to_owned()]) else {
+        panic!("`serve` must parse to the serve command");
+    };
+    let mut args = *args;
+    args.ca = Some(pki.join(crate::pki::CA_CERT_FILE));
+    args.cert = Some(pki.join(crate::pki::SERVER_CERT_FILE));
+    args.key = Some(pki.join(crate::pki::SERVER_KEY_FILE));
+    args
+}
+
+/// A CA and a server certificate with no viewer allowlist yet: the new coordinator's
+/// certificate folder.
+fn fresh_pki(name: &str) -> std::path::PathBuf {
+    let pki = unique_temp_dir(name);
+    crate::pki::init(&pki).unwrap();
+    crate::pki::issue_server(
+        &pki,
+        &["localhost".to_string()],
+        &["127.0.0.1".parse().unwrap()],
+    )
+    .unwrap();
+    assert!(!pki.join(crate::pki::VIEWER_ALLOWLIST_FILE).exists());
+    pki
+}
+
+/// A new coordinator has no paired viewer, and pairing needs it running: it starts, with an
+/// empty viewer allowlist created next to the CA, so nobody is trusted yet.
+#[test]
+fn a_missing_default_viewer_allowlist_is_created_empty() {
+    let pki = fresh_pki("fresh-allowlist-pki");
+    let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let transport = build_transport(&tls_args_over(&pki), bind_addr).unwrap();
+    assert!(matches!(transport, Transport::Tls { .. }));
+    let allowlist = pki.join(crate::pki::VIEWER_ALLOWLIST_FILE);
+    assert_eq!(std::fs::read_to_string(&allowlist).unwrap(), "");
+    assert!(
+        pleochroma_net::tls::Allowlist::load(&allowlist)
+            .unwrap()
+            .is_empty()
+    );
+    std::fs::remove_dir_all(&pki).ok();
+}
+
+/// A missing `--allowlist` given on the command line is likely a typo: the start fails and
+/// nothing is created, neither that file nor the default one.
+#[test]
+fn a_missing_explicit_allowlist_still_fails_the_start() {
+    let pki = fresh_pki("typo-allowlist-pki");
+    let typo = pki.join("allowlist-viewrs.txt");
+    let mut args = tls_args_over(&pki);
+    args.allowlist = Some(typo.clone());
+    let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let err = build_transport(&args, bind_addr).unwrap_err();
+    assert!(err.contains("--allowlist"), "{err}");
+    assert!(!typo.exists());
+    assert!(!pki.join(crate::pki::VIEWER_ALLOWLIST_FILE).exists());
+    std::fs::remove_dir_all(&pki).ok();
 }

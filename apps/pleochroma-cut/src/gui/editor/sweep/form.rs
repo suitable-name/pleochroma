@@ -168,8 +168,9 @@ pub(super) fn check(
         Ok(range) => range,
         Err(error) => return Checked::Refused(error.to_string()),
     };
-    match plan_sweep(design, tier, range) {
-        Ok(plan) => {
+    plan_sweep(design, tier, range).map_or_else(
+        |error| Checked::Refused(error.to_string()),
+        |plan| {
             let seconds = estimate_seconds(
                 plan.angles.len(),
                 tilt_average,
@@ -178,9 +179,8 @@ pub(super) fn check(
             );
             let summary = plan_summary(&plan, &format_duration_estimate(seconds));
             Checked::Ready { plan, summary }
-        }
-        Err(error) => Checked::Refused(error.to_string()),
-    }
+        },
+    )
 }
 
 #[cfg(test)]

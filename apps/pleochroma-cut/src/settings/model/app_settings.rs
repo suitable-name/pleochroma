@@ -638,6 +638,23 @@ pub struct AppSettings {
     /// not remembered: it changes what a left-drag does.
     #[serde(default = "default_slice_symmetric")]
     pub slice_symmetric: bool,
+    /// The Material Reference window's sort column, as the index of the column in the table
+    /// header (0 is the name).
+    #[serde(default)]
+    pub material_reference_sort_column: u8,
+    /// Whether the Material Reference window sorts descending.
+    #[serde(default)]
+    pub material_reference_sort_descending: bool,
+    /// The Material Reference window's filter chip, as its index (0 is All).
+    #[serde(default)]
+    pub material_reference_filter: u8,
+    /// The Material Reference window's search text.
+    #[serde(default)]
+    pub material_reference_query: String,
+    /// Whether the Material Reference window's dispersion column shows the B-G scale (true) or
+    /// the F-C scale (false).
+    #[serde(default = "default_material_reference_dispersion_bg")]
+    pub material_reference_dispersion_bg: bool,
     /// The Solid viewport's "Crystal Axis" toggle, remembered per user: whether the crystal axis
     /// (and the Second Axis of a biaxial stone) is drawn in the stone views. Off by default.
     /// It is also switched on for the session, without being saved, the first time the axis is
@@ -699,7 +716,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub parameters_dock_tab: u8,
     /// Which folding cards of the Stone tab are open, one bit each (`ui/models/parameters.slint`,
-    /// `stone_folds`): 1 Crystal Axis, 2 Girdle & Edges, 4 Clarity, 8 Structure. A file without
+    /// `stone_folds`): 1 Crystal Axis, 2 Girdle & Edges, 4 Clarity, 8 Structure (16 was the retired Gem Data card and is
+    /// ignored). A file without
     /// the key loads `0`: all folded. Not part of any "Reset This Tab".
     #[serde(default)]
     pub stone_folds_open: u8,
@@ -982,6 +1000,10 @@ const fn default_first_run_tour_done() -> bool {
 }
 
 const fn default_slice_symmetric() -> bool {
+    true
+}
+
+const fn default_material_reference_dispersion_bg() -> bool {
     true
 }
 

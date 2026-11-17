@@ -142,7 +142,8 @@ impl Dialog {
     }
 }
 
-/// The figures `outcome` has a column for.
+/// The figures `outcome` has a column for: every figure, except the tilt averages of a sweep
+/// without them and the yield and Contrast of a sweep that has no value for them.
 pub(super) fn columns_of(outcome: &SweepOutcome) -> Vec<SweepMetric> {
     SweepMetric::ALL
         .into_iter()
@@ -150,7 +151,9 @@ pub(super) fn columns_of(outcome: &SweepOutcome) -> Vec<SweepMetric> {
             SweepMetric::TiltBrilliance
             | SweepMetric::TiltWindowing
             | SweepMetric::TiltExtinction => outcome.tilt_average,
-            SweepMetric::Yield => outcome.rows.iter().any(|row| metric.value(row).is_some()),
+            SweepMetric::Yield | SweepMetric::Contrast => {
+                outcome.rows.iter().any(|row| metric.value(row).is_some())
+            }
             _ => true,
         })
         .collect()
@@ -171,6 +174,7 @@ mod tests {
             yield_pct,
             warning_count: 0,
             has_girdle: true,
+            aset: None,
             tilt: tilt.then_some(TiltAverages {
                 brilliance_pct: 70.0,
                 windowing_pct: 12.0,
@@ -252,6 +256,26 @@ mod tests {
         let columns = dialog_with(vec![no_volume], false).columns();
         assert!(!columns.contains(&SweepMetric::Yield));
         assert_eq!(Dialog::new().columns(), Vec::<SweepMetric>::new());
+    }
+
+    #[test]
+    fn contrast_has_a_column_only_when_a_row_measured_it() {
+        let plain = dialog_with(three_rows(), false).columns();
+        assert!(!plain.contains(&SweepMetric::Contrast));
+        let mut rows = three_rows();
+        if let Some(metrics) = &mut rows[1].metrics {
+            metrics.aset = Some(pleochroma::color::metrics::AsetAreaShares {
+                red_pct: 44.0,
+                green_pct: 19.0,
+                blue_pct: 16.0,
+                leak_pct: 9.0,
+                lost_pct: 12.0,
+                contrast: 27.5,
+            });
+        }
+        let measured = dialog_with(rows, false).columns();
+        assert_eq!(measured.last(), Some(&SweepMetric::Contrast));
+        assert_eq!(measured.len(), plain.len() + 1);
     }
 
     #[test]

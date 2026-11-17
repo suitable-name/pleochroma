@@ -95,6 +95,8 @@ pub enum Topic {
     Root,
     /// `info`.
     Info,
+    /// `materials`.
+    Materials,
     /// `solve`.
     Solve,
     /// `metrics`.
@@ -127,6 +129,7 @@ impl Topic {
     pub fn of(word: &str) -> Self {
         match word {
             "info" => Self::Info,
+            "materials" => Self::Materials,
             "solve" => Self::Solve,
             "metrics" => Self::Metrics,
             "validate" => Self::Validate,
@@ -231,6 +234,109 @@ pub struct InfoArgs {
     pub db: Option<PathBuf>,
 }
 
+/// The column `materials --sort` orders the table by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterialColumn {
+    /// The material's name.
+    Name,
+    /// The crystal system.
+    CrystalSystem,
+    /// The optic character.
+    OpticCharacter,
+    /// The refractive index (`n_D`).
+    Ri,
+    /// The birefringence.
+    Birefringence,
+    /// The dispersion, in the scale `--dispersion` names.
+    Dispersion,
+    /// The specific gravity.
+    SpecificGravity,
+    /// The Mohs hardness (the low end first).
+    Hardness,
+    /// The toughness.
+    Toughness,
+    /// The cleavage, best quality first.
+    Cleavage,
+}
+
+/// The materials `materials --filter` keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterialFilter {
+    /// Every material.
+    All,
+    /// Natural gem materials.
+    Natural,
+    /// Laboratory-grown materials.
+    Synthetic,
+    /// The glasses.
+    Glass,
+    /// The custom materials of the `--db` library.
+    Custom,
+}
+
+/// The dispersion figure `materials` prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterialScale {
+    /// n(430.8 nm) - n(686.7 nm), the figure gem references print.
+    Bg,
+    /// n(486.1 nm) - n(656.3 nm), the optical figure the Material Editor takes.
+    Fc,
+}
+
+/// A table of the manual that `materials --markdown` writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkdownTable {
+    /// The render-materials table of Appendix C: optical character, `n_D`, birefringence,
+    /// dispersion (B-G) and the Abbe number.
+    Optics,
+    /// The gem data table of Appendix C: Mohs, toughness, cleavage, parting, fracture, SG.
+    GemData,
+    /// The built-in material list of the materials chapter: `n_D`, birefringence, optical
+    /// character, SG and hardness.
+    BuiltIn,
+    /// The source list of Appendix C: every source the gem data cites, with its address, and
+    /// the notes where sources differ.
+    Sources,
+}
+
+/// How `materials` prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterialsFormat {
+    /// Aligned text for a person.
+    Text,
+    /// JSON with sorted keys, full citations and addresses.
+    Json,
+    /// One header line and one row per material.
+    Csv,
+    /// A table of the manual as Markdown.
+    Markdown(MarkdownTable),
+}
+
+/// `materials`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterialsArgs {
+    /// The one material to describe; the table of every material when absent.
+    pub name: Option<String>,
+    /// How to print.
+    pub format: MaterialsFormat,
+    /// The column to order the table by; the catalogue order when absent.
+    pub sort: Option<MaterialColumn>,
+    /// Order the table from the largest to the smallest value.
+    pub descending: bool,
+    /// Which materials the table lists.
+    pub filter: MaterialFilter,
+    /// Which dispersion figure the table and the CSV show.
+    pub scale: MaterialScale,
+    /// With a name: list the absorption bands of every ray too.
+    pub bands: bool,
+    /// With a name: write the refractive index of every direction against wavelength here, as CSV.
+    pub curves: Option<PathBuf>,
+    /// Write the report here instead of printing it.
+    pub out: Option<PathBuf>,
+    /// A design library, for its custom materials.
+    pub db: Option<PathBuf>,
+}
+
 /// `solve`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SolveArgs {
@@ -253,6 +359,9 @@ pub struct MetricsArgs {
     pub material: Option<MaterialArg>,
     /// Also average the tilt performance (about a second and a half).
     pub tilt: bool,
+    /// Also print the Blue share of every spot of the face-up grid that Contrast is computed
+    /// from (the text report only).
+    pub aset_grid: bool,
     /// How to print.
     pub format: ReportFormat,
     /// The light the score is taken under.
@@ -800,6 +909,8 @@ pub enum Command {
     Version,
     /// `info`.
     Info(InfoArgs),
+    /// `materials`.
+    Materials(MaterialsArgs),
     /// `solve`.
     Solve(SolveArgs),
     /// `metrics`.
@@ -844,6 +955,7 @@ impl Command {
             Self::Batch(_)
             | Self::Census(_)
             | Self::Help(_)
+            | Self::Materials(_)
             | Self::Version
             | Self::Render(_)
             | Self::TiltVideo(_)

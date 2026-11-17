@@ -23,7 +23,7 @@ mod samples;
 use pleochroma_mobile_core::{
     app_state::AppState,
     render::{PauseReason, RenderStatus},
-    settings::RenderQuality,
+    settings::{RenderBackend, RenderQuality},
     viewport::render_view,
 };
 use slint::ComponentHandle;
@@ -31,7 +31,7 @@ use slint::ComponentHandle;
 use super::Shared;
 use crate::{AppWindow, RenderModel, push::toast};
 
-pub use runtime::{on_touch_released, on_viewport_changed};
+pub use runtime::{forget_failure, on_touch_released, on_viewport_changed};
 
 /// Connects `RenderModel`'s callbacks and gives the timers their handle on the state.
 pub fn wire(window: &AppWindow, state: &Shared) {
@@ -207,6 +207,25 @@ pub fn refresh_editor() {
 /// An export that renders on this phone keeps running.
 pub fn cancel_remote_export() {
     export::cancel_remote();
+}
+
+/// A remote render that failed because its computer moved starts over, now that the saved
+/// addresses are the new ones: the failed tries are renewed and the trace restarts from sample
+/// zero. A render that runs, or does not use the remote computer, is left alone.
+pub fn restart_after_move() {
+    let Some((window, shared)) = runtime::context() else {
+        return;
+    };
+    let restarted = shared.try_borrow_mut().is_ok_and(|mut app| {
+        app.settings.render.backend == RenderBackend::Remote
+            && render_view::restart_failed(&mut app)
+    });
+    if restarted {
+        if let Ok(app) = shared.try_borrow() {
+            on_viewport_changed(&window, &app);
+        }
+        super::refresh(&window, &shared);
+    }
 }
 
 /// Stops the timers and the export thread and drops every thread-local handle (the state,

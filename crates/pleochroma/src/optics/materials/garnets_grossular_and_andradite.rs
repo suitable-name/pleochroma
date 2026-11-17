@@ -78,29 +78,33 @@ impl GemMaterial {
                 },
                 birefringence_delta: 0.0,
                 // Chromophore: Fe3+ (the 440 nm band and the O to Fe3+ charge-transfer edge,
-                // absorbing below 450 nm) plus a little Cr3+ near 615 nm, leaving green and
-                // deep-red windows. Eight energy-Gaussian bands, a mix of the Russian demantoid
-                // slab (Caltech GIA 2952, `caltech_demantoid_gia2952_2p5mm.csv`, 0.15 x, for its
-                // Cr3+) and the Topazolite variant (measured Fe3+ andradite GRR 48, 0.35 x),
-                // refitted. Iron-rich Namibian and Madagascan demantoid are the common kind,
-                // and the dealer photos' median hue (117) is what the mix reproduces (the
-                // Cr-rich slab alone rendered h 150). `.scaled(0.35)` sets the saturation: the
-                // faceted dealer photos measure s_uv 0.62 and the x 1 render 0.98. Swatch
-                // L*85 C*59 h 115.
+                // absorbing below 450 nm) plus Cr3+ near 615-650 nm, leaving green and deep-red
+                // windows. Eight energy-Gaussian bands fitted to the sum of THREE components:
+                // two measured and one tuned. Measured: the Russian demantoid slab (Caltech
+                // GIA 2952, `caltech_demantoid_gia2952_2p5mm.csv`) at 0.19 x and the Topazolite
+                // variant (Fe3+ andradite GRR 48, Fe3+ only) at 0.15 x, in the units of the
+                // dealer-photo mix of 2026-11-03 (0.15 x and 0.35 x, then x 0.35, which is gone).
+                // TUNED, NOT MEASURED: one extra energy Gaussian at 613 nm, FWHM 4880 cm^-1, peak
+                // 0.473 per model unit, a Cr3+-region stand-in with no spectrum behind it. It
+                // takes yellow-orange light out of the stone to lower the chroma at constant hue:
+                // the two measured spectra alone cannot reach the target, which is the CIELAB
+                // midpoint of the slab alone (L*41 C*92 h 140, 2026-10-19) and the dealer-photo
+                // mix (L*85 C*59 h 115). Target L*63 a*-47.7 b*56.3 (C*74 h 130); the three
+                // strengths were solved together for L*, a*, b*. Swatch L*63.0 C*73.8 h 130.2
+                // (dE2000 0.03 from the target; the eight-band fit is 0.005 from the sum).
                 // Calibration record: docs/chromophores/calibration-records.md#demantoid
-                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
+                // Calibration record: docs/chromophores/calibration-records.md#loyd-v0111-round-2026-11-16
                 absorption: AbsorptionTensor::isotropic(vec![
-                    // measured spectra, see the note above
-                    AbsorptionBand::energy(389.1, 2_548.1, 13.57),
-                    AbsorptionBand::energy(433.3, 1_631.4, 9.215),
-                    AbsorptionBand::energy(439.7, 332.3, 5.583),
-                    AbsorptionBand::energy(465.0, 1_031.0, 1.577),
-                    AbsorptionBand::energy(615.6, 2_317.1, 1.357),
-                    AbsorptionBand::energy(489.6, 5_365.9, 1.083),
-                    AbsorptionBand::energy(484.1, 1_100.1, 0.704_2),
-                    AbsorptionBand::energy(466.1, 37_650.6, 0.068_85),
-                ])
-                .scaled(0.35),
+                    // fitted to the three components, see the note above
+                    AbsorptionBand::energy(380.6, 1_518.7, 7.703),
+                    AbsorptionBand::energy(421.5, 4_835.5, 5.17),
+                    AbsorptionBand::energy(437.9, 669.1, 2.904),
+                    AbsorptionBand::energy(604.5, 3_536.2, 1.459),
+                    AbsorptionBand::energy(1_000.0, 3_401.3, 1.196),
+                    AbsorptionBand::energy(625.2, 1_277.4, 0.565_4),
+                    AbsorptionBand::energy(648.5, 492.4, 0.204),
+                    AbsorptionBand::energy(686.1, 828.7, 0.187_9),
+                ]),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,
                 alpha_axis: None,

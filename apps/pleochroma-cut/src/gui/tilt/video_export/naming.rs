@@ -32,7 +32,12 @@ pub(super) fn build_video_template_context(
         lighting: scene.lighting_preset.label().to_string(),
         yaw_deg: scene.yaw.to_degrees(),
         pitch_deg: scene.pitch.to_degrees(),
-        distance: scene.distance,
+        // The distance the video renders with, not the viewport's zoom.
+        distance: super::frames::video_distance(
+            &scene.active_planes,
+            settings.width,
+            settings.height,
+        ),
         exposure: scene.exposure,
     };
     let extras = template::VideoTemplateExtras {

@@ -161,7 +161,10 @@ pub(super) const CUSTOM_GEM_MATERIALS_TABLE_SQL: &str = "
         -- Nullable oriented inclusion families and play-of-color structure (JSON); NULL means
         -- none. See migrations::Database::migrate_custom_material_inclusions's doc comment.
         inclusion_families_json TEXT,
-        structure_json TEXT
+        structure_json TEXT,
+        -- Nullable gem data the author entered (JSON); NULL means not recorded. See
+        -- migrations::Database::migrate_custom_material_gem_data's doc comment.
+        gem_data_json TEXT
     );
 ";
 

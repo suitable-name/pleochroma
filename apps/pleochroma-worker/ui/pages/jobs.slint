@@ -1,0 +1,724 @@
+// The Jobs page of the coordinator window: the renders in progress, every stored job across all
+// owners with filters (running, queued, done, failed), Cancel for a running or queued job,
+// Delete (after a confirmation) for a finished one, and the storage line.
+//
+// Page contract: one `JobsPage` with no required properties and one `JobsState` global.
+// `src/gui/pages/jobs.rs` fills the state from the coordinator status once a second and answers
+// the callbacks. Built from the coordinator kit (`../frame.slint`); parts the kit lacks are
+// local to this file.
+import { ScrollView } from "std-widgets.slint";
+import { Theme, ShellState, KitIcon, KitIcons, KitIconButton, KitButton, KitCard, CIcons } from "../frame.slint";
+import { ActivateScope } from "../focus.slint";
+
+/// One job. The Rust side formats every text.
+export struct JobRowData {
+    /// The job id (32 hex characters); the callbacks carry it.
+    id: string,
+    /// The owner's display name.
+    owner: string,
+    /// The label the owner gave it.
+    label: string,
+    /// The line under the label: the design name, or why the job failed.
+    detail: string,
+    /// True when `detail` is a failure reason (painted as a problem).
+    detail-bad: bool,
+    /// "4096 × 2304".
+    size: string,
+    /// "645 / 1024".
+    samples: string,
+    /// 0 queued, 1 running, 2 done, 3 failed, 4 cancelled.
+    state: int,
+    state-text: string,
+    /// 0.0 to 1.0.
+    progress: float,
+    /// "63%", or "waiting" while queued.
+    progress-text: string,
+    /// "12 min ago".
+    created: string,
+    /// "Finished 3 h ago"; empty while the job is not finished.
+    finished: string,
+    /// Which computers render it now; empty when not running.
+    route: string,
+    /// A running or queued job can be cancelled.
+    can-cancel: bool,
+    /// A finished job can be deleted.
+    can-delete: bool,
+}
+
+export global JobsState {
+    /// The jobs matching the filter, running first, then queued, then the finished ones.
+    in-out property <[JobRowData]> jobs;
+    /// The running jobs (the "Rendering now" card).
+    in-out property <[JobRowData]> running;
+    /// Which filter is on: 0 all, 1 running, 2 queued, 3 done, 4 failed.
+    in-out property <int> filter: 0;
+    /// How many jobs each filter shows.
+    in property <int> count-all: 0;
+    in property <int> count-running: 0;
+    in property <int> count-queued: 0;
+    in property <int> count-done: 0;
+    in property <int> count-failed: 0;
+    /// "Results are kept 7 days · 4 of 256 jobs · 412 MB of 8 GB".
+    in property <string> storage-text;
+    /// False when the jobs folder is not known.
+    in property <bool> has-folder: false;
+    /// What the signed-in role may do; the actions grey out when false.
+    in property <bool> can-cancel: true;
+    in property <bool> can-delete: true;
+    /// Why an action is greyed out ("This session can only watch."), shown under the table.
+    in property <string> denied-reason;
+    /// The last failed action in plain words; empty when the last action worked.
+    in-out property <string> error;
+
+    /// The owner picked a filter (the Rust side rebuilds the list).
+    callback filter-changed(int);
+    /// Cancel the job with this id.
+    callback cancel(string);
+    /// The owner confirmed Delete for the job with this id.
+    callback delete(string);
+    /// Open the jobs folder in the file manager.
+    callback open-folder();
+}
+
+// A column heading.
+component Th inherits Text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    color: Theme.text-muted;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+// A section heading above a card.
+component SectionLabel inherits Text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: Theme.text-muted;
+}
+
+// One filter chip: its name and how many jobs it shows.
+component FilterChip inherits Rectangle {
+    in property <string> text;
+    in property <int> count: 0;
+    in property <bool> active: false;
+    callback clicked();
+    height: 30px;
+    width: lbl.preferred-width + 24px;
+    border-radius: 15px;
+    background: root.active ? Theme.accent-cyan-surface : (ta.has-hover ? Theme.bg-card-hover : transparent);
+    border-width: chip-fs.has-focus ? 2px : 1px;
+    border-color: chip-fs.has-focus ? Theme.accent-cyan-hover : (root.active ? Theme.accent-cyan : Theme.border-medium);
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text + ", " + root.count + (root.count == 1 ? " job" : " jobs");
+    accessible-checkable: true;
+    accessible-checked: root.active;
+    accessible-action-default => {
+        root.clicked();
+    }
+    chip-fs := ActivateScope {
+        activated => { root.clicked(); }
+    }
+    lbl := Text {
+        text: root.text + " " + root.count;
+        font-size: 12px;
+        font-weight: root.active ? 700 : 500;
+        color: root.active ? Theme.accent-cyan : Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The state pill: queued (amber), running (cyan), done (green), failed (red), cancelled (muted).
+component StatePill inherits Rectangle {
+    in property <int> state: 0;
+    in property <string> text;
+    // Data colors: the state hues of the status dots elsewhere in the coordinator window.
+    property <color> c: root.state == 0 ? Theme.accent-amber : (root.state == 1 ? Theme.accent-cyan : (root.state == 2 ? Theme.success : (root.state == 3 ? Theme.danger : Theme.text-muted)));
+    height: 22px;
+    width: pl.preferred-width + 20px;
+    border-radius: 11px;
+    background: root.c.with-alpha(0.16);
+    border-width: 1px;
+    border-color: root.c.with-alpha(0.4);
+    accessible-role: AccessibleRole.text;
+    accessible-label: "State: " + root.text;
+    pl := Text {
+        x: 10px;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 700;
+        color: root.c;
+        vertical-alignment: center;
+    }
+}
+
+// A thin progress bar.
+component Bar inherits Rectangle {
+    in property <float> value: 0;
+    in property <int> state: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: Theme.bg-input;
+    accessible-role: AccessibleRole.progress-indicator;
+    accessible-label: "Progress";
+    accessible-value: "" + Math.round(max(0.0, min(1.0, root.value)) * 100) + " percent";
+    Rectangle {
+        x: 0px;
+        width: root.width * max(0.0, min(1.0, root.value));
+        height: root.height;
+        border-radius: 3px;
+        background: root.state == 2 ? Theme.success : (root.state == 3 ? Theme.danger : (root.state == 4 ? Theme.text-muted : Theme.accent-cyan));
+    }
+}
+
+// The cancel or delete button at the end of a row.
+component RowAction inherits VerticalLayout {
+    in property <JobRowData> data;
+    in property <bool> can-cancel: true;
+    in property <bool> can-delete: true;
+    callback cancel-requested();
+    callback delete-requested();
+    width: 36px;
+    alignment: center;
+    if root.data.can-cancel: KitIconButton {
+        d: CIcons.close;
+        label: "Cancel job " + root.data.label;
+        hint: root.can-cancel ? "Cancel" : ShellState.denied-reason;
+        enabled: root.can-cancel;
+        clicked => {
+            root.cancel-requested();
+        }
+    }
+    if root.data.can-delete: KitIconButton {
+        d: CIcons.trash;
+        label: "Delete job " + root.data.label;
+        hint: root.can-delete ? "Delete" : ShellState.denied-reason;
+        enabled: root.can-delete;
+        clicked => {
+            root.delete-requested();
+        }
+    }
+}
+
+// A button of the confirmation dialog.
+component DialogButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger: false;
+    in property <bool> enabled: true;
+    /// Takes the keyboard focus when it appears (the safe button of a confirmation).
+    in property <bool> autofocus: false;
+    callback clicked();
+    height: 34px;
+    width: max(88px, lbl.preferred-width + 32px);
+    border-radius: 8px;
+    background: !root.enabled
+        ? (root.danger ? Theme.surface-disabled : transparent)
+        : (root.danger
+            ? (ta.has-hover ? Theme.danger-surface-hover : Theme.danger-surface)
+            : (ta.has-hover ? Theme.bg-card-hover : Theme.bg-card));
+    border-width: btn-fs.has-focus ? 2px : 1px;
+    border-color: btn-fs.has-focus ? Theme.accent-cyan-hover : (root.danger && root.enabled ? Theme.danger-border : Theme.border-medium);
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    btn-fs := ActivateScope {
+        enabled: root.enabled;
+        autofocus: root.autofocus;
+        activated => { root.clicked(); }
+    }
+    lbl := Text {
+        text: root.text;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        color: !root.enabled ? Theme.text-disabled : (root.danger ? Theme.danger : Theme.text-primary);
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A modal card with a dimmed backdrop; a click on the backdrop closes it.
+component Modal inherits Rectangle {
+    /// The dialog's accessible name.
+    in property <string> label;
+    callback dismissed();
+    background: Colors.black.with-alpha(0.55);
+    TouchArea {
+        clicked => {
+            root.dismissed();
+        }
+    }
+    // Escape closes the dialog from any control inside it.
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismissed();
+                return accept;
+            }
+            return reject;
+        }
+
+        Rectangle {
+            width: min(420px, root.width - 32px);
+            height: card.preferred-height;
+            border-radius: 12px;
+            background: Theme.popup-surface;
+            border-width: 1px;
+            border-color: Theme.border-medium;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: Theme.shadow-heavy;
+            drop-shadow-offset-y: 8px;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: root.label;
+            // Swallows clicks inside the card.
+            TouchArea { }
+            card := VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                @children
+            }
+        }
+    }
+}
+
+// The header of the job table.
+component JobHead inherits Rectangle {
+    in property <bool> show-size: true;
+    in property <bool> show-samples: true;
+    in property <bool> show-progress: true;
+    in property <bool> show-created: true;
+    height: 36px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        Th { horizontal-stretch: 2; min-width: 60px; preferred-width: 120px; text: "OWNER"; }
+        Th { horizontal-stretch: 3; min-width: 60px; preferred-width: 150px; text: "LABEL"; }
+        if root.show-size: Th { width: 96px; text: "SIZE"; }
+        if root.show-samples: Th { width: 76px; text: "SAMPLES"; }
+        Th { width: 88px; text: "STATE"; }
+        if root.show-progress: Th { width: 150px; text: "PROGRESS"; }
+        if root.show-created: Th { width: 112px; text: "CREATED"; }
+        Rectangle { width: 36px; }
+    }
+}
+
+// One row of the job table.
+component JobRow inherits Rectangle {
+    in property <JobRowData> data;
+    in property <bool> first: false;
+    in property <bool> show-size: true;
+    in property <bool> show-samples: true;
+    in property <bool> show-progress: true;
+    in property <bool> show-created: true;
+    in property <bool> can-cancel: true;
+    in property <bool> can-delete: true;
+    callback cancel-requested();
+    callback delete-requested();
+    height: 54px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.data.owner + ", " + root.data.label + ", " + root.data.size + ", " + root.data.state-text + ", " + root.data.progress-text;
+
+    if !root.first: Rectangle { y: 0px; height: 1px; background: Theme.border-subtle; }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        Text {
+            horizontal-stretch: 2;
+            min-width: 60px;
+            preferred-width: 120px;
+            text: root.data.owner;
+            font-size: 13px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            horizontal-stretch: 3;
+            min-width: 60px;
+            preferred-width: 150px;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.data.label;
+                font-size: 13px;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+            if root.data.detail != "": Text {
+                text: root.data.detail;
+                font-size: 11px;
+                color: root.data.detail-bad ? Theme.danger : Theme.text-muted;
+                overflow: elide;
+            }
+        }
+        if root.show-size: Text {
+            width: 96px;
+            text: root.data.size;
+            font-size: 12px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.show-samples: Text {
+            width: 76px;
+            text: root.data.samples;
+            font-size: 12px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            width: 88px;
+            alignment: center;
+            StatePill { state: root.data.state; text: root.data.state-text; }
+        }
+        if root.show-progress: HorizontalLayout {
+            width: 150px;
+            spacing: 8px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                if root.data.state != 0: Bar { value: root.data.progress; state: root.data.state; }
+            }
+            Text {
+                width: root.data.state == 0 ? 64px : 38px;
+                text: root.data.progress-text;
+                font-size: 12px;
+                font-weight: root.data.state == 0 ? 400 : 700;
+                color: root.data.state == 0 ? Theme.text-muted : Theme.text-primary;
+                horizontal-alignment: root.data.state == 0 ? left : right;
+                vertical-alignment: center;
+            }
+        }
+        if root.show-created: VerticalLayout {
+            width: 112px;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.data.created;
+                font-size: 12px;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+            if root.data.finished != "": Text {
+                text: root.data.finished;
+                font-size: 11px;
+                color: Theme.text-muted;
+                overflow: elide;
+            }
+        }
+        RowAction {
+            data: root.data;
+            can-cancel: root.can-cancel;
+            can-delete: root.can-delete;
+            cancel-requested => {
+                root.cancel-requested();
+            }
+            delete-requested => {
+                root.delete-requested();
+            }
+        }
+    }
+}
+
+// One row of the "Rendering now" card.
+component RunningRow inherits Rectangle {
+    in property <JobRowData> data;
+    in property <bool> first: false;
+    in property <bool> show-route: true;
+    in property <bool> show-samples: true;
+    in property <bool> can-cancel: true;
+    callback cancel-requested();
+    height: 64px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.data.owner + ", " + root.data.label + ", " + root.data.size + ", running, " + root.data.progress-text;
+
+    if !root.first: Rectangle { y: 0px; height: 1px; background: Theme.border-subtle; }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 14px;
+        VerticalLayout {
+            width: 28px;
+            alignment: center;
+            Rectangle {
+                height: 28px;
+                border-radius: 8px;
+                background: Theme.accent-cyan-surface;
+                KitIcon { x: 5px; y: 5px; d: CIcons.phone; size: 18px; ink: Theme.accent-cyan; }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 3;
+            min-width: 80px;
+            preferred-width: 200px;
+            alignment: center;
+            spacing: 1px;
+            Text { text: root.data.owner; font-size: 13px; font-weight: 600; color: Theme.text-primary; overflow: elide; }
+            Text { text: root.data.label + " · " + root.data.size; font-size: 11px; color: Theme.text-muted; overflow: elide; }
+        }
+        if root.show-route: VerticalLayout {
+            horizontal-stretch: 3;
+            min-width: 80px;
+            preferred-width: 200px;
+            alignment: center;
+            spacing: 1px;
+            Text { text: "ROUTE"; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: Theme.text-muted; }
+            Text { text: root.data.route != "" ? root.data.route : "—"; font-size: 12px; color: Theme.text-secondary; overflow: elide; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 2;
+            min-width: 60px;
+            preferred-width: 160px;
+            alignment: center;
+            Bar { value: root.data.progress; state: 1; }
+        }
+        Text {
+            width: 40px;
+            text: root.data.progress-text;
+            font-size: 12px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        if root.show-samples: Text {
+            width: 120px;
+            text: root.data.samples + " samples";
+            font-size: 12px;
+            color: Theme.text-secondary;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            width: 36px;
+            alignment: center;
+            KitIconButton {
+                d: CIcons.close;
+                label: "Cancel job " + root.data.label;
+                hint: root.can-cancel ? "Cancel" : ShellState.denied-reason;
+                enabled: root.can-cancel;
+                clicked => {
+                    root.cancel-requested();
+                }
+            }
+        }
+    }
+}
+
+export component JobsPage inherits Rectangle {
+    // The job a Delete confirmation is about; empty when none is open.
+    property <string> delete-id;
+    property <string> delete-name;
+    property <bool> show-size: root.width >= 900px;
+    property <bool> show-samples: root.width >= 780px;
+    property <bool> show-created: root.width >= 700px;
+    property <bool> show-progress: root.width >= 560px;
+    property <bool> show-route: root.width >= 760px;
+    property <int> count: JobsState.jobs.length;
+    property <int> running-count: JobsState.running.length;
+
+    background: transparent;
+
+    ScrollView {
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        VerticalLayout {
+            padding: 24px;
+            spacing: 14px;
+            alignment: start;
+
+            if JobsState.error != "": Text {
+                text: JobsState.error;
+                font-size: 12px;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                FilterChip { text: "All"; count: JobsState.count-all; active: JobsState.filter == 0; clicked => { JobsState.filter-changed(0); } }
+                FilterChip { text: "Running"; count: JobsState.count-running; active: JobsState.filter == 1; clicked => { JobsState.filter-changed(1); } }
+                FilterChip { text: "Queued"; count: JobsState.count-queued; active: JobsState.filter == 2; clicked => { JobsState.filter-changed(2); } }
+                FilterChip { text: "Done"; count: JobsState.count-done; active: JobsState.filter == 3; clicked => { JobsState.filter-changed(3); } }
+                FilterChip { text: "Failed"; count: JobsState.count-failed; active: JobsState.filter == 4; clicked => { JobsState.filter-changed(4); } }
+            }
+
+            if JobsState.filter == 0 && root.running-count > 0: VerticalLayout {
+                spacing: 8px;
+                SectionLabel { text: "RENDERING NOW"; }
+                KitCard {
+                    height: root.running-count * 64px;
+                    VerticalLayout {
+                        for job[i] in JobsState.running: RunningRow {
+                            data: job;
+                            first: i == 0;
+                            show-route: root.show-route;
+                            show-samples: root.show-samples;
+                            can-cancel: JobsState.can-cancel;
+                            cancel-requested => {
+                                JobsState.cancel(job.id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            SectionLabel { text: "SAVED JOBS"; }
+
+            if root.count == 0: KitCard {
+                height: 96px;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    Text {
+                        text: JobsState.filter == 0 ? "No jobs yet" : "No jobs match this filter";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: JobsState.filter == 0 ? "Renders that devices send here show up in this list." : "Pick All to see every job.";
+                        font-size: 12px;
+                        color: Theme.text-muted;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            if root.count > 0: KitCard {
+                height: 36px + root.count * 54px;
+                VerticalLayout {
+                    JobHead {
+                        show-size: root.show-size;
+                        show-samples: root.show-samples;
+                        show-progress: root.show-progress;
+                        show-created: root.show-created;
+                    }
+                    for job[i] in JobsState.jobs: JobRow {
+                        data: job;
+                        first: i == 0;
+                        show-size: root.show-size;
+                        show-samples: root.show-samples;
+                        show-progress: root.show-progress;
+                        show-created: root.show-created;
+                        can-cancel: JobsState.can-cancel;
+                        can-delete: JobsState.can-delete;
+                        cancel-requested => {
+                            JobsState.cancel(job.id);
+                        }
+                        delete-requested => {
+                            root.delete-name = job.label;
+                            root.delete-id = job.id;
+                        }
+                    }
+                }
+            }
+
+            if JobsState.denied-reason != "": Text {
+                text: JobsState.denied-reason;
+                font-size: 12px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+
+            // The storage line: retention and used space, with the folder button.
+            HorizontalLayout {
+                spacing: 12px;
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        KitIcon { d: CIcons.clock; size: 14px; ink: Theme.text-muted; }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: JobsState.storage-text;
+                        font-size: 12px;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+                }
+                // The jobs folder is on the coordinator's own computer: not offered for a remote one.
+                if !ShellState.remote: KitButton {
+                    icon: CIcons.folder;
+                    text: "Open jobs folder";
+                    h: 34px;
+                    enabled: JobsState.has-folder;
+                    clicked => {
+                        JobsState.open-folder();
+                    }
+                }
+            }
+        }
+    }
+
+    // Delete, with a confirmation.
+    if root.delete-id != "": Modal {
+        label: "Delete job";
+        width: root.width;
+        height: root.height;
+        dismissed => {
+            root.delete-id = "";
+        }
+        Text {
+            text: "Delete \"" + root.delete-name + "\"?";
+            font-size: 15px;
+            font-weight: 650;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "The job and its picture are removed from this coordinator. This cannot be undone.";
+            font-size: 13px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            DialogButton {
+                text: "Keep job";
+                autofocus: true;
+                clicked => {
+                    root.delete-id = "";
+                }
+            }
+            DialogButton {
+                text: "Delete job";
+                danger: true;
+                enabled: JobsState.can-delete;
+                clicked => {
+                    JobsState.delete(root.delete-id);
+                    root.delete-id = "";
+                }
+            }
+        }
+    }
+}

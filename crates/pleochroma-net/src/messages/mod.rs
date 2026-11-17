@@ -13,7 +13,7 @@
 //!                     | ZoningPayload (`render` feature only; no protocol bump, see `zoning`)
 //!                     | LivePassRequest (`render` feature only, see `live_pass`)
 //!                     | BeamTileRequest (`render` feature only, see `beam_tiles`)
-//! <- <StreamEvent>    Frame | Preview | Progress | Done | Error
+//! <- <StreamEvent>    Frame | Preview | Progress | Preparing | Done | Error
 //!                     | Pong { nonce } | DisplayFrame | FinalImage | CapabilityChanged { render }
 //!                     | NeedAsset { content_hash }                      (tagged)
 //!                     | LivePass (the reply to a LivePassRequest)
@@ -144,9 +144,9 @@ pub use render::{PreviewConfig, RenderRequest, RequestIntent, StreamConfig, Tran
 pub use stream::{
     BatchDone, BatchItemDoneHeader, BatchItemFailed, BatchItemProgress, BeamTileStats,
     BeamTilesHeader, Cancel, ClientMessage, DisplayFrameHeader, Done, ErrorMsg, FinalImageHeader,
-    FrameHeader, LivePassHeader, PreviewHeader, Progress, Stats, StreamEvent, read_frame_message,
-    read_preview_message, read_stream_event, write_frame_message, write_preview_message,
-    write_stream_event,
+    FrameHeader, LivePassHeader, Preparing, PreviewHeader, Progress, Stats, StreamEvent,
+    read_frame_message, read_preview_message, read_stream_event, write_frame_message,
+    write_preview_message, write_stream_event,
 };
 #[cfg(feature = "render")]
 pub use tilt::{
@@ -175,7 +175,8 @@ pub use zoning::{
 /// mis-decoding garbage.
 ///
 /// Note: [`StreamEvent::Progress`] doubles as the stream's liveness heartbeat, not just
-/// real sample progress -- a peer must not assume otherwise.
+/// real sample progress -- a peer must not assume otherwise. [`StreamEvent::Preparing`] takes
+/// its place while the server builds its shader cache and counts as liveness the same way.
 ///
 /// # When you MUST bump this
 ///
@@ -273,13 +274,18 @@ pub use zoning::{
 /// 43: `SceneState::camera_pan` appended after `estimator`. A viewer and its workers must be replaced together.
 /// 44: `SceneState::stone_pose` (tilt, turn, spin in degrees) appended after `camera_pan`. A viewer
 ///     and its workers must be replaced together.
-pub const PROTOCOL_VERSION: u16 = 44;
+/// 45: `PeerRole::Monitor` and `PeerRole::Admin` appended (remote administration) and the error
+///     code `PERMISSION_DENIED`. Viewer and worker Hello bytes are unchanged apart from the version.
+///     `StreamEvent::Preparing` (index 16, appended last) is part of 45 too, since 45 is not
+///     released yet: the server's shader-cache warm-up reports `done` of `total` steps while a
+///     request has no samples, and a viewer counts it as liveness like `Progress`.
+pub const PROTOCOL_VERSION: u16 = 45;
 
 #[cfg(test)]
 mod tests {
     #[test]
     /// Pins the constant so a bump is always a deliberate, reviewed edit.
     fn protocol_version_matches_constant() {
-        assert_eq!(super::PROTOCOL_VERSION, 44);
+        assert_eq!(super::PROTOCOL_VERSION, 45);
     }
 }

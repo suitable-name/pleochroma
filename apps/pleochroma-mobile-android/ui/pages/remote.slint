@@ -2,7 +2,7 @@ import { Theme } from "../theme.slint";
 import { Shell } from "../models.slint";
 import { TopBar } from "../shell/top_bar.slint";
 import { PageScroll } from "../shell/page_scroll.slint";
-import { PrimaryButton, TextButton } from "../shell/buttons.slint";
+import { PrimaryButton, TonalButton, TextButton } from "../shell/buttons.slint";
 import { ChoiceField, Stepper, ToggleRow } from "../shell/inputs.slint";
 import { Card } from "../design/props/props_parts.slint";
 import { TextField, FieldLabel, PageColumn, GroupHeader } from "fields.slint";
@@ -27,14 +27,43 @@ export global RemoteModel {
     // In-out because the `changed address` handler below writes it.
     in-out property <string> status: "Enroll this phone, then test the rendering address.";
     in-out property <string> identity;
+    // Pairing by link (see `remote.rs`): a pairing link from the deep link or the pasted
+    // text always opens the confirm sheet first; nothing connects until the user taps it.
+    // The sheet is open while `pair-open`. `pair-error` replaces its question with a plain
+    // sentence about what went wrong. `pair-replaces` names the computer a new pairing
+    // replaces ("" when this phone is not paired).
+    in property <bool> pair-open: false;
+    in property <bool> pair-busy: false;
+    in property <string> pair-name;
+    in property <string> pair-address;
+    in property <string> pair-replaces;
+    in property <string> pair-error;
+    // This phone holds pairing credentials (the settings' enrolled flag).
+    in property <bool> paired: false;
+    // The text of the "Paste pairing link" field; the app empties it as soon as it reads it.
+    in-out property <string> link-text;
+    // The by-hand fields below stay folded until this phone is paired or the user opens them.
+    in-out property <bool> by-hand: false;
+    callback pair-confirm(); callback pair-cancel(); callback pair-from-text();
+    // Opens the camera scanner (Android only; `remote.rs` asks for the camera permission at
+    // this moment, never earlier). A scanned `pleochroma://pair` code opens the confirm sheet.
+    callback scan-qr();
+    // The app sets this just before it writes `address` itself (a pairing, a computer found
+    // again): the handler below then keeps its note and its identity reset out of the way,
+    // because the app writes the status and the identity itself.
+    in-out property <bool> address-set-by-app: false;
     property <bool> active-page: Shell.destination == 3 && Shell.more-page == 4;
     changed active-page => { if (!active-page) { hidden(); } }
     changed address => {
-        identity = "";
-        // Forget Server empties the address and writes its own status; only an edited,
-        // non-empty address invalidates the last test.
-        if (address != "") {
-            status = "Address changed. Test this endpoint to verify it.";
+        if (address-set-by-app) {
+            address-set-by-app = false;
+        } else {
+            identity = "";
+            // Forget Server empties the address and writes its own status; only an edited,
+            // non-empty address invalidates the last test.
+            if (address != "") {
+                status = "Address changed. Test this endpoint to verify it.";
+            }
         }
     }
     callback hidden();
@@ -70,13 +99,102 @@ component Pad inherits VerticalLayout {
     spacing: Theme.space-sm;
 }
 
+// A text that shows data the app does not control (a fingerprint, an address, a computer
+// name, a server message). It may hold a long unbroken word, and a wrapped `Text` reports
+// that word's width as its minimum, which would stretch the whole page column past the
+// screen. `char-wrap` breaks such a word at the edge and `min-width: 0px` keeps any
+// remaining overflow from raising the column's minimum width.
+component DataText inherits Text {
+    wrap: char-wrap;
+    min-width: 0px;
+}
+
+// The same for a sentence that may carry a long token: it still breaks at spaces.
+component NoteText inherits Text {
+    wrap: word-wrap;
+    min-width: 0px;
+}
+
+// A 24 x 24 stroke icon of the pairing sheet.
+component PairIcon inherits Rectangle {
+    in property <string> d;
+    in property <color> ink: Theme.on-surface-variant;
+    in property <length> size: 24px;
+    width: root.size;
+    height: root.size;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.d;
+        stroke: root.ink;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        fill: transparent;
+    }
+}
+
+// An icon, a caption and a value inside the sheet.
+component SheetRow inherits HorizontalLayout {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> value;
+    spacing: Theme.space-md;
+    VerticalLayout { alignment: center; PairIcon { d: root.icon; size: 22px; } }
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text { text: root.label; font-size: Theme.text-label; color: Theme.text-secondary; overflow: elide; }
+        DataText { text: root.value; font-size: Theme.text-body-large; color: Theme.on-surface; }
+    }
+}
+
 export component RemotePage inherits Rectangle {
     background: Theme.surface;
+    property <bool> paste-open: false;
     VerticalLayout {
         TopBar { title: "Remote"; show-back: true; back-clicked => { Shell.request-back(); } }
         PageScroll {
             PageColumn { VerticalLayout {
                 padding-bottom: Theme.space-lg;
+                GroupHeader { text: "PAIR WITH A COMPUTER"; }
+                Card {
+                    VerticalLayout {
+                        spacing: Theme.space-md;
+                        Text {
+                            text: "On the computer, choose Connect a phone, then scan its code or paste its pairing link here. A link from another app always asks you first.";
+                            color: Theme.on-surface-variant;
+                            font-size: Theme.text-body;
+                            wrap: word-wrap;
+                        }
+                        if root.paste-open: Field {
+                            label: "Pairing link";
+                            input-type: InputType.password;
+                            value <=> RemoteModel.link-text;
+                        }
+                        if root.paste-open: PrimaryButton {
+                            text: "Continue";
+                            enabled: RemoteModel.link-text != "" && !RemoteModel.busy && !RemoteModel.forgetting;
+                            clicked => { RemoteModel.pair-from-text(); root.paste-open = false; }
+                        }
+                        PrimaryButton {
+                            text: "Scan QR code";
+                            enabled: !RemoteModel.busy && !RemoteModel.forgetting;
+                            clicked => { root.paste-open = false; RemoteModel.scan-qr(); }
+                        }
+                        TonalButton {
+                            text: "Paste pairing link";
+                            enabled: !RemoteModel.forgetting;
+                            clicked => { root.paste-open = !root.paste-open; }
+                        }
+                    }
+                }
+                if !RemoteModel.paired && !RemoteModel.by-hand: Pad {
+                    TextButton { text: "Enter details by hand"; clicked => { RemoteModel.by-hand = true; } }
+                }
+                if RemoteModel.paired || RemoteModel.by-hand: VerticalLayout {
                 GroupHeader { text: "CONNECTION"; }
                 Card {
                     VerticalLayout {
@@ -88,7 +206,7 @@ export component RemotePage inherits Rectangle {
                             FieldLabel { text: "Transfer Mode"; }
                             ChoiceField {
                                 label: "Transfer Mode";
-                                model: ["DisplayOnly · coordinator", "FullData · coordinator or standalone worker"];
+                                model: ["Final picture only · coordinator", "Full data · coordinator or render computer"];
                                 current-index <=> RemoteModel.transfer;
                             }
                         }
@@ -107,36 +225,37 @@ export component RemotePage inherits Rectangle {
                     VerticalLayout {
                         spacing: Theme.space-md;
                         Field { label: "Enrollment Listener Address · host:port"; value <=> RemoteModel.enrollment-address; }
-                        Field { label: "One-Time Enrollment Token"; input-type: InputType.password; value <=> RemoteModel.token; }
+                        Field { label: "One-Time Enrollment Code"; input-type: InputType.password; value <=> RemoteModel.token; }
                     }
                 }
                 Pad {
                     PrimaryButton { text: "Enroll This Phone"; enabled: !RemoteModel.busy && !RemoteModel.forgetting && RemoteModel.token != ""; clicked => { RemoteModel.enroll(); } }
                     PrimaryButton { text: "Test Authenticated Connection"; enabled: !RemoteModel.busy && !RemoteModel.forgetting && RemoteModel.address != ""; clicked => { RemoteModel.test(); } }
                     if RemoteModel.busy && !RemoteModel.installing: TextButton { text: "Cancel Connection"; clicked => { RemoteModel.cancel(); } }
-                    Text { text: RemoteModel.status; color: Theme.on-surface; wrap: word-wrap; }
-                    Text { text: RemoteModel.identity == "" ? "" : "Verified server certificate SHA-256: " + RemoteModel.identity; color: Theme.text-secondary; wrap: word-wrap; }
+                    NoteText { text: RemoteModel.status; color: Theme.on-surface; }
+                    DataText { text: RemoteModel.identity == "" ? "" : "Verified server certificate SHA-256: " + RemoteModel.identity; color: Theme.text-secondary; }
                     TextButton {
                         text: "Forget Server";
                         enabled: !RemoteModel.busy && !RemoteModel.forgetting;
                         accessible-label: "Forget Server. Deletes this phone's pairing credentials after you confirm.";
                         clicked => { RemoteModel.forget-server(); }
                     }
-                    Text { text: "Forget Server deletes this phone's pairing credentials, including the Android Keystore key that protects them, and clears the saved server name and address. Pairing again needs a new one-time token."; color: Theme.text-secondary; wrap: word-wrap; }
+                    Text { text: "Forget Server deletes this phone's pairing credentials, including the Android Keystore key that protects them, and clears the saved server name and address. Pairing again needs a new pairing code."; color: Theme.text-secondary; wrap: word-wrap; }
                     Text { text: "TLS credentials are encrypted at rest with an Android Keystore wrapping key. The TLS private key itself is exportable and is not claimed to be hardware backed."; color: Theme.text-secondary; wrap: word-wrap; }
                     Text { text: "Select Remote in the Render view to upload the selected Path-Traced or Ray-Traced scene. Coordinators support DisplayOnly; standalone workers require FullData. Final PNG export works in both modes (a coordinator delivers the finished picture for DisplayOnly) and is limited to 1,048,576 pixels. A Remote HDR scene uploads the lighting map once, exactly as the device uses it, to endpoints that advertise HDR support. Automatic stays on this device. Connection tests upload no design."; color: Theme.text-secondary; wrap: word-wrap; }
                     Text { text: "A live Remote render restarts from zero after an interruption (the app returns from the background, or the connection drops): it reconnects by itself a few times. A server job is different: send it from the export sheet and the endpoint keeps it, so it survives disconnection and can be fetched below."; color: Theme.text-secondary; wrap: word-wrap; }
                 }
+                }
                 GroupHeader { text: "Server Jobs"; }
                 Pad {
                     TextButton { text: "Refresh Jobs"; enabled: !RemoteModel.jobs-busy && !RemoteModel.forgetting && RemoteModel.address != ""; clicked => { RemoteModel.refresh-jobs(); } }
-                    Text { text: RemoteModel.jobs-status; color: Theme.text-secondary; wrap: word-wrap; }
+                    NoteText { text: RemoteModel.jobs-status; color: Theme.text-secondary; }
                 }
                 for job[index] in RemoteModel.jobs: Card {
                     VerticalLayout {
                         spacing: Theme.space-xs;
-                        Text { text: job.title; color: Theme.on-surface; wrap: word-wrap; }
-                        if job.note != "": Text { text: job.note; color: Theme.text-secondary; wrap: word-wrap; }
+                        DataText { text: job.title; color: Theme.on-surface; }
+                        if job.note != "": NoteText { text: job.note; color: Theme.text-secondary; }
                         HorizontalLayout {
                             spacing: Theme.space-sm;
                             if job.can-save: TextButton { text: "Save Picture"; enabled: !RemoteModel.jobs-busy && !RemoteModel.forgetting; clicked => { RemoteModel.job-save(index); } }
@@ -146,6 +265,111 @@ export component RemotePage inherits Rectangle {
                     }
                 }
             } }
+        }
+    }
+
+    // The confirm sheet. A pairing link never connects by itself: this sheet always comes
+    // first, names the computer, and says when the pairing replaces another one. Tapping
+    // outside is Cancel, except while the pairing is in progress.
+    if RemoteModel.pair-open: Rectangle {
+        background: Theme.scrim.with-alpha(0.5);
+        TouchArea {
+            clicked => { if (!RemoteModel.pair-busy) { RemoteModel.pair-cancel(); } }
+        }
+        Rectangle {
+            x: 0px;
+            width: parent.width;
+            height: sheet.preferred-height;
+            y: parent.height - self.height;
+            background: Theme.surface-container;
+            border-top-left-radius: Theme.radius-xl;
+            border-top-right-radius: Theme.radius-xl;
+            border-width: 1px;
+            border-color: Theme.glass-edge;
+            // Swallows taps on the sheet itself, under its buttons.
+            TouchArea { }
+            sheet := VerticalLayout {
+                padding-left: Theme.space-xl;
+                padding-right: Theme.space-xl;
+                padding-top: Theme.space-md;
+                padding-bottom: Theme.space-xl;
+                spacing: Theme.space-md;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle { width: 32px; height: 4px; border-radius: 2px; background: Theme.outline; }
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-md;
+                    Rectangle {
+                        width: 44px;
+                        height: 44px;
+                        border-radius: 22px;
+                        background: RemoteModel.pair-error != "" ? Theme.warning.with-alpha(0.14) : Theme.accent-surface;
+                        PairIcon {
+                            d: RemoteModel.pair-error != "" ? "M12 4 L21 19 H3 Z M12 10 V14 M12 16.5 H12.01" : "M3 4.5 H21 V16 H3 Z M9 20 H15 M12 16 V20";
+                            ink: RemoteModel.pair-error != "" ? Theme.warning : Theme.accent;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        DataText {
+                            text: RemoteModel.pair-error != "" ? "Cannot pair" : "Pair with " + RemoteModel.pair-name + "?";
+                            font-size: Theme.text-title-large;
+                            font-weight: 500;
+                            color: Theme.on-surface;
+                        }
+                    }
+                }
+                Rectangle { height: 1px; background: Theme.outline-variant; }
+                if RemoteModel.pair-error != "": NoteText {
+                    text: RemoteModel.pair-error;
+                    font-size: Theme.text-body-large;
+                    color: Theme.on-surface;
+                }
+                if RemoteModel.pair-error == "": SheetRow {
+                    icon: "M3 9 A13 13 0 0 1 21 9 M6 12.5 A8.5 8.5 0 0 1 18 12.5 M9 16 A4 4 0 0 1 15 16 M12 19.5 H12.01";
+                    label: "Address";
+                    value: RemoteModel.pair-address;
+                }
+                if RemoteModel.pair-error == "" && RemoteModel.pair-replaces != "": Rectangle {
+                    height: warn.preferred-height;
+                    border-radius: Theme.radius-md;
+                    background: Theme.warning.with-alpha(0.14);
+                    border-width: 1px;
+                    border-color: Theme.warning.with-alpha(0.5);
+                    warn := HorizontalLayout {
+                        padding: Theme.space-md;
+                        spacing: Theme.space-md;
+                        VerticalLayout { alignment: center; PairIcon { d: "M12 4 L21 19 H3 Z M12 10 V14 M12 16.5 H12.01"; size: 22px; ink: Theme.warning; } }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            DataText { text: "This replaces " + RemoteModel.pair-replaces; font-size: Theme.text-body; font-weight: 500; color: Theme.on-surface; }
+                            Text { text: "This phone forgets that pairing."; font-size: Theme.text-body; color: Theme.on-surface-variant; wrap: word-wrap; }
+                        }
+                    }
+                }
+                if RemoteModel.pair-error == "" && RemoteModel.pair-busy: Text {
+                    text: "Pairing…";
+                    font-size: Theme.text-body;
+                    color: Theme.on-surface-variant;
+                }
+                if RemoteModel.pair-error == "": PrimaryButton {
+                    text: RemoteModel.pair-replaces != "" ? "Replace and pair" : "Pair";
+                    enabled: !RemoteModel.pair-busy;
+                    clicked => { RemoteModel.pair-confirm(); }
+                }
+                if RemoteModel.pair-error == "": TextButton {
+                    text: "Cancel";
+                    clicked => { RemoteModel.pair-cancel(); }
+                }
+                if RemoteModel.pair-error != "": PrimaryButton {
+                    text: "OK";
+                    clicked => { RemoteModel.pair-cancel(); }
+                }
+            }
         }
     }
 }

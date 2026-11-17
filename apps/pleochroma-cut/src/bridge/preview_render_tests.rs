@@ -37,6 +37,33 @@ fn classify_maps_terminal_and_progress_updates() {
 }
 
 #[test]
+fn preparing_restarts_the_stall_clock_and_is_credited_back_to_the_wall_clock() {
+    let start = Instant::now();
+    let stall = Duration::from_secs(60);
+    let wall = Duration::from_secs(300);
+    assert!(matches!(
+        classify(RemoteUpdate::Preparing {
+            request_id: 1,
+            done: 3,
+            total: 40
+        }),
+        Step::Preparing
+    ));
+    let mut watch = ProgressWatch::new(start);
+    watch.preparing(start + Duration::from_secs(50));
+    assert!(
+        watch
+            .verdict(start + Duration::from_secs(100), stall, wall)
+            .is_none()
+    );
+    assert!(matches!(
+        // 351 s since the request, 50 s of it preparing: 301 s of real time.
+        watch.verdict(start + Duration::from_secs(351), stall, wall),
+        Some(RemoteShortfall::WallClock { .. })
+    ));
+}
+
+#[test]
 fn preview_view_pitch_matches_the_documented_front_and_top_convention() {
     assert_eq!(PreviewView::Front.pitch(), 0.0);
     assert!((PreviewView::Top.pitch() - std::f32::consts::FRAC_PI_2).abs() < 1e-6);

@@ -7,6 +7,8 @@ cut, but I want to cut it in a different gem material -- what do I need to
 change?" It covers the built-in material list, building your own custom
 material, the Stone tab's Material and RI Override controls,
 how a material actually reaches the optimizer/tilt curve/viewport/export,
+the gem data on the Stone tab's identity card and the **Material Reference** window
+(hardness, toughness, cleavage, specific gravity, care and curves of every material),
 and **Retarget**, the command bar's automated proposal for re-angling a
 design for a different material.
 
@@ -42,53 +44,148 @@ for cutting -- refractive index, birefringence, and whether the material
 has real absorption bands modelled (which mostly affects render color, not
 cutting) -- are:
 
-| Material | n_D | Birefringence (Δn) | Optical character | Absorption modelled |
-|---|---|---|---|---|
-| Diamond | 2.417 | — | Isotropic | No |
-| Sapphire | 1.768 | −0.0081 | Uniaxial (−) | Yes |
-| Ruby | 1.768 | −0.0081 | Uniaxial (−) | Yes |
-| Emerald | 1.579 | −0.0060 | Uniaxial (−) | Yes |
-| Zircon | 1.925 | +0.0590 | Uniaxial (+) | Yes |
-| Alexandrite | 1.743 | +0.0076 | Biaxial (+) | Yes |
-| Topaz | 1.627 | +0.0080 | Biaxial (+) | Yes |
-| Spinel | 1.716 | — | Isotropic | Yes |
-| Quartz | 1.544 | +0.0091 | Uniaxial (+) | No |
-| Tourmaline | 1.639 | −0.0210 | Uniaxial (−) | Yes |
-| Tanzanite | 1.701 | +0.0130 | Biaxial (+) | Yes |
-| Synthetic Moissanite | 2.647 | +0.0415 | Uniaxial (+) | No |
-| Cubic Zirconia | 2.158 | — | Isotropic | No |
-| Aquamarine | 1.577 | −0.0060 | Uniaxial (−) | Yes |
-| Morganite | 1.577 | −0.0060 | Uniaxial (−) | Yes |
-| Chrysoberyl (Yellow) | 1.746 | +0.0076 | Biaxial (+) | Yes |
-| Amethyst | 1.544 | +0.0091 | Uniaxial (+) | Yes |
-| Citrine | 1.544 | +0.0091 | Uniaxial (+) | Yes |
-| Ametrine | 1.544 | +0.0091 | Uniaxial (+) | Yes (two color zones) |
-| Pyrope Garnet | 1.714 | — | Isotropic | Yes |
-| Almandine Garnet | 1.790 | — | Isotropic | Yes |
-| Spessartine Garnet | 1.800 | — | Isotropic | Yes |
-| Color-Change Garnet (Pyrope-Spessartine) | 1.760 | — | Isotropic | Yes |
-| Grossular Garnet (Tsavorite) | 1.734 | — | Isotropic | Yes |
-| Andradite Garnet (Demantoid) | 1.887 | — | Isotropic | Yes |
-| Peridot | 1.654 | +0.0360 | Biaxial (+) | Yes |
-| YAG | 1.833 | — | Isotropic | No |
-| GGG | 1.970 | — | Isotropic | No |
-| Benitoite | 1.757 | +0.0470 | Uniaxial (+) | Yes |
-| Andalusite | 1.634 | −0.0100 | Biaxial (−) | Yes |
-| Opal | 1.450 | — | Isotropic | No |
-| Glass (N-BK7) | 1.517 | — | Isotropic | No |
-| Glass (F2) | 1.620 | — | Isotropic | No |
-| Rutile | 2.613 | +0.2957 | Uniaxial (+) | Yes |
-| Precious Opal (White) | 1.450 | — | Isotropic | No |
-| Precious Opal (Black) | 1.450 | — | Isotropic | Yes (dark body) |
-| Labradorite | 1.5625 | +0.0080 | Biaxial (+) | No |
-| Moonstone | 1.523 | −0.0080 | Biaxial (−) | No |
-| Titanite (Sphene) | 1.894 | +0.1226 | Biaxial (+) | Yes |
+| Material | n_D | Birefringence (Δn) | Optical character | Absorption modelled | SG | Hardness (Mohs) |
+|---|---|---|---|---|---|---|
+| Diamond | 2.417 | — | Isotropic | No | 3.52 | 10 |
+| Sapphire | 1.768 | −0.0081 | Uniaxial (−) | Yes | 4.00 | 9 |
+| Ruby | 1.768 | −0.0081 | Uniaxial (−) | Yes | 4.00 | 9 |
+| Emerald | 1.579 | −0.0060 | Uniaxial (−) | Yes | 2.76 | 7.5–8 |
+| Zircon | 1.925 | +0.0590 | Uniaxial (+) | Yes | 4.65 | 6–7.5 |
+| Alexandrite | 1.743 | +0.0076 | Biaxial (+) | Yes | 3.73 | 8.5 |
+| Topaz | 1.627 | +0.0080 | Biaxial (+) | Yes | 3.53 | 8 |
+| Spinel | 1.716 | — | Isotropic | Yes | 3.60 | 7.5–8 |
+| Quartz | 1.544 | +0.0091 | Uniaxial (+) | No | 2.65 | 7 |
+| Tourmaline | 1.639 | −0.0210 | Uniaxial (−) | Yes | 3.06 | 7–7.5 |
+| Tanzanite | 1.694 | +0.0090 | Biaxial (+) | Yes | 3.35 | 6–7 |
+| Synthetic Moissanite | 2.647 | +0.0415 | Uniaxial (+) | No | 3.22 | 9.25 |
+| Cubic Zirconia | 2.158 | — | Isotropic | No | 5.80 | 8–8.5 |
+| Aquamarine | 1.577 | −0.0060 | Uniaxial (−) | Yes | 2.72 | 7.5–8 |
+| Morganite | 1.577 | −0.0060 | Uniaxial (−) | Yes | 2.86 (derived) | 7.5–8 |
+| Chrysoberyl (Yellow) | 1.746 | +0.0076 | Biaxial (+) | Yes | 3.73 | 8.5 |
+| Amethyst | 1.544 | +0.0091 | Uniaxial (+) | Yes | 2.65 | 7 |
+| Citrine | 1.544 | +0.0091 | Uniaxial (+) | Yes | 2.65 | 7 |
+| Ametrine | 1.544 | +0.0091 | Uniaxial (+) | Yes (two color zones) | 2.65 | 7 |
+| Pyrope Garnet | 1.714 | — | Isotropic | Yes | 3.74 | 7–7.5 |
+| Almandine Garnet | 1.790 | — | Isotropic | Yes | 4.19 | 7–7.5 |
+| Spessartine Garnet | 1.800 | — | Isotropic | Yes | 4.18 | 7–7.5 |
+| Color-Change Garnet (Pyrope-Spessartine) | 1.760 | — | Isotropic | Yes | 3.92 (derived) | 7–7.5 |
+| Grossular Garnet (Tsavorite) | 1.734 | — | Isotropic | Yes | 3.61 | 6.5–7.5 |
+| Andradite Garnet (Demantoid) | 1.887 | — | Isotropic | Yes | 3.86 | 6.5–7 |
+| Peridot | 1.669 | +0.0360 | Biaxial (+) | Yes | 3.34 | 6.5–7 |
+| YAG | 1.833 | — | Isotropic | No | 4.55 | 8.25 |
+| GGG | 1.970 | — | Isotropic | No | 7.05 | 6.5 |
+| Benitoite | 1.757 | +0.0470 | Uniaxial (+) | Yes | 3.65 | 6–6.5 |
+| Andalusite | 1.634 | −0.0100 | Biaxial (−) | Yes | 3.15 | 6.5–7.5 |
+| Opal | 1.450 | — | Isotropic | No | 2.09 | 5–6.5 |
+| Glass (N-BK7) | 1.517 | — | Isotropic | No | 2.51 | about 5.5 |
+| Glass (F2) | 1.620 | — | Isotropic | No | 3.60 | about 5.5 |
+| Rutile | 2.613 | +0.2957 | Uniaxial (+) | Yes | 4.25 | 6–6.5 |
+| Precious Opal (White) | 1.450 | — | Isotropic | No | 2.09 | 5–6.5 |
+| Precious Opal (Black) | 1.450 | — | Isotropic | Yes (dark body) | 2.09 | 5–6.5 |
+| Labradorite | 1.5625 | +0.0080 | Biaxial (+) | No | 2.69 | 6–6.5 |
+| Moonstone | 1.523 | −0.0080 | Biaxial (−) | No | 2.58 | 6–6.5 |
+| Titanite (Sphene) | 1.894 | +0.1226 | Biaxial (+) | Yes | 3.53 | 5–5.5 |
 
-The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28); choosing one of these materials switches its effect on. **Opal** is the plain body-color opal. **Titanite (Sphene)**, last in the list, has more fire than diamond (B–G dispersion 0.057 against 0.044) and a birefringence of 0.12, so the back facets show doubled through the table; it is yellow-green, with its strongly colored ray lying in the table. Its indices are measured values from 1887 at three wavelengths; its color follows a measured spectrum of a Madagascar crystal. Typing "Sphene" or "Titanite" finds it. Chrysoberyl (Yellow) uses the published wavelength-dependent curves of the mineral, which give the birefringence of +0.0076 (see "Curves for the Extraordinary Ray" below).
+The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28); choosing one of these materials switches its effect on. **Opal** is the plain body-color opal. **Titanite (Sphene)**, last in the list, has more fire than diamond (B–G dispersion 0.058 against 0.044) and a birefringence of 0.12, so the back facets show doubled through the table; it is yellow-green, with its strongly colored ray lying in the table. Its indices are measured values from 1887 at three wavelengths; its color follows a measured spectrum of a Madagascar crystal. Typing "Sphene" or "Titanite" finds it. Chrysoberyl (Yellow) uses the published wavelength-dependent curves of the mineral, which give the birefringence of +0.0076 (see "Curves for the Extraordinary Ray" below).
 
 Several of these colors are not invented: Tanzanite, Aquamarine, Spessartine,
 Tsavorite, Demantoid and Peridot are fitted to measured absorption spectra, and
 Appendix C names the source of each.
+
+The SG and Hardness columns are the typical figures for the species, with the sources and
+ranges in Appendix C and in the Material Reference (see "Gem Data and the Material
+Reference" below). Two SG figures are derived from cited figures and are marked so.
+Tanzanite's 1.694 and Peridot's 1.669 are the program's **model values** of the
+middle index (nβ) of those two-axis crystals, not literature values; Appendix C
+prints them beside GIA's measured ranges.
+
+## Gem Data and the Material Reference
+
+Every built-in material carries, besides its optics, a short record of how the stone behaves in the hand: how hard it is, how tough, whether it cleaves, how it breaks, how heavy it is, and how to care for it. The program shows this record in two places, the identity card of the Stone tab (the short version) and the **Material Reference** window (all of it), and prints it in the command line's `info` and `materials` reports (see "From the Command Line" below). The web app and the Android app show the same facts on their material cards.
+
+**Values are typical for the species.** Every figure is the one a gemological or mineralogical reference prints for the species or variety, not a measurement of your stone. Two stones of one material can differ (a zircon's density, for example, runs from 3.90 to 4.73), and the window says so with a range wherever a source gives one. The program shows a value only when a source prints it, and it names the source. A field no source gives stays empty and reads **Not recorded**; a toughness that no source grades reads **Not graded**. Nothing is estimated to fill a gap.
+
+### Gem Data on the Stone Tab
+
+The Stone tab (Chapter 2) shows the short version on its identity card, at the top, because it describes the material and not an effect. There is no separate fold card any more. The facts are:
+
+- **Chips** after RI, Critical and Dispersion, in this order: **SG** (specific gravity, for example `SG 3.60`), **Mohs** (hardness, for example `Mohs 7.5–8`) and the **toughness** grade (for example `Toughness Poor` for a topaz, or `Toughness Fair–good` where the grade is a range). Pointing at a chip says what the figure is, for example "Mohs is an order of scratch hardness, not a measure."
+- **The cleavage line**, "Cleavage: ..." under the chips, for example `Cleavage: Perfect basal {001}` for a topaz or `Cleavage: None` for a material without any. It is muted text when the cleavage is no risk. When it is one (perfect, good or distinct), the line turns amber and carries a warning mark, so a cutter sees it before choosing a design.
+- **Material Details...** at the foot of the card, which opens the Material Reference on this material for everything else: fracture, parting, the care note, the sources, the weight and the curves.
+
+A field with no source is **left out** of the card: a chip that no source fills does not appear, and the card never prints "Not recorded". The Material Reference is where an empty field reads **Not graded** (toughness; the tooltip says "No published toughness grade for this material.") or **Not recorded** (any other field; the tooltip says "No gemological source gives this value."). There is no "unconfirmed" tag anywhere: a value is either cited or absent.
+
+The Material Reference also opens from the **...** menu of the identity card (**Material Reference...**), from **Help > Material Reference...** and from the command palette (**Material Reference**, Chapter 19).
+
+The facts are hidden when the design has no material (`(none)`) or a typed **Custom RI...**, since there is nothing to describe. A custom material without gem data of its own shows "No gem data yet — add it in the Material Editor" instead, and the link opens the editor; Chapter 29 describes the Gem Data section that fills it. A library row you are only browsing shows the facts of the material the row is shown as.
+
+The web app and the Android app show the same facts on their material cards, from the same data.
+
+### Dispersion in the Stone Tab: B–G and F–C
+
+The **Dispersion** chip on the identity card shows the **B–G dispersion**, the figure every gemological reference prints. A diamond reads `Dispersion 0.044`. It is the difference between the index of refraction in violet light (the Fraunhofer G line, 430.8 nm) and in red light (the B line, 686.7 nm), and it measures how widely the stone spreads white light into colored flashes, its fire.
+
+Two conventions exist for the same property. **F–C dispersion** takes the spread between 486.1 nm (blue-green) and 656.3 nm (red). It is a narrower interval, so its figure is smaller: for a diamond 0.026 against 0.044, in general about 0.58 times the B–G figure. Optical glass catalogues and the **Abbe number** (Appendix A) are built on F–C, and so is the Material Editor: its **Dispersion (Fire ΔnF-C)** slider and its coefficient readout take and show F–C (Chapter 29). The chip's tooltip names the convention and gives the other figure.
+
+The program never shows a bare number without a way to tell which convention it is. Wherever a figure is read-only, it is B–G: the chip, the Material Reference table and details page, and the command line. Wherever you type or fit a curve, it is F–C. Both figures are computed from the same index curve of the material, so a custom material's B–G comes from the curve you gave it.
+
+One thing to know when comparing with a book: the number is the program's model curve, not the book's. For most materials the two agree to the third place (diamond 0.0444 against the published 0.044). For two of the synthetic materials the program's curve differs from the published figure: synthetic moissanite 0.112 against 0.104, and rutile 0.312 against 0.330. Appendix C lists the handbook values beside the model's.
+
+### The Material Reference Window
+
+The **Material Reference** is a window of its own, so it can stay open beside the design. Escape closes it, and the **?** button opens this chapter. It opens from the Stone tab (the card's **Material Details...** button and the **...** menu), **Help > Material Reference...** and the command palette. Opening it again brings it forward on the material you asked for.
+
+**The table.** The header reads "39 built-in materials and *n* of your own" (just the built-in count when you have no custom materials). Under it are:
+
+- A search field, "Search by name, system or cleavage".
+- Filter chips with counts: **All**, **Natural**, **Synthetic**, **Glass** and **My Materials**.
+- On the right, **Dispersion** with a **B–G** | **F–C** switch. B–G is the default; your choice is remembered. Its tooltip reads: "B–G: the figure gem references print, n at 430.8 nm minus n at 686.7 nm. F–C: the optical figure, 486.1 to 656.3 nm, which the Material Editor uses. Both come from this material's index curve."
+
+The columns are **Material** (with a **Synthetic**, **Glass** or **Mine** tag where it applies), **Crystal System**, **Optic Character**, **RI** (n_D of the base curve: the ordinary index, or the middle index of a two-axis crystal), **Biref.**, **Disp.**, **SG**, **Hardness** (the Mohs bar and value), **Toughness** and **Cleavage**. A dash means the value is not recorded. Click a column heading to sort by it, and click again to reverse; the sorted heading is cyan with an arrow, and rows without a value always sort last. The footer says what the table shows and how it is ordered, for example "41 materials, hardest first. Values are typical for each species; a dash means not recorded."
+
+At narrow widths the window drops the less important columns instead of cutting the table off: under 1000 px wide **Optic Character** and **Biref.** go, and under 760 px **Crystal System** and **SG** go too, so **Material**, **RI**, **Disp.**, **Hardness**, **Toughness** and **Cleavage** always stay. The web editor folds at the same widths.
+
+From the keyboard, Up and Down move the selection, Enter opens the details, Ctrl+F goes to the search field and Ctrl+C, while the table has the focus, copies the table.
+
+Three buttons sit under the table:
+
+- **Copy Table** copies the rows you see, tab-separated with the column headings and in the order shown, ready to paste into a spreadsheet. The toast reads "Copied *n* materials as a table." The Dispersion column carries the convention in its heading (`Disp. (B–G)` or `Disp. (F–C)`).
+- **Preview As** shows the stone in the selected material without changing the design, exactly as **Preview As...** in the Stone tab (see below). The amber badge names the preview, and **Back to Design** ends it.
+- **Open Details** (the primary button) opens the details page of the selected material.
+
+**The details page.** The same window swaps to the details page; **All Materials** returns to the table with your selection, sort and scroll position kept. The header shows a swatch split in two (the face-up color in daylight and under a 3200 K incandescent lamp), the name, the family line and chips: the refractive-index range, **Biref.**, **Disp.** (B–G), **SG**, **Mohs** and, in cyan, **Color change** when the material changes color between the two lights. Two buttons sit beside it:
+
+- **Duplicate as Custom...** opens the Material Editor with this material as its Load Preset Template, so you start a custom material from the built-in one's values (Chapter 29). A material that is not one of the editor's templates opens the editor and says "*Name* has no Load Preset Template. Pick the closest one to start from its values."
+- **Preview As** (primary) previews the stone in this material.
+
+Below, the page has cards in this order: Durability and Cutting, Optics, Refractive Index, Absorption Spectrum, Color by Direction and Light, Color Variants, Effects and Sources. From 1100 px wide they sit in two columns (the first three on the left, the rest on the right); in a narrower window they stack in that same order, one under the other, and the Optics card shows its fields in two columns from 620 px.
+
+- **DURABILITY AND CUTTING.** The facts a cutter needs first: hardness (the Mohs bar and value), toughness, cleavage, parting (only for a material that has one) and fracture, the crystal, and the weight: the specific gravity with its range and how much heavier or lighter than diamond a stone of the same size is, and, with a design open, a line such as "This design: about 1.32 ct at 7.0 mm". A small amber icon on a field means a source note follows under it, and an amber **Sources differ:** note appears where two sources disagree. Then the care paragraph.
+- **OPTICS.** Crystal system, optic character, birefringence, critical angle, principal indices, dispersion model, default axis, pleochroism (none, dichroic with two colors, trichroic with three), inclusions and color pattern.
+- **REFRACTIVE INDEX.** A line for each principal direction with its n_D: one for an isotropic material, two (ordinary and extraordinary, ω and ε) for a one-axis crystal, three (α, β, γ) for a two-axis one. The chart plots n against wavelength from 380 to 780 nm with the Fraunhofer lines G, F, D, C and B marked along the top; a steeper line means more dispersion. Under it, a readout such as `nD 1.7427 (β) · Dispersion B–G 0.0171, F–C 0.0100 · Abbe 73.9` gives both conventions and the Abbe number side by side, and a model line states where the curve comes from. Hover over the chart for a crosshair with the wavelength and each index. A birefringent material's B–G is read on its base curve, the ordinary index or, for a two-axis crystal, the β index.
+- **ABSORPTION SPECTRUM.** A curve for each ray (a chip with the ray's own daylight color turns it on and off) over a strip of the visible colors. **Absorption** shows how much light each wavelength loses, **Transmission** how much passes through a stone of the width stated in the tooltip. A one-line summary names the strongest bands and a provenance line says where the spectrum comes from, including whether it is estimated. **Bands...** unfolds the full list: ray, center, width, peak and shape. If you pick a color variant (below), its spectrum replaces the default.
+- **COLOR BY DIRECTION AND LIGHT.** One row for each ray and a bold **Face up** row, in two columns: **Daylight** and **Incandescent** (a 3200 K lamp). A line explains a color change where there is one, and says that the face-up color assumes the material's default crystal axis and a 7 mm stone, or the open design's width.
+- **COLOR VARIANTS.** The material's color variants, as in the Material Editor (Chapter 6, "Color Variants and Pleochroism"): swatch, name, the first source line and an **Estimated** chip where it applies. Click one to see its spectrum and colors on the page. **Use for Design** appears when a design is open and a variant other than the default is picked; it applies that variant to the design like picking its tile in the Stone tab. If the design is in another material, it also switches the design to this one, which makes two undo steps (the material, then the color).
+- **EFFECTS.** The inclusion and play-of-color effects the material switches on, in one line, or a note that there are none.
+- **SOURCES.** Where the values come from, by group, the last card. It is shown only when the material has sources.
+
+A custom material has the same page. A field you did not enter reads **Not recorded**, and the Sources line reads "Entered by you" followed by your source text.
+
+### Where Sources Disagree
+
+The program names a primary source for every value and keeps a second one as a note when two disagree. The rules:
+
+- **Mohs hardness** is the GIA care page, widened by the Handbook of Mineralogy where it differs (spinel: GIA gives 8 and the Handbook 7.5–8, so 7.5–8 is shown). For a synthetic the Gems & Gemology table gives the figure (synthetic moissanite 9.25; the Handbook gives 9.5 for the natural mineral, and the note says so).
+- **Toughness** is the GIA care page, otherwise the GIA Gem Cleaning and Display Chart, otherwise the figure for a synthetic from the 1997 Gems & Gemology table. A material none of them grades (both glasses, benitoite and titanite) reads **Not graded**.
+- **Cleavage, parting and fracture** come from the Handbook of Mineralogy, which gives Miller indices; where GIA or the 1997 table disagrees, the Handbook's value is shown and an amber **Sources differ:** line names the other (alexandrite, synthetic moissanite). Where two sources index the same cleavage on different axes (tanzanite, peridot), the Handbook's setting is shown and the note names the other.
+- **Care** is the GIA care page; the International Gem Society's articles stand in only where GIA has none (benitoite, rutile, titanite).
+- A value taken over from the species or from the end-members of a mixed stone carries a basis note, for example "Taken from the end-members pyrope and spessartine." (Color-Change Garnet), "Values of the opal species." (the Precious Opals) or "Values of the chrysoberyl species (from alexandrite)." (Chrysoberyl, Yellow).
+
+**Specific gravity.** A figure is **cited** when a source prints it, and **derived** when the program computed it from cited figures. A derived figure carries the word "Derived" and its working: Morganite's 2.86 reads "Derived: midpoint of the cited range 2.80-2.91." because GIA prints only that range, and the Color-Change Garnet's 3.92 reads "Derived: range merged from two Gems & Gemology studies (3.83-3.88 and 3.93-4.00); representative is its midpoint." Every input of a derived figure is cited. The garnets' densities describe the gem, not the pure end-member of the mineral (pyrope 3.74, almandine 4.19). Appendix C lists every source with its address.
+
+### From the Command Line
+
+The command line has the same data. `pleochroma-cli info DESIGN` prints, under the design's **Material** line, a Gem Data block: Mohs, toughness, cleavage and fracture on one line, then **SG** with its range, **Care** and **Sources** (and a **Note** line where sources differ). With `--json`, `material.gem_data` holds every field and each source with its address. `pleochroma-cli materials` prints the table of this window (`--sort`, `--desc`, `--filter natural|synthetic|glass|custom` and `--dispersion bg|fc` work as the window's controls do); `pleochroma-cli materials NAME` prints one material's details, with `--bands` adding the absorption bands and `--curves FILE.csv` writing the refractive index of every direction against wavelength. The CLI's own README lists every option.
 
 ## The Single Material Catalogue
 
@@ -149,6 +246,11 @@ the same material as a read-only chip with an **Edit in Stone Tab** link) holds:
   RI (built-in **or custom catalogue material**), else the schedule's
   legacy recorded value. Critical Angle is `arcsin(1 / effective RI)` in
   degrees.
+- The **Dispersion** chip on the same card -- read-only, the material's B–G dispersion
+  (Diamond reads 0.044); see "Dispersion in the Stone Tab: B–G and F–C" below. The
+  **SG**, **Mohs** and **Toughness** chips and the cleavage line after it give the
+  material's specific gravity, hardness, toughness and cleavage; **Material Details...**
+  opens the rest (see "Gem Data on the Stone Tab" above).
 - **Color** (the COLOR section, announced as **Body Color**) -- the design's own color,
   shown as a grid of tiles, five to a row, with the chosen entry's name and description
   under them. The tiles are, in this order:

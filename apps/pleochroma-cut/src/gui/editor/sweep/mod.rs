@@ -191,6 +191,8 @@ pub(super) fn setup_sweep_callbacks(
     let c = Rc::clone(&controller);
     model.on_chart_hover(move |fraction| c.chart_hover(fraction));
     let c = Rc::clone(&controller);
+    model.on_plot_resized(move || c.plot_resized());
+    let c = Rc::clone(&controller);
     model.on_use_selected(move || c.use_selected());
     let c = Rc::clone(&controller);
     model.on_copy_csv(move || c.copy_csv());
@@ -527,6 +529,15 @@ impl Controller {
         if self.dialog.borrow_mut().select(index) {
             present::push_pointer(&ui, &self.dialog.borrow());
         }
+    }
+
+    /// The chart's plot area changed size: the dashed lines are rebuilt, because their
+    /// dash length is fixed in screen pixels.
+    fn plot_resized(&self) {
+        let Some(ui) = self.ui.upgrade() else {
+            return;
+        };
+        present::push_lines(&ui, &self.dialog.borrow());
     }
 
     /// A figure's pill was clicked: its line goes on or off the chart.

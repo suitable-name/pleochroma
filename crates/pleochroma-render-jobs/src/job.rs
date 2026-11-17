@@ -23,6 +23,11 @@ pub const JOB_FORMAT_VERSION: u32 = 8;
 /// (an older reader would render it centred), a job lit by a turned HDR map format 6, a job with color zones format 5, a job
 /// with a tray reflection format 4 and a shadowed job format 3. Other jobs take their engine's
 /// format: 2 for Ray-Traced, 1 otherwise. The map's turn counts only in an HDR-lit scene.
+///
+/// A tilt video that draws the stone shadow or the tray reflection (the video's own switches)
+/// holds them in its scene like a still does, so it takes the same format, 3 or 4: a reader older
+/// than that refuses the file, which is right, because it would draw the video without them. The
+/// video job's own fields did not change, so no format of its own is needed.
 #[must_use]
 pub const fn format_for(job: &RenderJobFile) -> u32 {
     let pose = &job.scene.stone_pose;
@@ -545,21 +550,15 @@ impl RenderJobFile {
             return Err(invalid("Tray reflection must be between 0 and 100 %."));
         }
         self.validate_common()?;
-        if self.scene.stone_shadow {
-            if !self.scene.lit_by_studio_backdrop() {
-                return Err(invalid(
-                    "Stone shadow needs a studio light with a backdrop.",
-                ));
-            }
-            self.refuse_tilt_video("stone shadow")?;
+        if self.scene.stone_shadow && !self.scene.lit_by_studio_backdrop() {
+            return Err(invalid(
+                "Stone shadow needs a studio light with a backdrop.",
+            ));
         }
-        if self.scene.tray_reflection > 0.0 {
-            if !self.scene.lit_by_studio_backdrop() {
-                return Err(invalid(
-                    "Tray reflection needs a studio light with a backdrop.",
-                ));
-            }
-            self.refuse_tilt_video("tray reflection")?;
+        if self.scene.tray_reflection > 0.0 && !self.scene.lit_by_studio_backdrop() {
+            return Err(invalid(
+                "Tray reflection needs a studio light with a backdrop.",
+            ));
         }
         match &self.kind {
             JobKind::Still(still) => {
@@ -592,17 +591,6 @@ impl RenderJobFile {
             }
         }
         self.validate_hdr()
-    }
-
-    /// Refuses a tilt video that asks for `feature` (a lowercase noun phrase: "stone shadow"),
-    /// which the frames of a tilt video do not show yet.
-    fn refuse_tilt_video(&self, feature: &str) -> Result<(), JobFileError> {
-        if matches!(self.kind, JobKind::TiltVideo(_)) {
-            return Err(invalid(format!(
-                "Tilt videos do not show the {feature} yet."
-            )));
-        }
-        Ok(())
     }
 
     fn validate_common(&self) -> Result<(), JobFileError> {

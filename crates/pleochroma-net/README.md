@@ -61,7 +61,7 @@ it.
 
 ## Protocol version and message set
 
-`messages::PROTOCOL_VERSION: u16 = 44` (see its doc comment for the history). Three protocols share one authenticated
+`messages::PROTOCOL_VERSION: u16 = 45` (see its doc comment for the history). Three protocols share one authenticated
 connection: **render** (offload sample tracing), **tilt curves** (offload one design's
 full tilt-performance sweep), and **library** (read a design catalogue). A peer may
 serve any subset, and — for a viewer — consume all three.
@@ -295,7 +295,7 @@ sends preview values 10.0 then 20.0 and asserts the stored preview is `20.0`, no
 ## `request_id` and cancellation epochs
 
 Every message from `RENDER` onward — `FrameHeader`, `PreviewHeader`, `Progress`,
-`Cancel`, `Done` — echoes the `request_id` the client chose for that `RENDER`. A
+`Preparing`, `Cancel`, `Done` — echoes the `request_id` the client chose for that `RENDER`. A
 `CANCEL` can be in flight past a worker that's already mid-batch, so `FRAME`/`PREVIEW`
 payloads for the just-cancelled request may still be in transit when the client
 moves on to its next request. The rule that makes "never merge a stale partial into

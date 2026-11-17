@@ -92,6 +92,23 @@ impl FilterState {
         }
     }
 
+    /// The query for the computer's library: the same choices except the two that are about
+    /// this phone's library ("only my designs" and a tag; the computer lists no tags).
+    pub fn to_remote_query(&self, sort: LibrarySort) -> LibraryQuery {
+        LibraryQuery {
+            mine_only: false,
+            tag: None,
+            ..self.to_query(sort)
+        }
+    }
+
+    /// Drops the choices the computer's view does not have ("only my designs" and the tag),
+    /// as the page switches to the computer.
+    pub fn drop_phone_only_choices(&mut self) {
+        self.mine_only = false;
+        self.tag = None;
+    }
+
     /// How many filters are set. The search text is not a filter.
     pub fn active_count(&self) -> usize {
         usize::from(self.shape.is_some())
@@ -256,6 +273,29 @@ mod tests {
         assert!(query.mine_only);
         assert!(query.show_ignored);
         assert_eq!(state.active_count(), 6);
+    }
+
+    #[test]
+    fn the_computer_query_drops_mine_and_the_tag() {
+        let options = options();
+        let mut state = FilterState {
+            text: "barion".to_owned(),
+            mine_only: true,
+            show_ignored: true,
+            ..FilterState::default()
+        };
+        state.pick_shape(&options, 1);
+        state.pick_tag(&options, 0);
+        let query = state.to_remote_query(LibrarySort::Title);
+        assert_eq!(query.text, "barion");
+        assert_eq!(query.shape.as_deref(), Some("round"));
+        assert!(query.show_ignored);
+        assert!(!query.mine_only);
+        assert_eq!(query.tag, None);
+        state.drop_phone_only_choices();
+        assert!(!state.mine_only);
+        assert_eq!(state.tag, None);
+        assert_eq!(state.active_count(), 2, "the shape and show ignored stay");
     }
 
     #[test]

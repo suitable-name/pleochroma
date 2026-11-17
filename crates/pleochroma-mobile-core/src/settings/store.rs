@@ -104,9 +104,11 @@ impl SettingsStore {
 }
 
 impl SettingsStore {
-    /// Writes anything pending and ends the writer thread; later saves are dropped (and
-    /// logged). Idempotent. Call it on shutdown while the writer still runs: a store
-    /// dropped during process exit may find the writer already gone and cannot flush.
+    /// Writes anything pending and ends the writer thread.
+    ///
+    /// Later saves are dropped (and logged). Idempotent. Call it on shutdown while the writer
+    /// still runs: a store dropped during process exit may find the writer already gone and
+    /// cannot flush.
     pub fn close(&mut self) {
         if self.sender.is_none() {
             return;

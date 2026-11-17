@@ -854,6 +854,156 @@ fn sha256_hex_matches_the_known_digests() {
     );
 }
 
+// --- `[material.custom.gem_data]` ---
+
+/// A design on a custom material that carries `gem_data`.
+fn gem_file(table: Option<CustomGemDataTable>) -> DesignFile {
+    let snapshot =
+        CustomMaterialSnapshot::new(1.62, 0.017, -0.021, None, "Trigonal", "UniaxialNegative")
+            .with_gem_data(table);
+    let mut native = sample_file();
+    native.material = native.material.with_custom(Some(snapshot));
+    native
+}
+
+fn full_gem_table() -> CustomGemDataTable {
+    CustomGemDataTable {
+        mohs: Some([7.5, 8.0]),
+        toughness: Some(["good".to_owned(), "good".to_owned()]),
+        cleavage: Some("Imperfect basal".to_owned()),
+        fracture: Some("Conchoidal".to_owned()),
+        care: Some("Avoid sudden temperature changes while dopping.".to_owned()),
+        source: Some("My notes, 2026".to_owned()),
+    }
+}
+
+/// T-C1: the gem data round trips as a `[material.custom.gem_data]` sub-table.
+#[test]
+fn custom_snapshot_gem_data_round_trips_as_a_sub_table() {
+    let native = gem_file(Some(full_gem_table()));
+    let text = write(&native);
+    assert!(text.contains("[material.custom.gem_data]"), "{text}");
+    let custom = read(&text).material.custom.expect("snapshot loads back");
+    assert_eq!(custom.gem_data, Some(full_gem_table()));
+    assert!(custom.unknown.is_empty(), "{:?}", custom.unknown);
+    assert_eq!(
+        custom
+            .gem_data
+            .as_ref()
+            .and_then(CustomGemDataTable::mohs_range),
+        Some((7.5, 8.0))
+    );
+    assert_eq!(
+        custom
+            .gem_data
+            .as_ref()
+            .and_then(CustomGemDataTable::toughness_ranks),
+        Some((3, 3))
+    );
+    assert!(custom.gem_data.expect("table").load_notes().is_empty());
+}
+
+/// T-C2: without gem data no key is written, the file equals the bytes of a build that has no
+/// such field, and the key is absent on load.
+#[test]
+fn custom_snapshot_without_gem_data_writes_no_key() {
+    let with_none = write(&gem_file(None));
+    assert!(!with_none.contains("gem_data"), "{with_none}");
+    let empty = write(&gem_file(Some(CustomGemDataTable::default())));
+    assert_eq!(with_none, empty, "an empty table is not written");
+    let custom = read(&with_none).material.custom.expect("snapshot");
+    assert_eq!(custom.gem_data, None);
+}
+
+/// `text` with its `[material.custom.gem_data]` table edited by `edit`.
+fn with_edited_gem_table(text: &str, edit: impl FnOnce(&mut toml::Table)) -> String {
+    let mut doc: toml::Table = toml::from_str(text).expect("valid toml");
+    let gem = doc
+        .get_mut("material")
+        .and_then(toml::Value::as_table_mut)
+        .and_then(|m| m.get_mut("custom"))
+        .and_then(toml::Value::as_table_mut)
+        .and_then(|c| c.get_mut("gem_data"))
+        .and_then(toml::Value::as_table_mut)
+        .expect("[material.custom.gem_data]");
+    edit(gem);
+    toml::to_string(&doc).expect("serializes")
+}
+
+/// T-C2: a build that does not know the table keeps it through `unknown` and writes it back.
+#[test]
+fn gem_data_table_survives_an_older_build_through_unknown() {
+    let text = write(&gem_file(Some(full_gem_table())));
+    let mut doc: toml::Table = toml::from_str(&text).expect("valid toml");
+    let custom = doc
+        .get_mut("material")
+        .and_then(toml::Value::as_table_mut)
+        .and_then(|m| m.get_mut("custom"))
+        .and_then(toml::Value::as_table_mut)
+        .expect("[material.custom]");
+    // An older build has no `gem_data` field, so it reads the table as an unknown entry and
+    // writes the same entry back. A key this build does not know stands in for that entry.
+    let table = custom.remove("gem_data").expect("gem_data present");
+    custom.insert("future_gem_data".to_owned(), table.clone());
+    let reread = read(&toml::to_string(&doc).expect("serializes"));
+    let kept = reread
+        .material
+        .custom
+        .as_ref()
+        .expect("snapshot")
+        .unknown
+        .get("future_gem_data")
+        .cloned();
+    assert_eq!(kept, Some(table));
+    let saved = write(&reread);
+    assert!(saved.contains("future_gem_data"), "{saved}");
+}
+
+/// T-C3: an unknown toughness word or Mohs 12 loads as not recorded, with a note, and never
+/// fails the file.
+#[test]
+fn gem_data_with_unknown_toughness_or_out_of_range_mohs_reads_as_not_recorded() {
+    let base = write(&gem_file(Some(full_gem_table())));
+    let text = with_edited_gem_table(&base, |gem| {
+        gem.insert(
+            "mohs".to_owned(),
+            toml::Value::Array(vec![7.5.into(), 12.0.into()]),
+        );
+        gem.insert(
+            "toughness".to_owned(),
+            toml::Value::Array(vec!["good".into(), "splendid".into()]),
+        );
+    });
+    let table = read(&text)
+        .material
+        .custom
+        .and_then(|c| c.gem_data)
+        .expect("table loads");
+    assert_eq!(table.mohs_range(), None);
+    assert_eq!(table.toughness_ranks(), None);
+    assert_eq!(table.cleavage.as_deref(), Some("Imperfect basal"));
+    assert_eq!(table.load_notes().len(), 2, "{:?}", table.load_notes());
+}
+
+/// T-C3: the toughness words are read without case, and a value of the wrong type is dropped.
+#[test]
+fn gem_data_words_are_case_insensitive_and_wrong_types_are_dropped() {
+    assert_eq!(gem_toughness_rank("Very poor"), Some(0));
+    assert_eq!(gem_toughness_rank(" EXCEPTIONAL "), Some(5));
+    assert_eq!(gem_toughness_rank("tough"), None);
+    let base = write(&gem_file(Some(full_gem_table())));
+    let text = with_edited_gem_table(&base, |gem| {
+        gem.insert("mohs".to_owned(), "hard".into());
+    });
+    let table = read(&text)
+        .material
+        .custom
+        .and_then(|c| c.gem_data)
+        .expect("table loads");
+    assert_eq!(table.mohs, None);
+    assert_eq!(table.cleavage.as_deref(), Some("Imperfect basal"));
+}
+
 mod color_variant;
 mod default_orientation;
 #[cfg(test)]

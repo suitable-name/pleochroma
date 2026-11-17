@@ -299,6 +299,7 @@ const fn judged_as(metric: SweepMetric) -> Option<(DeltaMetric, bool)> {
         SweepMetric::TiltBrilliance => Some((DeltaMetric::Brilliance, true)),
         SweepMetric::TiltWindowing => Some((DeltaMetric::Windowing, true)),
         SweepMetric::TiltExtinction => Some((DeltaMetric::Extinction, true)),
+        SweepMetric::Contrast => Some((DeltaMetric::Contrast, false)),
     }
 }
 
@@ -309,11 +310,13 @@ const fn judged_as(metric: SweepMetric) -> Option<(DeltaMetric, bool)> {
     reason = "the engine's figures are f32, widened for the table; narrowing gives them back"
 )]
 fn within_noise(metric: SweepMetric, best: f64, value: f64) -> bool {
-    match judged_as(metric) {
-        Some((judged, tilt)) => judge(judged, best as f32, value as f32, tilt)
-            .is_some_and(|change| change.tone == Tone::Same),
-        None => (best - value).abs() <= YIELD_NOISE_POINTS,
-    }
+    judged_as(metric).map_or_else(
+        || (best - value).abs() <= YIELD_NOISE_POINTS,
+        |(judged, tilt)| {
+            judge(judged, best as f32, value as f32, tilt)
+                .is_some_and(|change| change.tone == Tone::Same)
+        },
+    )
 }
 
 /// The pairs that are as good as the best one within the figure's noise threshold: the

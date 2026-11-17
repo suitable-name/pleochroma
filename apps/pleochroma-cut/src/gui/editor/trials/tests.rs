@@ -271,6 +271,27 @@ fn a_row_always_has_one_cell_per_column() {
 }
 
 #[test]
+fn the_columns_stay_the_fixed_five_and_leave_contrast_out() {
+    assert_eq!(present::COLUMNS.len(), 5);
+    assert!(!present::COLUMNS.contains(&DeltaFigure::Contrast));
+    let mut scored = row(true, "a");
+    scored.cells.push(TrialCell {
+        figure: DeltaFigure::Contrast,
+        text: "27.3".to_owned(),
+        change_text: "+1.0".to_owned(),
+        tone: DeltaTone::Same,
+        best: false,
+        tooltip: String::new(),
+    });
+    let view = present::row_of(&scored, "a");
+    assert_eq!(
+        view.cells.len(),
+        present::COLUMNS.len(),
+        "a Contrast cell in the logic row adds no column"
+    );
+}
+
+#[test]
 fn a_figure_in_the_design_s_material_keeps_its_tone_and_best_mark() {
     let view = present::row_of(&row(true, "a"), "a");
     let cell = &view.cells[0];

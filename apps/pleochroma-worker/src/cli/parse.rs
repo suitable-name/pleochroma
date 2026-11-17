@@ -13,15 +13,22 @@ use super::args::{
     CertClaimArgs, CertInitArgs, CertIssueClientArgs, CertIssueServerArgs, CertIssueTokenArgs,
     Command, ComputeMode, HelpTopic, JoinArgs, RenderArgs, ServeArgs,
 };
-use pleochroma_net::messages::{PeerRole, adaptive::PayloadChoice};
-use std::{net::IpAddr, path::PathBuf};
+use pleochroma_net::{
+    messages::{PeerRole, adaptive::PayloadChoice},
+    pairing::MAX_ADDRS,
+};
+use std::{
+    net::{IpAddr, SocketAddrV4},
+    path::PathBuf,
+};
 
 impl HelpTopic {
-    /// Resolves the `--help` page `argv` names, from the leading run of non-flag
-    /// tokens (`argv[0]`, and `argv[1]` when `argv[0]` is `"cert"`) -- the same prefix
-    /// [`parse`] dispatches on. An unrecognized or empty leading run resolves to
-    /// [`HelpTopic::Root`] (or [`HelpTopic::Cert`] one level down): the page that lists
-    /// the valid names.
+    /// Resolves the `--help` page `argv` names, from the leading run of non-flag tokens (`argv[0]`,
+    /// and `argv[1]` when `argv[0]` is `"cert"`) -- the same prefix [`parse`] dispatches on.
+    ///
+    /// An unrecognized or empty leading run resolves to [`HelpTopic::Root`] (or [`HelpTopic::Cert`]
+    /// one level down): the page that lists the valid names.
+    #[must_use]
     pub fn from_argv(argv: &[String]) -> Self {
         let mut leading = argv.iter().take_while(|a| !a.starts_with('-'));
         match leading.next().map(String::as_str) {
@@ -77,7 +84,41 @@ fn resolve_compute_mode(compute_mode: Option<ComputeMode>) -> Result<ComputeMode
     Ok(mode)
 }
 
+/// The one line `--version` prints: the program name and its version.
+#[must_use]
+pub fn version_line() -> String {
+    format!("pleochroma-worker {}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Whether `argv` (global flags already taken out) is a plain version request.
+///
+/// `--version` or `-V`, with at most the start-up switches (`--no-update-check`, `--radv-workaround
+/// <value>`) before it, and no `--help`. `main` answers it before anything else starts, so standard
+/// output holds the version line and nothing else.
+#[must_use]
+pub fn wants_version(argv: &[String]) -> bool {
+    if argv.iter().any(|a| a == "-h" || a == "--help") {
+        return false;
+    }
+    let mut words = argv.iter();
+    while let Some(arg) = words.next() {
+        match arg.as_str() {
+            "--version" | "-V" => return true,
+            "--no-update-check" => {}
+            "--radv-workaround" => {
+                let _ = words.next();
+            }
+            other if other.starts_with("--radv-workaround=") => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// Parses `argv` (without the program name).
+///
+/// `--version`/`-V` as the first argument gives [`Command::Version`] (`main` answers it earlier
+/// still, see [`wants_version`]).
 ///
 /// `-h`/`--help` anywhere in the arguments short-circuits to [`Command::Help`], even if
 /// other required flags are missing. The [`HelpTopic`] is resolved by
@@ -92,6 +133,7 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         return Ok(Command::Help(HelpTopic::from_argv(argv)));
     }
     match argv[0].as_str() {
+        "--version" | "-V" => Ok(Command::Version),
         "render" => parse_render(&argv[1..]).map(Command::Render),
         "serve" => parse_serve(&argv[1..]).map(|args| Command::Serve(Box::new(args))),
         "join" => parse_join(&argv[1..]).map(Command::Join),
@@ -228,6 +270,8 @@ fn parse_cert_issue_token(args: &[String]) -> Result<CertIssueTokenArgs, String>
     let mut admin_addr = None;
     let mut name = None;
     let mut role = PeerRole::Viewer;
+    let mut addresses: Vec<SocketAddrV4> = Vec::new();
+    let mut no_qr = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -245,8 +289,23 @@ fn parse_cert_issue_token(args: &[String]) -> Result<CertIssueTokenArgs, String>
             }
             "--role" => {
                 i += 1;
-                role = parse_role(arg_at(args, i, "--role")?)?;
+                role = parse_token_role(arg_at(args, i, "--role")?)?;
             }
+            "--address" => {
+                i += 1;
+                let address = parse_link_address(arg_at(args, i, "--address")?)?;
+                if addresses.contains(&address) {
+                    return Err(format!("--address {address} was given twice"));
+                }
+                if addresses.len() >= MAX_ADDRS {
+                    return Err(format!(
+                        "--address can be given at most {MAX_ADDRS} times (a pairing link holds \
+                         up to {MAX_ADDRS} addresses)"
+                    ));
+                }
+                addresses.push(address);
+            }
+            "--no-qr" => no_qr = true,
             other => {
                 return Err(format!(
                     "unknown flag {other:?} for \"cert issue-token\" (see --help)"
@@ -261,7 +320,34 @@ fn parse_cert_issue_token(args: &[String]) -> Result<CertIssueTokenArgs, String>
             .ok_or_else(|| "\"cert issue-token\" requires --admin-addr <host:port>".to_string())?,
         name: name.ok_or_else(|| "\"cert issue-token\" requires --name <label>".to_string())?,
         role,
+        addresses,
+        no_qr,
     })
+}
+
+/// Parses `cert issue-token`'s `--role` value: `viewer`, `worker`, `monitor` or `admin`.
+fn parse_token_role(raw: &str) -> Result<PeerRole, String> {
+    match raw {
+        "monitor" => Ok(PeerRole::Monitor),
+        "admin" => Ok(PeerRole::Admin),
+        other => parse_role(other).map_err(|_| {
+            format!(
+                "--role expects \"viewer\", \"worker\", \"monitor\" or \"admin\", got {other:?}"
+            )
+        }),
+    }
+}
+
+/// Parses an `--address` value: an IPv4 address and a non-zero port (`192.168.1.20:7878`).
+fn parse_link_address(raw: &str) -> Result<SocketAddrV4, String> {
+    raw.parse::<SocketAddrV4>()
+        .ok()
+        .filter(|addr| addr.port() != 0)
+        .ok_or_else(|| {
+            format!(
+                "--address expects an IPv4 address and port like 192.168.1.20:7878, got {raw:?}"
+            )
+        })
 }
 
 fn parse_cert_claim(args: &[String]) -> Result<CertClaimArgs, String> {
@@ -335,10 +421,11 @@ fn parse_render(args: &[String]) -> Result<RenderArgs, String> {
         match args[i].as_str() {
             "--engine" => {
                 i += 1;
-                engine = Some(match arg_at(args, i, "--engine")? {
-                    value @ ("path" | "ray") => value.to_owned(),
-                    _ => return Err("--engine must be path or ray".to_owned()),
-                });
+                let value = arg_at(args, i, "--engine")?;
+                if !matches!(value, "path" | "ray") {
+                    return Err("--engine must be path or ray".to_owned());
+                }
+                engine = Some(value.to_owned());
             }
             "--scene" => {
                 i += 1;
@@ -408,6 +495,7 @@ fn default_serve_args() -> ServeArgs {
         no_workers: false,
         worker_allowlist: None,
         db: None,
+        no_library: false,
         max_connections: super::DEFAULT_MAX_CONNECTIONS,
         max_preauth_per_ip: super::DEFAULT_MAX_PREAUTH_PER_IP,
         interactive_workers: super::ALL_INTERACTIVE_WORKERS,
@@ -417,6 +505,7 @@ fn default_serve_args() -> ServeArgs {
         whole_image_pixel_samples: super::DEFAULT_WHOLE_IMAGE_PIXEL_SAMPLES,
         jobs_per_viewer: super::DEFAULT_JOBS_PER_VIEWER,
         payload_encoding: PayloadChoice::Auto,
+        allow_remote_admin: false,
     }
 }
 
@@ -439,6 +528,13 @@ fn parse_serve(args: &[String]) -> Result<ServeArgs, String> {
     if out.max_connections == 0 {
         return Err(
             "--max-connections must be at least 1 -- 0 would refuse every connection (see --help)"
+                .to_string(),
+        );
+    }
+    if out.no_library && out.db.is_some() {
+        return Err(
+            "--no-library and --db cannot be combined: one serves no library, the other names it \
+             (see --help)"
                 .to_string(),
         );
     }
@@ -472,6 +568,7 @@ fn parse_serve_flag(
         "--bind" => out.bind = value(&mut i)?,
         "--threads" => out.threads = parse_u32(flag, &value(&mut i)?)? as usize,
         "--allow-remote" => out.allow_remote = true,
+        "--allow-remote-admin" => out.allow_remote_admin = true,
         "--ca" => out.ca = Some(PathBuf::from(value(&mut i)?)),
         "--cert" => out.cert = Some(PathBuf::from(value(&mut i)?)),
         "--key" => out.key = Some(PathBuf::from(value(&mut i)?)),
@@ -485,6 +582,7 @@ fn parse_serve_flag(
         "--no-workers" => out.no_workers = true,
         "--worker-allowlist" => out.worker_allowlist = Some(PathBuf::from(value(&mut i)?)),
         "--db" => out.db = Some(PathBuf::from(value(&mut i)?)),
+        "--no-library" => out.no_library = true,
         "--max-connections" => {
             let max_connections = parse_u32(flag, &value(&mut i)?)?;
             if max_connections == 0 {

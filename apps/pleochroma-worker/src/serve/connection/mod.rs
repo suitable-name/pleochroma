@@ -1,8 +1,9 @@
-//! Per-connection request handling: the `HELLO`/`WELCOME` handshake and the loop
-//! dispatching whatever the peer sends -- `ClientMessage::Library` always, and (only on
-//! a `worker` build) `ClientMessage::RenderRequest`/`ClientMessage::TiltCurvesRequest`
-//! too -- until the peer closes the connection. See `crate::serve`'s module docs for the
-//! full architecture this participates in.
+//! Per-connection request handling.
+//!
+//! The `HELLO`/`WELCOME` handshake and the loop dispatching whatever the peer sends --
+//! `ClientMessage::Library` always, and (only on a `worker` build)
+//! `ClientMessage::RenderRequest`/`ClientMessage::TiltCurvesRequest` too -- until the peer closes
+//! the connection. See `crate::serve`'s module docs for the full architecture this participates in.
 //!
 //! - this file: what both build modes share (refusals, the library dispatch) and the
 //!   library-only build's whole handler;

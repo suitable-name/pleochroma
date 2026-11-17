@@ -29,6 +29,11 @@
 //! `allowlist-workers.txt`; see `crate::pki::role` and [`tls`]); the `HELLO` gate
 //! ([`handshake`]) refuses a mismatched role with `ROLE_REFUSED`.
 //!
+//! **Remote administration** (off unless `--allow-remote-admin`) shares the viewer port: a
+//! monitor or admin certificate, listed in `allowlist-monitors.txt` or `allowlist-admins.txt`,
+//! whose `HELLO` role matches its certificate, gets an administration session
+//! ([`crate::admin`]) instead of the viewer handler. Off, such a `HELLO` is refused as before.
+//!
 //! **The library protocol sits behind the exact same mutual-TLS authentication as the
 //! render protocol -- there is no separate check.** Both are message variants read off
 //! the same already-authenticated stream.
@@ -77,22 +82,37 @@ use std::{
     net::{SocketAddr, TcpListener},
     sync::Arc,
     thread,
+    time::Duration,
 };
 
 #[cfg(feature = "worker")]
 use crate::{cli::ComputeMode, coordinator};
-use crate::{cli::ServeArgs, enroll};
-use pleochroma_net::messages::PeerRole;
+use crate::{
+    cli::ServeArgs,
+    control::{
+        api::{ControlParts, ControlState},
+        events::EventHub,
+        shutdown::{ConnectionSet, Latch, ListenerStop},
+        status::ServeInfo,
+        table::ConnectionTable,
+    },
+    enroll,
+};
+use pleochroma_net::{admin::status::CoordinatorEvent, messages::PeerRole};
 
 mod accept;
 mod connection;
-mod handshake;
+pub(crate) mod handshake;
 pub mod library;
+mod lifecycle;
 mod limiter;
 mod socket;
 #[cfg(feature = "worker")]
 mod tilt;
 mod tls;
+// The GPU shader warm-up of a render computer (see its own doc comment).
+#[cfg(feature = "worker")]
+pub(crate) mod warmup;
 // Zones received over the wire (see its own doc comment).
 #[cfg(feature = "worker")]
 pub(crate) mod zoning;
@@ -101,6 +121,11 @@ pub(crate) mod zoning;
 // `pub(crate)` so other test modules (the coordinator's) share its temp-dir helper.
 #[cfg(all(test, feature = "worker"))]
 pub(crate) mod tests;
+
+pub use lifecycle::{
+    DEFAULT_SHUTDOWN_DEADLINE, ShutdownHandle, ShutdownReport, StartingServe, run_until,
+    start_background,
+};
 
 #[cfg(feature = "worker")]
 pub(crate) use connection::refuse_for_capacity;
@@ -115,6 +140,9 @@ pub(crate) use socket::{DeadlineIo, DeadlineSocket};
 #[cfg(feature = "worker")]
 pub(crate) use socket::{apply_handshake_timeout, tune_accepted_socket};
 pub(crate) use tls::Auth;
+// For `certs`' tests, which run real handshakes through this config.
+#[cfg(test)]
+pub(crate) use tls::server_config_with_resolver;
 #[cfg(feature = "worker")]
 pub(crate) use tls::{TlsStream, accept_tls};
 
@@ -134,12 +162,14 @@ pub(crate) use socket::payload_preference_for;
 #[cfg(feature = "worker")]
 pub(crate) use tilt::{CancelPoll, handle_tilt_curves_request, poll_for_cancel};
 
-/// What [`start`] brought up.
+/// Everything a running `serve` offers its control layer: the listening addresses, the joined
+/// workers and jobs, the pairing and device API (see [`crate::control::api`]) and the status.
 ///
-/// Every listener's actual bound address (useful with port `0`) and, on `worker`
-/// builds, the coordinator's joined-worker registry. The listeners run on background
-/// threads; [`Self::wait`] blocks on the viewer accept loop.
-pub struct ServeHandle {
+/// It is shared (`Arc`) between the [`ServeHandle`] and the viewer accept loop, so a remote
+/// administration session ([`crate::admin`]) acts through exactly the methods the coordinator
+/// window uses. A `ServeHandle` derefs to it, so `handle.viewer_addr` and `handle.revoke(..)`
+/// work as before.
+pub struct ServeCore {
     /// The viewer listener (`--bind`).
     pub viewer_addr: SocketAddr,
     /// The viewer enrollment listener, if started.
@@ -154,25 +184,79 @@ pub struct ServeHandle {
     /// The coordinator's job execution state (always present on `worker` builds).
     #[cfg(feature = "worker")]
     pub coordinator: Option<Arc<coordinator::Coordinator>>,
-    accept_thread: thread::JoinHandle<()>,
+    /// Pairing codes, device removal and renaming, and the event stream (see
+    /// [`crate::control::api`]).
+    pub(crate) control: ControlState,
+    /// What this `serve` was started with that the status reports (see
+    /// [`crate::control::status`]).
+    pub(crate) info: ServeInfo,
+    /// Every owner's jobs, for the coordinator window; present when the job store is.
+    #[cfg(feature = "worker")]
+    pub(crate) job_admin: Option<crate::control::jobs::JobAdmin>,
 }
 
-impl ServeHandle {
-    /// Blocks until the viewer accept loop ends (in practice: forever).
-    pub fn wait(self) {
-        if self.accept_thread.join().is_err() {
-            tracing::error!("pleochroma-worker serve: the viewer accept loop panicked");
-        }
+/// What [`start`] brought up.
+///
+/// Every listener's actual bound address (useful with port `0`) and, on `worker`
+/// builds, the coordinator's joined-worker registry (both through [`ServeCore`], which this
+/// derefs to). The listeners run on background threads; [`Self::wait`] blocks on the viewer
+/// accept loop.
+pub struct ServeHandle {
+    /// What the control layer and the remote administration sessions share.
+    core: Arc<ServeCore>,
+    /// Raised when the viewer accept loop thread has ended.
+    viewer_exit: Latch,
+    lifecycle: Arc<lifecycle::Lifecycle>,
+}
+
+impl std::ops::Deref for ServeHandle {
+    type Target = ServeCore;
+
+    fn deref(&self) -> &ServeCore {
+        &self.core
     }
 }
 
-/// Runs the `serve` subcommand: [`start`], then serves forever.
+impl ServeHandle {
+    /// The shared part of this `serve`, for threads that outlive a borrow of the handle.
+    #[must_use]
+    pub const fn core(&self) -> &Arc<ServeCore> {
+        &self.core
+    }
+
+    /// Blocks until the viewer accept loop ends: forever, until [`Self::shutdown`] (or a
+    /// [`ShutdownHandle`]) stops it.
+    pub fn wait(self) {
+        self.viewer_exit.wait();
+    }
+
+    /// A cloneable handle that can shut this `serve` down from another thread.
+    #[must_use]
+    pub fn shutdown_handle(&self) -> ShutdownHandle {
+        ShutdownHandle::new(Arc::clone(&self.lifecycle))
+    }
+
+    /// Shuts `serve` down: stops every listener (so the ports are free again), closes the
+    /// connections, stops the job service and waits up to `deadline` for the threads.
+    ///
+    /// See the `lifecycle` module doc comment for the order and for what survives a timeout.
+    #[must_use]
+    pub fn shutdown(&self, deadline: Duration) -> ShutdownReport {
+        self.shutdown_handle().shutdown(deadline)
+    }
+}
+
+/// Runs the `serve` subcommand: starts it with [`start_background`], then serves until the accept
+/// loop ends.
+///
+/// Without a stop signal that is forever; the command line program uses [`run_until`] to add Ctrl-C
+/// and SIGTERM.
 ///
 /// # Errors
 ///
 /// Whatever [`start`] returns.
 pub fn run(args: &ServeArgs) -> Result<(), String> {
-    start(args)?.wait();
+    start_background(args.clone()).wait()?.wait();
     Ok(())
 }
 
@@ -182,7 +266,9 @@ pub fn run(args: &ServeArgs) -> Result<(), String> {
 /// `args.allow_remote` is set, independent of TLS. Builds the mutual-TLS server config
 /// from `args.ca`/`args.cert`/`args.key` (required unless `args.insecure_no_tls`),
 /// pre-loading the viewer allowlist to fail fast on a bad path (the per-connection check
-/// re-reads it every time). Preflights the library database once. `worker` builds
+/// re-reads it every time). Preflights the library database once; one that cannot be
+/// opened is a warning, not an error: the coordinator then runs without a library and
+/// answers library requests with a plain "no library" error. `worker` builds
 /// acquire this process's `GpuBackend` only for `--render` without `--only-cpu`; open
 /// the worker port with its own limiter, registry and liveness thread; and start the
 /// worker enrollment listener.
@@ -192,7 +278,8 @@ pub fn run(args: &ServeArgs) -> Result<(), String> {
 /// A human-readable message if an address doesn't parse or is non-loopback without
 /// `--allow-remote`, if `--insecure-no-tls` is combined with a non-loopback bind, if TLS
 /// is enabled but `--ca`/`--cert`/`--key` are missing or unloadable, if an allowlist
-/// can't be loaded, if the design-library database can't be opened, or if a bind fails.
+/// can't be loaded, or if a bind fails. A failed start stops whatever it had already
+/// started.
 pub fn start(args: &ServeArgs) -> Result<ServeHandle, String> {
     start_inner(
         args,
@@ -219,12 +306,216 @@ fn start_inner(
     args: &ServeArgs,
     #[cfg(feature = "worker")] liveness: coordinator::LivenessConfig,
 ) -> Result<ServeHandle, String> {
+    let mut lifecycle = lifecycle::Lifecycle::new();
+    let started = start_parts(
+        args,
+        #[cfg(feature = "worker")]
+        liveness,
+        &mut lifecycle,
+    );
+    match started {
+        Ok(started) => Ok(ServeHandle {
+            core: started.core,
+            viewer_exit: started.viewer_exit,
+            lifecycle: Arc::new(lifecycle),
+        }),
+        Err(message) => {
+            // Whatever was already listening is stopped, so a retry finds the ports free.
+            let _ = lifecycle.shutdown(Duration::from_secs(2));
+            Err(message)
+        }
+    }
+}
+
+/// What [`start_parts`] brought up, before it becomes a [`ServeHandle`].
+struct Started {
+    core: Arc<ServeCore>,
+    viewer_exit: Latch,
+}
+
+/// What the address watch needs, held back until the viewer port is bound (the discovery
+/// announcement names that port).
+struct WatchParts {
+    certificate: Arc<crate::certs::SwappableCert>,
+    /// The `--cert` and `--key` files (or the defaults next to `--ca`) the watch reissues.
+    files: crate::certs::ServerFiles,
+}
+
+/// The server-certificate part of start-up: reissues a certificate that lacks the fixed
+/// name and builds the transport. With TLS it also returns the pieces of the address watch
+/// that reissues and swaps the certificate when the LAN addresses change;
+/// [`start_address_watch`] starts it once the viewer port is bound.
+fn prepare_transport(
+    args: &ServeArgs,
+    bind_addr: SocketAddr,
+) -> Result<(tls::Transport, Option<WatchParts>), String> {
+    // The files the coordinator really runs with: `--cert` and `--key`, not a guess next to
+    // `--ca`.
+    let files = crate::certs::ServerFiles::from_args(args);
+    if !args.insecure_no_tls
+        && let Some(files) = &files
+        && let Err(error) = crate::certs::migrate_server_certificate(
+            files,
+            &crate::control::status::extra_certificate_names(),
+            &pleochroma_net::netinfo::lan_ipv4(),
+        )
+    {
+        tracing::warn!(
+            "pleochroma-worker serve: could not reissue the server certificate with the fixed name ({error})"
+        );
+    }
+    let (transport, certificate) = tls::build_transport_with_cert(args, bind_addr)?;
+    let watch = certificate
+        .zip(files)
+        .map(|(certificate, files)| WatchParts { certificate, files });
+    Ok((transport, watch))
+}
+
+/// Announces this coordinator on the network (mDNS) for the CA in `args.ca`, on the viewer
+/// `port`, under this computer's display name. `None` (with a logged reason) when the CA
+/// cannot be read or the announcement cannot start: discovery is a convenience, never a
+/// reason to fail the start.
+fn start_announcement(args: &ServeArgs, port: u16) -> Option<pleochroma_net::discovery::Announcer> {
+    let ca = args.ca.as_deref()?;
+    let certificates = match pleochroma_net::tls::load_certs(ca) {
+        Ok(certificates) => certificates,
+        Err(error) => {
+            tracing::warn!(
+                "pleochroma-worker serve: not announcing on the network, the CA could not be read ({error})"
+            );
+            return None;
+        }
+    };
+    let fingerprint = pleochroma_net::tls::fingerprint(certificates.first()?);
+    let name = crate::control::status::configured_display_name();
+    match pleochroma_net::discovery::announce(&name, port, &fingerprint) {
+        Ok(announcer) => {
+            tracing::info!(
+                "pleochroma-worker serve: announcing {name:?} on the network (port {port})"
+            );
+            Some(announcer)
+        }
+        Err(error) => {
+            tracing::warn!("pleochroma-worker serve: could not announce on the network: {error}");
+            None
+        }
+    }
+}
+
+/// Starts the certificate address watch and, when the discovery setting is on, the network
+/// announcement. Returns the watch and whether the announcement runs.
+///
+/// The announcement belongs to the watch: its swap hook is wrapped with
+/// [`crate::certs::announcing_hook`], which holds the announcer, so the announcement ends
+/// (with its goodbye) when shutdown stops the watch. Address changes are also published as
+/// events.
+///
+/// The discovery setting comes from [`crate::control::status::discovery_setting`], not from
+/// `ServeArgs`: `ServeArgs` mirrors the command line, which has no discovery flag. It is off
+/// without a loaded settings file and for a loopback `viewer` address.
+fn start_address_watch(
+    args: &ServeArgs,
+    parts: WatchParts,
+    viewer: SocketAddr,
+    hub: &EventHub,
+) -> (crate::certs::AddressWatch, bool) {
+    // A coordinator that listens on loopback only has nobody on the network to announce to.
+    let announcer = if crate::control::status::discovery_setting() && !viewer.ip().is_loopback() {
+        start_announcement(args, viewer.port())
+    } else {
+        None
+    };
+    let discoverable = announcer.is_some();
+    let events = hub.clone();
+    let base: crate::certs::SwapHook = Arc::new(move |swap| {
+        tracing::info!(
+            "pleochroma-worker serve: server certificate swapped, now listing {} address(es)",
+            swap.addresses.len()
+        );
+        let addresses: Vec<String> = swap.addresses.iter().map(ToString::to_string).collect();
+        events.publish(&CoordinatorEvent::CertificateSwapped {
+            addresses: addresses.clone(),
+        });
+        events.publish(&CoordinatorEvent::AddressesChanged { addresses });
+    });
+    let hook = if let Some(announcer) = announcer {
+        crate::certs::announcing_hook(base, Arc::new(announcer))
+    } else {
+        base
+    };
+    let watch = crate::certs::AddressWatch::start(crate::certs::CertificateRefresh::new(
+        parts.files,
+        crate::control::status::extra_certificate_names(),
+        parts.certificate,
+        hook,
+    ));
+    (watch, discoverable)
+}
+
+/// Makes the worker registry tell the activity feed when a render computer joins or leaves,
+/// whoever caused it: the computer itself, a liveness timeout or an administrator.
+#[cfg(feature = "worker")]
+fn publish_worker_events(registry: &coordinator::Registry, hub: &EventHub) {
+    use crate::{control::status::worker_display_name, coordinator::WorkerEvent};
+    use pleochroma_net::admin::status::WorkerId;
+
+    let hub = hub.clone();
+    registry.set_observer(move |event| {
+        let published = match event {
+            WorkerEvent::Joined(info) => CoordinatorEvent::WorkerJoined {
+                id: WorkerId(info.worker_id),
+                name: worker_display_name(info),
+            },
+            WorkerEvent::Left(info) => CoordinatorEvent::WorkerLeft {
+                id: WorkerId(info.worker_id),
+                name: worker_display_name(info),
+            },
+        };
+        hub.publish(&published);
+    });
+}
+
+/// Makes the job service tell the activity feed when a job is submitted, starts, or ends, so
+/// the feed shows what the coordinator does on its own and not only what an administrator
+/// does.
+#[cfg(feature = "worker")]
+fn publish_job_events(jobs: &crate::jobs::JobService, control: &ControlState) {
+    use crate::{
+        control::jobs::{owner_display, state_of},
+        jobs::JobChange,
+    };
+    use pleochroma_net::admin::status::JobId as StatusJobId;
+
+    let control = control.clone();
+    jobs.set_observer(move |owner, info, change| {
+        let (owner_name, _) = owner_display(owner, &control.device_names());
+        let id = StatusJobId(info.job_id);
+        let event = match change {
+            JobChange::Submitted => CoordinatorEvent::JobSubmitted {
+                id,
+                owner: owner_name,
+                label: info.label.clone(),
+            },
+            JobChange::Changed => CoordinatorEvent::JobStateChanged {
+                id,
+                state: state_of(info.phase),
+                owner: owner_name,
+                label: info.label.clone(),
+            },
+        };
+        control.hub().publish(&event);
+    });
+}
+
+fn start_parts(
+    args: &ServeArgs,
+    #[cfg(feature = "worker")] liveness: coordinator::LivenessConfig,
+    lifecycle: &mut lifecycle::Lifecycle,
+) -> Result<Started, String> {
     let bind_addr = checked_addr(&args.bind, "--bind", args.allow_remote)?;
-    let transport = tls::build_transport(args, bind_addr)?;
+    let (transport, watch_parts) = prepare_transport(args, bind_addr)?;
     let db_path = socket::resolve_library_db_path(args);
-    // Fail fast on a bad `--db` before binding a socket; each connection opens its own on
-    // its first library request.
-    drop(socket::open_library_database(&db_path)?);
+    let library_present = library_available(args, &db_path);
     let limiter = ConnectionLimiter::new(args.max_connections);
     let handshake_limiter = ConnectionLimiter::new(
         args.max_connections
@@ -243,46 +534,167 @@ fn start_inner(
         capability_summary(args),
     );
 
+    // One hub and one table from here on, so the worker port registers its connections in
+    // the same table as the viewer port and everything publishes into the same stream.
+    let hub = EventHub::new();
+    let table = ConnectionTable::new(hub.clone());
+    // Without TLS there is no address watch, and so no announcement.
+    let discovery = watch_parts.is_some_and(|parts| {
+        let (watch, announced) = start_address_watch(args, parts, viewer_addr, &hub);
+        lifecycle.set_watch(watch);
+        announced
+    });
+
     let viewer_auth = match &transport {
         tls::Transport::Tls { auth, .. } => Some(auth.clone()),
         tls::Transport::Insecure => None,
     };
-    let viewer_enroll_addr = start_enrollment(
-        args,
-        args.enroll_bind.as_deref(),
-        bind_addr,
-        1,
-        viewer_auth.as_ref(),
-    )?;
+    let (viewer_enroll_addr, viewer_registry) =
+        start_viewer_enrollment(args, bind_addr, &transport, lifecycle)?;
 
     #[cfg(feature = "worker")]
-    let (worker, render) = start_worker_side(args, bind_addr, &transport, liveness, &db_path)?;
+    let (worker, render) = start_worker_side(
+        args, bind_addr, &transport, liveness, &db_path, lifecycle, &table,
+    )?;
     #[cfg(not(feature = "worker"))]
     let worker = WorkerSide::default();
+    #[cfg(feature = "worker")]
+    {
+        lifecycle.set_registry(worker.registry.clone());
+        lifecycle.set_jobs(render.jobs.clone());
+        if let Some(registry) = &worker.registry {
+            publish_worker_events(registry, &hub);
+        }
+    }
 
+    let connections = ConnectionSet::new();
+    #[cfg(feature = "worker")]
+    let job_admin = render.jobs.clone().map(crate::control::jobs::JobAdmin::new);
+    let control = ControlState::with_table(
+        ControlParts::from_args(
+            args,
+            viewer_auth.as_ref(),
+            viewer_registry,
+            worker.enroll_registry.clone(),
+        ),
+        hub,
+        table,
+    );
+    #[cfg(feature = "worker")]
+    if let Some(jobs) = &render.jobs {
+        publish_job_events(jobs, &control);
+    }
+    let info = ServeInfo::new(args, db_path.clone(), library_present, discovery);
+    // What the control API and the remote administration sessions share with the handle.
+    let core = Arc::new(ServeCore {
+        viewer_addr,
+        viewer_enroll_addr,
+        worker_addr: worker.addr,
+        worker_enroll_addr: worker.enroll_addr,
+        #[cfg(feature = "worker")]
+        registry: worker.registry.clone(),
+        #[cfg(feature = "worker")]
+        coordinator: worker.coordinator,
+        control: control.clone(),
+        info,
+        #[cfg(feature = "worker")]
+        job_admin,
+    });
     let shared = Arc::new(accept::ViewerListener {
         transport,
         limiter,
         handshake_limiter,
         pre_auth_addresses: accept::PreAuthAddresses::new(args.max_preauth_per_ip),
         db_path,
+        library_present,
         max_connections: args.max_connections,
+        connections: connections.clone(),
+        table: control.table(),
+        core: Arc::clone(&core),
         #[cfg(feature = "worker")]
         render,
     });
-    let accept_thread = thread::spawn(move || accept::run_accept_loop(&listener, &shared));
+    let viewer_exit = spawn_viewer_accept(listener, viewer_addr, shared, lifecycle)?;
+    lifecycle.add_connections("viewer connections", connections);
 
-    Ok(ServeHandle {
-        viewer_addr,
-        viewer_enroll_addr,
-        worker_addr: worker.addr,
-        worker_enroll_addr: worker.enroll_addr,
-        #[cfg(feature = "worker")]
-        registry: worker.registry,
-        #[cfg(feature = "worker")]
-        coordinator: worker.coordinator,
-        accept_thread,
-    })
+    Ok(Started { core, viewer_exit })
+}
+
+/// Whether the design library can be served: `false` for "rendering only"
+/// (`args.no_library`), and `false` (with a logged reason) when the file cannot be opened.
+///
+/// A library that cannot be opened is not a failed start: the coordinator runs without one and
+/// answers library requests with a plain "no library" error. `db_path` still anchors the asset
+/// cache and the job directory. A library that opens now but breaks later is handled per
+/// request by `LibraryHandle`.
+fn library_available(args: &ServeArgs, db_path: &std::path::Path) -> bool {
+    if args.no_library {
+        tracing::info!("pleochroma-worker serve: no design library (rendering only)");
+        return false;
+    }
+    match socket::open_library_database(db_path) {
+        Ok(database) => {
+            drop(database);
+            true
+        }
+        Err(message) => {
+            tracing::warn!(
+                "pleochroma-worker serve: starting without a design library ({message})"
+            );
+            false
+        }
+    }
+}
+
+/// Starts the viewer enrollment listener (unless pairing is off or there is no TLS) and hands
+/// its stop to `lifecycle`. Returns its address and its pairing-code registry.
+fn start_viewer_enrollment(
+    args: &ServeArgs,
+    bind_addr: SocketAddr,
+    transport: &tls::Transport,
+    lifecycle: &mut lifecycle::Lifecycle,
+) -> Result<(Option<SocketAddr>, Option<Arc<enroll::EnrollRegistry>>), String> {
+    let (auth, certificate) = match transport {
+        tls::Transport::Tls {
+            auth, certificate, ..
+        } => (Some(auth), Some(certificate)),
+        tls::Transport::Insecure => (None, None),
+    };
+    let started = start_enrollment(
+        args,
+        args.enroll_bind.as_deref(),
+        bind_addr,
+        1,
+        auth,
+        certificate,
+    )?;
+    Ok(started.map_or((None, None), |(addr, stop, registry)| {
+        lifecycle.add_listener(stop);
+        (Some(addr), Some(registry))
+    }))
+}
+
+/// Starts the viewer accept loop on its own thread and registers it with `lifecycle`. Returns
+/// the latch raised when the loop has ended.
+fn spawn_viewer_accept(
+    listener: TcpListener,
+    viewer_addr: SocketAddr,
+    shared: Arc<accept::ViewerListener>,
+    lifecycle: &mut lifecycle::Lifecycle,
+) -> Result<Latch, String> {
+    let viewer_stop = ListenerStop::new(viewer_addr);
+    let viewer_exit = Latch::new();
+    let exit_guard = viewer_exit.exit_guard();
+    let loop_stop = viewer_stop.clone();
+    thread::Builder::new()
+        .name("serve-viewer-accept".to_owned())
+        .spawn(move || {
+            let _exit = exit_guard;
+            accept::run_accept_loop(&listener, &shared, &loop_stop);
+        })
+        .map_err(|e| format!("could not start the viewer accept thread: {e}"))?;
+    lifecycle.add_loop("viewer listener", viewer_stop, viewer_exit.clone());
+    Ok(viewer_exit)
 }
 
 /// The worker port's part of [`ServeHandle`].
@@ -290,6 +702,8 @@ fn start_inner(
 struct WorkerSide {
     addr: Option<SocketAddr>,
     enroll_addr: Option<SocketAddr>,
+    /// The worker enrollment listener's registry (pairing codes for render computers).
+    enroll_registry: Option<Arc<enroll::EnrollRegistry>>,
     #[cfg(feature = "worker")]
     registry: Option<Arc<coordinator::Registry>>,
     #[cfg(feature = "worker")]
@@ -306,6 +720,8 @@ fn start_worker_side(
     transport: &tls::Transport,
     liveness: coordinator::LivenessConfig,
     db_path: &std::path::Path,
+    lifecycle: &mut lifecycle::Lifecycle,
+    table: &ConnectionTable,
 ) -> Result<(WorkerSide, accept::RenderSetup), String> {
     use pleochroma::renderer::gpu_backend::GpuBackend;
     // Acquired once. A device lost later is re-acquired by the backend itself (cool-down
@@ -333,6 +749,16 @@ fn start_worker_side(
         );
     }
 
+    // Builds every kernel the own lane can need in the background, on the lane's own backend
+    // (each step is one FIFO turn, so a real request waits for at most one step). Its progress
+    // shows in the status (`shader_cache`) and in the viewers' `PREPARING`. Stopped at shutdown.
+    if args.render
+        && args.compute_mode != ComputeMode::OnlyCpu
+        && let Some(warm) = warmup::start(Arc::clone(&gpu), "serve")
+    {
+        lifecycle.set_warmup(warm);
+    }
+
     let mut side = WorkerSide::default();
     match transport {
         _ if args.no_workers => {
@@ -342,8 +768,10 @@ fn start_worker_side(
             "pleochroma-worker serve: --insecure-no-tls -- no worker port (joining workers always need mutual TLS \
              and a worker certificate)"
         ),
-        tls::Transport::Tls { config, .. } => {
-            open_worker_port(args, bind_addr, config, liveness, &mut side)?;
+        tls::Transport::Tls { .. } => {
+            open_worker_port(
+                args, bind_addr, transport, liveness, &mut side, lifecycle, table,
+            )?;
         }
     }
     let own = args.render.then(|| coordinator::OwnLaneSetup {
@@ -402,10 +830,20 @@ fn start_worker_side(
 fn open_worker_port(
     args: &ServeArgs,
     bind_addr: SocketAddr,
-    config: &Arc<rustls::ServerConfig>,
+    transport: &tls::Transport,
     liveness: coordinator::LivenessConfig,
     side: &mut WorkerSide,
+    lifecycle: &mut lifecycle::Lifecycle,
+    table: &ConnectionTable,
 ) -> Result<(), String> {
+    let tls::Transport::Tls {
+        config,
+        certificate,
+        ..
+    } = transport
+    else {
+        return Ok(()); // no worker port without TLS
+    };
     let worker_bind = derived_addr(
         args.worker_bind.as_deref(),
         bind_addr,
@@ -417,22 +855,34 @@ fn open_worker_port(
     let worker_limiter = ConnectionLimiter::new(args.max_connections);
     let registry = coordinator::Registry::new(liveness);
     coordinator::Registry::spawn_liveness(&registry);
-    let addr = coordinator::spawn_worker_listener(coordinator::WorkerListenerConfig {
+    let listener = coordinator::spawn_worker_listener(coordinator::WorkerListenerConfig {
         bind_addr: worker_bind,
         tls_config: Arc::clone(config),
         auth: auth.clone(),
         limiter: worker_limiter,
         max_connections: args.max_connections,
         registry: Arc::clone(&registry),
+        table: table.clone(),
     })?;
+    let addr = listener.addr;
+    lifecycle.add_loop("worker listener", listener.stop, listener.exited);
+    lifecycle.add_connections("worker connections", listener.connections);
     // Derived from the CONFIGURED worker address (an ephemeral port 0 stays 0).
+    let mut enroll_registry = None;
     side.enroll_addr = start_enrollment(
         args,
         args.worker_enroll_bind.as_deref(),
         worker_bind,
         1,
         Some(&auth),
-    )?;
+        Some(certificate),
+    )?
+    .map(|(enroll_addr, stop, registry)| {
+        lifecycle.add_listener(stop);
+        enroll_registry = Some(registry);
+        enroll_addr
+    });
+    side.enroll_registry = enroll_registry;
     side.addr = Some(addr);
     side.registry = Some(registry);
     Ok(())
@@ -451,7 +901,7 @@ fn start_job_service(
         return None;
     }
     crate::jobs::JobService::open_configured(db_path, assets.cloned()).inspect(|service| {
-        if let Err(error) = service.spawn_executor(crate::jobs::RenderLane {
+        if let Err(error) = service.start_executor(crate::jobs::RenderLane {
             prefer_gpu: args.compute_mode != ComputeMode::OnlyCpu,
             gpu: Arc::clone(gpu),
             threads: args.threads,
@@ -513,13 +963,19 @@ fn probe_scene() -> pleochroma_net::SceneState {
 ///
 /// Builds its own pair of connection limiters rather than sharing the matching viewer or
 /// worker listener's `--max-connections` limiter (see [`enroll::ENROLL_MAX_CONNECTIONS`]).
+///
+/// Returns the bound address with the [`ListenerStop`] that ends the listener and the
+/// listener's [`enroll::EnrollRegistry`] (the control API issues pairing codes from it); the
+/// caller hands the stop to the lifecycle. The stop is built after the bind, so its wake address is the
+/// real port even when the configured one was `0`.
 fn start_enrollment(
     args: &ServeArgs,
     explicit: Option<&str>,
     base: SocketAddr,
     offset: u16,
     auth: Option<&Auth>,
-) -> Result<Option<SocketAddr>, String> {
+    certificate: Option<&Arc<crate::certs::SwappableCert>>,
+) -> Result<Option<(SocketAddr, ListenerStop, Arc<enroll::EnrollRegistry>)>, String> {
     let Some(auth) = auth else {
         return Ok(None);
     };
@@ -532,11 +988,36 @@ fn start_enrollment(
     let flag = match auth.role {
         PeerRole::Viewer => "--enroll-bind",
         PeerRole::Worker => "--worker-enroll-bind",
+        // Remote administration shares the viewer port and the viewer enrollment listener.
+        PeerRole::Monitor | PeerRole::Admin => return Ok(None),
     };
     let bind = derived_addr(explicit, base, offset, flag, args.allow_remote)?;
-    let config =
+    let mut config =
         enroll::EnrollConfig::build(bind, ca, cert, key, auth.allowlist.clone(), auth.role)?;
-    enroll::spawn_enroll_listener(config).map(Some)
+    // The listener presents the coordinator's live certificate, so a swap after an address
+    // change reaches the next pairing without a restart.
+    if let Some(certificate) = certificate {
+        config = config.with_swappable_certificate(ca, Arc::clone(certificate))?;
+    }
+    let registry = Arc::clone(&config.registry);
+    // Remote administration on: the viewer listener also enrolls monitors and administrators,
+    // listing their certificates in their own allowlists. Without this registration such a
+    // code is never issued (see `enroll::EnrollRegistry::issue_for_role`).
+    if args.allow_remote_admin && auth.role == PeerRole::Viewer {
+        registry.register_allowlist(
+            PeerRole::Monitor,
+            crate::pki::monitor_allowlist_in(&config.pki_dir),
+        );
+        registry.register_allowlist(
+            PeerRole::Admin,
+            crate::pki::admin_allowlist_in(&config.pki_dir),
+        );
+    }
+    let bound = enroll::bind_enroll_listener(config)?;
+    let addr = bound.local_addr();
+    let stop = ListenerStop::new(addr);
+    bound.spawn(stop.clone());
+    Ok(Some((addr, stop, registry)))
 }
 
 /// Parses `addr` for `flag` and refuses a non-loopback address without `--allow-remote`.

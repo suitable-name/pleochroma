@@ -5,6 +5,7 @@
 //! every value needs its own validation message anyway, so a dependency buys little.
 
 mod args;
+mod global;
 mod parse;
 #[cfg(test)]
 mod tests;
@@ -13,7 +14,11 @@ pub use args::{
     CertClaimArgs, CertInitArgs, CertIssueClientArgs, CertIssueServerArgs, CertIssueTokenArgs,
     Command, ComputeMode, HelpTopic, JoinArgs, RenderArgs, ServeArgs,
 };
-pub use parse::parse;
+pub use global::{
+    CONFIG_FLAG, GlobalFlags, HEADLESS_FLAG, LaunchMode, MINIMIZED_FLAG, launch_mode,
+    requests_window, take_global_flags,
+};
+pub use parse::{parse, version_line, wants_version};
 
 /// Default listen address of `serve`.
 pub const DEFAULT_BIND: &str = "127.0.0.1:7878";
@@ -29,9 +34,10 @@ pub const DEFAULT_MAX_PREAUTH_PER_IP: usize = 8;
 /// (see [`ServeArgs::max_job_memory_mib`]).
 pub const DEFAULT_MAX_JOB_MEMORY_MIB: u32 = 2048;
 
-/// `serve --interactive-workers all` (and `serve`'s default): every idle eligible joined
-/// worker takes part in a live-view request. Carried as the largest `u32` in
-/// [`ServeArgs::interactive_workers`].
+/// `serve --interactive-workers all` (and `serve`'s default): every idle eligible joined worker
+/// takes part in a live-view request.
+///
+/// Carried as the largest `u32` in [`ServeArgs::interactive_workers`].
 pub const ALL_INTERACTIVE_WORKERS: u32 = u32::MAX;
 
 /// `serve --whole-image-secs`'s default: a `Batch` request estimated to render in under 2 s
@@ -45,9 +51,10 @@ pub const DEFAULT_WHOLE_IMAGE_PIXEL_SAMPLES: u64 = 64 * 1024 * 1024;
 /// `serve --jobs-per-viewer`'s default: eight whole-image jobs per viewer certificate at once.
 pub const DEFAULT_JOBS_PER_VIEWER: u32 = 8;
 
-/// How far above `--bind`'s port the worker port sits by default (7878 -> 7880, leaving
-/// 7879 to the viewer enrollment listener). Its enrollment listener sits one further up
-/// (7881).
+/// How far above `--bind`'s port the worker port sits by default (7878 -> 7880, leaving 7879 to the
+/// viewer enrollment listener).
+///
+/// Its enrollment listener sits one further up (7881).
 pub const WORKER_PORT_OFFSET: u16 = 2;
 
 /// `join --cert-dir`'s default, relative to the working directory.
@@ -87,11 +94,12 @@ impl HelpTopic {
 ///
 /// Fits one terminal screen; command-specific detail lives on [`USAGE_RENDER`],
 /// [`USAGE_SERVE`] and [`USAGE_CERT`].
-pub const USAGE_ROOT: &str =
-    "pleochroma-worker -- headless pleochroma coordinator and render worker
+pub const USAGE_ROOT: &str = "pleochroma-worker -- the Pleochroma coordinator and render worker
 
 USAGE:
     pleochroma-worker <render|serve|join|cert> [args...]
+    pleochroma-worker --version | -V
+    pleochroma-worker                  Opens the coordinator window (builds with a window).
 
 COMMANDS:
     render    Trace a scene straight to a PNG. No networking (worker feature).
@@ -107,9 +115,23 @@ RELEASE NOTE: `serve` no longer renders by default -- add --render (or
 Run `pleochroma-worker <command> --help` for that command's own flags (and
 `pleochroma-worker cert <sub-command> --help` for one of cert's five).
 
+GLOBAL FLAGS (anywhere on the line, removed before the command is parsed):
+    --headless          Run the command line, never a window. Every command here is
+                        the same with or without it; a build without a window always
+                        runs headless.
+    --minimized         Start the window minimized. Ignored with --headless.
+    --config <file>     The settings file (also --config=<file>). The window uses it as its
+                        settings; `cert issue-token` reads the coordinator's name and
+                        ports from it; `serve` and `join` write their log under the data
+                        folder it chooses. Other commands do not read it.
+
+--version, -V prints the version and exits. It must come first: only the global flags,
+--no-update-check and --radv-workaround may stand before it.
+
 At start the worker asks GitHub (at most 2 s) whether a newer Pleochroma release
 exists and, only then, logs one info line naming it. --no-update-check (with any
-command) or the environment variable PLEOCHROMA_NO_UPDATE_CHECK skips the request.
+command), the environment variable PLEOCHROMA_NO_UPDATE_CHECK, or the update_check
+setting being off in the --config file (or the window's settings) skips the request.
 
 RADV WORKAROUND (Linux, gpu builds): Mesa's RADV driver (the open AMD Vulkan driver)
 mis-schedules the GPU kernel, so some zoned stones and stones with oriented inclusions
@@ -167,14 +189,14 @@ pub const USAGE_SERVE: &str = "pleochroma-worker serve -- the coordinator: serve
 joining workers, and (with --render) render requests itself
 
 USAGE:
-    pleochroma-worker serve  [--bind <host:port>] [--allow-remote] [--db <path>] [--max-connections <n>] [--max-preauth-per-ip <n>]
+    pleochroma-worker serve  [--bind <host:port>] [--allow-remote] [--db <path> | --no-library] [--max-connections <n>] [--max-preauth-per-ip <n>]
                          [--render] [--threads <n>] [--only-gpu | --only-cpu]
                          --ca <ca.pem> --cert <server.pem> --key <server.key> [--allowlist <path>] [--trust-any-client-cert]
                          [--enroll-bind <host:port>] [--no-enroll]
                          [--worker-bind <host:port>] [--worker-enroll-bind <host:port>] [--worker-allowlist <path>] [--no-workers]
                          [--interactive-workers <n|all>] [--pin-interactive-worker <label>] [--max-job-memory-mib <n>]
                          [--whole-image-secs <secs>] [--whole-image-pixel-samples <n>] [--jobs-per-viewer <n>]
-                         [--payload-encoding <auto|raw|lz4|zstd[:LEVEL]>]
+                         [--payload-encoding <auto|raw|lz4|zstd[:LEVEL]>] [--allow-remote-admin]
     pleochroma-worker serve  [--bind <host:port>] [--render] [--threads <n>] [--only-gpu | --only-cpu] [--db <path>] [--max-connections <n>] --insecure-no-tls
 
     RELEASE NOTE: `serve` no longer renders by default. A single-worker setup that
@@ -198,7 +220,12 @@ USAGE:
     --db <path>              The design-library database to serve (see pleochroma-vault).
                               Opened read-only. Defaults to facet_diagrams.sqlite
                               resolved relative to the process's working directory.
-    --render                  Render requests with this machine's own CPU/GPU lane (the
+    --no-library              Serve no design library at all (rendering only). Nothing is
+                              opened or created for the library; the jobs and cache
+                              folders live in the folder above the one holding --ca, or
+                              in the working directory without --ca (the window uses
+                              its data folder). Cannot be combined with --db.
+    --render                Render requests with this machine's own CPU/GPU lane (the
                                behaviour `serve` had by default before coordinator mode).
                                Without it no GPU is acquired and no sample is traced here.
     --threads <n>             CPU threads used per render request by the own lane (default:
@@ -216,7 +243,13 @@ USAGE:
                                render_core::hybrid), else GPU-only.
     --allow-remote            Required to bind any non-loopback address (viewer, worker or
                                enrollment port), TLS or not.
-    --ca <path>               CA certificate that issued --cert and every trusted client
+    --allow-remote-admin      Let monitor and admin devices manage this coordinator over the
+                               viewer port. Off by default: without it such a device is
+                               refused, and `cert issue-token --role monitor|admin` is
+                               refused too. A code from `cert issue-token` pairs the device;
+                               its certificate then goes in allowlist-monitors.txt or
+                               allowlist-admins.txt next to --ca.
+    --ca <path>             CA certificate that issued --cert and every trusted client
                                certificate. Required unless --insecure-no-tls.
     --cert <path>             This coordinator's own certificate (see `pleochroma-worker
                                cert issue-server --help`). Used on both ports.
@@ -224,7 +257,9 @@ USAGE:
     --allowlist <path>        SHA-256 fingerprints of trusted VIEWER certificates, one per
                                line. Defaults to allowlist-viewers.txt next to --ca -- or,
                                while only that exists, the pre-role allowlist.txt (kept as
-                               the viewers list; rename it whenever convenient).
+                               the viewers list; rename it whenever convenient). A missing
+                               default file is created empty: no viewer is trusted until
+                               one is paired. A missing --allowlist path is an error.
     --trust-any-client-cert   Skip BOTH fingerprint allowlists -- trust any client whose
                                certificate chains to --ca and carries the port's role.
                                Off by default; skipping the allowlist must be explicit.
@@ -441,11 +476,16 @@ pub const USAGE_CERT_ISSUE_TOKEN: &str =
     "pleochroma-worker cert issue-token -- mint a one-time enrollment token
 
 USAGE:
-    pleochroma-worker cert issue-token --ca <ca.pem> --admin-addr <host:port> --name <label> [--role viewer|worker]
+    pleochroma-worker cert issue-token --ca <ca.pem> --admin-addr <host:port> --name <label> [--role viewer|worker|monitor|admin]
+                                       [--address <ip:port> ...] [--no-qr]
 
     Asks a RUNNING `serve` process's enrollment listener to mint a one-time, 180-second
-    enrollment token for a viewer (or, with --role worker, a joining worker) named
-    --name, and prints it for the operator to read or send to whoever is enrolling.
+    enrollment token for a viewer (or, with --role worker, a joining worker; with --role
+    monitor or admin, a remote administration device) named --name, and prints it for
+    the operator to read or send to whoever is enrolling. It also prints a
+    `pleochroma://pair` link carrying the code and, unless --no-qr, a QR code of the link
+    that the Pleochroma app on a phone or another computer can scan. The code, link and QR
+    code go to the terminal only, never to a log.
     Connects using --ca (the operator's own already-possessed CA file -- ordinary TLS
     verification, no bootstrap problem on this side) to --admin-addr, which the running
     `serve` process logged at startup (see `pleochroma-worker serve --help`'s
@@ -468,10 +508,30 @@ USAGE:
                            viewer one (default port 7879) for --role viewer, the worker
                            one (default port 7881) for --role worker.
     --name <label>        A human label for the certificate and allowlist entry.
-    --role <role>         viewer (default) or worker. A worker token is claimed with
-                           `pleochroma-worker join --token ...` and yields a worker
-                           certificate (Common Name worker:<label>, allowlist-workers.txt).
+    --role <role>         viewer (default), worker, monitor or admin. A worker token is
+                           claimed with `pleochroma-worker join --token ...` and yields a
+                           worker certificate (Common Name worker:<label>,
+                           allowlist-workers.txt). A monitor (look only) or admin (look
+                           and change) code goes to the viewer enrollment listener, is
+                           claimed by the Pleochroma app, and yields a certificate named
+                           monitor:<label> or admin:<label> (allowlist-monitors.txt,
+                           allowlist-admins.txt). It works only while the coordinator
+                           runs with `serve --allow-remote-admin`; otherwise the
+                           coordinator refuses and this command says so.
                            A listener refuses a token request for the other role.
+    --address <ip:port>   An address of the coordinator to put in the pairing link, for
+                           the device that scans it. Repeat it for up to 3 addresses.
+                           Without it the link carries this machine's LAN addresses on
+                           the coordinator port: the one the --config settings give for
+                           that enrollment port, else the enrollment port minus one
+                           (7879 -> 7878, 7881 -> 7880). A coordinator started with
+                           its own --enroll-bind and no --config needs --address.
+    --no-qr               Print the code and the link only, without the QR code.
+    --config <file>       (A global flag, see `pleochroma-worker --help`.) The
+                           coordinator's settings file. Only with it does the link carry
+                           the coordinator's name from the settings and its real ports;
+                           without it the name is this computer's name and the ports
+                           are the defaults above.
 ";
 
 /// `pleochroma-worker cert claim --help`.

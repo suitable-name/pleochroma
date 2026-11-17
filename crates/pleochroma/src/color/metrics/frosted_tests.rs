@@ -157,3 +157,29 @@ fn the_full_metrics_pass_sees_frosted_facets() {
     assert!(f.iter().all(|v| v.is_finite()), "{f:?}");
     assert_ne!(p.map(f32::to_bits), f.map(f32::to_bits));
 }
+
+/// A frosted stone's zone shares are reproducible (two runs, same bits), the Leak share keeps the
+/// bits of Windowing, and they differ from the polished stone's.
+#[test]
+fn a_frosted_stones_zone_shares_are_reproducible_and_differ_from_polished() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let geom = StoneGeometry::planes_only(&planes);
+    let finishes = vec![FacetFinish::Frosted; planes.len()];
+    let frosted = PreparedEval::new_finished(geom, &finishes, &material, studio()).expect("planes");
+    let polished = PreparedEval::new(geom, &material, studio()).expect("planes");
+    let run = |prepared: &PreparedEval<'_>| {
+        evaluate_pose(
+            prepared,
+            0.0,
+            std::f32::consts::FRAC_PI_2,
+            MetricsWanted::ALL,
+            None,
+        )
+    };
+    let (a, b) = (run(&frosted), run(&frosted));
+    let (a_aset, b_aset) = (a.aset.expect("zone shares"), b.aset.expect("zone shares"));
+    assert_eq!(a_aset, b_aset);
+    assert_eq!(a_aset.leak_pct.to_bits(), a.windowing_pct.to_bits());
+    assert_ne!(Some(a_aset), run(&polished).aset);
+}

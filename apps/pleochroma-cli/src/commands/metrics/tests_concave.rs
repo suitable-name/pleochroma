@@ -21,6 +21,25 @@ fn measured_of(design: &Design, tilt: bool) -> Measured {
         &scoring,
         CANONICAL_LIGHTING_PRESET,
         tilt,
+        false,
+    )
+    .expect("measures")
+}
+
+/// Measures `design` under refractive index 1.76 with the Blue-share grid.
+fn measured_with_grid(design: &Design) -> Measured {
+    let scoring = resolve_scoring(design, &Catalogue::default(), Some(&MaterialArg::Ri(1.76)))
+        .expect("scoring");
+    let analysis = analyze(design);
+    let solved = analysis.require_stone(design).expect("a usable stone");
+    measure(
+        design,
+        &analysis,
+        solved,
+        &scoring,
+        CANONICAL_LIGHTING_PRESET,
+        false,
+        true,
     )
     .expect("measures")
 }
@@ -53,6 +72,10 @@ fn a_flat_design_is_measured_on_exactly_its_planes() {
         CANONICAL_LIGHTING_PRESET.studio(1.0, CANONICAL_LIGHT_YAW, CANONICAL_LIGHT_PITCH);
     let direct = evaluate_gem_optical_metrics(&planes, &gem, 0.0, TABLE_UP_PITCH, environment);
     assert_eq!(table_bits(&measured.table_up), table_bits(&direct));
+    assert_eq!(
+        measured.table_up.aset, direct.aset,
+        "Contrast and the zone shares are the planes-only figures too"
+    );
     let tilt = evaluate_objective_under(
         &planes,
         &gem,
@@ -106,6 +129,10 @@ fn a_concave_design_is_measured_with_its_tools() {
         environment,
     );
     assert_eq!(table_bits(&measured.table_up), table_bits(&carved));
+    assert_eq!(
+        measured.table_up.aset, carved.aset,
+        "the zone shares are those of the carved stone"
+    );
     assert_ne!(
         table_bits(&measured.table_up),
         table_bits(&shell.table_up),
@@ -130,6 +157,25 @@ fn a_concave_design_is_measured_with_its_tools() {
     );
     assert_eq!(measured.facets, shell.facets);
     assert_eq!(measured.tiers, shell.tiers);
+}
+
+/// The grooves and dimples move the zone shares and Contrast, and the grid prints from the same
+/// carved stone: its Contrast is the figure's.
+#[test]
+fn the_zone_shares_and_the_grid_see_the_concave_tools() {
+    let carved = measured_with_grid(&testing::concave());
+    let shell = measured_with_grid(&testing::concave_shell());
+    let (Some(carved_aset), Some(shell_aset)) = (carved.table_up.aset, shell.table_up.aset) else {
+        panic!("both stones have zone shares");
+    };
+    assert!(carved_aset.contrast.is_finite() && (0.0..=100.0).contains(&carved_aset.contrast));
+    assert_ne!(carved_aset, shell_aset, "the tools change the zones");
+    let grid = carved.aset_grid.expect("the grid was asked for");
+    assert_eq!(
+        pattern_contrast(&grid.blue).to_bits(),
+        carved_aset.contrast.to_bits(),
+        "the grid is what Contrast is computed from"
+    );
 }
 
 #[test]

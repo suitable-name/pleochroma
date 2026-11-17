@@ -33,6 +33,29 @@ export component DialogHost inherits Rectangle {
         // Swallows taps on the card so they do not count as taps on the scrim.
         TouchArea { }
 
+        // The two buttons side by side, never shown: their width decides whether they fit in
+        // one row or stack (Material's stacked actions), so a long label is never cut off.
+        measure := HorizontalLayout {
+            x: 0;
+            y: 0;
+            visible: false;
+            spacing: Theme.space-sm;
+
+            // Measuring copies only: hidden from accessibility, so tests and screen readers see
+            // each action once.
+            if Shell.dialog-cancel != "": TextButton {
+                text: Shell.dialog-cancel;
+                accessible-role: none;
+            }
+
+            PrimaryButton {
+                text: Shell.dialog-confirm;
+                accessible-role: none;
+            }
+        }
+
+        property <bool> stacked: measure.preferred-width > card.width - 2 * Theme.space-xl;
+
         content := VerticalLayout {
             padding: Theme.space-xl;
             spacing: Theme.space-lg;
@@ -51,21 +74,50 @@ export component DialogHost inherits Rectangle {
                 wrap: word-wrap;
             }
 
-            HorizontalLayout {
-                alignment: end;
-                spacing: Theme.space-sm;
+            // The actions. Their area has a fixed horizontal size hint, so switching between one
+            // row and the stack never changes the dialog's width constraints (no layout loop). Its
+            // height is explicit: the `if` rows inside do not pass their size up to the Rectangle.
+            Rectangle {
+                min-width: 0px;
+                preferred-width: 0px;
+                horizontal-stretch: 1;
+                height: card.stacked ? 2 * Theme.touch + Theme.space-xs : Theme.touch;
 
-                if Shell.dialog-cancel != "": TextButton {
-                    text: Shell.dialog-cancel;
-                    clicked => {
-                        Shell.close-dialog(false);
+                if !card.stacked: HorizontalLayout {
+                    alignment: end;
+                    spacing: Theme.space-sm;
+
+                    if Shell.dialog-cancel != "": TextButton {
+                        text: Shell.dialog-cancel;
+                        clicked => {
+                            Shell.close-dialog(false);
+                        }
+                    }
+
+                    PrimaryButton {
+                        text: Shell.dialog-confirm;
+                        clicked => {
+                            Shell.close-dialog(true);
+                        }
                     }
                 }
 
-                PrimaryButton {
-                    text: Shell.dialog-confirm;
-                    clicked => {
-                        Shell.close-dialog(true);
+                // Too long for one row: full-width buttons, the confirm action on top.
+                if card.stacked: VerticalLayout {
+                    spacing: Theme.space-xs;
+
+                    PrimaryButton {
+                        text: Shell.dialog-confirm;
+                        clicked => {
+                            Shell.close-dialog(true);
+                        }
+                    }
+
+                    if Shell.dialog-cancel != "": TextButton {
+                        text: Shell.dialog-cancel;
+                        clicked => {
+                            Shell.close-dialog(false);
+                        }
                     }
                 }
             }

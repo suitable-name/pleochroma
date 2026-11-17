@@ -695,6 +695,87 @@ tracer and does not describe the rendered image's lighting. It is an analytic fa
   (a display scale, not a fit); a pair contributes only when both traces leave by the same
   facet after the same bounce count (`classify.rs`, the bifurcation gate).
 
+### 7.1 Zones (ASET-style) and Contrast
+
+Two face-up figures come out of the same grid pass as the other metrics
+(`color/metrics/aset.rs`, filled by `accumulate.rs::fold_aset`; rustdoc: `crate::color::metrics`,
+`crate::color::metrics::aset`, and `crate::optics::raytracer::environment::aset_zone_amplitudes`).
+They read only the d-line trace, so both `MetricsWanted` passes (full and Fire-less) compute them and
+they do not depend on the lighting model: a lighting change recomputes them with Brilliance and
+changes no digit.
+
+- **One zone function.** `optics/raytracer/environment/rig.rs::aset_zone_amplitudes(d)` returns
+  `[red, green, blue, below]` along unit direction `d`. The Contrast view's `aset_radiance` calls it
+  and the metrics call it, so the picture and the counted shares cannot drift apart (test
+  `tests_aset_zones.rs` pins the radiance bit for bit). The rig is fixed overhead in the world frame:
+  green 0-45°, red 45-75° and blue 75-90° of elevation above the horizon plane, the ranges the
+  published ASET key uses. Face-up (every scored figure: `cam_yaw = 0`, `cam_pitch = 90°`) that is
+  exactly the viewer's frame. The edges are this program's own smoothing of the sharp limits: a
+  smoothstep on `d.y` (the sine of the elevation) across 43.4-46.6° (`ASET_EDGE_45_LO/HI`,
+  0.6871-0.7271) and 71.1-80.4° (`ASET_EDGE_75_LO/HI`, 0.9459-0.9859), times the horizon blend
+  `smoothstep(-0.05, 0.05, d.y)` (about ±2.87° around the horizon). Red, green and blue sum to the
+  horizon blend and `below = 1 - horizon_blend`, so the four amplitudes sum to one. For any exit with
+  `d.y > 0.05` the horizon blend is exactly 1 in `f32`, so `below` is exactly 0 there.
+- **Which zone a ray counts in.** Every camera ray of the grid that hits the stone (the existing
+  `total_rays`) carries five weights `AsetZoneWeights` that sum to one, or to one half per mode for an
+  anisotropic stone. Every ray weighs the same (an area share); there is no Fresnel or radiance
+  weight, and only the refracted path counts: first-surface glare, which the Contrast view's render
+  shows, is not in the shares.
+
+  | Ray fate | Weight |
+  | --- | --- |
+  | `Returned(ray)` (upward, visible) | `aset_zone_amplitudes(ray.exit_dir)` |
+  | `Extinct { exit_dir: Some(d) }` (upward exit, head-shadowed or unlit) | `aset_zone_amplitudes(d)`; most Blue comes from here |
+  | `Windowed` | Leak = 1 (the Windowing rays, so `leak_pct` and `windowing_pct` are the same bits: both are `(sum as f32 / n_total * 100).clamp(0, 100)`) |
+  | `Extinct { exit_dir: None }` (10 bounces, side exit, no hit) | Lost = 1 |
+  | `EntryBlocked`, `Invalid` | in the total and the spot's hits, in no zone |
+
+  Dark = Leak + Lost. Only Leak corresponds to ASET's leakage; Lost has no ASET counterpart and is
+  never called a color or zone of it.
+- **Identities** (hold under every lighting, within float rounding, up to the rare unclassified
+  rays): `Red + Green + Blue + Leak + Lost = 100 %`, and
+  `Extinction = Lost + (Red + Green + Blue) - Brilliance` (Red + Green + Blue is all the light that
+  leaves upward; Brilliance is the lit part of it outside the head shadow).
+- **Birefringent stones** (`stone.modes.is_some()`): each eigenmode adds its weights times
+  `MODE_WEIGHT` (0.5; `doubling.rs::accumulate_sample_pair`). The per-spot Blue share divides by the
+  sum of the mode weights of the spot's hit rays, so a doubled facet image that straddles a zone edge
+  reads as a half-blue spot and lowers Contrast a little.
+- **Frosted facets**: a scattered ray is classified by the direction it finally leaves in, like
+  Brilliance. The figures are the same reproducible Monte Carlo estimate as the other frosted
+  figures (per-ray seeds, independent of the thread count); Contrast is the noisiest because every
+  spot draws independently.
+- **Concave tiers**: the stone with tools goes through the same intersector, and a ray that leaves
+  through a groove wall is scored as having left (the simplification of the concave section below), so
+  a groove can add Leak or move a ray into another zone.
+- **Contrast** (`aset.rs::pattern_contrast`) is Pleochroma's own measure. For spot `i` of the
+  18 x 18 grid, `b_i` is the Blue weight of its rays over the weight of its rays that hit the stone
+  (0..1, mode-weighted). The pairs are every on-stone spot with its right neighbour and its lower
+  neighbour that is also on the stone (and has at least one hit):
+
+  ```
+  Contrast = 100 * sum over pairs of |b_i - b_j| / number of pairs      (0 with no pair)
+  ```
+
+  The disc `u^2 + v^2 <= 0.70` holds 180 spots and 328 pairs on a full grid (test
+  `the_full_disc_has_180_spots_and_328_pairs`). The result lies in 0-100: 0 for no blue, all blue
+  or one smooth patch; a perfect checkerboard reads 100; one spot flipping from bright to blue moves
+  at most 4 of the 328 pairs, about 1.2 points. Only Blue counts as shadow; Leak and Lost are not
+  shadow, so an edge between a Blue and a Dark spot counts like one between Blue and bright. The
+  spots are 6.3 % of the girdle width apart, so finer patterns average out, and the figure moves a few
+  points when the stone is turned under the grid. A high value means finely broken-up shadow, not an
+  AGS Ideal grade. GIA and AGS describe contrast in words only (the relative size, arrangement and
+  contrast of bright and dark areas seen face-up; Moses et al., Gems & Gemology 40(3), 2004); no
+  numeric formula is published, so this one is not a GIA or AGS figure.
+- **Determinism.** The five zone sums and the Contrast differences are `f64`, summed in a fixed
+  order (rays in grid order, spots row-major, the right pair before the lower pair), so thread count
+  and platform cannot change a digit. The cache needs nothing new: `MetricsCache` stores the whole
+  `GemOpticalMetrics`, and its key already holds every input the shares depend on.
+- **Elongated outlines.** The fan disc covers 95 % of the half-width along the short axis only
+  (`fan.rs`), so the ends of an oval or emerald are outside every face-up figure, these included.
+- **Trademark.** ASET is a registered trademark of the Gemological Institute of America, Inc. (GIA).
+  Pleochroma is not affiliated with or endorsed by GIA or the American Gem Society; "ASET-style"
+  only means that the zones use the same elevation ranges.
+
 ## 8. The GPU routing predicate
 
 `GemMaterial::gpu_supported` is `const fn ... { true }`

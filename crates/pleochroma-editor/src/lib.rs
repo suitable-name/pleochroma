@@ -11,6 +11,9 @@
 //! - [`material`] / [`material_lookup`]: the material combo, RI-source text, gear
 //!   presets and remap preview; the custom-over-built-in material lookup and the
 //!   nearest-built-in search.
+//! - [`material_reference`]: the Material Reference -- the table of every material (rows,
+//!   sort, filter, copy text), the gem data of one material as display text, the details
+//!   page with its chart paths, and the family line and Dispersion chip text the front ends share.
 //! - [`view_model`]: plain-struct tier rows, index chips, cut-order rows,
 //!   yield/proportion texts and verdicts, and the validation banner.
 //! - [`optimize_view`]: Optimize's hint, result tables, preview design and weight
@@ -73,6 +76,7 @@ pub mod loading;
 pub mod manipulate;
 pub mod material;
 pub mod material_lookup;
+pub mod material_reference;
 pub mod metric_deltas;
 pub mod optimize_view;
 pub mod printed_proportions;

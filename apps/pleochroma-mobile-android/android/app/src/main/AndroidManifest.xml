@@ -3,10 +3,35 @@
     xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Remote rendering, and its metered-network check (a normal, install-time
-         permission). No other permission: files go through the system pickers, sharing
-         through a FileProvider, printing through the print service. -->
+         permission). Files go through the system pickers, sharing through a FileProvider,
+         printing through the print service. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Finding the paired computer again after it got a new address: browsing needs a
+         multicast lock, held only while browsing (a normal, install-time permission). -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- Reaching the computer on the local network. With targetSdk 37 (Android 17) the system
+         blocks every connection to a local device until the user allows this runtime
+         permission; MainActivity.ensureLocalNetwork asks before the first remote use (a
+         pairing, a connection test, a render, an export, the network browse), never at start.
+         Older Android versions ignore it. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <!-- Scanning a pairing QR code. Asked only when the user taps Scan, never at start. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- A phone without a camera still pairs by pasting the link. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <!-- Without this line Google Play treats the CAMERA permission as needing autofocus and
+         hides the app from phones that have none; the scanner works without it. -->
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
 
     <!-- Vulkan 1.0.3 (0x400003) is preferred, never required: without it the app
          renders on the CPU. -->
@@ -54,6 +79,16 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Pairing link: pleochroma://pair?... from a QR scanner, a message or a web
+                 page. Any app can register this scheme and any page can open it, so the app
+                 never acts on a link by itself: it always shows "Pair with ...?" first. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pleochroma" android:host="pair" />
             </intent-filter>
 
             <!-- Open with: the design MIME type, set by Pleochroma itself and by file
@@ -112,6 +147,13 @@
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
+
+        <!-- The QR scanner of the Remote page (opened by MainActivity.startQrScan). Not
+             exported: only the app starts it. Portrait is not forced; the preview rotates. -->
+        <activity
+            android:name=".ScannerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|density|uiMode|fontScale"
+            android:exported="false" />
 
         <!-- Share sheet: copies of exported files live in cache/share/. -->
         <provider

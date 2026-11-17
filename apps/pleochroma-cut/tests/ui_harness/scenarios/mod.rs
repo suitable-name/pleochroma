@@ -11,6 +11,7 @@
 
 use crate::support::{Ctx, SettingsSeed};
 
+mod aset_figures;
 mod builtin;
 mod coverage;
 mod dialogs;
@@ -18,6 +19,7 @@ mod editor;
 mod files;
 mod library;
 mod main_window;
+mod material_reference;
 mod meet_pick;
 mod rough_planner;
 mod secondary_windows;
@@ -124,6 +126,8 @@ pub fn all() -> Vec<Piece> {
     all.extend(library::pieces());
     all.extend(editor::scenarios().into_iter().map(Piece::from));
     all.extend(meet_pick::scenarios().into_iter().map(Piece::from));
+    all.extend(aset_figures::scenarios().into_iter().map(Piece::from));
+    all.extend(material_reference::scenarios().into_iter().map(Piece::from));
     all.extend(files::scenarios().into_iter().map(Piece::from));
     all.extend(dialogs::scenarios().into_iter().map(Piece::from));
     all.extend(shortcuts::scenarios().into_iter().map(Piece::from));

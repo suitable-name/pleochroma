@@ -348,8 +348,19 @@ fn render_now(window: &AppWindow, shared: &Shared, mode: Mode) {
         }
     };
 
-    let cancel = Arc::new(AtomicBool::new(false));
     let remote = job.is_remote();
+    if remote && !crate::remote::local_network_granted() {
+        // A picture or a server job talks to the computer: Android 17 needs the user's yes
+        // for the local network first. The export starts again from the top after it; a
+        // refusal shows its reason and leaves the sheet as it was.
+        crate::remote::with_local_network(window, move |_| {
+            if let Some((window, shared)) = runtime::context() {
+                render_now(&window, &shared, mode);
+            }
+        });
+        return;
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
     let (document, name, title) = {
         let app = shared.borrow();
         (
@@ -478,6 +489,8 @@ fn finished(window: &AppWindow, run: u64, name: String, result: Done, cancelled:
         Err(message) => {
             model.set_export_problem(message.as_str().into());
             toast::show(window, &message);
+            // A computer that moved is looked for; the user then exports again.
+            crate::remote::connect_failed(window, &message);
             return;
         }
     };
@@ -520,6 +533,7 @@ fn submitted(window: &AppWindow, result: Result<JobInfo, String>) {
         Err(message) => {
             model.set_export_problem(message.as_str().into());
             toast::show(window, &message);
+            crate::remote::connect_failed(window, &message);
         }
     }
 }

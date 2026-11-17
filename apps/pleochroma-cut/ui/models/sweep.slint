@@ -10,7 +10,7 @@
 // rows already carry their text, the chart lines are SVG path data, and the readout under
 // the chart is a finished sentence. A figure is a "series" numbered like the sweep's
 // figures (0 brilliance, 1 windowing, 2 extinction, 3 fire, 4 scintillation, 5 yield,
-// 6..8 the tilt averages); `SweepStyle` (components/sweep_dialog/sweep_style.slint) gives
+// 6..8 the tilt averages, 9 Contrast); `SweepStyle` (components/sweep_dialog/sweep_style.slint) gives
 // each its colour.
 
 // One figure of one row: the text shown, and whether it is the best of its column.
@@ -90,6 +90,12 @@ export global SweepModel {
     // The chart: a line per shown figure, the names under it, and the ends of its x axis.
     in property <[SweepPathItem]> paths: [];
     in property <[SweepLegendItem]> legend: [];
+    // The plot's size in pixels, written by the chart. Rust cuts the Contrast line into dashes
+    // of a fixed screen length (Path has no dash attribute), so it needs the size; the
+    // defaults are used until the chart reports. `plot_resized` asks Rust to redraw the lines.
+    in-out property <length> plot_width: 900px;
+    in-out property <length> plot_height: 150px;
+    callback plot_resized();
     in property <string> axis_low: "";
     in property <string> axis_high: "";
     // x positions on the chart in percent (0..100); negative means "not shown".

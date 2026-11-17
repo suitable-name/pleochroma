@@ -3,7 +3,8 @@
 //! This is the editor's Angle Sweep with the same engine (`pleochroma_editor::sweep`): the
 //! design is cloned once per angle, the tier is set to it, the clone is solved, checked and
 //! scored with Optimize's quick table-up score (and with `--tilt` the tilt averages), and the
-//! figures come back as a table. The rows run from the flattest angle to the steepest and do not
+//! figures come back as a table. The figures are the engine's `SweepMetric::ALL`, so the table,
+//! the JSON and the CSV carry Contrast (the `metrics` command's figure) as the engine lists it. The rows run from the flattest angle to the steepest and do not
 //! depend on how many threads ran them. The design's own angle is always a row. A design with
 //! concave tiers is scored as the stone with its tools (the engine's `evaluate_step` places them
 //! on every swept stone), and its yield is the carved volume's; a design without them is scored
@@ -82,7 +83,8 @@ fn sweep_error(error: &SweepError) -> CliError {
     }
 }
 
-/// The figures a sweep shows: the quick ones, and the tilt averages when it measured them.
+/// The figures a sweep shows: the quick ones (Contrast among them), and the tilt averages when
+/// it measured them.
 fn shown_metrics(tilt: bool) -> Vec<SweepMetric> {
     SweepMetric::ALL
         .into_iter()
@@ -435,6 +437,8 @@ mod tests {
         assert_eq!(marked, 1, "{text}");
         assert!(text.contains("Brilliance %"), "{text}");
         assert!(!text.contains("Tilt brill."), "{text}");
+        assert!(text.contains("Contrast"), "{text}");
+        assert!(!text.contains("ASET Zones"), "{text}");
     }
 
     #[test]
@@ -460,6 +464,11 @@ mod tests {
         assert_eq!(rows.iter().filter(|row| row["current"] == true).count(), 1);
         assert!(rows[0]["figures"]["brilliance_pct"].is_number() || rows[0]["valid"] == false);
         assert!(rows[0]["figures"].get("tilt_brilliance_pct").is_none());
+        let contrast = &rows[0]["figures"]["contrast"];
+        assert!(
+            contrast.is_number() || rows[0]["valid"] == false,
+            "{contrast}"
+        );
         assert_eq!(value["tilt_average"], false);
         assert_eq!(value["tier"], "Pavilion Main");
     }

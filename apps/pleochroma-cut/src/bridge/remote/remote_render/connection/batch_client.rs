@@ -19,7 +19,9 @@ use super::{
     stream_io::try_read_stream_event,
 };
 use crate::{
-    bridge::preview_wait::{PREVIEW_PROGRESS_STALL, PREVIEW_REMOTE_MAX_WALL, RemoteShortfall},
+    bridge::preview_wait::{
+        PREVIEW_PROGRESS_STALL, PREVIEW_REMOTE_MAX_WALL, PreparingClock, RemoteShortfall,
+    },
     settings::WorkerSettings,
 };
 use pleochroma_net::{
@@ -61,6 +63,9 @@ pub enum BatchEvent {
     BatchDone { batch_id: u32, cancelled: bool },
     /// The worker's liveness heartbeat, carrying its running traced-sample total.
     Heartbeat { samples_done: u32 },
+    /// The worker's graphics card is building its shader cache (`StreamEvent::Preparing`):
+    /// no samples yet, but alive. Counts as liveness for the stall deadline.
+    Preparing,
     /// A request or the connection was refused: `UNSUPPORTED_REQUEST`, a validation
     /// failure, a trace panic. `batch_id` names the batch when the error concerns one.
     Refused {
@@ -97,6 +102,7 @@ fn to_batch_event(event: StreamEvent, payload: Option<Vec<u8>>) -> Option<BatchE
         StreamEvent::Progress(progress) => Some(BatchEvent::Heartbeat {
             samples_done: progress.samples_done,
         }),
+        StreamEvent::Preparing(_) => Some(BatchEvent::Preparing),
         StreamEvent::Error(error) => Some(BatchEvent::Refused {
             batch_id: error.request_id,
             code: error.code,
@@ -296,6 +302,7 @@ pub struct BatchWatch {
     heartbeat_total: u32,
     front_started: Instant,
     front_wall: Duration,
+    preparing: PreparingClock,
 }
 
 impl BatchWatch {
@@ -307,12 +314,14 @@ impl BatchWatch {
             heartbeat_total: 0,
             front_started: now,
             front_wall: batch_wall(items),
+            preparing: PreparingClock::new(now),
         }
     }
 
     /// An item event (progress, picture, failure) or a batch end arrived.
     pub const fn item_event(&mut self, now: Instant) {
         self.last_progress = now;
+        self.preparing.advanced(now);
     }
 
     /// A heartbeat carrying the worker's traced-sample total arrived.
@@ -320,7 +329,16 @@ impl BatchWatch {
         if samples_done > self.heartbeat_total {
             self.heartbeat_total = samples_done;
             self.last_progress = now;
+            self.preparing.advanced(now);
         }
+    }
+
+    /// The worker reported `Preparing` (its graphics card builds the shader cache): alive, so
+    /// the stall clock restarts, and the time is credited back to the batch's wall allowance.
+    /// A worker that only ever prepares ends at `PREVIEW_PREPARING_MAX`.
+    pub fn preparing(&mut self, now: Instant) {
+        self.last_progress = now;
+        self.preparing.preparing(now);
     }
 
     /// The next batch of `items` pictures became the front one at `now`.
@@ -328,18 +346,24 @@ impl BatchWatch {
         self.front_started = now;
         self.front_wall = batch_wall(items);
         self.last_progress = now;
+        self.preparing = PreparingClock::new(now);
     }
 
     /// `Some(shortfall)` once the worker has not advanced for [`PREVIEW_PROGRESS_STALL`] or
     /// the front batch has outlived its wall allowance.
     #[must_use]
     pub fn verdict(&self, now: Instant) -> Option<RemoteShortfall> {
-        let elapsed = now.saturating_duration_since(self.front_started);
+        let elapsed = now
+            .saturating_duration_since(self.front_started)
+            .saturating_sub(self.preparing.credit());
         if elapsed > self.front_wall {
             return Some(RemoteShortfall::WallClock {
                 samples_done: self.heartbeat_total,
                 elapsed,
             });
+        }
+        if let Some(preparing_for) = self.preparing.stuck_for(now) {
+            return Some(RemoteShortfall::PreparingStuck { preparing_for });
         }
         let stalled_for = now.saturating_duration_since(self.last_progress);
         (stalled_for > PREVIEW_PROGRESS_STALL).then_some(RemoteShortfall::Stalled {
@@ -495,6 +519,39 @@ mod tests {
         ));
         watch.next_front(t0 + secs(290), 1);
         assert_eq!(watch.verdict(t0 + secs(301)), None);
+    }
+
+    #[test]
+    fn preparing_time_does_not_use_up_a_batchs_wall_allowance() {
+        let t0 = Instant::now();
+        let secs = Duration::from_secs;
+        let mut watch = BatchWatch::new(t0, 1);
+        for tick in 1..=200_u64 {
+            watch.preparing(t0 + secs(tick * 2));
+        }
+        watch.item_event(t0 + secs(402));
+        // 450 s in, 400 s of it preparing: well within the 300 s allowance.
+        assert_eq!(watch.verdict(t0 + secs(450)), None);
+        assert!(matches!(
+            watch.verdict(t0 + secs(402 + 301)),
+            Some(RemoteShortfall::WallClock { .. })
+        ));
+    }
+
+    #[test]
+    fn a_batch_worker_stuck_preparing_still_ends() {
+        let t0 = Instant::now();
+        let secs = Duration::from_secs;
+        let mut watch = BatchWatch::new(t0, 1);
+        let mut tick = 0;
+        while tick < 1210 {
+            tick += 2;
+            watch.preparing(t0 + secs(tick));
+        }
+        assert!(matches!(
+            watch.verdict(t0 + secs(tick)),
+            Some(RemoteShortfall::PreparingStuck { .. })
+        ));
     }
 
     #[test]

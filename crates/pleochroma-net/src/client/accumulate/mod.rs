@@ -77,7 +77,8 @@ mod tests;
 
 use crate::{
     messages::{
-        DisplayEncoding, Done, ErrorMsg, FrameHeader, PreviewHeader, Progress, Stats, StreamEvent,
+        DisplayEncoding, Done, ErrorMsg, FrameHeader, Preparing, PreviewHeader, Progress, Stats,
+        StreamEvent,
     },
     radiance::{PayloadDecoder, RadianceError},
 };
@@ -130,6 +131,10 @@ pub enum ApplyOutcome {
     PreviewReplaced,
     /// A `PROGRESS` ping for the current epoch.
     Progress { samples_done: u32 },
+    /// A `PREPARING` notice for the current epoch: the server is building its shader cache,
+    /// `done` of `total` steps (`total == 0`: unknown). Liveness only; nothing was
+    /// accumulated.
+    Preparing { done: u32, total: u32 },
     /// `DONE` for the current epoch -- the request finished or was cancelled; no
     /// further payload for this epoch follows.
     Done { cancelled: bool },
@@ -353,6 +358,10 @@ impl Accumulator {
             StreamEvent::Preview(header) => self.apply_preview(header, bytes),
             StreamEvent::Progress(Progress { samples_done, .. }) => Ok(ApplyOutcome::Progress {
                 samples_done: *samples_done,
+            }),
+            StreamEvent::Preparing(Preparing { done, total, .. }) => Ok(ApplyOutcome::Preparing {
+                done: *done,
+                total: *total,
             }),
             StreamEvent::Done(Done {
                 cancelled, stats, ..

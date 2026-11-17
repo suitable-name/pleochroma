@@ -1,0 +1,677 @@
+// The Devices page of the coordinator window: the phones and computers that are allowed to
+// connect, whether each is online, what it is doing, and Rename / Copy fingerprint / Remove
+// access in each row's "..." menu.
+//
+// Page contract: one `DevicesPage` with no required properties and one `DevicesState` global.
+// `src/gui/pages/devices.rs` fills the state from the coordinator status and answers the
+// callbacks. Built from the desktop kit (Theme and Kit* parts); the icons and text helpers
+// the kit lacks are local to this file.
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "@pleochroma-kit/theme.slint";
+import { KitIcon, KitIcons, KitIconButton, KitButton, KitCard } from "@pleochroma-kit/components/kit/kit.slint";
+import { ShellState } from "../frame.slint";
+import { ActivateScope } from "../focus.slint";
+
+/// One row of the Devices table. The Rust side formats every text.
+export struct DeviceRowData {
+    /// The name the owner sees.
+    name: string,
+    /// The kind line under the name, such as "Phone · Android".
+    kind: string,
+    /// 0 phone, 1 computer, 2 remote administration (shield).
+    icon: int,
+    online: bool,
+    /// "Connected since 14:02" or "Last seen yesterday 21:40".
+    since: string,
+    /// What the device is doing now ("Idle" or "—" when nothing).
+    now: string,
+    /// The peer address, or empty.
+    addr: string,
+    /// The full certificate fingerprint (64 lowercase hex characters).
+    fingerprint: string,
+    /// The first characters of the fingerprint, for the confirmation text.
+    fingerprint-short: string,
+}
+
+export global DevicesState {
+    /// The allowed devices, in the order they are shown.
+    in-out property <[DeviceRowData]> devices;
+    /// "3 devices can connect", "1 device can connect" or "No devices yet".
+    in property <string> heading: "No devices yet";
+    /// "2 online now".
+    in property <string> online-text;
+    /// True while "Accept any client certificate" is on: Remove access then does nothing.
+    in property <bool> accept-any-certificate: false;
+    /// What the signed-in role may do; the actions grey out when false.
+    in property <bool> can-rename: true;
+    in property <bool> can-remove: true;
+    in property <bool> can-pair: true;
+    /// Why an action is greyed out ("This session can only watch."), shown under the table.
+    in property <string> denied-reason;
+    /// The last failed action in plain words; empty when the last action worked.
+    in-out property <string> error;
+
+    /// The owner asked to rename: the full fingerprint and the new name.
+    callback rename(string, string);
+    /// The owner confirmed Remove access: the full fingerprint.
+    callback remove(string);
+    /// Copy the full fingerprint to the clipboard.
+    callback copy-fingerprint(string);
+    /// "Connect a device": the shell opens the pairing dialog.
+    callback connect-device();
+}
+
+// Extra 24 x 24 stroke icons (the kit has the rest).
+global DevIcons {
+    out property <string> phone: "M8 2.5 H16 A1.5 1.5 0 0 1 17.5 4 V20 A1.5 1.5 0 0 1 16 21.5 H8 A1.5 1.5 0 0 1 6.5 20 V4 A1.5 1.5 0 0 1 8 2.5 Z M11 18.5 H13";
+    out property <string> monitor: "M3 4.5 H21 V16 H3 Z M9 20 H15 M12 16 V20";
+    out property <string> shield: "M12 3 L19 6 V11 C19 15.5 16 19 12 21 C8 19 5 15.5 5 11 V6 Z";
+    out property <string> pencil: "M5 19 L6 15 L15.5 5.5 L18.5 8.5 L9 18 Z M13.5 7.5 L16.5 10.5";
+    out property <string> copy: "M8 8 H19 V19 H8 Z M5 15 V5 H15";
+    out property <string> trash: "M5 7 H19 M9 7 V4.5 H15 V7 M7 7 L8 20 H16 L17 7";
+    out property <string> alert: "M12 4 L21 19 H3 Z M12 10 V14 M12 16.5 H12.01";
+}
+
+// Column widths shared by the header and the rows.
+global DevCol {
+    out property <length> status: 84px;
+    out property <length> addr: 116px;
+    out property <length> more: 32px;
+}
+
+component Th inherits Text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    color: Theme.text-muted;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+// A 28 px icon chip.
+component KindChip inherits VerticalLayout {
+    in property <int> icon: 0;
+    in property <bool> dim: false;
+    width: 28px;
+    alignment: center;
+    Rectangle {
+        height: 28px;
+        border-radius: 8px;
+        background: root.dim ? Theme.bg-input : Theme.accent-cyan-surface;
+        KitIcon {
+            x: 5px;
+            y: 5px;
+            d: root.icon == 0 ? DevIcons.phone : (root.icon == 1 ? DevIcons.monitor : DevIcons.shield);
+            size: 18px;
+            ink: root.dim ? Theme.text-muted : Theme.accent-cyan;
+        }
+    }
+}
+
+// A status dot with its label.
+component OnlineDot inherits HorizontalLayout {
+    in property <bool> online;
+    spacing: 6px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.online ? Theme.success : Theme.text-muted;
+        }
+    }
+    Text {
+        text: root.online ? "Online" : "Offline";
+        color: root.online ? Theme.text-secondary : Theme.text-muted;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+}
+
+// One entry of the "..." menu.
+component MenuItem inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <bool> danger: false;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 32px;
+    border-radius: 6px;
+    background: root.enabled && ta.has-hover ? Theme.bg-card-hover : transparent;
+    border-width: item-fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    item-fs := ActivateScope {
+        enabled: root.enabled;
+        activated => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            KitIcon {
+                d: root.icon;
+                size: 16px;
+                ink: !root.enabled ? Theme.text-disabled : (root.danger ? Theme.danger : Theme.text-secondary);
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: !root.enabled ? Theme.text-disabled : (root.danger ? Theme.danger : Theme.text-primary);
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A button of the two dialogs; `danger` paints the destructive choice.
+component DialogButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger: false;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    /// Takes the keyboard focus when it appears (the safe button of a confirmation).
+    in property <bool> autofocus: false;
+    callback clicked();
+    height: 34px;
+    width: max(88px, lbl.preferred-width + 32px);
+    border-radius: 8px;
+    background: !root.enabled
+        ? (root.primary || root.danger ? Theme.surface-disabled : transparent)
+        : (root.danger
+            ? (ta.has-hover ? Theme.danger-surface-hover : Theme.danger-surface)
+            : (root.primary
+                ? (ta.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan)
+                : (ta.has-hover ? Theme.bg-card-hover : Theme.bg-card)));
+    border-width: btn-fs.has-focus ? 2px : 1px;
+    border-color: btn-fs.has-focus ? Theme.accent-cyan-hover : (root.danger && root.enabled ? Theme.danger-border : (root.primary ? transparent : Theme.border-medium));
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    btn-fs := ActivateScope {
+        enabled: root.enabled;
+        autofocus: root.autofocus;
+        activated => { root.clicked(); }
+    }
+    lbl := Text {
+        text: root.text;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        color: !root.enabled ? Theme.text-disabled : (root.danger ? Theme.danger : (root.primary ? Theme.text-on-accent : Theme.text-primary));
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component DeviceHead inherits Rectangle {
+    in property <bool> show-since: true;
+    in property <bool> show-now: true;
+    in property <bool> show-addr: true;
+    height: 36px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        Rectangle { width: 28px; }
+        Th { horizontal-stretch: 2; min-width: 60px; preferred-width: 140px; text: "DEVICE"; }
+        Th { width: DevCol.status; text: "STATUS"; }
+        if root.show-since: Th { horizontal-stretch: 2; min-width: 60px; preferred-width: 160px; text: "CONNECTION"; }
+        if root.show-now: Th { horizontal-stretch: 3; min-width: 60px; preferred-width: 160px; text: "NOW"; }
+        if root.show-addr: Th { width: DevCol.addr; text: "ADDRESS"; }
+        Rectangle { width: DevCol.more; }
+    }
+}
+
+component DeviceRow inherits Rectangle {
+    in property <DeviceRowData> data;
+    in property <bool> show-since: true;
+    in property <bool> show-now: true;
+    in property <bool> show-addr: true;
+    in property <bool> first: false;
+    in property <bool> can-rename: true;
+    in property <bool> can-remove: true;
+    callback rename-requested();
+    callback remove-requested();
+    callback copy-requested();
+    height: 54px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.data.name + ", " + root.data.kind + ", " + (root.data.online ? "online" : "offline") + ", " + root.data.since;
+
+    if !root.first: Rectangle { y: 0px; height: 1px; background: Theme.border-subtle; }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        KindChip { icon: root.data.icon; dim: !root.data.online; }
+        VerticalLayout {
+            horizontal-stretch: 2;
+            min-width: 60px;
+            preferred-width: 140px;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.data.name;
+                font-size: 13px;
+                font-weight: 600;
+                color: root.data.online ? Theme.text-primary : Theme.text-secondary;
+                overflow: elide;
+            }
+            // Without the CONNECTION column the second line says when instead of what kind.
+            Text {
+                text: root.show-since ? root.data.kind : root.data.since;
+                font-size: 11px;
+                color: Theme.text-muted;
+                overflow: elide;
+            }
+        }
+        OnlineDot { width: DevCol.status; online: root.data.online; }
+        if root.show-since: Text {
+            horizontal-stretch: 2;
+            min-width: 60px;
+            preferred-width: 160px;
+            text: root.data.since;
+            font-size: 12px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.show-now: Text {
+            horizontal-stretch: 3;
+            min-width: 60px;
+            preferred-width: 160px;
+            text: root.data.now;
+            font-size: 12px;
+            color: root.data.now == "Idle" || root.data.now == "—" ? Theme.text-muted : Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.show-addr: Text {
+            width: DevCol.addr;
+            text: root.data.addr;
+            font-size: 12px;
+            font-family: "Consolas";
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            width: DevCol.more;
+            alignment: center;
+            KitIconButton {
+                d: KitIcons.more;
+                label: "More actions for " + root.data.name;
+                hint: "More";
+                clicked => {
+                    menu.show();
+                }
+            }
+        }
+    }
+    // The "..." menu under the button; closes on any click.
+    menu := PopupWindow {
+        x: root.width - 16px - 188px + 12px;
+        y: root.height - 6px;
+        width: 188px;
+        height: 3 * 32px + 9px + 12px;
+        Rectangle {
+            border-radius: 10px;
+            background: Theme.popup-surface;
+            border-width: 1px;
+            border-color: Theme.border-medium;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: Theme.shadow-heavy;
+            drop-shadow-offset-y: 8px;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 0px;
+                MenuItem {
+                    icon: DevIcons.pencil;
+                    text: "Rename";
+                    enabled: root.can-rename;
+                    clicked => {
+                        root.rename-requested();
+                    }
+                }
+                MenuItem {
+                    icon: DevIcons.copy;
+                    text: "Copy fingerprint";
+                    clicked => {
+                        root.copy-requested();
+                    }
+                }
+                Rectangle {
+                    height: 9px;
+                    Rectangle { y: 4px; height: 1px; background: Theme.border-subtle; }
+                }
+                MenuItem {
+                    icon: DevIcons.trash;
+                    text: "Remove access";
+                    danger: true;
+                    enabled: root.can-remove;
+                    clicked => {
+                        root.remove-requested();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A modal card with a dimmed backdrop; a click on the backdrop closes it.
+component Modal inherits Rectangle {
+    /// The dialog's accessible name.
+    in property <string> label;
+    callback dismissed();
+    background: Colors.black.with-alpha(0.55);
+    TouchArea {
+        clicked => {
+            root.dismissed();
+        }
+    }
+    // Escape closes the dialog from any control inside it.
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismissed();
+                return accept;
+            }
+            return reject;
+        }
+
+        Rectangle {
+            width: min(420px, root.width - 32px);
+            height: card.preferred-height;
+            border-radius: 12px;
+            background: Theme.popup-surface;
+            border-width: 1px;
+            border-color: Theme.border-medium;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: Theme.shadow-heavy;
+            drop-shadow-offset-y: 8px;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: root.label;
+            // Swallows clicks inside the card.
+            TouchArea { }
+            card := VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                @children
+            }
+        }
+    }
+}
+
+export component DevicesPage inherits Rectangle {
+    // Which row a dialog is about; -1 none.
+    property <int> rename-row: -1;
+    property <int> remove-row: -1;
+    property <string> rename-text;
+    property <bool> show-since: root.width >= 560px;
+    property <bool> show-now: root.width >= 700px;
+    property <bool> show-addr: root.width >= 860px;
+    property <int> count: DevicesState.devices.length;
+
+    background: transparent;
+
+    ScrollView {
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            // D9: permanent while any client certificate is accepted.
+            if DevicesState.accept-any-certificate: Rectangle {
+                height: banner.preferred-height + 20px;
+                border-radius: 10px;
+                background: Theme.danger-surface;
+                border-width: 1px;
+                border-color: Theme.danger-border;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Warning: Remove access has no effect while any certificate is accepted";
+                banner := HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        KitIcon { d: DevIcons.alert; size: 18px; ink: Theme.danger; }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Remove access has no effect while any certificate is accepted";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.danger;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 34px;
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    Text {
+                        text: DevicesState.heading;
+                        font-size: 15px;
+                        font-weight: 650;
+                        color: Theme.text-primary;
+                        overflow: elide;
+                    }
+                }
+                if root.width >= 560px: VerticalLayout {
+                    alignment: center;
+                    Text { text: DevicesState.online-text; font-size: 12px; color: Theme.text-secondary; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                KitButton {
+                    kind: 1;
+                    icon: KitIcons.plus;
+                    text: "Connect a device";
+                    h: 34px;
+                    enabled: DevicesState.can-pair;
+                    hint: DevicesState.can-pair ? "" : ShellState.denied-reason;
+                    clicked => {
+                        DevicesState.connect-device();
+                    }
+                }
+            }
+
+            if DevicesState.error != "": Text {
+                text: DevicesState.error;
+                font-size: 12px;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            if root.count == 0: KitCard {
+                height: 96px;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    Text {
+                        text: "No devices yet";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: "Use Connect a device to pair a phone or computer.";
+                        font-size: 12px;
+                        color: Theme.text-muted;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            if root.count > 0: KitCard {
+                height: 36px + root.count * 54px;
+                VerticalLayout {
+                    DeviceHead { show-since: root.show-since; show-now: root.show-now; show-addr: root.show-addr; }
+                    for device[i] in DevicesState.devices: DeviceRow {
+                        data: device;
+                        first: i == 0;
+                        show-since: root.show-since;
+                        show-now: root.show-now;
+                        show-addr: root.show-addr;
+                        can-rename: DevicesState.can-rename;
+                        can-remove: DevicesState.can-remove;
+                        rename-requested => {
+                            root.rename-text = device.name;
+                            root.rename-row = i;
+                        }
+                        remove-requested => {
+                            root.remove-row = i;
+                        }
+                        copy-requested => {
+                            DevicesState.copy-fingerprint(device.fingerprint);
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: start;
+                    KitIcon { d: KitIcons.info; size: 14px; ink: Theme.text-muted; }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: DevicesState.denied-reason != "" ? DevicesState.denied-reason : "Removing access disconnects the device at once. It can pair again with a new code.";
+                    font-size: 12px;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+
+    // Rename.
+    if root.rename-row >= 0 && root.rename-row < root.count: Modal {
+        label: "Rename device";
+        width: root.width;
+        height: root.height;
+        dismissed => {
+            root.rename-row = -1;
+        }
+        Text {
+            text: "Rename device";
+            font-size: 15px;
+            font-weight: 650;
+            color: Theme.text-primary;
+        }
+        name-edit := LineEdit {
+            text <=> root.rename-text;
+            placeholder-text: "Device name";
+            accessible-label: "Device name";
+            init => {
+                self.focus();
+                self.select-all();
+            }
+            accepted => {
+                if root.rename-text != "" {
+                    DevicesState.rename(DevicesState.devices[root.rename-row].fingerprint, root.rename-text);
+                    root.rename-row = -1;
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            DialogButton {
+                text: "Cancel";
+                clicked => {
+                    root.rename-row = -1;
+                }
+            }
+            DialogButton {
+                text: "Save";
+                primary: true;
+                enabled: root.rename-text != "" && DevicesState.can-rename;
+                clicked => {
+                    DevicesState.rename(DevicesState.devices[root.rename-row].fingerprint, root.rename-text);
+                    root.rename-row = -1;
+                }
+            }
+        }
+    }
+
+    // Remove access, with a confirmation.
+    if root.remove-row >= 0 && root.remove-row < root.count: Modal {
+        label: "Remove access";
+        width: root.width;
+        height: root.height;
+        dismissed => {
+            root.remove-row = -1;
+        }
+        Text {
+            text: "Remove access for " + DevicesState.devices[root.remove-row].name + "?";
+            font-size: 15px;
+            font-weight: 650;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "The device is disconnected at once and can no longer connect. It can pair again with a new code. Fingerprint " + DevicesState.devices[root.remove-row].fingerprint-short + "…";
+            font-size: 13px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            DialogButton {
+                text: "Cancel";
+                autofocus: true;
+                clicked => {
+                    root.remove-row = -1;
+                }
+            }
+            DialogButton {
+                text: "Remove access";
+                danger: true;
+                enabled: DevicesState.can-remove;
+                clicked => {
+                    DevicesState.remove(DevicesState.devices[root.remove-row].fingerprint);
+                    root.remove-row = -1;
+                }
+            }
+        }
+    }
+}

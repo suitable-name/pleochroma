@@ -10,7 +10,7 @@ repository = { workspace = true }
 publish = { workspace = true }
 
 [dependencies]
-pleochroma-net = { workspace = true, features = ["render"] }
+pleochroma-net = { workspace = true, features = ["render", "pairing"] }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 zeroize = "1.9.1"
@@ -25,6 +25,8 @@ pleochroma-editor = { workspace = true }
 pleochroma-formats = { workspace = true }
 # The local library (SQLite, bundled through the NDK clang on Android).
 pleochroma-vault = { workspace = true }
+# A paired coordinator's library: mirror sync into the local one, and remote browsing.
+pleochroma-library-mirror = { workspace = true }
 # Solid view and diagram rasters (RGBA8).
 pleochroma-solid = { workspace = true }
 # The DOM-free compute side of the web app: scene spec -> `OwnedScene`, chunk
@@ -45,6 +47,10 @@ default = []
 # Path tracing on the device GPU through the event-wavefront kernels (the desktop megakernel
 # is rejected by mobile drivers); Ray-Traced uses its own kernel from `pleochroma/gpu` too.
 device-gpu = ["pleochroma/gpu", "dep:pollster"]
+
+[dev-dependencies]
+# The scripted library transport for the sync and browse tests.
+pleochroma-library-mirror = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -175,6 +175,7 @@ pub fn build_main_window() -> anyhow::Result<MainWindowHandle> {
     let remote_rendering_timer =
         setup_remote_and_batch(&ui, &db, &library_source, &render_ctx, &settings_store);
     setup_window_close(&ui, &render_ctx, &settings_store);
+    crate::gui::material_reference::setup(&ui, &render_ctx);
     // The new-version check: the one-time question, the Preferences switch and, when it is
     // due, the automatic check on a background thread (never before the user said yes).
     crate::gui::update_check::setup_update_check(&ui, &settings_store);

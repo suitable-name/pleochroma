@@ -32,6 +32,15 @@ fn push_strip(model: &CompareModel<'_>, strip: &StripText) {
         })
         .collect();
     model.set_metric_rows(ModelRc::new(VecModel::from(rows)));
+    let zones = strip.zones.as_ref();
+    model.set_has_aset(zones.is_some());
+    model.set_aset_before(ModelRc::new(VecModel::from(
+        zones.map_or_else(Vec::new, |zones| zones.before.to_vec()),
+    )));
+    model.set_aset_after(ModelRc::new(VecModel::from(
+        zones.map_or_else(Vec::new, |zones| zones.after.to_vec()),
+    )));
+    model.set_aset_change(zones.map_or("", |zones| zones.change.as_str()).into());
     model.set_metric_summary(strip.summary.as_str().into());
     model.set_metric_note(strip.note.as_str().into());
     model.set_tilt_available(strip.tilt_available);

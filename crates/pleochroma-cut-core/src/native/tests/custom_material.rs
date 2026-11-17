@@ -503,6 +503,7 @@ fn per_ray_row(character: &'static str, rays_json: &'static str) -> LibraryMater
         per_axis_dispersion_json: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     }
 }
 
@@ -777,4 +778,36 @@ mod crystal_optics {
             assert_eq!(material.biaxial_delta_beta_alpha, None, "{delta:?}");
         }
     }
+}
+
+/// T-C1: a library row's gem data survives a design file round trip as the snapshot's
+/// `[material.custom.gem_data]` table.
+#[test]
+fn a_library_rows_gem_data_survives_the_design_file() {
+    let mut row = per_ray_row("UniaxialNegative", TWO_RAYS_JSON);
+    row.gem_data_json =
+        Some(r#"{"mohs":[7.5,8.0],"toughness":["good","good"],"care":"Dop cool."}"#);
+    let snapshot = row.snapshot();
+    assert!(snapshot.gem_data.is_some());
+
+    let mut design = simple_design();
+    design.material.name = Some("Bespoke".to_string());
+    let (text, loaded) = save_and_open(&design, &snapshot);
+    assert!(text.contains("[material.custom.gem_data]"), "{text}");
+    let restored = loaded
+        .restorable_custom_material
+        .expect("the snapshot is restorable");
+    assert_eq!(restored.gem_data, snapshot.gem_data);
+    assert_eq!(
+        restored
+            .gem_data
+            .as_ref()
+            .and_then(pleochroma_formats::native::CustomGemDataTable::mohs_range),
+        Some((7.5, 8.0))
+    );
+
+    // A row without gem data writes no table.
+    let bare = per_ray_row("UniaxialNegative", TWO_RAYS_JSON).snapshot();
+    let (plain_text, _) = save_and_open(&design, &bare);
+    assert!(!plain_text.contains("gem_data"), "{plain_text}");
 }

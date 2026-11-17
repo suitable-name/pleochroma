@@ -1,7 +1,7 @@
-//! Workers that become available while a job is running: [`LateLanes`], the
-//! [`LaneFeed`] that turns each of them into a lane of the running pool, and
-//! [`LaneTable`], the per-lane bookkeeping both the producer and the feed keep by pool
-//! index.
+//! Workers that become available while a job is running.
+//!
+//! [`LateLanes`], the [`LaneFeed`] that turns each of them into a lane of the running pool, and
+//! [`LaneTable`], the per-lane bookkeeping both the producer and the feed keep by pool index.
 //!
 //! The feed wakes on the registry's change notifications (a worker registering or being
 //! dropped) and, at the latest, every [`LaneFeed`] wait -- a connection that merely became
@@ -143,8 +143,8 @@ impl<'a> LateLanes<'a> {
         let (width, height) = self.size;
         let frames = self.budget.try_reserve(lane_bytes(width, height, 1)).ok()?;
         let accepts = |w: &WorkerInfo| self.shared.accepts(w);
-        let handle = match self.workers {
-            WorkerPick::Fastest(_) => checkout_ranked(
+        let picked = if matches!(self.workers, WorkerPick::Fastest(_)) {
+            checkout_ranked(
                 self.registry,
                 self.rates,
                 width * height,
@@ -153,9 +153,11 @@ impl<'a> LateLanes<'a> {
                 self.pin,
             )
             .into_iter()
-            .next(),
-            _ => Registry::checkout(self.registry, accepts),
-        }?;
+            .next()
+        } else {
+            Registry::checkout(self.registry, accepts)
+        };
+        let handle = picked?;
         Some((handle, frames))
     }
 
@@ -177,9 +179,10 @@ impl LaneFeed for LateLanes<'_> {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         // A lost lane's memory is free again and its worker no longer counts.
         held.retain(|h| !h.lane.lost());
-        let room = match self.workers {
-            WorkerPick::Fastest(n) => (n as usize).saturating_sub(held.len()),
-            _ => usize::MAX,
+        let room = if let WorkerPick::Fastest(n) = self.workers {
+            (n as usize).saturating_sub(held.len())
+        } else {
+            usize::MAX
         };
         let pixels = self.size.0 as usize * self.size.1 as usize;
         let mut late: Vec<(Arc<dyn WorkerLane>, RateModel)> = Vec::new();

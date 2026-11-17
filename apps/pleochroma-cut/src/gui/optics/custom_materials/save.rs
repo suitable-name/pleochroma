@@ -3,6 +3,7 @@
 
 use super::{
     crystal_axis::DefaultAxisForm,
+    gem_data_form::GemDataForm,
     inclusions::{PhysicsForm, ResolvedPhysics},
 };
 use crate::{
@@ -11,7 +12,7 @@ use crate::{
         is_c_axis_override_available,
         optics::{
             crystal_optics::{
-                MaterialSaveFields, crystal_system_from_index,
+                MaterialSaveFields, crystal_system_from_index, custom_material_gem_data_from_rows,
                 custom_material_specific_gravity_from_rows, is_biaxial,
                 optical_character_from_index, save_gem_material_fields,
             },
@@ -102,7 +103,7 @@ pub(super) struct CustomMaterialForm {
     /// The biaxial delta/beta/alpha field (meaningful only for the two biaxial
     /// optical characters -- see [`apply_custom_material_save`]'s own body).
     pub(super) biaxial_delta_beta_alpha: f32,
-    /// The specific-gravity slider field, `0.0` meaning "not recorded" -- see
+    /// The specific-gravity number field, `0.0` meaning "not recorded" -- see
     /// [`apply_custom_material_save`]'s own body for how that sentinel becomes
     /// `None` rather than a literal zero-density material.
     pub(super) specific_gravity: f32,
@@ -136,6 +137,9 @@ pub(super) struct CustomMaterialForm {
     /// copy is rebuilt from it). The dialog always sends `Some`, so a blank section clears the
     /// column and a rename carries what the dialog showed.
     pub(super) physics: Option<PhysicsForm>,
+    /// The Gem Data section's entries. `None` means nothing was authored: the stored row keeps
+    /// its gem data. The dialog always sends `Some`, so blank fields clear what was stored.
+    pub(super) gem_data: Option<GemDataForm>,
 }
 
 /// The render-physics data the row called `name` already stores, for a save that authored none.
@@ -193,7 +197,7 @@ pub(super) struct SavedCustomMaterial {
     pub(super) previous_trace: Option<PreviousTrace>,
     /// The specific gravity now on file for this material, read back from
     /// `RenderContext::custom_material_specific_gravity` -- `None` when the
-    /// dialog's SG slider was left at its "not recorded" sentinel, in which
+    /// dialog's SG field was left at its "not recorded" sentinel, in which
     /// case the toast says nothing about it.
     pub(super) specific_gravity: Option<f64>,
     /// The sentence for a zone update that failed after the material row and the render context
@@ -252,6 +256,7 @@ pub(super) fn apply_custom_material_save(
         body_rays,
         default_axis,
         physics,
+        gem_data,
     } = form;
     // A blank name, or one that collides with a built-in material, is refused here whatever the
     // dialog checked: this is the authoritative check, and the only one that knows the full
@@ -361,7 +366,7 @@ pub(super) fn apply_custom_material_save(
 
     // The vault guard for the save below is a temporary that drops at the end of its statement;
     // an `if let` scrutinee would keep it alive for the whole arm.
-    // `0.0` (the slider's own "not recorded" sentinel, matching
+    // `0.0` (the Gem Data field's own "not recorded" sentinel, a blank field, matching
     // `material_editor_dialog.slint`'s `sg_val` doc comment) is stored as `None`
     // rather than a literal zero-density material.
     let sg = (specific_gravity > 0.0001).then_some(specific_gravity);
@@ -376,6 +381,9 @@ pub(super) fn apply_custom_material_save(
     let physics_texts = physics
         .as_ref()
         .map(|p| (p.per_axis_text(), p.families_text(), p.structure_text()));
+    // The entered gem data, checked before anything is written: a Mohs figure off the scale or a
+    // care note over its limit refuses the whole save.
+    let gem_data_text = gem_data.as_ref().map(GemDataForm::to_json).transpose()?;
     let save_result = save_gem_material_fields(
         &db.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
         &new_mat,
@@ -394,6 +402,7 @@ pub(super) fn apply_custom_material_save(
             per_axis_dispersion_json: physics_texts.as_ref().map(|t| t.0.as_str()),
             inclusion_families_json: physics_texts.as_ref().map(|t| t.1.as_str()),
             structure_json: physics_texts.as_ref().map(|t| t.2.as_str()),
+            gem_data_json: gem_data_text.as_deref(),
         },
     );
     if let Err(e) = save_result {
@@ -488,6 +497,7 @@ pub(super) fn apply_custom_material_save(
     }
     ctx.custom_material_specific_gravity =
         Arc::new(custom_material_specific_gravity_from_rows(&sg_rows));
+    ctx.custom_material_gem_data = Arc::new(custom_material_gem_data_from_rows(&sg_rows));
     ctx.set_custom_material_physics(&trimmed, is_physics);
     ctx.set_custom_material_fluorescence(&trimmed, glow);
     // Reads the just-saved SG back from the side channel, not the local `sg` above, so the toast
@@ -642,6 +652,7 @@ pub(super) fn apply_custom_material_delete(
     ctx.set_custom_material_fluorescence(name, Fluorescence::new(Vec::new()));
     ctx.custom_material_specific_gravity =
         Arc::new(custom_material_specific_gravity_from_rows(&sg_rows));
+    ctx.custom_material_gem_data = Arc::new(custom_material_gem_data_from_rows(&sg_rows));
     // The deleted material can be the live selection by `material_name`, or by
     // `material_override` (which `resolve_material_with_override` prefers; see
     // `gui::render::material::setup_material_changed_callback`). Both are checked

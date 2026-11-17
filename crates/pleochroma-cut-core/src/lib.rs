@@ -31,8 +31,9 @@
 //! - [`manufacturability`]: warning-only checks over an already-solved
 //!   [`design::Design`]: vanishing and undersized facets, gear quantization, meet order
 //!   and names, and concave tool geometry. Nothing is silently corrected.
-//! - [`material`]: [`material::MaterialSelection`] and a specific-gravity lookup
-//!   table; [`material::MaterialSelection::resolve`] and
+//! - [`material`]: [`material::MaterialSelection`], a specific-gravity lookup
+//!   table and the gem reference table (hardness, cleavage, care);
+//!   [`material::MaterialSelection::resolve`] and
 //!   [`design::Design::effective_refractive_index`] give a design one real
 //!   refractive index every consumer can derive from.
 //! - [`optics_hints`]: pure critical-angle math shared by the material-retarget
@@ -180,9 +181,9 @@ pub use manufacturability::{
     degenerate_suspects,
 };
 pub use material::{
-    BuiltinMaterials, MaterialCatalogue, MaterialEntry, MaterialKind, MaterialLookup,
-    MaterialSelection, ResolvedMaterial, SpecificGravity, built_in_refractive_index,
-    built_in_specific_gravity,
+    BuiltinMaterials, GemData, MaterialCatalogue, MaterialEntry, MaterialKind, MaterialLookup,
+    MaterialSelection, ResolvedMaterial, SgBasis, SpecificGravity, built_in_gem_data,
+    built_in_refractive_index, built_in_specific_gravity,
 };
 pub use native::{CatalogueAsc, SaveError, catalogue_asc};
 pub use optics_hints::{

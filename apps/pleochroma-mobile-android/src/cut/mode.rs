@@ -369,10 +369,10 @@ fn buffer_of(pixels: &DiagramPixels) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
 
 /// Whether `token` names the newest diagram request.
 fn token_is_current(token: u64) -> bool {
-    RUNTIME.with(|cell| match cell.try_borrow() {
-        Ok(runtime) => runtime.generation.is_current(token),
-        // Busy: show the picture rather than lose it.
-        Err(_) => true,
+    // Busy (the borrow fails): show the picture rather than lose it.
+    RUNTIME.with(|cell| {
+        cell.try_borrow()
+            .map_or(true, |runtime| runtime.generation.is_current(token))
     })
 }
 

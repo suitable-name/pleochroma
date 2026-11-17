@@ -4,6 +4,8 @@
 //! tone-mapping, PNG output) with no networking, so it can batch-render stills without the
 //! interactive viewer.
 
+mod shader_hint;
+
 use crate::{
     cli::{ComputeMode, RenderArgs},
     png_out, render_core, validate,
@@ -75,6 +77,30 @@ pub fn validate_render_params(width: u32, height: u32, samples: u32) -> Result<(
 /// Panics only if the Ray-Traced AA tap count fails to convert to `u8` after the
 /// 1, 4, 8 or 16 check, which cannot happen.
 pub fn run(args: &RenderArgs) -> Result<(), String> {
+    run_cancellable(args, &std::sync::atomic::AtomicBool::new(false))
+}
+
+/// The message of a render stopped through its cancel flag.
+pub const CANCELLED: &str = "rendering was cancelled";
+
+/// Like [`run`], but stops early once `cancel` is set; the error is then [`CANCELLED`] and no
+/// picture is written.
+///
+/// # Errors
+///
+/// The errors of [`run`], or [`CANCELLED`].
+pub fn run_cancellable(
+    args: &RenderArgs,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    let result = run_with_flag(args, cancel);
+    if result.is_err() && cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err(CANCELLED.to_owned());
+    }
+    result
+}
+
+fn run_with_flag(args: &RenderArgs, cancel: &std::sync::atomic::AtomicBool) -> Result<(), String> {
     validate_render_params(args.width, args.height, args.samples)?;
 
     let scene_text = std::fs::read_to_string(&args.scene)
@@ -147,8 +173,7 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
 
     // Stone shadow and tray reflection are resolved once for the whole picture (the final
     // map). A scene whose shadow or mirror cannot be built is refused, not rendered without it.
-    let cancel = std::sync::atomic::AtomicBool::new(false);
-    let tray = crate::assets::resolve_tray(&scene, None, &cancel)
+    let tray = crate::assets::resolve_tray(&scene, None, cancel)
         .map_err(|stop| stop.message().to_owned())?;
     let sums = if scene.engine.is_ray() {
         let mut out = vec![glam::Vec3::ZERO; args.width as usize * args.height as usize];
@@ -159,22 +184,27 @@ pub fn run(args: &RenderArgs) -> Result<(), String> {
             args.samples,
             args.threads,
             args.compute_mode != ComputeMode::OnlyCpu,
-            &cancel,
+            cancel,
             &mut out,
         ) {
             return Err("Ray-Traced rendering could not complete the requested AA taps".to_owned());
         }
         out
     } else {
-        render_core::trace_samples_with_gpu_cancellable(
-            &gpu,
-            &scene,
-            (0, args.samples),
-            args.threads,
-            &cancel,
-            tray.view(),
-        )
-        .ok_or_else(|| "rendering was cancelled".to_owned())?
+        // The first GPU render after an install or an update compiles its shaders, which can take
+        // a minute with nothing else to show; the watcher says so once, on standard error.
+        let watching = args.compute_mode != ComputeMode::OnlyCpu && gpu.adapter_label().is_some();
+        shader_hint::while_rendering(watching, || {
+            render_core::trace_samples_with_gpu_cancellable(
+                &gpu,
+                &scene,
+                (0, args.samples),
+                args.threads,
+                cancel,
+                tray.view(),
+            )
+        })
+        .ok_or_else(|| CANCELLED.to_owned())?
     };
     let rgba = png_out::tonemap_to_rgba(args.width, args.height, args.samples, &sums);
     png_out::write_png(args.width, args.height, rgba, &args.out)?;

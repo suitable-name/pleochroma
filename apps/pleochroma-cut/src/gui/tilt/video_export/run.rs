@@ -202,7 +202,6 @@ fn run(
         &request.out_dir,
         &outcome,
         activity_id,
-        tilt_views_note(&request.scene).as_deref(),
     );
 }
 
@@ -225,19 +224,14 @@ fn render_all_frames(
         activity_id,
         eta: EtaEstimator::default(),
         work: None,
-        tilt_note: tilt_views_note(&request.scene),
     };
-    if let Some(note) = &reporter.tilt_note {
-        report_frame_progress(ui_weak, 0, 1, 0.0, Some(note.clone()), activity_id);
-    }
     frames::render_frames(request, false, cancel, &mut reporter)
 }
 
-/// What a tilt view or video of `scene` leaves out.
+/// What a tilt view (the hover preview) of `scene` leaves out.
 ///
-/// One sentence per effect: the stone shadow and the tray reflection are not drawn by the
-/// frame loop. `None` when nothing is left out. The tilt dialog, the hover preview, video
-/// progress and queued jobs all use this wording.
+/// One sentence per effect: the hover preview does not draw the stone shadow or the tray
+/// reflection. `None` when nothing is left out. Tilt videos draw both and use no note.
 pub(in crate::gui) fn tilt_views_note(scene: &SceneSnapshot) -> Option<String> {
     omitted_effects_note(
         scene.stone_shadow_enabled(),
@@ -265,9 +259,6 @@ struct SlintFrameReporter {
     /// Rendering work done as of the next saved frame (`FrameReporter::work_done`). Copied
     /// frames cost nothing, so the estimate follows this, not the frame count.
     work: Option<f64>,
-    /// What the frames leave out (the stone shadow, the tray reflection), added to every
-    /// frame's note. See [`tilt_views_note`].
-    tilt_note: Option<String>,
 }
 
 impl FrameReporter for SlintFrameReporter {
@@ -277,12 +268,7 @@ impl FrameReporter for SlintFrameReporter {
             index,
             total,
             fraction,
-            match &self.tilt_note {
-                Some(tilt_note) => Some(
-                    note.map_or_else(|| tilt_note.clone(), |note| format!("{note} {tilt_note}")),
-                ),
-                None => note,
-            },
+            note,
             self.activity_id,
         );
     }
@@ -418,14 +404,9 @@ fn report_done(
     out_dir: &Path,
     outcome: &encode::EncodeOutcome,
     activity_id: i32,
-    tilt_note: Option<&str>,
 ) {
     finish_video_export(render_ctx, pausing);
-    let (_, mut message) = frames::encode_outcome_message(outcome, out_dir);
-    if let Some(note) = tilt_note {
-        message.push(' ');
-        message.push_str(note);
-    }
+    let (_, message) = frames::encode_outcome_message(outcome, out_dir);
     let toast_kind = if matches!(outcome, encode::EncodeOutcome::Mp4(_)) {
         "success"
     } else {

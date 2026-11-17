@@ -87,6 +87,38 @@ pub(super) fn importing_text(files: usize) -> String {
     format!("Importing {}", counted(files, "file", "files"))
 }
 
+/// What a sync says while it asks the computer for its design list.
+pub(super) fn sync_contacting(computer: &str) -> String {
+    format!("Contacting {computer}\u{2026}")
+}
+
+/// What a running sync says after Stop Sync (or a pairing change) until it has stopped.
+pub(super) const SYNC_STOPPING: &str = "Stopping\u{2026}";
+
+/// The result of a sync that a pairing change stopped.
+pub(super) const SYNC_PAIRING_CHANGED: &str =
+    "Sync stopped because the pairing changed. Designs already copied stay on this phone.";
+
+/// The toast of a sync that starts while the user is on another page (the offer after
+/// pairing).
+pub(super) fn sync_started(computer: &str) -> String {
+    format!("Copying designs from {computer}. Follow along on the Library page.")
+}
+
+/// The toast after a design of the computer opened.
+pub(super) fn opened_from(computer: &str) -> String {
+    format!("Opened from {computer}. Save keeps a copy on this phone.")
+}
+
+/// The toast when the computer no longer shares a design library.
+pub(super) fn no_library(computer: &str) -> String {
+    format!("{computer} no longer shares a design library.")
+}
+
+/// The toast when the computer stopped at its row cap.
+pub(super) const CAPPED_NOTICE: &str =
+    "Showing the first 1,000 designs. Narrow the search to see others.";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,6 +134,7 @@ mod tests {
             ri: None,
             tags: Vec::new(),
             mine: false,
+            synced: false,
             ignored: false,
             updated_unix: 0,
         }
@@ -176,5 +209,22 @@ mod tests {
     fn importing_text_pluralizes() {
         assert_eq!(importing_text(1), "Importing 1 file");
         assert_eq!(importing_text(12), "Importing 12 files");
+    }
+
+    #[test]
+    fn the_sync_and_open_texts_name_the_computer() {
+        assert_eq!(sync_contacting("Studio"), "Contacting Studio\u{2026}");
+        assert_eq!(
+            sync_started("Studio"),
+            "Copying designs from Studio. Follow along on the Library page."
+        );
+        assert_eq!(
+            opened_from("Studio"),
+            "Opened from Studio. Save keeps a copy on this phone."
+        );
+        assert_eq!(
+            no_library("Studio"),
+            "Studio no longer shares a design library."
+        );
     }
 }

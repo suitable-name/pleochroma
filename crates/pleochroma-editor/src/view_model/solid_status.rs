@@ -146,7 +146,7 @@ pub fn status_text_and_is_problem_from_solved(
                 .map(|m| carved_volume(design, solved, m))
                 .map(|m| {
                     format!(
-                        " -- volume {:.4} (model units^3){}",
+                        " \u{b7} volume {:.4} (model units\u{b3}){}",
                         m.volume,
                         external_proportions_note(&m, mm_per_unit)
                     )
@@ -169,7 +169,7 @@ pub fn status_text_and_is_problem_from_solved(
             // See `status_text_and_is_problem`'s matching arm.
             let volume_text = volume.map_or_else(
                 || "non-finite".to_string(),
-                |v| format!("{v:.4} (model units^3)"),
+                |v| format!("{v:.4} (model units\u{b3})"),
             );
             let suspects_note = degenerate_suspects_note(design, solved);
             (

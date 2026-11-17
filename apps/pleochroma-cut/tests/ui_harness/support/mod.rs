@@ -17,6 +17,7 @@ pub mod fixtures;
 pub mod library_source;
 pub mod part;
 pub mod profile;
+pub mod remote_seed;
 pub mod rough_color_seed;
 pub mod secondary;
 pub mod smoke;

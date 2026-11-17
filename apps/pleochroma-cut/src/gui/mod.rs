@@ -33,6 +33,9 @@ mod library;
 // Building and wiring the `MainWindow` and its `MainWindowHandle` RAII guard -- see the
 // module's own doc comment.
 mod main_window;
+// The Material Reference window: the table of every material and the details of one -- see the
+// module's own doc comment.
+mod material_reference;
 mod optics;
 // App-wide preferences (Simple/Advanced, UI scale, high contrast, larger handles, the
 // remembered Snap/Slice pills) -- see the module's own doc comment. `pub` only for
@@ -119,6 +122,7 @@ pub(crate) use {
     },
     editor::harness_compare_window,
     library::local::apply_measured_metadata as harness_apply_measured_metadata,
+    material_reference::harness_window as harness_material_reference_window,
     rough_plan::{
         EXPORT_SUFFIX as ROUGH_PLAN_EXPORT_SUFFIX, HARNESS_SEED_PLAN_NAME, harness_locate_window,
         harness_planner_window, harness_rig_window, harness_seed_rough_color_plan,

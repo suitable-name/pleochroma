@@ -129,6 +129,35 @@ fn a_preview_for_a_superseded_epoch_is_dropped_too() {
     assert!(acc.last_preview().is_none());
 }
 
+/// `PREPARING` is liveness for the current epoch (reported with its counts, nothing
+/// accumulated) and is dropped like any other event for a superseded one.
+#[test]
+fn preparing_is_reported_for_the_current_epoch_and_dropped_for_a_stale_one() {
+    let mut acc = Accumulator::new(1, 1);
+    acc.begin_request(5);
+
+    let stale = StreamEvent::Preparing(Preparing {
+        request_id: 4,
+        done: 3,
+        total: 40,
+    });
+    assert_eq!(acc.apply(&stale, None).unwrap(), ApplyOutcome::StaleDropped);
+
+    let current = StreamEvent::Preparing(Preparing {
+        request_id: 5,
+        done: 12,
+        total: 40,
+    });
+    assert_eq!(
+        acc.apply(&current, None).unwrap(),
+        ApplyOutcome::Preparing {
+            done: 12,
+            total: 40
+        }
+    );
+    assert!(acc.buffer().iter().all(|v| *v == Vec3::ZERO));
+}
+
 #[test]
 fn progress_and_done_are_also_epoch_gated() {
     let mut acc = Accumulator::new(1, 1);

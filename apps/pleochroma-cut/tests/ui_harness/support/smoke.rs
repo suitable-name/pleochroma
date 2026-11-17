@@ -61,6 +61,17 @@ pub const PLEOCHROMA_DENY: &[DenyRule] = &[
         "close window",
         "closes the window under test",
     ),
+    // The Material Reference window is a second window the pass would leave open.
+    DenyRule::label(
+        DenyMatch::Contains,
+        "material details",
+        "opens the Material Reference window (driven by the material_reference scenarios)",
+    ),
+    DenyRule::label(
+        DenyMatch::Contains,
+        "material reference",
+        "opens the Material Reference window (driven by the material_reference scenarios)",
+    ),
 ];
 
 /// The one place every Pleochroma [`Smoke`] is built.

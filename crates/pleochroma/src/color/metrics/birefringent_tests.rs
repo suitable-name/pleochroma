@@ -121,7 +121,7 @@ fn integer_reference(prepared: &PreparedEval<'_>, yaw: f32, pitch: f32) -> [f32;
                 total += 1;
                 match class {
                     RayClassification::Windowed => windowed += 1,
-                    RayClassification::Extinct => extinct += 1,
+                    RayClassification::Extinct { .. } => extinct += 1,
                     RayClassification::Returned(_) => returned += 1,
                     RayClassification::EntryBlocked | RayClassification::Invalid => {}
                 }
@@ -367,4 +367,77 @@ fn the_weighted_shares_are_consistent() {
     assert_eq!(a.windowing_pct.to_bits(), core.windowing_pct.to_bits());
     assert_eq!(a.extinction_pct.to_bits(), core.extinction_pct.to_bits());
     assert_eq!(a.doubling_arcmin.to_bits(), core.doubling_arcmin.to_bits());
+}
+
+/// A sapphire with a tilted axis: the zone shares add up to the whole, Leak has the bits of
+/// Windowing (mode-weighted), the extinction identity holds, the Fire-less pass gives the same
+/// zone bits, and turning the optic axis moves Contrast (the extraordinary mode walks off).
+#[test]
+fn the_zone_shares_of_a_birefringent_stone_are_mode_weighted() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = sapphire_with_axis(Vec3::new(1.0, 0.4, 0.2).normalize());
+    for (yaw, pitch) in [(0.0, FRAC_PI_2), (0.6, 0.45)] {
+        let m = super::evaluate_gem_optical_metrics(&planes, &material, yaw, pitch, studio());
+        let a = m.aset.expect("zone shares");
+        assert_eq!(a.leak_pct.to_bits(), m.windowing_pct.to_bits());
+        let up = a.red_pct + a.green_pct + a.blue_pct;
+        let sum = up + a.leak_pct + a.lost_pct;
+        assert!(sum <= 100.0 + 1e-3 && sum > 99.0, "{a:?}");
+        assert!(
+            (m.extinction_pct - (a.lost_pct + up - m.brilliance_pct)).abs() < 1e-3,
+            "{m:?}"
+        );
+        let core = super::evaluate_gem_optical_metrics_geom_core(
+            StoneGeometry::planes_only(&planes),
+            &material,
+            yaw,
+            pitch,
+            studio(),
+        );
+        let b = core.aset.expect("zone shares");
+        assert_eq!(a.blue_pct.to_bits(), b.blue_pct.to_bits());
+        assert_eq!(a.contrast.to_bits(), b.contrast.to_bits());
+    }
+    // Along the optic axis the two modes agree; across it they separate.
+    let along = super::evaluate_gem_optical_metrics(
+        &planes,
+        &sapphire_with_axis(Vec3::Y),
+        0.0,
+        FRAC_PI_2,
+        studio(),
+    )
+    .aset
+    .expect("zone shares");
+    let across = super::evaluate_gem_optical_metrics(
+        &planes,
+        &sapphire_with_axis(Vec3::X),
+        0.0,
+        FRAC_PI_2,
+        studio(),
+    )
+    .aset
+    .expect("zone shares");
+    assert_ne!(along.contrast.to_bits(), across.contrast.to_bits());
+}
+
+/// A diamond keeps every existing integer counter as the integer reference counts them, with
+/// the zones folded in beside them.
+#[test]
+fn the_zones_leave_the_integer_counters_of_a_diamond_alone() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let prepared = PreparedEval::new(
+        StoneGeometry::planes_only(&planes),
+        &GemMaterial::diamond(),
+        studio(),
+    )
+    .unwrap();
+    let m = evaluate_pose(&prepared, 0.0, FRAC_PI_2, MetricsWanted::ALL, None);
+    let [brilliance, windowing, extinction] = integer_reference(&prepared, 0.0, FRAC_PI_2);
+    assert_eq!(m.brilliance_pct.to_bits(), brilliance.to_bits());
+    assert_eq!(m.windowing_pct.to_bits(), windowing.to_bits());
+    assert_eq!(m.extinction_pct.to_bits(), extinction.to_bits());
+    assert_eq!(
+        m.aset.expect("zone shares").leak_pct.to_bits(),
+        windowing.to_bits()
+    );
 }

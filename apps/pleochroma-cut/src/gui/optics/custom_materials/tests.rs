@@ -3,7 +3,8 @@
 
 use super::{
     CUSTOM_KEEP_COLOR_INDEX, CustomMaterialForm, absorption_rgb_for_color_index,
-    apply_custom_material_save, crystal_axis::DefaultAxisForm, restore_trace,
+    apply_custom_material_delete, apply_custom_material_save, crystal_axis::DefaultAxisForm,
+    gem_data_form::GemDataForm, restore_trace,
 };
 use crate::{bridge::render_thread::RenderContext, gui::optics::physics_state::PhysicsState};
 use pleochroma::optics::{
@@ -46,6 +47,7 @@ fn form(name: &str, color_idx: i32, json: &str) -> CustomMaterialForm {
         body_rays: None,
         default_axis: DefaultAxisForm::default(),
         physics: None,
+        gem_data: None,
     }
 }
 
@@ -635,4 +637,168 @@ fn an_isotropic_material_never_stores_a_default_axis() {
     };
     apply_custom_material_save(&db, &ctx, isotropic).expect("saves");
     assert_eq!(stored(&db, "Iso Axis Probe").c_axis_tilt_deg, None);
+}
+
+// ---- T-G4: the Gem Data section's save ----------------------------------------------------
+
+/// The entries of a cutter's own stone: a Mohs range, a toughness range and the three texts.
+fn entered_gem_data() -> GemDataForm {
+    GemDataForm {
+        mohs_from: "7.5".into(),
+        mohs_to: "8".into(),
+        toughness_from: 4,
+        toughness_to: 4,
+        cleavage: "Imperfect basal".into(),
+        fracture: "Conchoidal".into(),
+        care: "Avoid sudden temperature changes while dopping.".into(),
+        source: "My notes, 2026".into(),
+    }
+}
+
+/// The text a save stores for `name`'s gem data.
+fn stored_gem_json(db: &Arc<Mutex<Database>>, name: &str) -> Option<String> {
+    stored(db, name).gem_data_json
+}
+
+#[test]
+fn a_save_with_gem_data_stores_it_and_feeds_the_side_channel() {
+    let (db, ctx) = setup();
+    let with_data = CustomMaterialForm {
+        gem_data: Some(entered_gem_data()),
+        ..form("Gem Data Probe", 3, "")
+    };
+    apply_custom_material_save(&db, &ctx, with_data).expect("saves");
+
+    // The row holds the file's table as JSON: the toughness as its word, the texts trimmed.
+    let json = stored_gem_json(&db, "Gem Data Probe").expect("gem data stored");
+    let table: pleochroma_formats::native::CustomGemDataTable =
+        serde_json::from_str(&json).expect("the stored text is a gem data table");
+    assert_eq!(table.mohs, Some([7.5, 8.0]));
+    assert_eq!(
+        table.toughness,
+        Some(["good".to_owned(), "good".to_owned()])
+    );
+    assert_eq!(table.cleavage.as_deref(), Some("Imperfect basal"));
+    assert_eq!(table.source.as_deref(), Some("My notes, 2026"));
+
+    // The render context's side channel serves the card and the Material Reference.
+    let c = ctx.lock().unwrap();
+    let data = c
+        .custom_gem_data("gem data probe")
+        .expect("side channel entry");
+    assert_eq!(data.mohs, Some((7.5, 8.0)));
+    assert_eq!(data.fracture.as_deref(), Some("Conchoidal"));
+    let facts = pleochroma_editor::material_reference::GemFacts::for_material(
+        "Gem Data Probe",
+        true,
+        Some(data),
+    );
+    assert!(facts.user_entered);
+    assert_eq!(facts.hardness.as_deref(), Some("7.5\u{2013}8"));
+    assert_eq!(facts.toughness.as_deref(), Some("Good"));
+    assert_eq!(facts.cleavage.as_deref(), Some("Imperfect basal"));
+    drop(c);
+}
+
+#[test]
+fn a_save_without_gem_data_keeps_what_the_row_holds() {
+    let (db, ctx) = setup();
+    apply_custom_material_save(
+        &db,
+        &ctx,
+        CustomMaterialForm {
+            gem_data: Some(entered_gem_data()),
+            ..form("Gem Keep Probe", 3, "")
+        },
+    )
+    .expect("first save");
+    let before = stored_gem_json(&db, "Gem Keep Probe");
+    assert!(before.is_some());
+
+    // A save that authored no gem data (no window) leaves it, and the live list follows the row.
+    apply_custom_material_save(&db, &ctx, form("Gem Keep Probe", 3, "")).expect("second save");
+    assert_eq!(stored_gem_json(&db, "Gem Keep Probe"), before);
+    assert!(
+        ctx.lock()
+            .unwrap()
+            .custom_gem_data("Gem Keep Probe")
+            .is_some()
+    );
+}
+
+#[test]
+fn a_material_saved_without_gem_data_has_none() {
+    let (db, ctx) = setup();
+    apply_custom_material_save(&db, &ctx, form("Plain Probe", 3, "")).expect("saves");
+    assert_eq!(stored_gem_json(&db, "Plain Probe"), None);
+    assert!(ctx.lock().unwrap().custom_gem_data("Plain Probe").is_none());
+}
+
+#[test]
+fn blank_gem_data_fields_clear_what_was_stored() {
+    let (db, ctx) = setup();
+    apply_custom_material_save(
+        &db,
+        &ctx,
+        CustomMaterialForm {
+            gem_data: Some(entered_gem_data()),
+            ..form("Gem Clear Probe", 3, "")
+        },
+    )
+    .expect("first save");
+    apply_custom_material_save(
+        &db,
+        &ctx,
+        CustomMaterialForm {
+            gem_data: Some(GemDataForm::default()),
+            ..form("Gem Clear Probe", 3, "")
+        },
+    )
+    .expect("clearing save");
+    assert_eq!(stored_gem_json(&db, "Gem Clear Probe"), None);
+    assert!(
+        ctx.lock()
+            .unwrap()
+            .custom_gem_data("Gem Clear Probe")
+            .is_none()
+    );
+}
+
+#[test]
+fn a_mohs_figure_off_the_scale_refuses_the_save_and_writes_nothing() {
+    let (db, ctx) = setup();
+    let bad = CustomMaterialForm {
+        gem_data: Some(GemDataForm {
+            mohs_from: "11".into(),
+            ..GemDataForm::default()
+        }),
+        ..form("Gem Bad Probe", 3, "")
+    };
+    let error = apply_custom_material_save(&db, &ctx, bad)
+        .err()
+        .expect("refused");
+    assert!(error.contains("Mohs"), "{error}");
+    assert!(
+        db.lock()
+            .unwrap()
+            .get_custom_materials()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn deleting_a_material_drops_its_gem_data_entry() {
+    let (db, ctx) = setup();
+    apply_custom_material_save(
+        &db,
+        &ctx,
+        CustomMaterialForm {
+            gem_data: Some(entered_gem_data()),
+            ..form("Gem Delete Probe", 3, "")
+        },
+    )
+    .expect("saves");
+    apply_custom_material_delete(&db, &ctx, "Gem Delete Probe").expect("deletes");
+    assert!(ctx.lock().unwrap().custom_material_gem_data.is_empty());
 }

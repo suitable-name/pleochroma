@@ -5,11 +5,14 @@ import { LibraryModel } from "../../models/library.slint";
 import { TrialsModel } from "../../models/trials.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { EditorModel } from "../../models/editor.slint";
+import { TiltModel } from "../../models/tilt.slint";
+import { ExportModel } from "../../models/export.slint";
 import { KitFigure, KitFigures } from "../kit/kit.slint";
+import { FiguresHelp } from "../gem_viewport/figures_help.slint";
 
 // The Edit viewport's figures card: the same `KitFigures` and the same figure order as Live Render's
 // (`gem_viewport/live_figures.slint`: brilliance, fire, scintillation, windowing, extinction, then
-// yield, warnings and the tilt averages), here with the change since the Baseline beside every
+// Contrast, yield, warnings and the tilt averages), here with the change since the Baseline beside every
 // figure (`BaselineModel.cells`, which Rust already orders that way). "Keep as Trial" is its action.
 //
 // Open by default; folded to one line when `ViewportModel.figures_folded` says so (the same saved
@@ -19,6 +22,10 @@ import { KitFigure, KitFigures } from "../kit/kit.slint";
 // The Simple interface shows the figures without their changes and without Keep as Trial.
 export component EditFigures inherits Rectangle {
     in property <bool> narrow: false;
+    // Where the viewport's room for the popover ends (window coordinates): its right edge less the
+    // margin, and the top of its bottom row.
+    in property <length> view_right: 0px;
+    in property <length> view_bottom: 0px;
 
     property <bool> wide_folded: ViewportModel.figures_folded;
     property <bool> narrow_open: false;
@@ -55,7 +62,8 @@ export component EditFigures inherits Rectangle {
 
     // Nothing scored yet: the five names with a dash.
     property <[KitFigure]> placeholder: [blank("Brilliance"), blank("Fire"), blank("Scintillation"), blank("Windowing"), blank("Extinction")];
-    property <[KitFigure]> open_list: root.n >= 10 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7), fig(8), fig(9)]
+    property <[KitFigure]> open_list: root.n >= 11 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7), fig(8), fig(9), fig(10)]
+        : root.n == 10 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7), fig(8), fig(9)]
         : root.n == 9 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7), fig(8)]
         : root.n == 8 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6), fig(7)]
         : root.n == 7 ? [fig(0), fig(1), fig(2), fig(3), fig(4), fig(5), fig(6)]
@@ -65,16 +73,19 @@ export component EditFigures inherits Rectangle {
     // Folded, the line names the first three, in Live Render's folded order: Bril, Wind, Ext.
     property <[KitFigure]> folded_list: root.n >= 5 ? [sfig(0), sfig(3), sfig(4), sfig(1), sfig(2)] : [blank("Bril"), blank("Wind"), blank("Ext"), blank("Fire"), blank("Scint")];
 
-    // What a click copies: the five numbers with their names.
+    // Contrast sits right after the five (cell 5) when the design's zones were measured.
+    property <bool> has_contrast: root.n >= 6 && BaselineModel.cells[5].name == "Contrast";
+    // What a click copies: the five numbers with their names, and Contrast when it is measured.
     property <string> copy_text: root.n >= 5
-        ? (fig(0).name + " " + fig(0).value + "\n" + fig(1).name + " " + fig(1).value + "\n" + fig(2).name + " " + fig(2).value + "\n" + fig(3).name + " " + fig(3).value + "\n" + fig(4).name + " " + fig(4).value)
+        ? (fig(0).name + " " + fig(0).value + "\n" + fig(1).name + " " + fig(1).value + "\n" + fig(2).name + " " + fig(2).value + "\n" + fig(3).name + " " + fig(3).value + "\n" + fig(4).name + " " + fig(4).value
+            + (root.has_contrast ? "\n" + fig(5).name + " " + fig(5).value : ""))
         : "";
 
     width: figures_lay.preferred-width;
     height: figures_lay.preferred-height;
     opacity: BaselineModel.stale ? 0.7 : 1.0;
 
-    Tooltip { text: @markdown("Click to copy these five numbers. Beside each figure is its change since the Baseline: a triangle up is better, a triangle down is worse, a dash is about the same. Within the noise threshold counts as the same. See the glossary."); }
+    Tooltip { text: @markdown("Click to copy these figures. Contrast is how finely the viewer's own shadow is broken up across the face, 0 to 100; more is better. Beside each figure is its change since the Baseline: a triangle up is better, a triangle down is worse, a dash is about the same. Within the noise threshold counts as the same. See the glossary."); }
 
     figures_lay := HorizontalLayout {
         alignment: start;
@@ -84,6 +95,10 @@ export component EditFigures inherits Rectangle {
             folded: !root.narrow_open;
             show_bars: false;
             show_deltas: root.deltas && BaselineModel.has_baseline;
+            divider_a: root.n >= 8 ? (root.has_contrast ? 5 : 4) : -1;
+            divider_b: root.n >= 8 ? (root.has_contrast ? 7 : 6) : -1;
+            show_help: true;
+            help => { ViewportModel.figures_help_open = !ViewportModel.figures_help_open; }
             action_text: root.deltas && GuideModel.allows_history() && EditorModel.enabled ? "Keep as Trial" : "";
             copy => { LibraryModel.copy_text(root.copy_text); }
             action => { TrialsModel.keep_trial(); }
@@ -95,6 +110,10 @@ export component EditFigures inherits Rectangle {
             folded: root.wide_folded;
             show_bars: false;
             show_deltas: root.deltas && BaselineModel.has_baseline;
+            divider_a: root.n >= 8 ? (root.has_contrast ? 5 : 4) : -1;
+            divider_b: root.n >= 8 ? (root.has_contrast ? 7 : 6) : -1;
+            show_help: true;
+            help => { ViewportModel.figures_help_open = !ViewportModel.figures_help_open; }
             action_text: root.deltas && GuideModel.allows_history() && EditorModel.enabled ? "Keep as Trial" : "";
             copy => { LibraryModel.copy_text(root.copy_text); }
             action => { TrialsModel.keep_trial(); }
@@ -103,6 +122,14 @@ export component EditFigures inherits Rectangle {
                 ViewportModel.figures_folded_set(f);
             }
         }
+    }
+
+    // The same popover as Live Render's "?", beside the card: its right edge plus 12 px, the same top.
+    if ViewportModel.figures_help_open && !TiltModel.dialog_open && !ExportModel.is_open: FiguresHelp {
+        x: root.width + 12px;
+        y: 0px;
+        width: min(460px, max(280px, root.view_right - root.absolute-position.x - root.width - 12px));
+        height: min(self.content_height, max(200px, root.view_bottom - root.absolute-position.y));
     }
 
     // The guide's Keep Trials lesson outlines the card.

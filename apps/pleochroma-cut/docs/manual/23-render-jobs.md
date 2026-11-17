@@ -43,12 +43,15 @@ older reader refuses the job instead of drawing the stone as designed. A job of 
 stone leaves the key out and keeps its format. A tilt-video job never carries a pose.
 
 The shadow requires a studio light and a backdrop. HDR maps, As Lit,
-"Contrast view (ASET-style)" and tilt videos cannot use it. The renderer builds a Final
+"Contrast view (ASET-style)" cannot use it. A tilt video draws it only when its own
+**Stone Shadow** switch was on when the job was added (Chapter 14); the job is then format 3,
+like a still with the shadow. The renderer builds a Final
 quality map before the first sample. The Tray Reflection has the same scope and
 works together with the shadow. In the app its row dims with the Stone Shadow row's notes
 ("(not used with an HDR map)", "(needs a backdrop)", "(not used with this light)"); a job
 or worker that cannot serve it says "Tray reflection needs a studio light with a
-backdrop." Tilt videos do not show it.
+backdrop." A tilt video draws it only when its own **Tray Reflection** switch was on when the
+job was added; the job is then format 4.
 
 A job keeps a frozen copy of everything it needs: the finished stone, its width and material effects, the material and its color (the preview material, if you were previewing one), the lighting, the camera, the size, the samples and the other export settings. If you change the design afterwards, the job still renders what you saw when you added it.
 

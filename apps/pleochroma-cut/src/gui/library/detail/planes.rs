@@ -420,15 +420,8 @@ pub(super) fn apply_reconstructed_planes(
         // targets the view (a library design is never edited).
         ui.global::<ViewportModel>().invoke_render_color_refresh();
     }
-    // The dropdown's own selection is set as well as the traced material, since they are
-    // separate state. A missing option leaves the selection unchanged: built-in materials
-    // are always listed, so this only happens before the options are pushed.
     if let Some(name) = resolved_material {
-        let options = ui.global::<ViewportModel>().get_material_options();
-        if let Some(index) = crate::gui::startup_settings::find_option_index(&options, &name) {
-            ui.global::<ViewportModel>()
-                .set_selected_material_index(index);
-        }
+        show_resolved_material(ui, render_ctx, &name);
     }
     if !claimed {
         return;
@@ -438,6 +431,28 @@ pub(super) fn apply_reconstructed_planes(
     if ui.global::<TiltModel>().get_dialog_open() {
         ui.global::<TiltModel>().invoke_request_tilt_profile_axes();
     }
+}
+
+/// Shows `name` as the Material dropdown's selection and the Stone tab's material facts.
+fn show_resolved_material(ui: &MainWindow, render_ctx: &Arc<Mutex<RenderContext>>, name: &str) {
+    // The dropdown's own selection is set as well as the traced material, since they are
+    // separate state. A missing option leaves the selection unchanged: built-in materials
+    // are always listed, so this only happens before the options are pushed.
+    let options = ui.global::<ViewportModel>().get_material_options();
+    if let Some(index) = crate::gui::startup_settings::find_option_index(&options, name) {
+        ui.global::<ViewportModel>()
+            .set_selected_material_index(index);
+    }
+    // The Stone tab's material facts follow the material the library row is shown in.
+    let (custom, custom_gem, custom_sg) = {
+        let ctx = RenderContext::lock(render_ctx);
+        (
+            ctx.custom_materials.clone(),
+            ctx.custom_material_gem_data.clone(),
+            ctx.custom_material_specific_gravity.clone(),
+        )
+    };
+    crate::gui::editor::push_gem_card(ui, Some(name), &custom, &custom_gem, &custom_sg);
 }
 
 /// Resolves `name` to a custom material first, then to a built-in.

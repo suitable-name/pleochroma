@@ -1,0 +1,238 @@
+name: Build Worker
+
+# Builds the worker programs of a release with profile-guided optimization (PGO) and attaches
+# them, so a release needs only the Pleochroma Cut programs uploaded by hand:
+#
+#   Windows (PGO, scripts/pgo-build.ps1), each with its console twin `.com`:
+#     pleochroma-worker-windows-{scalar,avx2}-{cpu,gpu}.exe + .com
+#   Linux (PGO + BOLT, scripts/pgo-bolt-build.sh --bolt):
+#     pleochroma-worker-linux-{scalar,avx2}-{cpu,gpu}
+#
+# The jobs call the same scripts the owner runs locally, so features, training and output
+# match a local build. Every program has the coordinator window; the `cpu` programs leave the
+# GPU path out. The runners have no GPU: `PGO_TRAIN_SKIP_GPU=1` skips the one training stage
+# that needs an adapter (it trains `render_hybrid`, which no app calls; see the scripts' notes).
+# scalar is x86-64-v2, avx2 is x86-64-v3; AVX-512 is not built (not every runner has it).
+# Linux builds on Ubuntu 22.04, so the programs run on distributions with glibc 2.35 or newer.
+# The `.com` is the console launcher apps/pleochroma-worker/src/bin/console.rs (standard library
+# only), built with plain rustc and copied to the program's name.
+#
+# Runs when a release is published, from the release's tag, and by hand for an existing release.
+# The tag must match the workspace version (v0.12.0 for 0.12.0). One PGO build takes about
+# 1.5 to 3 hours; the eight run in parallel.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag; empty selects the latest published release'
+        type: string
+        default: ''
+      only:
+        description: 'Build only these jobs (e.g. "linux" or "windows-avx2-gpu"); empty builds all'
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  # The LLVM release BOLT comes from (apt.llvm.org); BOLT reads the finished binary, so it
+  # need not match rustc's LLVM. The PGO tools come from rustup's llvm-tools, which do.
+  BOLT_LLVM_VERSION: '21'
+
+jobs:
+  prepare:
+    name: Resolve the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      windows: ${{ steps.plan.outputs.windows }}
+      linux: ${{ steps.plan.outputs.linux }}
+    steps:
+      - name: Find the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          tag="$RELEASE_TAG"
+          if [ -z "$tag" ]; then
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          if [ -z "$tag" ]; then echo "No published release found." >&2; exit 1; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release: $tag"
+
+      # The two job lists, filtered by the `only` input (a substring of a job name such as
+      # "linux" or "windows-avx2-gpu"). A job-level `if` cannot see the matrix, so the lists
+      # are built here.
+      - name: Plan the jobs
+        id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          only = os.environ.get("ONLY", "")
+          for os_name in ("windows", "linux"):
+              jobs = [{"cpu": cpu, "compute": compute}
+                      for cpu in ("scalar", "avx2") for compute in ("cpu", "gpu")
+                      if only in f"{os_name}-{cpu}-{compute}"]
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                  out.write(f"{os_name}={json.dumps({'include': jobs})}\n")
+              print(os_name, [f"{j['cpu']}-{j['compute']}" for j in jobs])
+          PY
+
+  windows:
+    name: windows-${{ matrix.cpu }}-${{ matrix.compute }}
+    needs: prepare
+    if: fromJSON(needs.prepare.outputs.windows).include[0] != null
+    runs-on: windows-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.windows) }}
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      NAME: pleochroma-worker-windows-${{ matrix.cpu }}-${{ matrix.compute }}
+      PGO_TRAIN_SKIP_GPU: '1'
+      SLINT_NO_QT: '1'
+      RUSTC_WRAPPER: ''
+      RUSTC_WORKSPACE_WRAPPER: ''
+    steps:
+      - name: Check out the release's source
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          persist-credentials: false
+
+      - name: Check that the tag matches the workspace version
+        run: |
+          $toml = Get-Content Cargo.toml -Raw
+          if ($toml -notmatch '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"') {
+            throw 'No version in [workspace.package] of Cargo.toml.'
+          }
+          $version = $Matches[1]
+          if ($env:RELEASE_TAG.TrimStart('v') -ne $version) {
+            throw "Release $env:RELEASE_TAG does not match the workspace version $version."
+          }
+          Write-Host "Version $version"
+
+      - name: Install Rust with the LLVM tools
+        run: |
+          rustup toolchain install stable --profile minimal --component llvm-tools
+          rustup default stable
+          rustc -vV
+
+      - name: PGO build (scripts/pgo-build.ps1)
+        run: |
+          ./scripts/pgo-build.ps1 -Target worker -Cpu ${{ matrix.cpu }} -Gpu ${{ matrix.compute }} -OutDir out
+          if ($LASTEXITCODE -ne 0) { throw 'The PGO build failed.' }
+
+      - name: Build the console launcher
+        run: |
+          rustc --edition 2024 --test apps/pleochroma-worker/src/bin/console.rs -o console-tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'The launcher tests do not compile.' }
+          ./console-tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'The launcher tests failed.' }
+          rustc --edition 2024 -C opt-level=3 -C codegen-units=1 -C strip=symbols `
+            --crate-name pleochroma_worker_console apps/pleochroma-worker/src/bin/console.rs `
+            -o pleochroma-worker-console.exe
+          if ($LASTEXITCODE -ne 0) { throw 'The launcher does not compile.' }
+
+      - name: Attach the program and its console twin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $built = 'out/pleochroma-worker-win-${{ matrix.cpu }}-${{ matrix.compute }}.exe'
+          if (-not (Test-Path $built)) { throw "The PGO build left no $built." }
+          New-Item -ItemType Directory -Force upload | Out-Null
+          $exe = "upload/$env:NAME.exe"
+          $com = "upload/$env:NAME.com"
+          Copy-Item -Force $built $exe
+          Copy-Item -Force pleochroma-worker-console.exe $com
+          foreach ($file in $exe, $com) {
+            gh release upload $env:RELEASE_TAG $file --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw "Uploading $file failed." }
+            Write-Host ("attached {0} ({1:N1} MB)" -f (Split-Path -Leaf $file), ((Get-Item $file).Length / 1MB))
+          }
+
+  linux:
+    name: linux-${{ matrix.cpu }}-${{ matrix.compute }}
+    needs: prepare
+    if: fromJSON(needs.prepare.outputs.linux).include[0] != null
+    runs-on: ubuntu-22.04
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.linux) }}
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      NAME: pleochroma-worker-linux-${{ matrix.cpu }}-${{ matrix.compute }}
+      PGO_TRAIN_SKIP_GPU: '1'
+      SLINT_NO_QT: '1'
+      RUSTC_WRAPPER: ''
+      RUSTC_WORKSPACE_WRAPPER: ''
+    steps:
+      - name: Check out the release's source
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          persist-credentials: false
+
+      - name: Check that the tag matches the workspace version
+        run: |
+          version=$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p && /^version *=/{gsub(/"/,"",$3); print $3; exit}' Cargo.toml)
+          if [ -z "$version" ]; then echo "No version in [workspace.package] of Cargo.toml." >&2; exit 1; fi
+          if [ "${RELEASE_TAG#v}" != "$version" ]; then
+            echo "Release $RELEASE_TAG does not match the workspace version $version." >&2; exit 1
+          fi
+          echo "Version $version"
+
+      - name: Install the build libraries, clang and mold
+        run: |
+          sudo apt-get update
+          # The coordinator window (Slint: fontconfig, xkbcommon, Wayland), device enumeration
+          # (udev), and the workspace's Linux linker setup (.cargo/config.toml: clang + mold).
+          sudo apt-get install -y pkg-config libfontconfig1-dev libudev-dev libxkbcommon-dev \
+            libwayland-dev clang mold
+
+      - name: Install BOLT (llvm-bolt, merge-fdata)
+        run: |
+          v="$BOLT_LLVM_VERSION"
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-$v main" | sudo tee /etc/apt/sources.list.d/llvm-$v.list
+          sudo apt-get update
+          sudo apt-get install -y "bolt-$v"
+          for tool in llvm-bolt merge-fdata; do
+            src="$(command -v "$tool-$v" || true)"
+            [ -n "$src" ] || src="/usr/lib/llvm-$v/bin/$tool"
+            [ -x "$src" ] || { echo "No $tool in bolt-$v." >&2; exit 1; }
+            sudo ln -sf "$src" "/usr/local/bin/$tool"
+          done
+          llvm-bolt --version | head -n 3
+
+      - name: Install Rust with the LLVM tools
+        run: |
+          rustup toolchain install stable --profile minimal --component llvm-tools
+          rustup default stable
+          rustc -vV
+
+      - name: PGO + BOLT build (scripts/pgo-bolt-build.sh)
+        run: bash scripts/pgo-bolt-build.sh --target worker --isa ${{ matrix.cpu }} --gpu ${{ matrix.compute }} --bolt --out-dir out
+
+      - name: Attach the program
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          built="out/$NAME"
+          [ -f "$built" ] || { echo "The build left no $built." >&2; exit 1; }
+          gh release upload "$RELEASE_TAG" "$built" --clobber --repo "$GITHUB_REPOSITORY"
+          printf 'attached %s (%s)\n' "$NAME" "$(du -h "$built" | cut -f1)"

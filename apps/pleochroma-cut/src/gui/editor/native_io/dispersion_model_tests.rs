@@ -60,6 +60,7 @@ fn db_with(model: Option<DispersionModel>) -> Arc<Mutex<Database>> {
                 per_axis_dispersion_json: None,
                 inclusion_families_json: None,
                 structure_json: None,
+                gem_data_json: None,
             },
         )
         .expect("save");

@@ -192,6 +192,44 @@ fn build_curve_data_csv(ui: &MainWindow) -> String {
     csv
 }
 
+/// The figures of the Live Render card as `metrics_copy_text` prints them.
+struct MetricsFigures {
+    /// Brilliance, percent.
+    brilliance: f32,
+    /// Fire index.
+    fire: f32,
+    /// Scintillation, percent.
+    scintillation: f32,
+    /// Windowing, percent.
+    windowing: f32,
+    /// Extinction, percent.
+    extinction: f32,
+    /// Contrast, 0 to 100; `None` when not measured.
+    contrast: Option<f32>,
+    /// The ready-made Zones (ASET-style) line; empty when not measured.
+    zones_line: String,
+}
+
+/// The text the Live Render card copies: one line per figure, the Contrast line only when it is
+/// measured and the Zones (ASET-style) line only when it is not empty.
+fn metrics_copy_text(figures: &MetricsFigures) -> String {
+    let mut text = format!(
+        "Optical Metrics:\n• Brilliance: {:.1}%\n• Fire Index: {:.2}\n• Scintillation: {:.1}%\n• Windowing: {:.1}%\n• Extinction: {:.1}%",
+        figures.brilliance,
+        figures.fire,
+        figures.scintillation,
+        figures.windowing,
+        figures.extinction
+    );
+    if let Some(contrast) = figures.contrast {
+        let _ = write!(text, "\n• Contrast: {contrast:.1}");
+    }
+    if !figures.zones_line.is_empty() {
+        let _ = write!(text, "\n• {}", figures.zones_line);
+    }
+    text
+}
+
 /// Wires the clipboard-copy callbacks: metrics, curve data, generic text, the cutting table
 /// and a single cutting row.
 ///
@@ -201,12 +239,17 @@ pub(in crate::gui) fn setup_copy_callbacks(ui: &MainWindow) {
     let ui_weak_metrics = ui.as_weak();
     ui.global::<ViewportModel>().on_copy_metrics(move || {
         if let Some(ui) = ui_weak_metrics.upgrade() {
-            let b = ui.global::<ViewportModel>().get_brilliance_pct();
-            let f = ui.global::<ViewportModel>().get_fire_index();
-            let w = ui.global::<ViewportModel>().get_windowing_pct();
-            let text = format!(
-                "Optical Metrics:\n• Brilliance: {b:.1}%\n• Fire Index: {f:.2}\n• Windowing: {w:.1}%"
-            );
+            let viewport = ui.global::<ViewportModel>();
+            let contrast = viewport.get_contrast();
+            let text = metrics_copy_text(&MetricsFigures {
+                brilliance: viewport.get_brilliance_pct(),
+                fire: viewport.get_fire_index(),
+                scintillation: viewport.get_scintillation_pct(),
+                windowing: viewport.get_windowing_pct(),
+                extinction: viewport.get_extinction_pct(),
+                contrast: (contrast >= 0.0).then_some(contrast),
+                zones_line: viewport.get_aset_copy_text().to_string(),
+            });
             copy_to_clipboard_with_toast(
                 &ui,
                 text,
@@ -319,8 +362,38 @@ fn copy_cutting_row(ui: &MainWindow, rows: &ModelRc<AngleItem>, idx: i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, pipe_text_to};
+    use super::{Command, MetricsFigures, metrics_copy_text, pipe_text_to};
     use std::{sync::mpsc, time::Duration};
+
+    fn figures() -> MetricsFigures {
+        MetricsFigures {
+            brilliance: 62.1,
+            fire: 0.42,
+            scintillation: 61.2,
+            windowing: 9.0,
+            extinction: 28.9,
+            contrast: Some(27.3),
+            zones_line: "Zones (ASET-style): Red 44.0%".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_copy_text_carries_every_figure_of_the_card() {
+        assert_eq!(
+            metrics_copy_text(&figures()),
+            "Optical Metrics:\n• Brilliance: 62.1%\n• Fire Index: 0.42\n• Scintillation: 61.2%\n• Windowing: 9.0%\n• Extinction: 28.9%\n• Contrast: 27.3\n• Zones (ASET-style): Red 44.0%"
+        );
+    }
+
+    #[test]
+    fn the_copy_text_leaves_out_what_is_not_measured() {
+        let text = metrics_copy_text(&MetricsFigures {
+            contrast: None,
+            zones_line: String::new(),
+            ..figures()
+        });
+        assert!(text.ends_with("• Extinction: 28.9%"), "{text}");
+    }
 
     /// A program that reads stdin until EOF and then exits, as the clipboard tools do.
     #[cfg(target_os = "windows")]

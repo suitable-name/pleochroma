@@ -31,8 +31,8 @@ carries the same "Pleochroma Cut" name next to a small gem icon.
 A **menu bar** (File / Edit / View / Library / Help) runs above everything else. File
 mirrors the editor's New Design... / Open... / Save / Save As... / Export Edited .asc,
 plus an **Open Recent** submenu of design files you have saved or opened
-(Chapters 3 and 11; greyed out while the list is empty) and **Render Jobs...**
-(Chapter 23); Edit mirrors Undo/Redo, each says what it
+(Chapters 3 and 11; greyed out while the list is empty), **Render Jobs...**
+(Chapter 23) and **Remote Rendering...** (Chapter 10); Edit mirrors Undo/Redo, each says what it
 will actually do once there is something to act on, and also opens
 **Edit as Text...** and **Angle Sweep...** (Advanced interface only),
 **Cutting Mode...** (Chapter 20), **Preferences...** (Chapter 17) and the
@@ -58,9 +58,9 @@ Below the menu bar, the window is divided into three areas:
 - A **top toolbar** running the full width of the window: the app name, a
   status line, the library badge and a small **Simple | Advanced** pill on the
   left, then a search box, a Shape filter, a Gear filter,
-  a Filters button (for the advanced range filters), an Import button, and a
-  Remote button on the right. In the Simple interface the Remote button is
-  hidden until a remote worker is set up (Chapter 10).
+  a Filters button (for the advanced range filters) and an Import button on the
+  right. Remote rendering is set up from **File > Remote Rendering...**
+  (Chapter 10).
 - A **catalogue panel** on the left, listing every design that matches your
   current search and filters. You can collapse this panel to a thin rail to
   give the render viewport more room, using the collapse control at its edge;

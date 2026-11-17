@@ -54,6 +54,12 @@ pub enum RemoteShortfall {
         /// Time since the request was issued.
         elapsed: Duration,
     },
+    /// The remote only ever reported `Preparing`: its graphics card shader build did not
+    /// finish within [`PREVIEW_PREPARING_MAX`].
+    PreparingStuck {
+        /// How long the remote had been preparing.
+        preparing_for: Duration,
+    },
     /// The request finished, but with fewer samples than the preview asked for.
     ShortSamples {
         /// Samples the accumulator holds.
@@ -87,11 +93,69 @@ impl fmt::Display for RemoteShortfall {
                 f,
                 "remote render exceeded its time limit ({elapsed:.0?}, {samples_done} sample(s) done)"
             ),
+            Self::PreparingStuck { preparing_for } => write!(
+                f,
+                "the remote computer's graphics card shader build did not finish \
+                 ({preparing_for:.0?} preparing)"
+            ),
             Self::ShortSamples { done, wanted } => {
                 write!(f, "remote render returned {done} of {wanted} sample(s)")
             }
             Self::Disconnected => write!(f, "remote render thread ended without a result"),
         }
+    }
+}
+
+/// The longest a remote may report only `Preparing` (its graphics card building the shader
+/// cache) before it is given up on. Generous: a first build on a coordinator can take
+/// minutes, but a remote stuck preparing forever must still end.
+pub const PREVIEW_PREPARING_MAX: Duration = Duration::from_mins(20);
+
+/// Time a remote spends in `Preparing`, kept apart from real work: it is credited back to the
+/// wall-clock cap (a first shader build must not use up the preview's time) and bounded by
+/// [`PREVIEW_PREPARING_MAX`] on its own. Times are passed in, never read.
+#[derive(Debug, Clone, Copy)]
+pub struct PreparingClock {
+    last_seen: Instant,
+    credit: Duration,
+    since: Option<Instant>,
+}
+
+impl PreparingClock {
+    /// Starts at `now` with nothing credited.
+    #[must_use]
+    pub const fn new(now: Instant) -> Self {
+        Self {
+            last_seen: now,
+            credit: Duration::ZERO,
+            since: None,
+        }
+    }
+
+    /// A `Preparing` report arrived: the time since the last event was spent preparing.
+    pub fn preparing(&mut self, now: Instant) {
+        self.credit += now.saturating_duration_since(self.last_seen);
+        self.last_seen = now;
+        self.since.get_or_insert(now);
+    }
+
+    /// Real progress arrived: the preparing spell (if any) is over.
+    pub const fn advanced(&mut self, now: Instant) {
+        self.last_seen = now;
+        self.since = None;
+    }
+
+    /// The time credited back to the wall-clock cap.
+    #[must_use]
+    pub const fn credit(&self) -> Duration {
+        self.credit
+    }
+
+    /// How long the current preparing spell has lasted, once past [`PREVIEW_PREPARING_MAX`].
+    #[must_use]
+    pub fn stuck_for(&self, now: Instant) -> Option<Duration> {
+        let spell = now.saturating_duration_since(self.since?);
+        (spell > PREVIEW_PREPARING_MAX).then_some(spell)
     }
 }
 
@@ -102,6 +166,7 @@ pub struct ProgressWatch {
     started: Instant,
     last_advance: Instant,
     samples_done: u32,
+    preparing: PreparingClock,
 }
 
 impl ProgressWatch {
@@ -112,6 +177,7 @@ impl ProgressWatch {
             started: now,
             last_advance: now,
             samples_done: 0,
+            preparing: PreparingClock::new(now),
         }
     }
 
@@ -121,7 +187,16 @@ impl ProgressWatch {
         if samples_done > self.samples_done {
             self.samples_done = samples_done;
             self.last_advance = now;
+            self.preparing.advanced(now);
         }
+    }
+
+    /// Records that the remote is alive but not tracing yet (it is building its shader
+    /// cache): restarts the stall clock and credits the time back to the wall clock. A
+    /// remote that only ever prepares ends at [`PREVIEW_PREPARING_MAX`].
+    pub fn preparing(&mut self, now: Instant) {
+        self.last_advance = now;
+        self.preparing.preparing(now);
     }
 
     /// `Some(shortfall)` once `now` is past the wall deadline or the stall deadline
@@ -134,12 +209,17 @@ impl ProgressWatch {
         stall: Duration,
         wall: Duration,
     ) -> Option<RemoteShortfall> {
-        let elapsed = now.saturating_duration_since(self.started);
+        let elapsed = now
+            .saturating_duration_since(self.started)
+            .saturating_sub(self.preparing.credit());
         if elapsed > wall {
             return Some(RemoteShortfall::WallClock {
                 samples_done: self.samples_done,
                 elapsed,
             });
+        }
+        if let Some(preparing_for) = self.preparing.stuck_for(now) {
+            return Some(RemoteShortfall::PreparingStuck { preparing_for });
         }
         let stalled_for = now.saturating_duration_since(self.last_advance);
         (stalled_for > stall).then_some(RemoteShortfall::Stalled {
@@ -227,6 +307,55 @@ mod tests {
     }
 
     #[test]
+    fn preparing_time_does_not_use_up_the_wall_cap() {
+        let t0 = Instant::now();
+        let mut watch = ProgressWatch::new(t0);
+        // 400 s of shader build, reported every 2 s, then real samples.
+        for tick in 1..=200_u64 {
+            watch.preparing(t0 + secs(tick * 2));
+        }
+        watch.observe(1, t0 + secs(402));
+        // 450 s since the request, 400 s of it preparing: 50 s of work against the 300 s cap.
+        assert_eq!(watch.verdict(t0 + secs(450), STALL, WALL), None);
+        assert!(matches!(
+            watch.verdict(t0 + secs(402 + 301), STALL, WALL),
+            Some(RemoteShortfall::WallClock { .. })
+        ));
+    }
+
+    #[test]
+    fn a_remote_stuck_preparing_ends_at_the_preparing_cap() {
+        let t0 = Instant::now();
+        let mut watch = ProgressWatch::new(t0);
+        let mut tick = 0;
+        while tick < PREVIEW_PREPARING_MAX.as_secs() + 10 {
+            tick += 2;
+            watch.preparing(t0 + secs(tick));
+        }
+        assert!(matches!(
+            watch.verdict(t0 + secs(tick), STALL, WALL),
+            Some(RemoteShortfall::PreparingStuck { .. })
+        ));
+        // Just under the cap it is still waited for.
+        let mut fresh = ProgressWatch::new(t0);
+        fresh.preparing(t0 + secs(2));
+        fresh.preparing(t0 + secs(1000));
+        assert_eq!(fresh.verdict(t0 + secs(1000), STALL, WALL), None);
+    }
+
+    #[test]
+    fn real_progress_ends_a_preparing_spell() {
+        let t0 = Instant::now();
+        let mut watch = ProgressWatch::new(t0);
+        watch.preparing(t0 + secs(2));
+        watch.observe(1, t0 + secs(20));
+        watch.preparing(t0 + secs(22));
+        // The new spell began at 22 s: not stuck 1190 s later, stuck past the cap.
+        assert_eq!(watch.preparing.stuck_for(t0 + secs(22 + 1190)), None);
+        assert!(watch.preparing.stuck_for(t0 + secs(22 + 1201)).is_some());
+    }
+
+    #[test]
     fn display_gives_one_human_line_per_variant() {
         let all = [
             RemoteShortfall::Failed("boom".into()),
@@ -239,6 +368,9 @@ mod tests {
             RemoteShortfall::WallClock {
                 samples_done: 4,
                 elapsed: secs(301),
+            },
+            RemoteShortfall::PreparingStuck {
+                preparing_for: secs(1201),
             },
             RemoteShortfall::ShortSamples { done: 1, wanted: 2 },
             RemoteShortfall::Disconnected,

@@ -58,6 +58,7 @@ impl Rig {
             solved: Some(self.session.design.solve().expect("the template solves")),
             selected_tier: self.selected,
             multi_selected: self.session.multi_selected.clone(),
+            high_contrast: false,
         }
     }
 

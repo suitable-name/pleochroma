@@ -1,0 +1,41 @@
+#!/sbin/openrc-run
+# Pleochroma coordinator (pleochroma-worker serve) as an OpenRC service.
+#
+# Install:  install -m 0755 pleochroma-coordinator /etc/init.d/pleochroma-coordinator
+#           install -m 0644 pleochroma-coordinator.confd /etc/conf.d/pleochroma-coordinator
+#           rc-update add pleochroma-coordinator default
+#           rc-service pleochroma-coordinator start
+# Logs:     /var/log/pleochroma/coordinator.log and coordinator.err
+#
+# The arguments and the environment are in /etc/conf.d/pleochroma-coordinator.
+# See chapter 10 of the manual, "Running the coordinator or a render computer as a Linux
+# service", for the user, the folders and the certificates this script expects.
+
+description="Pleochroma coordinator"
+
+supervisor="supervise-daemon"
+command="/usr/local/bin/pleochroma-worker"
+# --headless is required: without it a build with a window prints a deprecation warning.
+command_args="--headless serve ${coordinator_args}"
+command_user="pleochroma:pleochroma"
+directory="/var/lib/pleochroma"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/pleochroma/coordinator.log"
+error_log="/var/log/pleochroma/coordinator.err"
+
+# Restart after a crash, five seconds apart, without a limit.
+respawn_delay=5
+respawn_max=0
+
+# serve shuts down cleanly on SIGTERM and needs up to 10 seconds for it.
+retry="SIGTERM/20/SIGKILL/5"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner pleochroma:pleochroma --mode 0750 /var/log/pleochroma
+	checkpath --directory --owner pleochroma:pleochroma --mode 0700 /var/lib/pleochroma
+}

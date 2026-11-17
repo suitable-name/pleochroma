@@ -110,6 +110,12 @@ Each row is one angle. The columns are:
   shown only when the design's rough has a volume.
 - **Tilt brill. %**, **Tilt wind. %** and **Tilt ext. %**, only when you asked for the
   tilt averages.
+- **Contrast**, 0 to 100: how finely the viewer's own shadow is broken up across the
+  face, scored face-up like the other figures. It is Pleochroma's own measure, not an
+  AGS or GIA figure, and a higher value counts as better in the table (best is bold
+  and green), though a high value means finely broken-up shadow and not a better
+  grade. The column appears only when the rows measured it. Chapter 2 ("How the
+  Face-Up Figures Are Measured") defines it.
 - **Notes**: remarks in plain words. They give the reason a row is not valid, and they
   warn about an angle that works but changes something: for example, that the girdle
   band is gone at that angle, or that some facets vanish or come out very small.
@@ -131,7 +137,10 @@ their shapes, not by their heights. Read the legend under the chart ("Brilliance
 to 79.60 %") for the real numbers behind the top and the bottom of each line. A gap in
 a line is an angle that is not valid.
 
-- The buttons above the chart, one per figure, switch its line on and off. The chart
+- The buttons above the chart, one per figure, switch its line on and off; **Contrast**
+  has its own button and a **dashed** line in a neutral light grey (the dashes keep it apart
+  from Yield's solid light line, and from Fire's purple, also for readers who do not see
+  colors well; its legend chip shows two dashes). The chart
   starts with brilliance, windowing and extinction.
 - A thin vertical line and the word **current** mark the design's own angle.
 - Move the pointer over the chart and the sentence under it follows the nearest angle:
@@ -200,7 +209,7 @@ across angles run left to right and the down angles top to bottom, flattest firs
 the table of One Tier mode does.
 
 - The **Figure** list chooses which figure the map shows: Brilliance, Windowing,
-  Extinction, Fire, Scintillation, Yield and the tilt figures when you asked for them.
+  Extinction, Fire, Scintillation, Yield, Contrast and the tilt figures when you asked for them.
   Bright cells are the best values of that figure, whichever way is better for it
   (low for Windowing and Extinction, high for the rest). The legend under the map gives
   the real values at the dark and the bright end and says which direction is better.
@@ -245,7 +254,11 @@ The first line holds the column names: `tier`, `angle_deg`, `current`, `valid`, 
 one column per figure (`brilliance_pct`, `windowing_pct`, `extinction_pct`,
 `fire_index`, `scintillation_pct`, `yield_pct`, and the three `tilt_` columns when you
 asked for them), then `facet_warnings` (how many facets vanish or come out very small
-at that angle) and `notes`. Numbers are written with a point and four decimals, the
+at that angle) and `notes`, and after the notes `contrast` and the six zone columns
+`aset_red_pct`, `aset_green_pct`, `aset_blue_pct`, `aset_dark_pct`, `aset_leak_pct` and
+`aset_lost_pct` (the Zones (ASET-style) shares of Chapter 2; they are in the CSV only,
+not in the table). The columns after `notes` come last so that a spreadsheet or script
+that reads the earlier columns by position keeps working. Numbers are written with a point and four decimals, the
 angle as a plain positive number, and an angle that is not valid has empty figure cells. A spreadsheet opens it directly; if
 yours expects a decimal comma, import it as comma-separated text with a point as the
 decimal mark.

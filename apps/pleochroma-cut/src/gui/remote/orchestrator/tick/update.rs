@@ -202,6 +202,12 @@ fn apply_update(c: &UpdateCtx<'_>, update: RemoteUpdate) {
                 lane.observe_progress(request_id, samples_done, Instant::now());
             }
         }
+        // The remote's graphics card is building its shader cache: show it as the stage.
+        // Liveness is already handled by the connection thread (any event restarts its
+        // silence clock).
+        RemoteUpdate::Preparing { done, total, .. } => {
+            super::progress::remote_preparing(ui, render_ctx, state, done, total);
+        }
         RemoteUpdate::Done {
             request_id,
             cancelled,

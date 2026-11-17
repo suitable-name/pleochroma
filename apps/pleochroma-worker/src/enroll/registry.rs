@@ -5,8 +5,13 @@ use crate::pki;
 use pleochroma_net::{messages::PeerRole, tls::Fingerprint, token};
 use std::{
     fmt,
-    path::Path,
-    sync::{Mutex, MutexGuard, PoisonError},
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::{
+        Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 use subtle::ConstantTimeEq;
@@ -29,12 +34,20 @@ pub enum EnrollIssueError {
     Csprng,
     /// [`MAX_PENDING`] enrollments are already pending.
     TooManyPending,
+    /// Enrollment for this role is not available here: a monitor or admin certificate needs
+    /// remote administration to be switched on (see [`EnrollRegistry::register_allowlist`]).
+    UnsupportedRole(PeerRole),
 }
 
 impl fmt::Display for EnrollIssueError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Pki(e) => write!(f, "{e}"),
+            Self::UnsupportedRole(_) => write!(
+                f,
+                "enrollment for monitor and admin certificates needs remote administration to be \
+                 switched on (not supported here)"
+            ),
             Self::Csprng => write!(f, "system CSPRNG failed to produce randomness"),
             Self::TooManyPending => write!(
                 f,
@@ -49,7 +62,7 @@ impl std::error::Error for EnrollIssueError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Pki(e) => Some(e.as_ref()),
-            Self::Csprng | Self::TooManyPending => None,
+            Self::Csprng | Self::TooManyPending | Self::UnsupportedRole(_) => None,
         }
     }
 }
@@ -82,7 +95,56 @@ impl From<pki::InMemoryClientBundle> for EnrollBundle {
     }
 }
 
+/// Names one pending enrollment, so it can be cancelled with [`EnrollRegistry::remove`]
+/// and matched to the [`ClaimEvent`] it later produces.
+///
+/// A plain counter value, unrelated to the secret: it is safe to show, log and keep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TokenId(pub u64);
+
+/// What [`EnrollRegistry::issue_for_role`] returns: the encoded token, and the id that
+/// cancels it. `Debug` hides the token.
+pub struct IssuedEnrollment {
+    /// Cancels this enrollment with [`EnrollRegistry::remove`].
+    pub id: TokenId,
+    /// The encoded `GW1-...` token. A bearer secret: never log or print it.
+    pub token: String,
+    /// The role the claimed certificate gets.
+    pub role: PeerRole,
+    /// The token's lifetime in seconds, counted from the moment it was issued.
+    pub expires_in_secs: u64,
+}
+
+impl fmt::Debug for IssuedEnrollment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IssuedEnrollment")
+            .field("id", &self.id)
+            .field("token", &format_args!("<redacted>"))
+            .field("role", &self.role)
+            .field("expires_in_secs", &self.expires_in_secs)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One successful claim, sent to every [`EnrollRegistry::subscribe`] receiver so a screen
+/// can say "Paired from <address>". Carries no secret: the fingerprint is public.
+#[derive(Debug, Clone)]
+pub struct ClaimEvent {
+    /// The token that was claimed.
+    pub id: TokenId,
+    /// The role of the certificate that was handed out.
+    pub role: PeerRole,
+    /// The certificate's allowlist label (its Common Name).
+    pub name: String,
+    /// SHA-256 fingerprint of the issued client certificate (what the allowlist holds).
+    pub fingerprint: Fingerprint,
+    /// The address the claim came from. `0.0.0.0:0` if the socket could not report one.
+    pub peer: SocketAddr,
+}
+
 pub(super) struct PendingEnrollment {
+    id: TokenId,
+    role: PeerRole,
     /// `SHA-256(secret)`, never the secret itself.
     secret_hash: Zeroizing<[u8; 32]>,
     expires_at: Instant,
@@ -94,20 +156,31 @@ pub(super) struct PendingEnrollment {
 /// [`handle_enroll_connection`] needs to both reply to the claiming client and append to
 /// `allowlist.txt`.
 pub(super) struct ClaimedEnrollment {
+    pub(super) id: TokenId,
+    pub(super) role: PeerRole,
     pub(super) name: String,
     pub(super) bundle: EnrollBundle,
 }
 
 /// All unclaimed, unexpired enrollments of one enrollment listener of this `serve`.
 ///
-/// One registry per role, so a token only ever claims where it was issued. It lives as long
-/// as one `serve` process: a restart drops every pending token, by design.
+/// One registry per listener, so a token only ever claims where it was issued. It lives as
+/// long as one `serve` process: a restart drops every pending token, by design.
+///
+/// Each pending token has its own role, chosen when it is issued
+/// ([`Self::issue_for_role`]); the registry's own role is only what the plain
+/// [`Self::issue`] uses. A claim sends a [`ClaimEvent`] to every [`Self::subscribe`] receiver.
+/// There is no `Debug`: the table holds hashes and key material.
 pub struct EnrollRegistry {
     pub(super) pending: Mutex<Vec<PendingEnrollment>>,
     role: PeerRole,
     /// The secret an `Issue` request must present (`<pki_dir>/issue.secret`). `None`
     /// refuses every `Issue`: a registry nobody configured a secret for issues nothing.
     operator_secret: Option<Zeroizing<[u8; token::SECRET_LEN]>>,
+    next_id: AtomicU64,
+    subscribers: Mutex<Vec<mpsc::Sender<ClaimEvent>>>,
+    /// Allowlists for roles other than [`Self::role`], see [`Self::register_allowlist`].
+    allowlists: Mutex<Vec<(PeerRole, PathBuf)>>,
 }
 
 impl Default for EnrollRegistry {
@@ -130,7 +203,69 @@ impl EnrollRegistry {
             pending: Mutex::new(Vec::new()),
             role,
             operator_secret: None,
+            next_id: AtomicU64::new(1),
+            subscribers: Mutex::new(Vec::new()),
+            allowlists: Mutex::new(Vec::new()),
         }
+    }
+
+    /// A receiver that gets one [`ClaimEvent`] for every enrollment claimed from now on.
+    ///
+    /// Each call makes a new, independent channel; dropping the receiver unsubscribes it.
+    /// Events are sent after the claimed fingerprint was appended to the allowlist, right
+    /// before the certificate goes back to the claiming device.
+    #[must_use]
+    pub fn subscribe(&self) -> mpsc::Receiver<ClaimEvent> {
+        let (tx, rx) = mpsc::channel();
+        self.lock_subscribers().push(tx);
+        rx
+    }
+
+    /// Cancels the pending enrollment `id`, wiping its key material. `true` if it was still
+    /// pending; `false` if it was already claimed, expired or removed.
+    pub fn remove(&self, id: TokenId) -> bool {
+        let mut pending = self.lock_pending();
+        let before = pending.len();
+        pending.retain(|p| p.id != id);
+        pending.len() != before
+    }
+
+    /// Tells a claim of `role` to append its fingerprint to `path`, for roles other than the
+    /// registry's own (whose path the connection handler is given directly).
+    ///
+    /// A claim of such a role with no registered path is refused rather than handed an unlisted
+    /// certificate.
+    pub fn register_allowlist(&self, role: PeerRole, path: PathBuf) {
+        let mut lists = self
+            .allowlists
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        lists.retain(|(r, _)| *r != role);
+        lists.push((role, path));
+    }
+
+    /// The path registered for `role` by [`Self::register_allowlist`].
+    pub(super) fn allowlist_for(&self, role: PeerRole) -> Option<PathBuf> {
+        let lists = self
+            .allowlists
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        lists
+            .iter()
+            .find(|(r, _)| *r == role)
+            .map(|(_, p)| p.clone())
+    }
+
+    /// Sends `event` to every live subscriber and forgets the ones that went away.
+    pub(super) fn notify_claimed(&self, event: &ClaimEvent) {
+        self.lock_subscribers()
+            .retain(|tx| tx.send(event.clone()).is_ok());
+    }
+
+    fn lock_subscribers(&self) -> MutexGuard<'_, Vec<mpsc::Sender<ClaimEvent>>> {
+        self.subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// This registry, authorising `Issue` requests that present `secret`.
@@ -161,9 +296,10 @@ impl EnrollRegistry {
         self.role
     }
 
-    /// Mints a client-certificate bundle of this registry's role for `name` (the bare label;
-    /// a worker certificate's Common Name gets the `worker:` prefix) and registers it as
-    /// pending under a fresh 256-bit CSPRNG secret. Returns the encoded token and its TTL in
+    /// Mints a client-certificate bundle of this registry's role for `name`.
+    ///
+    /// `name` is the bare label (a worker certificate's Common Name gets the `worker:` prefix).
+    /// The bundle is registered as pending under a fresh 256-bit CSPRNG secret. Returns the encoded token and its TTL in
     /// seconds.
     ///
     /// # Errors
@@ -187,8 +323,52 @@ impl EnrollRegistry {
         name: &str,
         ttl: Duration,
     ) -> Result<(String, u64), EnrollIssueError> {
+        let IssuedEnrollment {
+            token,
+            expires_in_secs,
+            ..
+        } = self.issue_role_with_ttl(pki_dir, name, self.role, ttl)?;
+        Ok((token, expires_in_secs))
+    }
+
+    /// Like [`Self::issue`], for a certificate of `role` instead of the registry's own: the role
+    /// belongs to this one token.
+    ///
+    /// `name` is the bare label (a worker certificate's Common Name gets the `worker:` prefix).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::issue`]; also [`EnrollIssueError::UnsupportedRole`] for the monitor and
+    /// admin roles while no allowlist is registered for them with
+    /// [`Self::register_allowlist`] (remote administration is off): a claim of such a token
+    /// could not be listed, so none is issued.
+    pub fn issue_for_role(
+        &self,
+        pki_dir: &Path,
+        name: &str,
+        role: PeerRole,
+    ) -> Result<IssuedEnrollment, EnrollIssueError> {
+        self.issue_role_with_ttl(pki_dir, name, role, Duration::from_secs(TOKEN_TTL_SECS))
+    }
+
+    /// The implementation behind [`Self::issue_for_role`] and [`Self::issue_with_ttl`].
+    pub(super) fn issue_role_with_ttl(
+        &self,
+        pki_dir: &Path,
+        name: &str,
+        role: PeerRole,
+        ttl: Duration,
+    ) -> Result<IssuedEnrollment, EnrollIssueError> {
+        // Fail closed: a monitor or admin certificate is minted only where its claim can be
+        // listed, which is exactly when remote administration registered its allowlist.
+        if matches!(role, PeerRole::Monitor | PeerRole::Admin)
+            && role != self.role
+            && self.allowlist_for(role).is_none()
+        {
+            return Err(EnrollIssueError::UnsupportedRole(role));
+        }
         let label = pleochroma_net::tls::sanitize_allowlist_label(name);
-        let bundle = pki::issue_client_in_memory(pki_dir, &label, self.role)?;
+        let bundle = pki::issue_client_in_memory(pki_dir, &label, role)?;
         // The allowlist label is the Common Name (`worker:<name>` for a worker).
         let name = bundle.common_name.clone();
 
@@ -205,7 +385,10 @@ impl EnrollRegistry {
         if pending.len() >= MAX_PENDING {
             return Err(EnrollIssueError::TooManyPending);
         }
+        let id = TokenId(self.next_id.fetch_add(1, Ordering::Relaxed));
         pending.push(PendingEnrollment {
+            id,
+            role,
             secret_hash: Zeroizing::new(secret_hash),
             expires_at: Instant::now() + ttl,
             name,
@@ -213,7 +396,12 @@ impl EnrollRegistry {
         });
         drop(pending);
 
-        Ok((encoded, ttl.as_secs()))
+        Ok(IssuedEnrollment {
+            id,
+            token: encoded,
+            role,
+            expires_in_secs: ttl.as_secs(),
+        })
     }
 
     /// Attempts to claim the pending enrollment whose secret hashes to `secret`'s hash.
@@ -245,6 +433,8 @@ impl EnrollRegistry {
         let entry = pending.remove(matched_index?);
         drop(pending);
         Some(ClaimedEnrollment {
+            id: entry.id,
+            role: entry.role,
             name: entry.name,
             bundle: entry.bundle,
         })

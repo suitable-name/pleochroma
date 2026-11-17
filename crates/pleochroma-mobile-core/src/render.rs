@@ -479,7 +479,7 @@ impl RenderState {
 /// The live render's sample target for the quality setting and the window class.
 ///
 /// Draft is 32; Normal is the compact or large count of the settings; Fine is twice that;
-/// battery saver always uses Draft.
+/// battery saver caps the target at Draft (a lower choice stays lower).
 #[must_use]
 pub fn live_target_spp(state: &AppState) -> u32 {
     let render = &state.settings.render;
@@ -497,8 +497,9 @@ pub fn live_target_spp(state: &AppState) -> u32 {
         RenderQuality::Normal => normal,
         RenderQuality::Fine => normal.saturating_mul(2),
     };
+    // Battery saver caps the target at the draft count; a lower choice (16) stays lower.
     let spp = if state.settings.battery_saver {
-        DRAFT_SPP
+        spp.min(DRAFT_SPP)
     } else {
         spp
     };

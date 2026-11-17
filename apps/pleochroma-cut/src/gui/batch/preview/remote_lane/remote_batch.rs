@@ -468,6 +468,13 @@ impl Run<'_, '_> {
                     watch.item_event(now);
                 }
             }
+            // The worker is building its shader cache: alive, so the stall clock restarts and
+            // the time does not count toward the batch's wall allowance.
+            BatchEvent::Preparing => {
+                if let Some(watch) = self.watch.as_mut() {
+                    watch.preparing(now);
+                }
+            }
             BatchEvent::Heartbeat { samples_done } => {
                 if let Some(watch) = self.watch.as_mut() {
                     watch.heartbeat(samples_done, now);

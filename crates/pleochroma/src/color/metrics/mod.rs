@@ -24,6 +24,24 @@
 //!   return fraction, squashed into 0-100, blended 60/40 with the temporal flicker of the
 //!   cells' return status as the camera yaws through +/-3 degrees.
 //!
+//! # Zones (ASET-style) and Contrast
+//!
+//! The same d-line rays also fill [`GemOpticalMetrics::aset`] ([`AsetAreaShares`]): the share
+//! of the rays that hit the stone that show each zone of the renderer's Contrast view
+//! (ASET-style) rig, [`aset_zone_amplitudes`](crate::optics::raytracer::environment::aset_zone_amplitudes)
+//! of the exit direction. A ray that leaves upward counts in the zones its exit direction
+//! falls in, whether or not the observer's head shadows it, so the shares do not depend on
+//! the lighting. A windowed ray is **Leak** (exactly the rays of the windowing figure, so
+//! `leak_pct` and `windowing_pct` have the same bits); a ray without an upward exit (bounce
+//! budget, side exit) is **Lost**, which is not an ASET zone. Rays blocked at entry count in
+//! no zone. Two identities follow: red + green + blue + leak + lost = 100 (less the rare
+//! unclassified rays), and extinction = lost + red + green + blue - brilliance.
+//!
+//! **Contrast** is this program's own measure, not an AGS or GIA figure: 100 times the mean
+//! absolute difference of the Blue share of neighbouring grid spots ([`pattern_contrast`]).
+//! [`evaluate_aset_spot_grid_finished`] returns the spot grid it is computed from. ASET is a
+//! registered trademark of the Gemological Institute of America, Inc. (GIA).
+//!
 //! # Birefringent stones and Doubling
 //!
 //! For a material the renderer treats as anisotropic (not cubic and `|delta n| > 1e-4`, so
@@ -121,6 +139,11 @@
 //! their inputs, lighting included, do not change).
 
 mod accumulate;
+mod aset;
+#[cfg(test)]
+mod aset_golden_tests;
+#[cfg(test)]
+mod aset_tests;
 mod attribution;
 mod birefringent;
 #[cfg(test)]
@@ -162,6 +185,7 @@ mod tone;
 mod types;
 mod visibility;
 
+pub use aset::{ASET_GRID, AsetAreaShares, AsetSpotGrid, AsetZoneWeights, pattern_contrast};
 pub use cache::{
     MetricsCache, MetricsCacheKey, compute_or_reuse_metrics, compute_or_reuse_metrics_finished,
     compute_or_reuse_metrics_finished_cancellable, compute_or_reuse_metrics_geom,
@@ -170,10 +194,10 @@ pub use cache::{
 };
 pub use camera::camera_view_basis;
 pub use evaluate::{
-    evaluate_gem_optical_metrics, evaluate_gem_optical_metrics_finished,
-    evaluate_gem_optical_metrics_finished_core, evaluate_gem_optical_metrics_geom,
-    evaluate_gem_optical_metrics_geom_core, evaluate_gem_optical_metrics_with_tone,
-    evaluate_gem_optical_metrics_with_tone_finished,
+    evaluate_aset_spot_grid_finished, evaluate_gem_optical_metrics,
+    evaluate_gem_optical_metrics_finished, evaluate_gem_optical_metrics_finished_core,
+    evaluate_gem_optical_metrics_geom, evaluate_gem_optical_metrics_geom_core,
+    evaluate_gem_optical_metrics_with_tone, evaluate_gem_optical_metrics_with_tone_finished,
     evaluate_gem_optical_metrics_with_tone_finished_core,
     evaluate_gem_optical_metrics_with_tone_geom, evaluate_gem_optical_metrics_with_tone_geom_core,
 };

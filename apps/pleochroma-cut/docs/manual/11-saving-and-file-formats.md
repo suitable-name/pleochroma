@@ -333,6 +333,13 @@ again from them:
   them without understanding them.
 - **Surface finish** (optional keys of a `[[tiers]]` entry and of `[render_effects]`): `surface`, `surface_rq_nm`, `surface_lap_deg`, `surface_aniso`, `surface_no_sweep`, `ground_alpha` and `surface_facets` on a tier, and `edge_abrasion_width`, `edge_abrasion_alpha` and `edge_abrasion_halo_rq_nm` for Abraded Edges (Chapter 26). Each is written only when used, and the file's version does not change.
 - **Inclusions and play-of-color** (the optional `[render_effects.inclusions]` and `[render_effects.structure]` tables): the preset, density, silk turn, sheen and color of the inclusions, and the pattern, seed, size, colors, purity and coverage of the play-of-color (Chapters 27 and 28). A custom material's families, structure and per-axis curves travel in its `[material.custom]` table. The `.gcs` and `.asc` formats carry none of these.
+- **Custom gem data** (the optional `[material.custom.gem_data]` table): the Mohs range, toughness range,
+  cleavage, fracture, care note and source text a custom material carries (Chapter 29, "Gem Data"). It is
+  written only when at least one of them is filled, and it does not change the file's version: a missing key
+  reads as not recorded, an older build ignores the table and writes it back unchanged, and a value that is
+  out of range (a Mohs figure outside 1 to 10, a toughness word it does not know) loads as not recorded
+  with a note instead of failing the open. The built-in materials' gem data is not stored in a design; it
+  comes from the program. The `.gcs` and `.asc` formats carry none of it.
 - **Attached files** (the `[[attachments]]` array): the design's PDF, the
   original `.gem` and `.asc`, the diagram image and any other file, stored
   byte for byte (up to 64 MiB in total, so a design file stays one self-contained

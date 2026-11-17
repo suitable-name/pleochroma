@@ -128,7 +128,7 @@ fn nothing_to_measure_without_a_solve() {
 }
 
 #[test]
-fn metrics_for_a_solved_template_are_five_finite_values() {
+fn metrics_for_a_solved_template_are_finite_and_list_contrast() {
     let (mut state, _mock) = solved_state();
     assert_eq!(metrics_view(&state).status, AnalysisStatus::NotComputed);
     request_metrics(&mut state).expect("queued");
@@ -144,10 +144,12 @@ fn metrics_for_a_solved_template_are_five_finite_values() {
     ] {
         assert!(value.is_finite(), "{reading:?}");
     }
+    assert!(reading.contrast.is_some_and(f32::is_finite), "{reading:?}");
     assert!(!reading.under_hdr);
     let view = metrics_view(&state);
     assert_eq!(view.status, AnalysisStatus::Current);
-    assert_eq!(view.rows.len(), 5);
+    // The five light-return rows and Contrast; the isotropic diamond has no Doubling row.
+    assert_eq!(view.rows.len(), 6);
     let labels: Vec<&str> = view.rows.iter().map(|row| row.label).collect();
     assert_eq!(
         labels,
@@ -156,7 +158,8 @@ fn metrics_for_a_solved_template_are_five_finite_values() {
             "Fire",
             "Scintillation",
             "Windowing",
-            "Extinction"
+            "Extinction",
+            "Contrast"
         ]
     );
     assert!(
@@ -169,7 +172,7 @@ fn metrics_for_a_solved_template_are_five_finite_values() {
     nudge_light(&mut state);
     let after_nudge = metrics_view(&state);
     assert_eq!(after_nudge.status, AnalysisStatus::Stale);
-    assert_eq!(after_nudge.rows.len(), 5);
+    assert_eq!(after_nudge.rows.len(), 6);
 }
 
 #[test]
@@ -224,7 +227,7 @@ fn a_design_edit_makes_the_numbers_stale() {
     assert_ne!(before, state.session.current_generation());
     let view = metrics_view(&state);
     assert_eq!(view.status, AnalysisStatus::Stale);
-    assert_eq!(view.rows.len(), 5, "the old numbers stay visible");
+    assert_eq!(view.rows.len(), 6, "the old numbers stay visible");
 }
 
 /// The metrics scene carries the facet finishes: a frosted girdle reaches the request (so the
@@ -335,6 +338,7 @@ fn metric_rows_read_with_units() {
         extinction_pct: 12.0,
         under_hdr: false,
         doubling_arcmin: 0.0,
+        contrast: None,
     });
     assert_eq!(rows[0].value, "62.3 %");
     assert_eq!(rows[1].value, "3.2");
@@ -352,6 +356,7 @@ fn doubling_is_listed_only_for_a_birefringent_stone() {
         extinction_pct: 12.0,
         under_hdr: false,
         doubling_arcmin,
+        contrast: None,
     };
     // An isotropic stone measures zero, so only the five light-return rows are listed.
     assert_eq!(metric_rows(&reading(0.0)).len(), 5);
@@ -359,6 +364,35 @@ fn doubling_is_listed_only_for_a_birefringent_stone() {
     assert_eq!(rows.len(), 6);
     assert_eq!(rows[5].label, "Doubling");
     assert_eq!(rows[5].value, "3.5 arcmin");
+    assert_ne!(rows[5].meaning, "");
+}
+
+#[test]
+fn contrast_row_follows_extinction_and_precedes_doubling() {
+    let rows = metric_rows(&MetricsReading {
+        brilliance_pct: 60.0,
+        fire_index: 3.0,
+        scintillation_pct: 40.0,
+        windowing_pct: 5.0,
+        extinction_pct: 12.0,
+        under_hdr: false,
+        doubling_arcmin: 3.46,
+        contrast: Some(27.31),
+    });
+    let labels: Vec<_> = rows.iter().map(|row| row.label).collect();
+    assert_eq!(
+        labels,
+        [
+            "Brilliance",
+            "Fire",
+            "Scintillation",
+            "Windowing",
+            "Extinction",
+            "Contrast",
+            "Doubling"
+        ]
+    );
+    assert_eq!(rows[5].value, "27");
     assert_ne!(rows[5].meaning, "");
 }
 

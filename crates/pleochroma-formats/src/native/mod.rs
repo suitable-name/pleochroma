@@ -54,7 +54,8 @@ mod schema;
 mod tests;
 
 pub use custom_material::{
-    ColorRecipeDto, CustomMaterialSnapshot, DispersionModelDto, RayBandsTable,
+    ColorRecipeDto, CustomGemDataTable, CustomMaterialSnapshot, DispersionModelDto,
+    GEM_TOUGHNESS_WORDS, RayBandsTable, gem_toughness_rank,
 };
 pub use fingerprint::sha256_hex;
 pub use schema::{

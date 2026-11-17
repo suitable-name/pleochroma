@@ -23,6 +23,7 @@ use interactive::{PassBudget, PassClaim};
 use local_preview::{DragGesture, PreviewState, RenderPhase};
 use metrics_worker::{MetricsWorker, SharedGeometry, push_if_changed, push_if_fresh};
 use pleochroma::{
+    color::metrics::GemOpticalMetrics,
     geometry::{plane::GpuFacetPlane, tool::ToolPrimitive},
     optics::{
         fluorescence::Fluorescence,
@@ -132,10 +133,7 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
     // `TraceActivitySink` lets this function stay generic over `T`.
     T: TraceActivitySink + 'static,
     F: Fn(&T, slint::SharedPixelBuffer<slint::Rgba8Pixel>, u64) + Send + 'static + Clone,
-    M: Fn(&T, f32, f32, f32, f32, f32, f32, [f32; 19], [f32; 19], [f32; 19], f32)
-        + Send
-        + 'static
-        + Clone,
+    M: Fn(&T, GemOpticalMetrics, [f32; 19], [f32; 19], [f32; 19], f32) + Send + 'static + Clone,
     // Callback to push GPU status messages to the UI. `slint::SharedString` must
     // outlive the `upgrade_in_event_loop` closure.
     S: Fn(&T, slint::SharedString) + Send + 'static + Clone,
@@ -1479,7 +1477,7 @@ pub fn spawn_render_thread<T, F, M, S, R, N>(
                             first_hit_facet_id: &first_hit_facet_id,
                             first_hit_path_sig: &first_hit_path_sig,
                         },
-                        evaluated.snapshot(cam_pitch_deg),
+                        &evaluated.snapshot(cam_pitch_deg),
                         // `push_frame_to_ui`'s own activity start/finish reads
                         // these straight off this cycle's already-computed
                         // `camera_moving`/`converged_now` -- see

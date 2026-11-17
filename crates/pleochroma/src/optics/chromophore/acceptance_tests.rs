@@ -942,9 +942,11 @@ fn builtin_vs_recipe() -> Vec<(&'static str, [f64; 3], SolveResult)> {
 /// best physics recipe, pinned per built-in (dE00, see `calibration-records.md`).
 ///
 /// Ruby 0.13 (a Cr + Fe + V recipe), Sapphire 0.47, Emerald 1.01, Tanzanite 2.78, Peridot 0.10,
-/// Aquamarine 0.67 and Citrine 1.28 agree to dE00 3.5. Amethyst (8.22) differs on purpose: its
-/// main band sits at 549 nm, the bluer purple of commercial amethyst, not the 537 nm of the
-/// Anahi slab that the recipe is fitted to.
+/// Aquamarine 0.67 and Citrine 1.28 agree to dE00 3.5. The Citrine pin was measured at the
+/// saturation round's x 2 strength; the strength went back to x 1 on 2026-11-16, so the value
+/// (and the count of seven) must be re-measured from one run. Amethyst (8.22) differs on
+/// purpose: its main band sits at 549 nm, the bluer purple of commercial amethyst, not the
+/// 537 nm of the Anahi slab that the recipe is fitted to.
 #[test]
 fn criterion_6_built_in_colors_vs_primary_data_recipes_are_pinned() {
     let pinned = [

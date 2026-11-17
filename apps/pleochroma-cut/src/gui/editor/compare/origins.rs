@@ -199,8 +199,15 @@ pub(super) fn pick_before(
     original: Option<(Design, String)>,
     wanted: Reference,
 ) -> (Design, String, ReferenceOffer) {
-    match original {
-        Some((design, label)) => {
+    original.map_or_else(
+        || {
+            (
+                current.clone(),
+                "Current Design".to_string(),
+                ReferenceOffer::default(),
+            )
+        },
+        |(design, label)| {
             let offer = ReferenceOffer {
                 selected: wanted,
                 original_label: Some(label.clone()),
@@ -209,13 +216,8 @@ pub(super) fn pick_before(
                 Reference::Original => (design, format!("Original \"{label}\""), offer),
                 Reference::Current => (current.clone(), "Current Design".to_string(), offer),
             }
-        }
-        None => (
-            current.clone(),
-            "Current Design".to_string(),
-            ReferenceOffer::default(),
-        ),
-    }
+        },
+    )
 }
 
 /// Optimize: before = the live design (or, when picked and held, the original kept by the

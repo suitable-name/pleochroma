@@ -1,0 +1,63 @@
+import { Theme } from "../../theme.slint";
+import { ComboBox, Slider } from "std-widgets.slint";
+
+// Kit inputs: a dropdown and a slider pinned to 28 px, each with a tooltip (`hint`) and a label.
+
+// The dropdown pinned to 28 px (unpinned, a ComboBox renders about 48 px tall in a layout), with
+// a tooltip. `current_index` two-way binds like the widget's own; `selected` fires after a pick,
+// so a caller reads `current_index` there.
+export component KitCombo inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current_index;
+    in property <string> hint;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback selected(int);
+
+    height: 28px;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    ComboBox {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        model: root.model;
+        current-index <=> root.current_index;
+        enabled: root.enabled;
+        accessible-label: root.label;
+        accessible-description: root.hint;
+        selected(value) => { root.selected(root.current_index); }
+    }
+}
+
+// The standard slider pinned to a 28 px row, with a tooltip.
+export component KitSlider inherits Rectangle {
+    in property <string> hint;
+    in property <string> label;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <bool> enabled: true;
+    in-out property <float> value;
+    callback moved(float);
+    // The slider was let go (the mouse button released); `moved` carries the live values.
+    callback released(float);
+
+    height: 28px;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    Slider {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        minimum: root.minimum;
+        maximum: root.maximum;
+        step: root.step;
+        value <=> root.value;
+        accessible-label: root.label;
+        accessible-description: root.hint;
+        changed(v) => { root.moved(v); }
+        released(v) => { root.released(v); }
+    }
+}

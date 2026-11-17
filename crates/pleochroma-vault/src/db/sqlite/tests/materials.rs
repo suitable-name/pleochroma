@@ -116,6 +116,7 @@ fn save_custom_material_round_trips_crystal_optics_fields() {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     })
     .expect("save biaxial custom material");
 
@@ -139,6 +140,7 @@ fn save_custom_material_round_trips_crystal_optics_fields() {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     })
     .expect("save uniaxial custom material");
 
@@ -194,6 +196,7 @@ fn save_custom_material_round_trips_crystal_optics_fields() {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     })
     .expect("re-save clears crystal-optics fields");
     let materials = db.get_custom_materials().expect("read back after re-save");
@@ -478,6 +481,7 @@ fn custom_material_color_recipe_round_trip() {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     })
     .expect("save custom material");
 
@@ -522,6 +526,7 @@ fn typed_color_recipe_survives_the_vault() {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     })
     .expect("save custom material");
 
@@ -607,6 +612,7 @@ fn dispersion_model_json_round_trips_and_a_resave_replaces_it() {
             c_axis_second_azimuth_deg: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         })
         .expect("save custom material");
     };
@@ -700,6 +706,7 @@ fn absorption_bands_json_round_trips_beside_the_legacy_triple() {
             c_axis_second_azimuth_deg: None,
             inclusion_families_json: None,
             structure_json: None,
+            gem_data_json: None,
         })
         .expect("save custom material");
     };
@@ -722,6 +729,98 @@ fn absorption_bands_json_round_trips_beside_the_legacy_triple() {
 
     save("Banded", None);
     assert_eq!(stored("Banded").absorption_bands_json, None);
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A fresh database's `CREATE TABLE` already holds the gem data column.
+#[test]
+fn a_fresh_database_already_has_the_gem_data_column() {
+    let path = temp_db_path("fresh_gem_data");
+    let db = Database::new(Some(path.to_str().unwrap())).expect("create fresh db");
+    assert!(
+        Database::column_exists(&db.conn, "custom_gem_materials", "gem_data_json").unwrap(),
+        "a fresh database's CREATE TABLE must already include gem_data_json"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A database that predates the column is migrated, its rows read `None`, a second open is a
+/// no-op, and a saved value reads back.
+#[test]
+fn gem_data_migration_adds_the_column_and_leaves_existing_rows_nullable() {
+    let path = temp_db_path("gem_data_migration");
+    seed_pre_specific_gravity_custom_material(&path);
+    {
+        let conn = Connection::open(&path).expect("open raw connection");
+        assert!(!Database::column_exists(&conn, "custom_gem_materials", "gem_data_json").unwrap());
+    }
+
+    {
+        let db = Database::new(Some(path.to_str().unwrap())).expect("first open migrates");
+        assert!(
+            Database::column_exists(&db.conn, "custom_gem_materials", "gem_data_json").unwrap(),
+            "migration must add gem_data_json"
+        );
+        let materials = db.get_custom_materials().expect("read back materials");
+        assert_eq!(materials.len(), 1);
+        assert_eq!(materials[0].name, "Legacy Custom Peridot");
+        assert_eq!(materials[0].gem_data_json, None);
+    }
+
+    let db = Database::new(Some(path.to_str().unwrap())).expect("second open is idempotent");
+    let gem_data = r#"{"mohs":[7.5,8.0],"toughness":["good","good"]}"#;
+    db.save_custom_material(&CustomMaterialParams {
+        name: "Legacy Custom Peridot",
+        refractive_index: 1.690,
+        dispersion: 0.020,
+        birefringence: 0.0360,
+        absorption_rgb: [0.4, 1.6, 0.2],
+        crystal_system: Some("Orthorhombic"),
+        optical_character: Some("BiaxialPositive"),
+        biaxial_delta_beta_alpha: Some(0.0360),
+        per_axis_dispersion_json: None,
+        specific_gravity: None,
+        color_recipe_json: None,
+        dispersion_model_json: None,
+        absorption_bands_json: None,
+        c_axis_tilt_deg: None,
+        c_axis_azimuth_deg: None,
+        c_axis_second_azimuth_deg: None,
+        inclusion_families_json: None,
+        structure_json: None,
+        gem_data_json: Some(gem_data),
+    })
+    .expect("save with gem data");
+    let materials = db.get_custom_materials().expect("read back materials");
+    assert_eq!(materials.len(), 1);
+    assert_eq!(materials[0].gem_data_json.as_deref(), Some(gem_data));
+
+    // Saving again without gem data clears the column.
+    db.save_custom_material(&CustomMaterialParams {
+        name: "Legacy Custom Peridot",
+        refractive_index: 1.690,
+        dispersion: 0.020,
+        birefringence: 0.0360,
+        absorption_rgb: [0.4, 1.6, 0.2],
+        crystal_system: Some("Orthorhombic"),
+        optical_character: Some("BiaxialPositive"),
+        biaxial_delta_beta_alpha: Some(0.0360),
+        per_axis_dispersion_json: None,
+        specific_gravity: None,
+        color_recipe_json: None,
+        dispersion_model_json: None,
+        absorption_bands_json: None,
+        c_axis_tilt_deg: None,
+        c_axis_azimuth_deg: None,
+        c_axis_second_azimuth_deg: None,
+        inclusion_families_json: None,
+        structure_json: None,
+        gem_data_json: None,
+    })
+    .expect("save without gem data");
+    let materials = db.get_custom_materials().expect("read back materials");
+    assert_eq!(materials[0].gem_data_json, None);
 
     let _ = std::fs::remove_file(&path);
 }

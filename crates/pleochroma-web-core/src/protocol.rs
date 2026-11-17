@@ -75,7 +75,7 @@ use crate::{
 /// stale cached Worker script from decoding a newer message. The pinned-bytes tests
 /// `wire_format_is_pinned_to_worker` and `wire_format_is_pinned_from_worker` must be updated
 /// with each bump.
-pub const PROTOCOL_VERSION: u32 = 32;
+pub const PROTOCOL_VERSION: u32 = 33;
 
 /// What [`ToWorker::Picture`] makes of a sum (see `crate::display`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

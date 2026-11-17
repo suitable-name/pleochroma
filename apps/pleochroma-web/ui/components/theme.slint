@@ -1,5 +1,5 @@
 // Color and radius tokens of the web app: a subset of the desktop's
-// `apps/pleochroma-cut/ui/theme.slint` with the same default values, so the two apps look alike.
+// `crates/pleochroma-ui-kit/ui/theme.slint` with the same default values, so the two apps look alike.
 export global Theme {
     out property <color> bg-darkest: #0f1117;
     out property <color> bg-card: #1c202c;
@@ -28,6 +28,15 @@ export global Theme {
     out property <color> toast-warning-surface: #78350fcc;
     out property <color> toast-info-surface: #0f172acc;
     out property <color> toast-shadow: #000000aa;
+    // The four zones of the Zones (ASET-style) bar. Data colors, mirrored from the desktop's
+    // `crates/pleochroma-ui-kit/ui/shared/palette.slint`: red, green and blue are the same in both palettes.
+    // `aset-dark` is the one Dark token: #56627a here, and the desktop's high-contrast value is
+    // #64748b (`aset-dark-high-contrast` below; the web has no high-contrast switch yet).
+    out property <color> aset-red: #ef4444;
+    out property <color> aset-green: #22c55e;
+    out property <color> aset-blue: #6f7dff;
+    out property <color> aset-dark: #56627a;
+    out property <color> aset-dark-high-contrast: #64748b;
     out property <length> radius-sm: 4px;
     out property <length> radius-md: 8px;
 }

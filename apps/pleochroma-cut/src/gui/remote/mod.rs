@@ -5,7 +5,8 @@
 //!
 //! Split into [`worker_settings`] (`WorkerItem`<->`RemoteEndpoint` conversions),
 //! [`worker_callbacks`] (save/remove, "Test connection", token redemption, the
-//! denoise toggle, live compute target and live transfer), and [`orchestrator`] (the
+//! denoise toggle, live compute target and live transfer), [`pairing`] ("Paste pairing
+//! link" and finding a moved coordinator again), and [`orchestrator`] (the
 //! preview-then-handoff state machine, including the async guide/denoise generation
 //! it drives).
 //!
@@ -22,6 +23,8 @@
 
 mod advanced_in_use;
 mod orchestrator;
+mod pairing;
+mod use_remote;
 mod worker_callbacks;
 mod worker_settings;
 

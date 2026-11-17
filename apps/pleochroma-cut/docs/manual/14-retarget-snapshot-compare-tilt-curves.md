@@ -172,6 +172,7 @@ The figures describe a clear, polished stone. When either side has Inclusions (C
 | **Extinction** | The share of the light that is lost or trapped (the dark look) | Lower |
 | **Fire** | How strongly the stone splits white light into colors (an index, not a percent) | Higher |
 | **Scintillation** | How much the stone flashes on and off as it moves | Higher |
+| **Contrast** | How finely the viewer's own shadow is broken up across the face, 0 to 100. Pleochroma's own measure, not an AGS or GIA figure; a high value means finely broken-up shadow, not a better grade (Chapter 2, "How the Face-Up Figures Are Measured") | Higher |
 
 For each figure the table shows the value before, the value after, the change, and
 a word: **better**, **worse** or **same**. The change is green when it helps and red
@@ -182,7 +183,7 @@ is **relative** (an index of 20 going to 21.2 is +6 %).
 
 **What counts as the same.** Two stones are never measured to the last digit. The
 measurement sends a grid of rays through the stone, and a single grid cell is worth
-about 0.4 of a point, so a facet edge sliding across a few rays moves a figure a
+about half a point (180 spots, 0.56), so a facet edge sliding across a few rays moves a figure a
 little without any difference you could see. A change smaller than the threshold
 below is reported as "about the same" instead of as a gain or a loss.
 
@@ -190,6 +191,7 @@ below is reported as "about the same" instead of as a gain or a loss.
 | --- | --- |
 | Brilliance, windowing, extinction | 2 points |
 | Scintillation | 3 points (it is a contrast figure and jumps more) |
+| Contrast | 4 points |
 | Fire | 5 % of the before value, and at least half an index point |
 | Yield | 0.1 points (a volume ratio, so only float noise in the carved volume) |
 | Tilt averages (below) | 1 point (an average of 724 poses is much steadier) |
@@ -197,18 +199,31 @@ below is reported as "about the same" instead of as a gain or a loss.
 **The sentences** run from the most important change to the least: first brilliance,
 windowing and extinction ("The after design is brighter face-up (+4 %) and shows
 less windowing (-3 %)."), then fire and scintillation ("It also shows more fire
-(+8 %)."), then the figures that stayed the same ("Extinction is about the same.").
+(+8 %)."), then contrast ("The after design has more contrast (+9)." or "has less contrast (-12)."), then the figures that stayed the same ("Extinction is about the same.").
 When nothing moved beyond its threshold the strip says "No clear optical
 difference." If a side does not solve into a closed stone there is nothing to
 measure, and the strip says which side it is. In the Compare to Baseline dialog the
 same sentences appear under the title, with "the current design" as the subject.
+
+**Zones (ASET-style).** Under the table a row of its own shows the stacked bar of Red,
+Green, Blue and Dark for both sides (the left bar is before, the right bar after), and the
+change in words: the two largest moves among the four, with a real minus sign and a middle
+dot between them, for example "Blue −12 · Dark +11", or "about the same" when none moved by
+2 points or more. A one-line legend under the row names the four colors (Red, Green, Blue
+and Dark), so the bars read without a tooltip. This row has no better or worse word: where the light
+leaves the stone is not good or bad by itself. The zones and Contrast are defined in
+Chapter 2 ("How the Face-Up Figures Are Measured"). The window's footnote adds: "The
+zones and Contrast do not depend on the lighting." (Contrast and the zones come from
+the same face-up pass as the other figures, but they stay the same under every rig.)
+A Retarget or Optimize that keeps brilliance can still lose contrast; the Contrast row
+shows it.
 
 **Tilt Average.** The button next to the sentences adds the average over four
 directions and 181 tilt angles for both stones (1,448 measurements, a few seconds).
 It runs in the background; the button turns into **Cancel** with the percent done,
 and closing the window or opening another comparison stops it. When it finishes,
 three rows are added (tilt brilliance, windowing and extinction) and one more
-sentence, "Averaged over all tilts, ...". Fire and scintillation are not part of a
+sentence, "Averaged over all tilts, ...". Fire, scintillation and contrast are not part of a
 tilt sweep. These averages use the viewport lighting, so they can differ a little
 from the curves in the Tilt Performance dialog, which has its own lighting.
 
@@ -291,6 +306,20 @@ upright instead of across the picture, or the other way round. The Start and End
 pictures show the turned stone. For an upright stone in a tall picture, choose a custom
 resolution that is higher than wide.
 
+**Stone Shadow and Tray Reflection.** Under **Stone on the Tray** the section has two switches,
+both off by default, so a video is the stone as designed on the lit tray, as it has always
+been. **Stone Shadow** lets the stone cast its shadow and colored light onto the tray in every
+frame, and **Tray Reflection** shows the stone mirrored in a glossy tray. The Lighting tab
+decides how: the video uses its Stone Shadow settings and the strength of its Tray Reflection,
+and a Tray Reflection that is Off there is drawn at 4 %. Like in the Live Render, both need a studio
+light with a backdrop; with an HDR map, As Lit or "Contrast view (ASET-style)" the video is drawn without
+them. The stone itself is never posed in a video: a Stone Pose of the Live Render is left out
+and the stone is tipped about its own axes as designed; only the shadow and the mirror image
+are added. They also go to a remote worker. A video added to the queue freezes the choice
+(the job is then format 3 with the shadow and format 4 with the reflection, like a still),
+and `pleochroma-cli tilt-video` draws what the job holds. The Start and End pictures do not show
+the shadow or the mirror image.
+
 **Start and End pictures.** Below the frame count the section draws the stone at the
 Start and the End angle of every chosen axis, with the solid renderer and the same
 camera, framing and picture shape as the video's frames. They update as you change
@@ -341,7 +370,7 @@ Beam Tracing choice has no effect. The beam note above, the beams kept per frame
 remote beam tiles all apply to a build with the feature only (Chapter 9).
 
 The section opens with the settings you left it with, also after the program was
-closed: the axes, Turn Stone 90°, the angle range and step, the frame rate, resolution,
+closed: the axes, Turn Stone 90°, Stone Shadow, Tray Reflection, the angle range and step, the frame rate, resolution,
 samples, Adaptive Sampling and its Target Noise (in a build with the `adaptive-sampling` feature), Path Cache and Keep Path Cache for This Video, Beam Tracing (in a build with the `beam` feature), bounces, color space, transfer, the
 folder-name template, the performance values on the frames and Keep PNG Frames. Starting a video, adding it to the queue or closing
 the dialog remembers them (the tilt video's *output defaults*, Chapter 2). The video is

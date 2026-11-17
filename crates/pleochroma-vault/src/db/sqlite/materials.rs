@@ -64,6 +64,9 @@ pub struct CustomMaterialParams<'a> {
     /// See `crate::model::material::CustomMaterialRow::structure_json`'s doc comment. `None`
     /// clears the column (no structure).
     pub structure_json: Option<&'a str>,
+    /// See `crate::model::material::CustomMaterialRow::gem_data_json`'s doc comment. `None`
+    /// clears the column (gem data not recorded).
+    pub gem_data_json: Option<&'a str>,
 }
 
 impl Database {
@@ -80,7 +83,7 @@ impl Database {
                     crystal_system, optical_character, biaxial_delta_beta_alpha, per_axis_dispersion_json,
                     specific_gravity, color_recipe_json, dispersion_model_json, absorption_bands_json,
                     c_axis_tilt_deg, c_axis_azimuth_deg, c_axis_second_azimuth_deg,
-                    inclusion_families_json, structure_json
+                    inclusion_families_json, structure_json, gem_data_json
              FROM custom_gem_materials
              ORDER BY name ASC"
         )?;
@@ -106,6 +109,7 @@ impl Database {
             let c_axis_second_azimuth_deg: Option<f64> = row.get(17)?;
             let inclusion_families_json: Option<String> = row.get(18)?;
             let structure_json: Option<String> = row.get(19)?;
+            let gem_data_json: Option<String> = row.get(20)?;
 
             Ok(crate::model::material::CustomMaterialRow {
                 name,
@@ -126,6 +130,7 @@ impl Database {
                 c_axis_second_azimuth_deg: c_axis_second_azimuth_deg.map(to_f32),
                 inclusion_families_json,
                 structure_json,
+                gem_data_json,
             })
         })?;
 
@@ -143,7 +148,7 @@ impl Database {
     /// isotropic/uniaxial material; `per_axis_dispersion_json` is `None` unless
     /// the caller authored genuine per-axis dispersion data (and
     /// `inclusion_families_json`/`structure_json` unless it authored inclusions or a
-    /// play-of-color structure). All of them round-trip
+    /// play-of-color structure, and `gem_data_json` unless it entered gem data). All of them round-trip
     /// through [`Self::get_custom_materials`] as the matching `Option` fields on
     /// `CustomMaterialRow` -- see that struct's doc comments for why plain text/`f32`/
     /// JSON rather than the `pleochroma` enums (this crate must not depend on `pleochroma`)
@@ -159,8 +164,8 @@ impl Database {
             "INSERT INTO custom_gem_materials (name, refractive_index, dispersion, birefringence, absorption_r, absorption_g, absorption_b,
                 crystal_system, optical_character, biaxial_delta_beta_alpha, per_axis_dispersion_json, specific_gravity, color_recipe_json,
                 dispersion_model_json, absorption_bands_json, c_axis_tilt_deg, c_axis_azimuth_deg,
-                c_axis_second_azimuth_deg, inclusion_families_json, structure_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                c_axis_second_azimuth_deg, inclusion_families_json, structure_json, gem_data_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
              ON CONFLICT(name) DO UPDATE SET
                 refractive_index = excluded.refractive_index,
                 dispersion = excluded.dispersion,
@@ -180,7 +185,8 @@ impl Database {
                 c_axis_azimuth_deg = excluded.c_axis_azimuth_deg,
                 c_axis_second_azimuth_deg = excluded.c_axis_second_azimuth_deg,
                 inclusion_families_json = excluded.inclusion_families_json,
-                structure_json = excluded.structure_json"
+                structure_json = excluded.structure_json,
+                gem_data_json = excluded.gem_data_json"
         )?;
 
         stmt.execute(params![
@@ -204,6 +210,7 @@ impl Database {
             material.c_axis_second_azimuth_deg.map(f64::from),
             material.inclusion_families_json,
             material.structure_json,
+            material.gem_data_json,
         ])?;
         Ok(())
     }

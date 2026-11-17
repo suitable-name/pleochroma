@@ -10,6 +10,8 @@
 //! thin wrapper: it converts the [`pleochroma_net::enroll::ClaimError`] into this CLI's
 //! `--token`/`--addr`-flavored message and writes the returned bundle to `--out`.
 
+mod link;
+
 use crate::{
     cli::{CertClaimArgs, CertIssueTokenArgs},
     pki,
@@ -49,7 +51,8 @@ fn host_of<'a>(addr: &'a str, flag: &str) -> Result<&'a str, String> {
 /// `apps/pleochroma-cut`), so that framing is added here.
 fn claim_error_to_string(err: ClaimError, addr: &str) -> String {
     match err {
-        ClaimError::InvalidToken(e) => format!("--token: {e}"),
+        // `ClaimError`'s own text, which never echoes a character of the token.
+        err @ ClaimError::InvalidToken(_) => format!("--token: {err}"),
         ClaimError::InvalidAddr(msg) => format!("--addr {msg}"),
         ClaimError::Connect { source, .. } => format!("could not connect to {addr}: {source}"),
         ClaimError::Handshake { source, .. } => format!(
@@ -147,9 +150,35 @@ pub fn write_bundle(
 /// exchange fails, or the server refuses to issue a token (not a loopback connection, or too
 /// many enrollments already pending; see `crate::enroll::EnrollRegistry::issue`).
 pub fn run_issue_token(args: &CertIssueTokenArgs) -> Result<(), String> {
+    // Everything the link needs is worked out before a code is minted, so a missing LAN
+    // address never leaves a spent code behind.
+    let enroll_port = link::enroll_port(&args.admin_addr)?;
+    let lan: Vec<std::net::Ipv4Addr> = if args.addresses.is_empty() {
+        pleochroma_net::netinfo::lan_ipv4()
+            .into_iter()
+            .map(|lan| lan.addr)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let addrs = link::link_addresses(
+        &args.addresses,
+        &lan,
+        link::coordinator_port(enroll_port, args.role),
+    )?;
+
     let response = issue_token_over_tls(&args.ca, &args.admin_addr, &issue_name(args))?;
 
-    match_issue_response(response, &args.name)
+    match_issue_response(response, args, addrs, enroll_port)
+}
+
+/// The plain explanation of a refused monitor or admin code, or `None` for other roles.
+fn remote_admin_hint(role: pleochroma_net::messages::PeerRole) -> Option<&'static str> {
+    use pleochroma_net::messages::PeerRole;
+    matches!(role, PeerRole::Monitor | PeerRole::Admin).then_some(
+        "monitor and admin codes need the coordinator to run with `serve --allow-remote-admin` \
+         (in the window: Settings, Remote administration)",
+    )
 }
 
 /// The `Issue` name for `args`: the bare `--name` for a viewer, `worker:<name>` for
@@ -160,6 +189,14 @@ fn issue_name(args: &CertIssueTokenArgs) -> String {
         pleochroma_net::messages::PeerRole::Viewer => args.name.clone(),
         pleochroma_net::messages::PeerRole::Worker => {
             format!("{}{}", pki::WORKER_CN_PREFIX, args.name)
+        }
+        // The coordinator only honors these with `serve --allow-remote-admin`; the prefix
+        // tells it the requested role either way.
+        pleochroma_net::messages::PeerRole::Monitor => {
+            format!("{}{}", pki::MONITOR_CN_PREFIX, args.name)
+        }
+        pleochroma_net::messages::PeerRole::Admin => {
+            format!("{}{}", pki::ADMIN_CN_PREFIX, args.name)
         }
     }
 }
@@ -240,12 +277,19 @@ fn connect_with_timeout(addr: &str) -> std::io::Result<TcpStream> {
     }))
 }
 
-fn match_issue_response(response: EnrollResponse, name: &str) -> Result<(), String> {
+fn match_issue_response(
+    response: EnrollResponse,
+    args: &CertIssueTokenArgs,
+    addrs: Vec<std::net::SocketAddr>,
+    enroll_port: u16,
+) -> Result<(), String> {
+    let name = args.name.as_str();
     match response {
         EnrollResponse::Issued {
             token,
             expires_in_secs,
         } => {
+            // The log line names the label and lifetime only, never the code or the link.
             tracing::info!(
                 "pleochroma-worker cert issue-token: issued a token for {name:?}, valid {expires_in_secs}s"
             );
@@ -259,13 +303,60 @@ fn match_issue_response(response: EnrollResponse, name: &str) -> Result<(), Stri
                  coordinator before it ever sends anything back. It works once and expires in {expires_in_secs} \
                  seconds."
             );
-            Ok(())
+            print_link_and_qr(args, addrs, enroll_port, &token)
         }
-        EnrollResponse::IssueRefused { reason } => Err(format!("token issue refused: {reason}")),
+        EnrollResponse::IssueRefused { reason } => Err(remote_admin_hint(args.role).map_or_else(
+            || format!("token issue refused: {reason}"),
+            |hint| format!("token issue refused: {reason} -- {hint}"),
+        )),
         other => Err(format!(
             "unexpected response from the enrollment listener: {other:?}"
         )),
     }
+}
+
+/// Prints the pairing link and, unless `--no-qr`, its QR code, to stdout only: both carry
+/// the code, so neither goes through `tracing`.
+fn print_link_and_qr(
+    args: &CertIssueTokenArgs,
+    addrs: Vec<std::net::SocketAddr>,
+    enroll_port: u16,
+    token: &str,
+) -> Result<(), String> {
+    let text = link::build_link(
+        args.role,
+        &link::coordinator_name(),
+        addrs,
+        enroll_port,
+        token,
+    )?;
+    println!("\nPairing link (open it in Pleochroma on the device being paired):\n");
+    println!("  {text}\n");
+    if args.no_qr {
+        return Ok(());
+    }
+    // A terminal gets black-on-white so any theme scans; a pipe or a file gets dark glyphs on
+    // a light page; a console without escape sequences (the classic Windows console, which is
+    // dark) gets the light modules, so the code is not inverted.
+    // The drawing happens inside the call, because a Windows console gets its escape-sequence
+    // mode back as soon as the call returns.
+    link::with_terminal_escapes(|style| {
+        let Some(qr) = link::half_block_qr(&text, style) else {
+            println!("(The link is too long for a QR code; use the link or the code above.)");
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            return;
+        };
+        println!("Or scan this QR code with the Pleochroma app:\n");
+        print!("{qr}");
+        println!();
+        if style == link::QrStyle::LightOnDark {
+            println!(
+                "(Drawn for a dark console. If it does not scan, use the link or the code above.)"
+            );
+        }
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    });
+    Ok(())
 }
 
 #[cfg(test)]
@@ -332,9 +423,108 @@ mod tests {
             pleochroma_net::messages::PeerRole::Viewer,
         )
         .unwrap();
-        let addr = crate::enroll::spawn_enroll_listener(config).unwrap();
+        // The port is only known after the bind, so the stop's wake address is set then.
+        // These tests never stop the listener: the flag stays clear.
+        let bound = crate::enroll::bind_enroll_listener(config).unwrap();
+        let addr = bound.local_addr();
+        bound.spawn(crate::control::shutdown::ListenerStop {
+            flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            wake_addr: addr,
+        });
 
         (dir, addr, allowlist_path)
+    }
+
+    /// A loopback address nothing listens on.
+    fn dead_addr() -> std::net::SocketAddr {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+    }
+
+    /// Issues one viewer token over the real connection.
+    fn issue_real_token(dir: &std::path::Path, addr: std::net::SocketAddr) -> String {
+        let response =
+            issue_token_over_tls(&dir.join(pki::CA_CERT_FILE), &addr.to_string(), "any-addr")
+                .unwrap();
+        let EnrollResponse::Issued { token, .. } = response else {
+            panic!("expected Issued, got {response:?}");
+        };
+        token
+    }
+
+    #[test]
+    fn claim_any_skips_a_dead_address_and_claims_on_the_live_one() {
+        let (dir, live, allowlist_path) = start_real_enroll_listener();
+        let token = issue_real_token(&dir, live);
+
+        let started = std::time::Instant::now();
+        let outcome =
+            pleochroma_net::enroll::claim_any(&token, &[dead_addr(), live, dead_addr()]).unwrap();
+        assert_eq!(outcome.addr, live);
+        assert!(outcome.bundle.client_cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(started.elapsed() < Duration::from_secs(4));
+        let allowlist = pleochroma_net::tls::Allowlist::load(&allowlist_path).unwrap();
+        assert_eq!(allowlist.len(), 1);
+
+        // The code is single use: the same code again says so in plain words.
+        let err = pleochroma_net::enroll::claim_any(&token, &[live]).unwrap_err();
+        assert_eq!(
+            err,
+            pleochroma_net::enroll::ClaimAnyError::CodeExpiredOrUsed
+        );
+        assert!(err.to_string().contains("already used"), "{err}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claim_any_with_two_addresses_of_the_same_coordinator_spends_the_code_once() {
+        let (dir, live, _allowlist) = start_real_enroll_listener();
+        let token = issue_real_token(&dir, live);
+
+        let outcome = pleochroma_net::enroll::claim_any(&token, &[live, live]).unwrap();
+        assert_eq!(outcome.addr, live);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claim_any_with_only_dead_addresses_fails_in_plain_words_under_four_seconds() {
+        let (dir, live, _allowlist) = start_real_enroll_listener();
+        let token = issue_real_token(&dir, live);
+
+        let started = std::time::Instant::now();
+        let err =
+            pleochroma_net::enroll::claim_any(&token, &[dead_addr(), dead_addr()]).unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(4));
+        assert_eq!(err, pleochroma_net::enroll::ClaimAnyError::Refused);
+        assert!(err.to_string().contains("refused"), "{err}");
+
+        // The code was not spent by the failed attempt.
+        assert!(pleochroma_net::enroll::claim_any(&token, &[live]).is_ok());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claim_any_against_the_wrong_coordinator_says_so_and_keeps_the_code() {
+        let (dir, live, _allowlist) = start_real_enroll_listener();
+        let token = issue_real_token(&dir, live);
+        let real = pleochroma_net::token::decode(&token).unwrap();
+        let wrong_fingerprint: pleochroma_net::tls::Fingerprint = std::array::from_fn(|i| {
+            u8::try_from(i)
+                .expect("a fingerprint index fits u8")
+                .wrapping_add(1)
+        });
+        let bad_token = pleochroma_net::token::encode(&real.secret, &wrong_fingerprint);
+
+        let err = pleochroma_net::enroll::claim_any(&bad_token, &[dead_addr(), live]).unwrap_err();
+        assert_eq!(err, pleochroma_net::enroll::ClaimAnyError::WrongCoordinator);
+        assert!(pleochroma_net::enroll::claim_any(&token, &[live]).is_ok());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

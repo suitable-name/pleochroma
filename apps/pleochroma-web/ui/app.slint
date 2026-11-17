@@ -12,6 +12,7 @@ import { ChipRow, InspectorModel, PreformReadout, ScheduleRow, SolvedInfo, Verdi
 import { OptimizeChangeRow, OptimizeModel, OptimizeResultRow } from "editor/optimize_model.slint";
 import { DeepSolveModel, DeepSolveRow } from "editor/deep_solve_model.slint";
 import { RetargetDialog, RetargetModel, RetargetRow } from "editor/retarget_dialog.slint";
+import { MaterialReferenceDialog, MaterialReferenceModel, RefBand, RefColorRow, RefFilterChip, RefLine, RefSeries, RefSourceLine, RefTableRow, RefTick, RefVariant } from "editor/material_reference.slint";
 import { DiffRow, SnapshotDialog, SnapshotModel } from "editor/snapshot_dialog.slint";
 import { MainArea } from "views/main_area.slint";
 import { DesignDock, DockModel } from "editor/design_dock.slint";
@@ -52,6 +53,7 @@ export { DeepSolveModel, DeepSolveRow }
 export { DesignSettingsModel, GearRemapRow }
 export { NewDesignModel }
 export { RetargetModel, RetargetRow }
+export { MaterialReferenceModel, RefBand, RefColorRow, RefFilterChip, RefLine, RefSeries, RefSourceLine, RefTableRow, RefTick, RefVariant }
 export { DiffRow, SnapshotModel }
 export { CmChip, CmScheduleRow, CmWheelMark, CmWheelScale, CuttingModeModel }
 export { LibraryModel, LibraryRow }
@@ -79,7 +81,7 @@ export component AppWindow inherits Window {
 
     // A dialog opening or closing removes any focused field without a `has-focus`
     // change, which would leave `AppModel.text-focus` stuck on and Ctrl+Z dead.
-    property <bool> dialog-open: GalleryModel.open || DesignSettingsModel.open || RetargetModel.is-open || SnapshotModel.compare-open
+    property <bool> dialog-open: GalleryModel.open || DesignSettingsModel.open || RetargetModel.is-open || MaterialReferenceModel.is-open || SnapshotModel.compare-open
         || ShortcutsModel.open || TutorialsModel.browser-open || UserGuideModel.open || RenderModel.export-open || TiltModel.open || ConfirmModel.open;
     changed dialog-open => {
         AppModel.text-focus = false;
@@ -213,6 +215,10 @@ export component AppWindow inherits Window {
                 title: "Retarget for Material...";
                 enabled: AppModel.has-design && GuideModel.allows-advanced();
                 activated => { RetargetModel.open(); }
+            }
+            MenuItem {
+                title: "Material Reference...";
+                activated => { MaterialReferenceModel.open(); }
             }
             MenuItem {
                 title: "Snapshot Design";
@@ -467,6 +473,13 @@ export component AppWindow inherits Window {
     }
 
     if RetargetModel.is-open: RetargetDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if MaterialReferenceModel.is-open: MaterialReferenceDialog {
         x: 0;
         y: 0;
         width: root.width;

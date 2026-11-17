@@ -167,6 +167,13 @@ export global TiltVideoExportModel {
     // (fallback). With `keep_frames` off (the default) the PNGs are deleted after a successful run.
     in-out property <bool> keep_frames: false;
 
+    // "Stone Shadow" and "Tray Reflection" in every frame, both off by default: a tilt video shows
+    // the stone as designed on the lit tray. On, a frame keeps the Live Render's Stone Shadow, and
+    // the tray's mirror image at the Live Render's strength (or the video's own 4 % when that is
+    // Off). Both need a studio light with a backdrop and are left out otherwise.
+    in-out property <bool> stone_shadow: false;
+    in-out property <bool> tray_reflection: false;
+
     // "Adaptive Sampling" and "Target Noise" for every frame, as in `ExportModel` (the same
     // index into `pleochroma::renderer::adaptive::TARGET_NOISE_PRESETS`). Each frame stops
     // its tiles by itself; the samples setting is the most any part gets.

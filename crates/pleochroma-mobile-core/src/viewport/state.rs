@@ -2,9 +2,10 @@
 impl ViewportState {
     // ---- configuration -------------------------------------------------------------
 
-    /// Records the viewport's size (logical px) and the display scale. `compact` says
-    /// the viewport spans the window's width, so its left and right edges belong to the
-    /// system back gesture. Returns whether anything changed.
+    /// Records the viewport's size (logical px) and the display scale.
+    ///
+    /// `compact` says the viewport spans the window's width, so its left and right edges
+    /// belong to the system back gesture. Returns whether anything changed.
     pub fn set_view(&mut self, width: f32, height: f32, scale_factor: f32, compact: bool) -> bool {
         let guard = if compact { EDGE_GUARD_PX } else { 0.0 };
         let scale = sane_scale(scale_factor);
@@ -18,10 +19,11 @@ impl ViewportState {
         changed
     }
 
-    /// Notes the display's scale factor as the window reports it now. The window can learn
-    /// its real scale after the first layout without a later resize, and a raster at the
-    /// wrong scale is blurry, so every push calls this. Returns whether the scale changed
-    /// (the next frame key then picks up the new raster size).
+    /// Notes the display's scale factor as the window reports it now.
+    ///
+    /// The window can learn its real scale after the first layout without a later resize, and
+    /// a raster at the wrong scale is blurry, so every push calls this. Returns whether the
+    /// scale changed (the next frame key then picks up the new raster size).
     pub fn note_scale_factor(&self, scale_factor: f32) -> bool {
         let scale = sane_scale(scale_factor);
         let changed = (self.scale_factor.get() - scale).abs() > f32::EPSILON;
@@ -596,6 +598,7 @@ impl ViewportState {
             mode: self.mode.raster_mode(),
             selected_tier: inputs.selected_tier,
             multi_selected: inputs.multi_selected,
+            high_contrast: inputs.high_contrast,
             selected_facet: self.outlined_facet(inputs.generation, inputs.selected_tier),
             provisional_facets: self.slice.outline.clone(),
             moved_facets: self.moved_facets.clone(),

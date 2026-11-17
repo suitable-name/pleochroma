@@ -1,0 +1,215 @@
+// The coordinator switcher: the list in the popup under the sidebar's coordinator name ("This
+// computer", every saved remote coordinator, "Add a coordinator…") and the confirm dialog for
+// forgetting a remote. `frame.slint` puts `SwitcherMenu` into its popup; `app.slint` places
+// `ForgetDialog` over the window and re-exports `SwitcherState` and `SwitcherRow`.
+//
+// This file imports the kit and the theme directly and never `frame.slint` (which imports this
+// file), so the two icon paths it needs are written out here.
+import { Theme } from "@pleochroma-kit/theme.slint";
+import { KitIcon, KitIcons, KitIconButton, KitButton } from "@pleochroma-kit/components/kit/kit.slint";
+import { ActivateScope } from "focus.slint";
+
+/// One row of the list. `id` is empty for "This computer", otherwise the saved remote's id.
+/// `level`: 0 online, 1 connecting or checking, 3 offline. `tag` is the state in words.
+export struct SwitcherRow {
+    id: string,
+    name: string,
+    place: string,
+    tag: string,
+    level: int,
+    selected: bool,
+    remote: bool,
+}
+
+/// What the Rust side (`src/gui/switcher.rs`) shows and answers.
+export global SwitcherState {
+    /// "This computer" first, then every saved remote.
+    in property <[SwitcherRow]> rows;
+    /// The remote the confirm dialog is about (set by the row's remove button).
+    in-out property <string> forget-id;
+    in-out property <string> forget-name;
+    in-out property <bool> forget-open: false;
+    /// The popup is about to open: Rust refreshes the list and looks which remotes answer.
+    callback opened();
+    /// A row was picked: the remote's id, empty for "This computer".
+    callback picked(string);
+    /// "Add a coordinator…".
+    callback add-requested();
+    /// The confirm dialog's "Disconnect and forget".
+    callback forget-confirmed();
+}
+
+component SwitcherRowView inherits Rectangle {
+    in property <SwitcherRow> data;
+    callback picked();
+    callback forget();
+    height: 54px;
+    border-radius: 8px;
+    background: root.data.selected ? Theme.accent-cyan-surface : (open-touch.has-hover ? Theme.bg-card-hover : transparent);
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.data.name;
+    accessible-description: root.data.place + ", " + root.data.tag;
+    accessible-checkable: true;
+    accessible-checked: root.data.selected;
+    accessible-action-default => { root.picked(); }
+    border-width: row-fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    row-fs := ActivateScope {
+        activated => { root.picked(); }
+    }
+    open-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 6px;
+        spacing: 11px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: root.data.level == 0 ? Theme.success : (root.data.level == 1 ? Theme.accent-amber : Theme.text-muted);
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 1px;
+            Text { text: root.data.name; font-size: 13px; font-weight: 650; color: root.data.level == 3 ? Theme.text-secondary : Theme.text-primary; overflow: elide; }
+            Text { text: root.data.place; font-size: 11px; color: Theme.text-muted; overflow: elide; }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.data.tag;
+                font-size: 11px;
+                font-weight: 600;
+                color: root.data.level == 3 ? Theme.text-muted : (root.data.level == 1 ? Theme.accent-amber : Theme.success);
+                horizontal-alignment: right;
+            }
+        }
+        if root.data.remote: VerticalLayout {
+            alignment: center;
+            KitIconButton {
+                d: "M5 7 H19 M9 7 V4.5 H15 V7 M7 7 L8 20 H16 L17 7";
+                label: "Disconnect " + root.data.name + " and forget it";
+                hint: "Disconnect and forget this coordinator";
+                size: 28px;
+                icon_size: 14px;
+                clicked => { root.forget(); }
+            }
+        }
+    }
+}
+
+/// The popup's content: the rows, a rule and "Add a coordinator…". The caller draws the card.
+export component SwitcherMenu inherits VerticalLayout {
+    padding: 8px;
+    spacing: 2px;
+    HorizontalLayout {
+        height: 22px;
+        padding-left: 10px;
+        Text { text: "COORDINATORS"; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; color: Theme.text-muted; vertical-alignment: center; }
+    }
+    for row in SwitcherState.rows: SwitcherRowView {
+        data: row;
+        picked => { SwitcherState.picked(row.id); }
+        forget => {
+            SwitcherState.forget-id = row.id;
+            SwitcherState.forget-name = row.name;
+            SwitcherState.forget-open = true;
+        }
+    }
+    Rectangle {
+        height: 9px;
+        Rectangle { y: 4px; height: 1px; background: Theme.border-subtle; }
+    }
+    Rectangle {
+        height: 34px;
+        border-radius: 6px;
+        background: add-touch.has-hover ? Theme.bg-card-hover : transparent;
+        border-width: add-fs.has-focus ? 2px : 0px;
+        border-color: Theme.accent-cyan-hover;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Add a coordinator…";
+        accessible-action-default => { SwitcherState.add-requested(); }
+        add-fs := ActivateScope {
+            activated => { SwitcherState.add-requested(); }
+        }
+        HorizontalLayout {
+            padding-left: 10px;
+            spacing: 11px;
+            VerticalLayout { alignment: center; KitIcon { d: KitIcons.plus; size: 14px; ink: Theme.accent-cyan; } }
+            Text { text: "Add a coordinator…"; font-size: 13px; font-weight: 600; color: Theme.accent-cyan; vertical-alignment: center; }
+        }
+        add-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { SwitcherState.add-requested(); }
+        }
+    }
+}
+
+/// The whole-window confirm dialog for forgetting a remote. It draws nothing while
+/// `SwitcherState.forget-open` is false.
+export component ForgetDialog inherits Rectangle {
+    if SwitcherState.forget-open: Rectangle {
+        background: Theme.overlay-backdrop;
+        TouchArea { clicked => { SwitcherState.forget-open = false; } }
+        // The dialog takes the keyboard focus when it opens; Escape cancels.
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    SwitcherState.forget-open = false;
+                    return accept;
+                }
+                return reject;
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: min(440px, parent.width - 32px);
+                height: card.preferred-height;
+                border-radius: 12px;
+                background: Theme.popup-surface;
+                border-width: 1px;
+                border-color: Theme.border-medium;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: Theme.modal-shadow;
+                drop-shadow-offset-y: 8px;
+                accessible-role: AccessibleRole.groupbox;
+                accessible-label: "Disconnect " + SwitcherState.forget-name;
+                // Swallows clicks inside the card.
+                TouchArea { }
+                card := VerticalLayout {
+                    padding: 20px;
+                    spacing: 14px;
+                    Text { text: "Disconnect " + SwitcherState.forget-name + "?"; font-size: 15px; font-weight: 650; color: Theme.text-primary; wrap: word-wrap; }
+                    Text {
+                        text: "This computer forgets the pairing with " + SwitcherState.forget-name + ". To manage it again you need a new access code from that coordinator.";
+                        font-size: 13px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+                        KitButton { text: "Cancel"; clicked => { SwitcherState.forget-open = false; } }
+                        KitButton {
+                            kind: 1;
+                            text: "Disconnect and forget";
+                            clicked => {
+                                SwitcherState.forget-open = false;
+                                SwitcherState.forget-confirmed();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

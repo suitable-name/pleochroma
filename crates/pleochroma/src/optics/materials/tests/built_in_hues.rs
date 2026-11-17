@@ -196,14 +196,15 @@ fn aquamarine_swatch_is_light_blue_with_a_colorless_o_ray() {
 
 /// Fitted to Caltech GRR 229 (tsavorite) and GIA 2952 (demantoid). Both absorb at 650 nm (the
 /// 606 nm V3+ band, the 629 nm Cr3+ band) and keep a deep-red window beyond 700 nm. Tsavorite
-/// and demantoid are scaled down to match the lighter dealer photos, so the 650 nm dip only
-/// dims the window. Demantoid is the yellower.
+/// is scaled down to match the lighter dealer photos; demantoid sits at the CIELAB midpoint
+/// between the deep slab and the dealer-photo mix (swatch L* 63 C* 74 h 130), so the 650 nm dip
+/// only dims the window. Demantoid is the yellower.
 #[test]
 fn demantoid_and_tsavorite_are_green_with_no_window_at_650_nm() {
     let [_, _, h_demantoid] = unpolarised(DEMANTOID, 1.0);
     let [_, _, h_tsavorite] = unpolarised(TSAVORITE, 1.0);
     assert!(
-        (105.0..=128.0).contains(&h_demantoid),
+        (124.0..=136.0).contains(&h_demantoid),
         "{DEMANTOID} hue {h_demantoid:.1}"
     );
     assert!(
@@ -224,6 +225,12 @@ fn demantoid_and_tsavorite_are_green_with_no_window_at_650_nm() {
     assert!(
         h_demantoid < h_tsavorite,
         "demantoid ({h_demantoid:.1}) must be yellower than tsavorite ({h_tsavorite:.1})"
+    );
+    // Midway in lightness between the slab (L* 41) and the dealer-photo mix (L* 85).
+    let [l_demantoid, c_demantoid, _] = unpolarised(DEMANTOID, 1.0);
+    assert!(
+        (58.0..=68.0).contains(&l_demantoid) && (68.0..=80.0).contains(&c_demantoid),
+        "{DEMANTOID} lightness {l_demantoid:.1} chroma {c_demantoid:.1}"
     );
 }
 
@@ -356,13 +363,14 @@ fn amethyst_is_purple_and_its_e_ray_is_the_lighter_ray() {
 }
 
 /// Citrine: the Fe3+ charge-transfer edge, equal in both rays (the pleochroism of citrine is
-/// negligible) but stored pleochroic. The strength matches golden dealer photos.
+/// negligible) but stored pleochroic. The strength is 0.53 of the table (swatch L* 92 C* 51 h 94),
+/// the pale yellow of the 2026-10-27 default; the x 2 of the dealer-photo round is reverted.
 #[test]
-fn citrine_is_golden_yellow_with_equal_rays_stored_pleochroic() {
+fn citrine_is_pale_yellow_with_equal_rays_stored_pleochroic() {
     let [l, c, h] = unpolarised(CITRINE, 1.0);
-    assert!((78.0..=100.0).contains(&h), "Citrine hue {h:.1}");
-    assert!((79.0..=91.0).contains(&l), "Citrine lightness {l:.1}");
-    assert!((65.0..=88.0).contains(&c), "Citrine chroma {c:.1}");
+    assert!((86.0..=102.0).contains(&h), "Citrine hue {h:.1}");
+    assert!((88.0..=96.0).contains(&l), "Citrine lightness {l:.1}");
+    assert!((44.0..=58.0).contains(&c), "Citrine chroma {c:.1}");
     let t = material(CITRINE).absorption;
     assert!(t.is_pleochroic, "an isotropic tensor on a uniaxial host");
     assert_eq!(t.o_ray, t.e_ray);
@@ -494,13 +502,14 @@ fn tourmaline_iron_band_is_not_dichroic_but_the_blue_edge_is() {
         (2.0..=4.0).contains(&edge_ratio),
         "edge o : e at 400 nm is {edge_ratio:.2}, measured about 2"
     );
-    // A mix of the elbaite, Yellow and Pink variant bands, matched to the dealer photos of green
-    // tourmaline (a dark olive to yellowish green, median hue 121, L* 52).
+    // The measured GRR 1935 green crystal at 0.34 x over every band, the UV edge included (the
+    // 2026-10-27 default; the dealer-photo mix of 2026-11-03 is reverted): a light bluish green,
+    // swatch L* 91.4 C* 20.4 h 148.1.
     let colors = swatch(TOURMALINE, 1.0);
     let [l, c, h] = lch(&colors.unpolarised);
-    assert!((116.0..=130.0).contains(&h), "Tourmaline hue {h:.1}");
-    assert!((45.0..=60.0).contains(&l), "Tourmaline lightness {l:.1}");
-    assert!((38.0..=54.0).contains(&c), "Tourmaline chroma {c:.1}");
+    assert!((140.0..=156.0).contains(&h), "Tourmaline hue {h:.1}");
+    assert!((87.0..=95.0).contains(&l), "Tourmaline lightness {l:.1}");
+    assert!((15.0..=26.0).contains(&c), "Tourmaline chroma {c:.1}");
     let (l_o, l_e) = (lch(&colors.o_ray)[0], lch(&colors.e_ray)[0]);
     assert!(l_o < l_e, "the o-ray (L* {l_o:.1}) is the deeper ray");
     let t = material(TOURMALINE).absorption;

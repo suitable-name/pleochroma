@@ -1,6 +1,7 @@
-//! A coordinator viewer connection between requests: waiting for the next message while
-//! telling the viewer about capacity changes (`CAPABILITY_CHANGED`, sent between requests,
-//! never inside one).
+//! A coordinator viewer connection between requests.
+//!
+//! Waiting for the next message while telling the viewer about capacity changes
+//! (`CAPABILITY_CHANGED`, sent between requests, never inside one).
 
 use super::{Capacity, ViewerSession, viewer_render_capability};
 use crate::stream_emit::{FRAME_REMAINDER_TIMEOUT, TimeoutRead, is_stream_timeout};

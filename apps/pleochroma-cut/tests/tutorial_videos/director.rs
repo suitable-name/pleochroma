@@ -133,6 +133,7 @@ pub fn film(ctx: &mut Ctx<'_>, cfg: &Config, id: &str) -> Result<(), String> {
     check_guide(guide).map_err(|reason| format!("harness tables: {reason}"))?;
     launch(ctx, cfg, rough_color_seed::wanted(id))?;
     ctx.report.note(cfg.library_line());
+    ctx.report.note(cfg.render_line(id));
     let ui = ctx.app.ui().clone_strong();
     screenshot::set_window_size(ui.window(), LOGICAL_SIZE, SCALE);
     pump(400);

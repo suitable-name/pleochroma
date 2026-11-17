@@ -11,6 +11,7 @@ import { ParametersModel } from "../../models/parameters.slint";
 import { PhysicscolorModel } from "../../models/physics_color.slint";
 import { PreferencesModel } from "../../models/preferences.slint";
 import { RadvWorkaroundModel } from "../../models/radv_workaround.slint";
+import { RemoteWorkerModel } from "../../models/remote_worker.slint";
 import { RawTextModel } from "../../models/raw_text.slint";
 import { RenderJobsModel } from "../../models/render_jobs.slint";
 import { RetargetModel } from "../../models/retarget.slint";
@@ -350,7 +351,7 @@ export component WindowState {
         || LibraryModel.metadata_editor_open || BatchModel.preview_visible || BatchModel.tilt_visible
         || RenderJobsModel.panel_open || ShortcutsModel.open || PreferencesModel.dialog_open
         || HelpModel.glossary_open || root.welcome_open || root.update_consent_open
-        || root.radv_prompt_open
+        || root.radv_prompt_open || RemoteWorkerModel.use_remote_prompt_open
         || root.close_confirm_open || root.tutorials_browser_open || root.raw_text_open
         || root.sweep_open || root.cutting_mode_open
         || ExportModel.is_open;

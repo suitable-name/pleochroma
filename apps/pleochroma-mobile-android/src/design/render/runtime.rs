@@ -28,6 +28,7 @@ use std::{
 use pleochroma_mobile_core::{
     app_state::AppState,
     operations::OperationPhase,
+    settings::RenderBackend,
     viewport::render_view::{self, Maintain},
 };
 use slint::{ComponentHandle, Timer, TimerMode, Weak};
@@ -60,6 +61,8 @@ thread_local! {
     static GOVERN: Timer = Timer::default();
     /// The interval the poll runs at, in ms (0 when it is stopped).
     static POLL_MS: Cell<u64> = const { Cell::new(0) };
+    /// A remote failure is on show and was already passed to the rediscovery.
+    static FAILURE_SEEN: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Remembers the window and the state for the timers. Call once on the UI thread.
@@ -81,6 +84,7 @@ pub(super) fn shutdown() {
     KICK.with(Timer::stop);
     GOVERN.with(Timer::stop);
     POLL_MS.with(|ms| ms.set(0));
+    FAILURE_SEEN.with(|seen| seen.set(false));
     let runtime = RUNTIME.with(|cell| cell.borrow_mut().take());
     drop(runtime);
 }
@@ -133,23 +137,42 @@ fn schedule_kick(delay: Duration) {
 
 /// Starts, restarts or stops the trace as the state asks, then pushes the overlay.
 pub(super) fn maintain(window: &AppWindow, shared: &Shared) {
-    let outcome = {
+    // A remote trace talks to the computer: Android 17 needs the user's yes for the local
+    // network before it starts. The question opens once, a kick follows a yes, and a
+    // refusal holds the trace back until the next touch on the picture.
+    let remote_wanted = shared.try_borrow().is_ok_and(|app| {
+        app.settings.render.backend == RenderBackend::Remote && app.settings.remote.enrolled
+    });
+    let remote_blocked = remote_wanted
+        && !crate::remote::local_network_for_background(window, |_| {
+            schedule_kick(Duration::ZERO);
+        });
+    let (failure, outcome) = {
         let Ok(mut app) = shared.try_borrow_mut() else {
             // The state is busy (an edit is being applied): try again in a moment.
             schedule_kick(RETRY);
             return;
         };
-        if app.settings.render.backend == pleochroma_mobile_core::settings::RenderBackend::Remote
-            && matches!(
-                app.render.status(),
-                pleochroma_mobile_core::render::RenderStatus::Failed(_)
-            )
-        {
-            crate::remote::record_render_connection(&app, false);
-        }
+        let failure = if app.settings.render.backend == RenderBackend::Remote {
+            match app.render.status() {
+                pleochroma_mobile_core::render::RenderStatus::Failed(message) => {
+                    crate::remote::record_render_connection(&app, false);
+                    Some(message)
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         super::samples::apply(&mut app);
-        super::samples::maintain(&mut app, now())
+        let outcome = if remote_blocked {
+            Maintain::Idle
+        } else {
+            super::samples::maintain(&mut app, now())
+        };
+        (failure, outcome)
     };
+    note_failure(window, failure.as_deref());
     match outcome {
         Maintain::Wait(delay) => schedule_kick(delay),
         Maintain::Started => start_governor(),
@@ -162,10 +185,32 @@ pub(super) fn maintain(window: &AppWindow, shared: &Shared) {
     }
 }
 
+/// The app is in the foreground again: a remote failure still on show is passed to the
+/// rediscovery once more (the flag of [`note_failure`] is cleared). Call on the UI thread.
+pub fn forget_failure() {
+    FAILURE_SEEN.with(|seen| seen.set(false));
+}
+
+/// A remote trace stopped with `failure` (or runs again, `None`). A failure that reached no
+/// address asks the Remote page to look for the computer on the network, once per failure:
+/// the flag stays set while the same failure is on show.
+fn note_failure(window: &AppWindow, failure: Option<&str>) {
+    failure.map_or_else(
+        || FAILURE_SEEN.with(|seen| seen.set(false)),
+        |message| {
+            if !FAILURE_SEEN.with(|seen| seen.replace(true)) {
+                crate::remote::connect_failed(window, message);
+            }
+        },
+    );
+}
+
 /// The finger lifted (or the stream was cancelled): a trace owed to a drag starts once the
 /// pose has rested. The core answers `Wait` with the rest of the settle time, so asking now
 /// is enough; there is no need to wait for the next poll.
 pub fn on_touch_released(state: &AppState) {
+    // A touch on the picture is a new attempt: a refused local network is asked for again.
+    crate::remote::local_network_retry();
     if state.viewport.mode.is_render() && state.viewport.render_live.owes_restart() {
         schedule_kick(Duration::ZERO);
     }
@@ -204,10 +249,7 @@ fn tick() {
         } else {
             None
         };
-        if frame.is_some()
-            && app.settings.render.backend
-                == pleochroma_mobile_core::settings::RenderBackend::Remote
-        {
+        if frame.is_some() && app.settings.render.backend == RenderBackend::Remote {
             crate::remote::record_render_connection(&app, true);
         }
         (frame, on_show, app.viewport.mode.is_render())

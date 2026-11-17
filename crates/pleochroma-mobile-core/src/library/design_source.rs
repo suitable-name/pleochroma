@@ -12,7 +12,9 @@ use pleochroma_cut_core::{
     Design,
     native::{DesignExtras, design_from_str, design_to_string},
 };
-use pleochroma_editor::loading::design_from_asc_text;
+use pleochroma_editor::{files::sanitize_file_name, loading::design_from_asc_text};
+use pleochroma_formats::native::design::DESIGN_EXTENSION_DOTTED;
+use pleochroma_library_mirror::browse::DesignFile;
 use pleochroma_vault::{
     local::{
         DesignFileKind, design_attachment_position, design_file_to_asc_text, is_native_design_name,
@@ -20,8 +22,69 @@ use pleochroma_vault::{
     },
     model::{file::AttachedFile, frosting::StoredTierFrosting},
 };
+use pleochroma_web_core::input::MAX_DESIGN_FILE_BYTES;
 
+use super::LibraryDesign;
 use crate::cutting::progress_file_stems;
+
+/// The file a design that was fetched from the computer opens from, the same shape
+/// `LibraryHandle::load` gives for a copied design:
+///
+/// - a native design file as it came;
+/// - an `.asc` as it came, when the design states no frosting;
+/// - an `.asc` with frosting as a native design file named after `title`, because `.asc` cannot
+///   state the frosting and the editor would lose it.
+///
+/// # Errors
+/// A sentence when the frosted `.asc` cannot be read or written as a design file, or when the
+/// file is over the 16 MiB a design file may have on this phone ("<title> is too large to open on
+/// this phone.").
+pub fn design_file_bytes(file: DesignFile, title: &str) -> Result<LibraryDesign, String> {
+    let design = match file {
+        DesignFile::Native { file_name, bytes } => LibraryDesign { file_name, bytes },
+        DesignFile::Asc {
+            file_name,
+            text,
+            frosting,
+        } if frosting.is_empty() => LibraryDesign {
+            file_name,
+            bytes: text.into_bytes(),
+        },
+        DesignFile::Asc {
+            file_name,
+            text,
+            frosting,
+        } => {
+            let stated = StoredTierFrosting::to_gcs(&frosting);
+            let loaded = design_from_asc_text(&file_name, &text, None)
+                .map_err(|error| format!("\"{file_name}\" cannot be read: {error}"))?;
+            let mut design = loaded.design;
+            design.apply_imported_frosting(&stated);
+            let native =
+                design_to_string(&design, None, &DesignExtras::default()).map_err(|error| {
+                    format!("The design cannot be written as a design file: {error}")
+                })?;
+            let name = if title.trim().is_empty() {
+                "Untitled"
+            } else {
+                title
+            };
+            LibraryDesign {
+                file_name: format!("{}{DESIGN_EXTENSION_DOTTED}", sanitize_file_name(name)),
+                bytes: native.into_bytes(),
+            }
+        }
+    };
+    if design.bytes.len() as u64 > MAX_DESIGN_FILE_BYTES {
+        let name = if title.trim().is_empty() {
+            "This design"
+        } else {
+            title
+        };
+        return Err(format!("{name} is too large to open on this phone."));
+    }
+    Ok(design)
+}
 
 /// The attachment of `files` an entry opens from, if there is one.
 pub(super) fn primary_attachment(files: &[AttachedFile]) -> Option<&AttachedFile> {

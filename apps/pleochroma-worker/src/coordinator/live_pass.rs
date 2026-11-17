@@ -33,7 +33,7 @@ use crate::{
     validate,
 };
 use pleochroma_net::messages::{
-    ClientMessage, Done, ErrorMsg, LivePassHeader, LivePassRequest, NetError, Progress,
+    ClientMessage, Done, ErrorMsg, LivePassHeader, LivePassRequest, NetError, Preparing, Progress,
     StreamEvent, ZoningPayload, error_codes,
 };
 use std::{
@@ -244,6 +244,13 @@ fn relay_events<F: FnMut() -> bool, S: Write>(
                 &StreamEvent::Progress(Progress {
                     request_id,
                     ..progress
+                }),
+                None,
+            ),
+            StreamEvent::Preparing(preparing) => relay(
+                &StreamEvent::Preparing(Preparing {
+                    request_id,
+                    ..preparing
                 }),
                 None,
             ),

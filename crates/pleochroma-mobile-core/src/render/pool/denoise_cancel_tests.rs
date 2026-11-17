@@ -25,7 +25,8 @@ const VIEW: RenderView = RenderView {
     height: 24,
 };
 
-/// A built scene of the round brilliant template at [`VIEW`].
+/// A built Path-Traced scene (the engine that denoises) of the round brilliant template at
+/// [`VIEW`].
 fn built_scene() -> OwnedScene {
     let platform: Arc<dyn Platform> = Arc::new(MockPlatform::default());
     let mut state = AppState::new(platform);
@@ -34,6 +35,7 @@ fn built_scene() -> OwnedScene {
         template.fresh_spec(template.default_material_selection()),
         1,
     );
+    state.settings.render.engine = 0;
     state.settings.render.backend = RenderBackend::DeviceCpu;
     let job = begin_solve(&mut state).expect("a design with no answer gets a job");
     let response = run_solve(&job, &std::sync::atomic::AtomicBool::new(false));

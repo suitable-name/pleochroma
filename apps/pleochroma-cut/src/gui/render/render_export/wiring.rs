@@ -286,12 +286,14 @@ fn refuse_export(ui: &MainWindow, withheld: &crate::gui::editor::Withheld) {
 }
 
 /// The export queue's jobs: the base scene first, then one per preset of the dialog's fan-out
-/// list that is checked.
+/// list that is checked. `aspect` is the picture's width over its height, which a product-shot
+/// lighting frames the stone for.
 pub(in crate::gui) fn fan_out_jobs(
     ui: &MainWindow,
     settings_store: &SettingsPersister,
     base_scene: &SceneSnapshot,
     mesh_bounding_radius: &Mutex<f64>,
+    aspect: f32,
 ) -> VecDeque<ExportJob> {
     // Only presets that are both `export_usable` and checked in this dialog's fan-out list. The
     // dialog keeps its own list, separate from the settings dialog's.
@@ -322,7 +324,7 @@ pub(in crate::gui) fn fan_out_jobs(
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     for preset in &selected_presets {
         jobs.push_back(ExportJob {
-            scene: apply_preset_to_scene(base_scene.clone(), preset, mesh_bounding_radius),
+            scene: apply_preset_to_scene(base_scene.clone(), preset, mesh_bounding_radius, aspect),
             preset_label: preset.name.clone(),
         });
     }
@@ -409,7 +411,14 @@ fn continue_start_export(
     if !base_scene.engine.is_ray() && ui.global::<crate::OpticalModel>().get_include_still() {
         base_scene.optical_diagnostics = Some(crate::bridge::optical_overlay::presentation(ui));
     }
-    let jobs = fan_out_jobs(ui, &settings_store, &base_scene, &mesh_bounding_radius);
+    let aspect = params.width.max(1) as f32 / params.height.max(1) as f32;
+    let jobs = fan_out_jobs(
+        ui,
+        &settings_store,
+        &base_scene,
+        &mesh_bounding_radius,
+        aspect,
+    );
     // Every picture of the queue is checked now: a preset of the fan-out can be ASET, and
     // the refusal must come before any render, not after the first one.
     if let Some(reason) = jobs

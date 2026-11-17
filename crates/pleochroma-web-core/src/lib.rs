@@ -31,6 +31,8 @@
 //!   cutoff, label and the cutting-order `cut_steps` the planner is asked for.
 //! - [`deep_summary`]: a finished Deep Solve as the tab shows it (verdict line, tier rows, the
 //!   Pin check).
+//! - [`material_reference`]: the Material Reference dialog's table rows, Gem Data summary and
+//!   details page, an adapter over the editor's shared view model.
 //! - [`design_meta`]: the `.psdd` file's descriptive `[meta]` table as the page
 //!   keeps and stamps it (ISO-8601 UTC time, UUID v4 from caller-supplied bytes).
 //! - [`gpu_admission`]: the pure half of the GPU admission gate -- scene eligibility, the
@@ -93,6 +95,7 @@ pub mod input;
 pub mod library_measure;
 pub mod library_record;
 pub mod library_view;
+pub mod material_reference;
 pub mod new_design;
 pub mod open_route;
 mod pattern_wire;

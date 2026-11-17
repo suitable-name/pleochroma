@@ -8,6 +8,30 @@ fn state() -> AppState {
 }
 
 #[test]
+fn restarting_needs_a_failure_to_start_over_from() {
+    let mut app = state();
+    assert!(!restart_failed(&mut app));
+}
+
+#[test]
+fn the_driver_forgets_its_run_and_its_failed_tries() {
+    let mut driver = RenderDriver::default();
+    for _ in 0..FAILURE_RETRY_DELAYS.len() {
+        let _ = driver.retry.decide(Duration::ZERO);
+        let _ = driver.retry.decide(Duration::from_secs(60));
+    }
+    assert_eq!(
+        driver.retry.decide(Duration::from_secs(120)),
+        RetryStep::GiveUp
+    );
+    driver.forget_run();
+    assert!(matches!(
+        driver.retry.decide(Duration::from_secs(120)),
+        RetryStep::Wait(_)
+    ));
+}
+
+#[test]
 #[expect(
     clippy::suboptimal_flops,
     reason = "a test bound; the unfused multiply-then-subtract is exact enough for it"
@@ -466,6 +490,44 @@ fn nothing_is_wanted_while_the_solid_view_is_up() {
     assert!(!wants(&app));
     assert_eq!(maintain(&mut app, Duration::from_secs(1)), Maintain::Idle);
     assert!(!app.viewport.driver.is_active());
+}
+
+#[test]
+fn a_remote_computer_that_sent_nothing_yet_is_named_in_the_status() {
+    let waiting = "Remote · Waiting for Studio PC…";
+    let preparing = "Remote · Preparing Studio PC's graphics card… 12 of 40";
+    let none = RenderStatus::Tracing {
+        samples: 0,
+        target: 64,
+    };
+    assert_eq!(
+        waiting_notice(&none, waiting).as_deref(),
+        Some("Waiting for Studio PC…")
+    );
+    assert_eq!(
+        waiting_notice(&none, preparing).as_deref(),
+        Some("Preparing Studio PC's graphics card… 12 of 40")
+    );
+    // Once samples exist the normal status line returns.
+    let some = RenderStatus::Tracing {
+        samples: 1,
+        target: 64,
+    };
+    assert_eq!(waiting_notice(&some, waiting), None);
+    assert_eq!(waiting_notice(&some, preparing), None);
+    assert_eq!(
+        waiting_notice(&RenderStatus::Done { samples: 64 }, preparing),
+        None
+    );
+    // Other reports never replace the status.
+    for report in [
+        "Remote · Ray-Traced · Coordinator · FullData",
+        "Remote · reconnecting",
+        "Device GPU · Adreno",
+        "Preparing renderer",
+    ] {
+        assert_eq!(waiting_notice(&none, report), None, "{report}");
+    }
 }
 
 #[test]

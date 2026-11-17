@@ -132,6 +132,33 @@ pub struct RemoteEndpoint {
     pub export_transfer: ExportTransfer,
     /// The live view's transfer choice (Parameters panel, next to "Live Compute").
     pub live_transfer: LiveTransfer,
+    /// Rendering addresses (`host:port`) tried in order, written by a pairing link and by
+    /// rediscovery. Empty for an endpoint saved by 0.11.1 or entered by hand: read it through
+    /// [`Self::endpoint_addresses`], which then falls back to `connection.address`. When it is
+    /// not empty, `connection.address` repeats its first entry.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub addresses: Vec<String>,
+    /// The coordinator's enrollment port from the pairing link (`0`: not paired through a
+    /// link).
+    #[serde(skip_serializing_if = "is_zero_port")]
+    pub enroll_port: u16,
+    /// The endpoint was paired through a link, so the coordinator is verified by its fixed
+    /// certificate name whatever address answers. Off for an endpoint entered by hand, which
+    /// keeps verifying the dialed name.
+    #[serde(skip_serializing_if = "is_false")]
+    pub fixed_name: bool,
+}
+
+/// `skip_serializing_if` helper: a zero port is not written.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde passes a reference
+const fn is_zero_port(port: &u16) -> bool {
+    *port == 0
+}
+
+/// `skip_serializing_if` helper: a false flag is not written.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde passes a reference
+const fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 impl RemoteEndpoint {
@@ -141,6 +168,76 @@ impl RemoteEndpoint {
         Self {
             connection,
             ..Self::default()
+        }
+    }
+
+    /// The addresses to try, in order.
+    ///
+    /// A 0.11.1 endpoint stored one `host:port`; it loads as a one-element list here, without
+    /// the file being rewritten. Blank entries are skipped. Empty when no address is saved.
+    #[must_use]
+    pub fn endpoint_addresses(&self) -> Vec<String> {
+        let listed: Vec<String> = self
+            .addresses
+            .iter()
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if !listed.is_empty() {
+            return listed;
+        }
+        let single = self.connection.address.trim();
+        if single.is_empty() {
+            Vec::new()
+        } else {
+            vec![single.to_owned()]
+        }
+    }
+
+    /// The endpoint after a pairing link was redeemed: `name`, `addresses` (the answering one
+    /// first), the enrollment port and the certificate folder replace the old connection, the
+    /// endpoint is marked fixed-name, and the stream and transfer preferences stay.
+    #[must_use]
+    pub fn paired(
+        &self,
+        name: &str,
+        addresses: Vec<String>,
+        enroll_port: u16,
+        cert_dir: &str,
+    ) -> Self {
+        let mut next = self.clone();
+        name.clone_into(&mut next.connection.name);
+        next.connection.address = addresses.first().cloned().unwrap_or_default();
+        cert_dir.clone_into(&mut next.connection.cert_dir);
+        next.addresses = addresses;
+        next.enroll_port = enroll_port;
+        next.fixed_name = true;
+        next
+    }
+
+    /// The endpoint after rediscovery found the coordinator at `addresses`: the list and the
+    /// primary address are replaced, everything else (certificates, name, preferences) stays.
+    #[must_use]
+    pub fn moved_to(&self, addresses: Vec<String>) -> Self {
+        let mut next = self.clone();
+        next.connection.address = addresses.first().cloned().unwrap_or_default();
+        next.addresses = addresses;
+        next
+    }
+
+    /// The name shown for this endpoint: its name, else its first address, else "".
+    #[must_use]
+    pub fn display_name(&self) -> String {
+        let name = self.connection.name.trim();
+        if name.is_empty() {
+            self.endpoint_addresses()
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        } else {
+            name.to_owned()
         }
     }
 }

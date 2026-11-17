@@ -146,7 +146,7 @@ export component FilterSheet inherits ModalSheet {
         }
     }
 
-    SwitchRow {
+    if LibraryModel.source-index != 1: SwitchRow {
         title: "Only My Designs";
         checked: LibraryModel.mine-only;
         toggled(value) => {

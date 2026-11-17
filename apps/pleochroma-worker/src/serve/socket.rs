@@ -1,6 +1,8 @@
-//! Per-socket plumbing shared by every listener (viewer, worker, enrollment) and by
-//! `join`'s outbound connections: TCP tuning, the pre-protocol handshake deadline, the
-//! read-only library database opener, and the payload-encoding preference.
+//! Per-socket plumbing shared by every listener (viewer, worker, enrollment) and by `join`'s
+//! outbound connections.
+//!
+//! TCP tuning, the pre-protocol handshake deadline, the read-only library database opener, and the
+//! payload-encoding preference.
 
 use std::{
     io::{Read, Write},
@@ -148,11 +150,34 @@ pub(super) fn open_library_database(path: &std::path::Path) -> Result<Database, 
 /// [`super::start`] hands out a path, not an open [`Database`]: `rusqlite::Connection` is not
 /// `Sync`, so it cannot be shared between connections. [`super::start`] still opens and drops
 /// one at startup, to fail fast on a bad `--db` before binding a socket.
+///
+/// With `args.no_library` ("rendering only") no library file is meant: the returned path is a
+/// name that is never opened, inside the data folder, so the jobs and the asset cache sit there
+/// and not next to a `facet_diagrams.sqlite` of the working directory.
 #[must_use]
 pub(super) fn resolve_library_db_path(args: &ServeArgs) -> std::path::PathBuf {
+    if args.no_library {
+        return no_library_anchor(args);
+    }
     args.db
         .clone()
         .unwrap_or_else(|| std::path::PathBuf::from(pleochroma_vault::db::sqlite::DEFAULT_DB_FILE))
+}
+
+/// The anchor of the jobs and the asset cache when there is no library: a file name in the data
+/// folder (the folder of the loaded settings, else the one above `--ca`'s folder, else the
+/// working directory). Nothing is ever created or opened at this path.
+fn no_library_anchor(args: &ServeArgs) -> std::path::PathBuf {
+    let folder = crate::settings::data_dir()
+        .or_else(|| {
+            args.ca
+                .as_deref()
+                .map(crate::pki::role::pki_dir_of)
+                .and_then(|pki| pki.parent().map(std::path::Path::to_path_buf))
+                .filter(|dir| !dir.as_os_str().is_empty())
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    folder.join("no-library.sqlite")
 }
 
 /// How long an accepted connection may sit idle before the OS probes it with a TCP
@@ -165,12 +190,13 @@ const TCP_KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
 /// waiting on the OS's own default probe count/interval.
 const TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 
-/// Best-effort tuning for one just-accepted `stream`: disables Nagle's algorithm
-/// (`TCP_NODELAY`, since this protocol writes many small latency-sensitive messages)
-/// and enables TCP keepalive so a peer that vanishes without a clean FIN/RST is
-/// eventually detected instead of leaking the connection's thread forever. Never
-/// aborts the accept loop on failure; logged at `debug` since failure is expected to be
-/// harmless on deployed platforms.
+/// Best-effort tuning for one just-accepted `stream`.
+///
+/// Disables Nagle's algorithm (`TCP_NODELAY`, since this protocol writes many small
+/// latency-sensitive messages) and enables TCP keepalive so a peer that vanishes without a clean
+/// FIN/RST is eventually detected instead of leaking the connection's thread forever. Never aborts
+/// the accept loop on failure; logged at `debug` since failure is expected to be harmless on
+/// deployed platforms.
 pub fn tune_accepted_socket(stream: &TcpStream, peer: Option<SocketAddr>) {
     if let Err(e) = stream.set_nodelay(true) {
         tracing::debug!("connection {peer:?}: failed to set TCP_NODELAY: {e}");
@@ -222,10 +248,12 @@ pub fn apply_handshake_timeout(stream: &TcpStream, peer: Option<SocketAddr>) {
     }
 }
 
-/// The preference list `choice` gives a connection from `peer`: the pinned encoding
-/// alone, or [`payload_preference_for`] under `auto`. It decides what `WELCOME` announces;
-/// each frame's own header names what it actually carries.
+/// The preference list `choice` gives a connection from `peer`: the pinned encoding alone, or
+/// [`payload_preference_for`] under `auto`.
+///
+/// It decides what `WELCOME` announces; each frame's own header names what it actually carries.
 #[cfg(feature = "worker")]
+#[must_use]
 pub fn payload_preference_for_choice(
     choice: pleochroma_net::messages::adaptive::PayloadChoice,
     peer: Option<SocketAddr>,
@@ -244,6 +272,7 @@ pub fn payload_preference_for_choice(
 /// then LZ4, then raw (coordinator guide section 11). The connection handler negotiates this list
 /// against the peer's `HELLO.accept_encodings`.
 #[cfg(feature = "worker")]
+#[must_use]
 pub fn payload_preference_for(
     peer: Option<SocketAddr>,
 ) -> &'static [pleochroma_net::messages::PayloadEncoding] {

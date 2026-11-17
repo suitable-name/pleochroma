@@ -21,6 +21,7 @@ use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, VecModel};
 use super::{
     filters::{self, index_i32},
     format,
+    remote_source::{self, Source},
     runtime::{self, PAGE, Runtime},
     thumbs::{self, Job, ThumbPool},
 };
@@ -110,6 +111,8 @@ pub(super) fn open_and_load(window: &AppWindow) {
     } else if !opening {
         begin_open(window);
     }
+    // A paired computer whose library is not known yet is asked in the background.
+    remote_source::probe_if_unknown();
 }
 
 /// Opens the database on the queue's thread; [`opened`] continues on the UI thread.
@@ -201,6 +204,10 @@ fn query_of(rt: &Runtime) -> LibraryQuery {
 /// Starts a search for the first page (or, for [`Reload::Refresh`], as many cards as are
 /// shown now) and the filter options. The answer lands in [`apply_first`].
 pub(super) fn reload(rt: &mut Runtime, revision: u64, mode: Reload) {
+    if rt.source == Source::Computer {
+        remote_source::reload(rt, revision, mode);
+        return;
+    }
     let Some(handle) = rt.handle.clone() else {
         return;
     };
@@ -353,7 +360,9 @@ fn apply_more(
 
 /// Asks for the next page when the visible range is near the end of what is loaded.
 fn load_more_if_needed(rt: &mut Runtime) {
-    if rt.loading
+    // The computer answers a search in one piece; only the phone's list pages.
+    if rt.source == Source::Computer
+        || rt.loading
         || rt.loading_more
         || rt.cards.len() >= rt.total
         || rt.range.1 + MORE_MARGIN < rt.cards.len()
@@ -425,7 +434,11 @@ pub(super) fn settings_changed(rt: &mut Runtime, settings: LibrarySettings) {
 // ---------------------------------------------------------------------------------
 
 /// The row a card is drawn from.
-fn card_row(card: &LibraryCard, selected: bool, thumb: Option<Image>) -> LibraryCardData {
+pub(super) fn card_row(
+    card: &LibraryCard,
+    selected: bool,
+    thumb: Option<Image>,
+) -> LibraryCardData {
     LibraryCardData {
         title: format::title(card).into(),
         designer: card.designer.trim().into(),
@@ -442,6 +455,8 @@ fn card_row(card: &LibraryCard, selected: bool, thumb: Option<Image>) -> Library
         selected,
         mine: card.mine,
         ignored: card.ignored,
+        // On This Phone: a synced copy. On the computer: already copied here.
+        synced: card.synced,
     }
 }
 
@@ -465,6 +480,10 @@ const fn current_edge(rt: &Runtime) -> u32 {
 
 /// Tells the thumbnail workers which cards need a picture now.
 pub(super) fn request_thumbnails(rt: &Runtime) {
+    // The computer's cards show the design icon: nothing is drawn for them.
+    if rt.source == Source::Computer {
+        return;
+    }
     let Some(pool) = &rt.pool else {
         return;
     };
@@ -605,6 +624,19 @@ pub(super) fn selected_cards(rt: &Runtime) -> Vec<&LibraryCard> {
 
 /// Which empty state applies: 0 none, 1 the library has no designs, 2 nothing matches.
 fn empty_kind(rt: &Runtime) -> i32 {
+    if rt.source == Source::Computer {
+        return if rt.loading
+            || rt.remote.switching
+            || !rt.remote.error.is_empty()
+            || !rt.remote.cards.is_empty()
+        {
+            0
+        } else if rt.filters.is_narrowing() {
+            2
+        } else {
+            1
+        };
+    }
     if rt.handle.is_none() || rt.loading || !rt.cards.is_empty() {
         0
     } else if rt.filters.is_narrowing() {
@@ -687,4 +719,7 @@ pub(super) fn sync(rt: &Runtime, window: &AppWindow) {
     let chosen = selected_cards(rt);
     model.set_selection_ignored(!chosen.is_empty() && chosen.iter().all(|card| card.ignored));
     model.set_tag_sheet_open(rt.tag_sheet_open);
+
+    remote_source::sync_properties(rt, window);
+    super::sync::sync_properties(rt, window);
 }

@@ -2,7 +2,10 @@
 //! bounds at the sampled band edges, and the wavelength-dependent extraordinary
 //! index.
 
-use crate::optics::materials::{GemMaterial, OpticalCharacter};
+use crate::optics::{
+    dispersion::{DispersionModel, LINE_B_NM, LINE_G_NM},
+    materials::{GemMaterial, OpticalCharacter},
+};
 
 /// Verifies every built-in material's computed Abbe number
 /// `V_d = (n_d - 1) / (n_F - n_C)` against a trusted-source reference value, so a
@@ -338,4 +341,143 @@ fn rutile_matches_devore_indices_and_dispersion() {
         rutile.birefringence_delta,
         n_e - n_o
     );
+}
+
+/// The B-G dispersion `n(430.8 nm) - n(686.7 nm)` of the Sapphire curve equals the same
+/// difference computed in double precision straight from Malitson & Dodge's Sellmeier
+/// coefficients as stored.
+#[test]
+fn delta_b_g_of_sapphire_is_the_sellmeier_difference_at_the_b_and_g_lines() {
+    let sapphire = GemMaterial::by_name("Sapphire").expect("Sapphire is a built-in");
+    let DispersionModel::Sellmeier3 { b, c } = sapphire.dispersion else {
+        panic!("test premise: Sapphire's curve is a three-term Sellmeier");
+    };
+    let index = |lambda_nm: f64| {
+        let l2 = (lambda_nm * 1e-3).powi(2);
+        let n2 = (0..3).fold(1.0, |acc, i| {
+            acc + f64::from(b[i]) * l2 / (l2 - f64::from(c[i]))
+        });
+        n2.sqrt()
+    };
+    let by_hand = index(430.8) - index(686.7);
+    let delta = f64::from(sapphire.dispersion.delta_b_g());
+    assert!(
+        (delta - by_hand).abs() < 1e-6,
+        "delta_b_g {delta:.8} against {by_hand:.8}"
+    );
+    assert_eq!(
+        sapphire.dispersion.delta_b_g().to_bits(),
+        (sapphire.dispersion.evaluate(LINE_G_NM) - sapphire.dispersion.evaluate(LINE_B_NM))
+            .to_bits()
+    );
+    // The B and G lines are the gemological pair 686.7 and 430.8 nm.
+    assert_eq!((LINE_B_NM, LINE_G_NM), (686.7, 430.8));
+}
+
+/// Diamond's B-G dispersion is the 0.044 every gemological reference prints.
+#[test]
+fn diamond_delta_b_g_is_the_published_0_044() {
+    let delta = GemMaterial::diamond().dispersion.delta_b_g();
+    assert!((delta - 0.044).abs() < 0.002, "{delta}");
+}
+
+/// The B-G dispersion of every built-in, read off its own curve (the base curve: `n_o`, or
+/// `n_beta` for a biaxial material). Labradorite and Moonstone are built from a B-G figure of
+/// 0.012, so they land on it.
+const BUILT_IN_DELTA_B_G: [(&str, f32); 39] = [
+    ("Diamond", 0.0444),
+    ("Sapphire", 0.0181),
+    ("Ruby", 0.0181),
+    ("Emerald", 0.0140),
+    ("Zircon", 0.0386),
+    ("Alexandrite", 0.0171),
+    ("Topaz", 0.0140),
+    ("Spinel", 0.0202),
+    ("Quartz", 0.0133),
+    ("Tourmaline", 0.0169),
+    ("Tanzanite", 0.0298),
+    ("Synthetic Moissanite", 0.1117),
+    ("Cubic Zirconia", 0.0604),
+    ("Aquamarine", 0.0140),
+    ("Morganite", 0.0140),
+    ("Chrysoberyl (Yellow)", 0.0171),
+    ("Amethyst", 0.0133),
+    ("Citrine", 0.0133),
+    ("Ametrine", 0.0133),
+    ("Pyrope Garnet", 0.0218),
+    ("Almandine Garnet", 0.0238),
+    ("Spessartine Garnet", 0.0267),
+    ("Color-Change Garnet (Pyrope-Spessartine)", 0.0248),
+    ("Grossular Garnet (Tsavorite)", 0.0277),
+    ("Andradite Garnet (Demantoid)", 0.0565),
+    ("Peridot", 0.0198),
+    ("YAG", 0.0272),
+    ("GGG", 0.0445),
+    ("Benitoite", 0.0390),
+    ("Andalusite", 0.0158),
+    ("Opal", 0.0017),
+    ("Glass (N-BK7)", 0.0138),
+    ("Glass (F2)", 0.0300),
+    ("Rutile", 0.3123),
+    ("Precious Opal (White)", 0.0017),
+    ("Precious Opal (Black)", 0.0017),
+    ("Labradorite", 0.012),
+    ("Moonstone", 0.012),
+    ("Titanite (Sphene)", 0.0577),
+];
+
+/// Every built-in's B-G dispersion matches the table to 0.0005, and the table covers the
+/// 39 built-ins exactly once each. Against the handbook figures (GG97 Table 1)
+/// Diamond, Cubic Zirconia, YAG, GGG, Sapphire and Spinel lie within 0.003; Synthetic Moissanite
+/// and Rutile are the known differences, because their curves are the measured ones and the
+/// handbook prints a rounder figure.
+#[test]
+fn builtin_delta_b_g_matches_the_table_and_the_handbook_figures() {
+    let materials = GemMaterial::all_materials();
+    assert_eq!(materials.len(), BUILT_IN_DELTA_B_G.len());
+    for (name, expected) in BUILT_IN_DELTA_B_G {
+        let material = materials
+            .iter()
+            .find(|material| material.name == name)
+            .unwrap_or_else(|| panic!("{name} must be a built-in material"));
+        let delta = material.dispersion.delta_b_g();
+        assert!(
+            (delta - expected).abs() <= 0.0005,
+            "{name}: delta_b_g {delta:.5} against the table's {expected:.4}"
+        );
+    }
+
+    let delta_of = |name: &str| {
+        GemMaterial::by_name(name)
+            .unwrap_or_else(|| panic!("{name} must be a built-in material"))
+            .dispersion
+            .delta_b_g()
+    };
+    // (name, handbook figure or the nearest end of its printed range)
+    for (name, handbook) in [
+        ("Diamond", 0.044),
+        ("Cubic Zirconia", 0.058),
+        ("YAG", 0.028),
+        ("GGG", 0.045),
+        ("Sapphire", 0.018),
+        ("Spinel", 0.020),
+    ] {
+        let delta = delta_of(name);
+        assert!(
+            (delta - handbook).abs() <= 0.003,
+            "{name}: delta_b_g {delta:.4} against the handbook {handbook}"
+        );
+    }
+
+    // Known differences: the curve's value, not the handbook's rounder figure.
+    for (name, handbook, gap) in [
+        ("Synthetic Moissanite", 0.104, 0.0077),
+        ("Rutile", 0.330, 0.0177),
+    ] {
+        let delta = delta_of(name);
+        assert!(
+            ((delta - handbook).abs() - gap).abs() <= 0.001,
+            "{name}: delta_b_g {delta:.4} against the handbook {handbook}"
+        );
+    }
 }

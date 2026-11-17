@@ -79,6 +79,8 @@ tracing-subscriber = { workspace = true }
 
 [build-dependencies]
 slint-build = { workspace = true }
+# The shared Slint kit and theme (`@pleochroma-kit` imports), as a library path for slint-build.
+pleochroma-ui-kit = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,5 +1,6 @@
-//! One coordinator-to-worker request over a checked-out joined connection: write it,
-//! read the worker's `StreamEvent`s until `DONE`/`ERROR` under liveness deadlines, send
+//! One coordinator-to-worker request over a checked-out joined connection.
+//!
+//! Write it, read the worker's `StreamEvent`s until `DONE`/`ERROR` under liveness deadlines, send
 //! `CANCEL` when asked, and decode the radiance.
 //!
 //! # Reading with deadlines and cancellation on one socket
@@ -391,7 +392,9 @@ pub(super) fn run_request(
         let mut reader = PatientReader::new(conn, request.request_id, exchange.timeouts, || {
             cancel.is_cancelled()
         });
-        read_reply(&mut reader, exchange, request, decoder, reply)
+        let finished = read_reply(&mut reader, exchange, request, decoder, reply);
+        crate::serve::warmup::clear_remote(exchange.worker_id);
+        finished
     };
     if reply.broken.is_none() {
         let _ = conn.set_timeouts(None, None);
@@ -492,7 +495,16 @@ fn read_reply<F: FnMut() -> bool>(
                     return reply.broke(format!("worker #{worker_id} {why}"));
                 }
             }
+            StreamEvent::Preparing(p) => {
+                // The worker's graphics card builds its shader cache: liveness (any byte
+                // counts), not sample progress. The emitter folds it into the viewer's one
+                // combined `PREPARING` while the viewer's request has traced nothing.
+                crate::serve::warmup::note_remote(worker_id, p.done, p.total);
+            }
             StreamEvent::Progress(p) => {
+                if p.samples_done > 0 {
+                    crate::serve::warmup::clear_remote(worker_id);
+                }
                 reader.note_progress(p.samples_done);
                 let now = Instant::now();
                 if first_progress.is_none() && p.samples_done > 0 {

@@ -276,6 +276,29 @@ fn custom_specific_gravity_is_none_for_an_unrecorded_name() {
     assert_eq!(ctx.custom_specific_gravity("Custom Diamond"), None);
 }
 
+// ---- custom_gem_data -----------------------------------------
+
+#[test]
+fn default_context_has_no_custom_gem_data() {
+    let ctx = RenderContext::default();
+    assert!(ctx.custom_material_gem_data.is_empty());
+    assert_eq!(ctx.custom_gem_data("My Garnet"), None);
+}
+
+#[test]
+fn custom_gem_data_finds_an_entry_case_insensitively() {
+    let data = pleochroma_editor::material_reference::CustomGemData {
+        cleavage: Some("Perfect basal".to_owned()),
+        ..Default::default()
+    };
+    let ctx = RenderContext {
+        custom_material_gem_data: Arc::new(vec![("My Garnet".to_string(), data.clone())]),
+        ..RenderContext::default()
+    };
+    assert_eq!(ctx.custom_gem_data("my garnet"), Some(&data));
+    assert_eq!(ctx.custom_gem_data("Custom Diamond"), None);
+}
+
 // ---- resolve_material_with_override -----------------------
 
 #[test]

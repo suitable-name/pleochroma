@@ -1,3 +1,5 @@
+//! The messages after the handshake: [`ClientMessage`] and [`StreamEvent`].
+//!
 //! Every message a client may send after the handshake ([`ClientMessage`]), and every
 //! reply a worker sends for one `RENDER` request ([`StreamEvent`]) -- plus the small
 //! per-message structs both are built from, and [`ErrorMsg`], used well beyond just
@@ -111,7 +113,7 @@ mod wire;
 pub use types::{
     BatchDone, BatchItemDoneHeader, BatchItemFailed, BatchItemProgress, BeamTileStats,
     BeamTilesHeader, Cancel, ClientMessage, DisplayFrameHeader, Done, ErrorMsg, FinalImageHeader,
-    FrameHeader, LivePassHeader, PreviewHeader, Progress, Stats, StreamEvent,
+    FrameHeader, LivePassHeader, Preparing, PreviewHeader, Progress, Stats, StreamEvent,
 };
 pub use wire::{
     read_frame_message, read_preview_message, read_stream_event, write_frame_message,

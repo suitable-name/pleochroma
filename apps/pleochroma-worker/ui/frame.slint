@@ -1,0 +1,485 @@
+// The coordinator window's shell: the kit and theme re-exports every page imports, the extra
+// coordinator icons and text helpers, `ShellState`, and `Shell` (the sidebar, the top bar, the
+// banner slot and the page area). `app.slint` owns the window and places the pages.
+//
+// Page files import their kit from here (`import { Theme, KitCard, Txt } from "../frame.slint";`),
+// so the path into the desktop app's kit lives in one place.
+import { Theme } from "@pleochroma-kit/theme.slint";
+import { PairState } from "pair_dialog.slint";
+import { SwitcherMenu, SwitcherState } from "switcher.slint";
+import { ActivateScope } from "focus.slint";
+import { KitIcon, KitIcons, KitIconButton, KitButton, KitBadge, KitCard, KitSection, KitChip, KitSwitch, KitSwitchRow, KitSegment, KitSegmentBar, KitFillSegments, KitGlass } from "@pleochroma-kit/components/kit/kit.slint";
+
+export { Theme, KitIcon, KitIcons, KitIconButton, KitButton, KitBadge, KitCard, KitSection, KitChip, KitSwitch, KitSwitchRow, KitSegment, KitSegmentBar, KitFillSegments, KitGlass }
+
+// Extra 24 x 24 stroke icons for the coordinator (the kit has the rest).
+export global CIcons {
+    out property <string> overview: "M4 13 H10 V20 H4 Z M14 4 H20 V20 H14 Z M4 4 H10 V9 H4 Z";
+    out property <string> phone: "M8 2.5 H16 A1.5 1.5 0 0 1 17.5 4 V20 A1.5 1.5 0 0 1 16 21.5 H8 A1.5 1.5 0 0 1 6.5 20 V4 A1.5 1.5 0 0 1 8 2.5 Z M11 18.5 H13";
+    out property <string> monitor: "M3 4.5 H21 V16 H3 Z M9 20 H15 M12 16 V20";
+    out property <string> server: "M4 4 H20 V10 H4 Z M4 14 H20 V20 H4 Z M7.5 7 H8.5 M7.5 17 H8.5";
+    out property <string> jobs: "M8 6 H20 M8 12 H20 M8 18 H20 M4 6 H4.5 M4 12 H4.5 M4 18 H4.5";
+    out property <string> book: "M5 4 H17 A2 2 0 0 1 19 6 V20 H7 A2 2 0 0 1 5 18 Z M5 18 A2 2 0 0 1 7 16 H19";
+    out property <string> log: "M4 5 H20 V19 H4 Z M7.5 9.5 L10 12 L7.5 14.5 M12 14.5 H16";
+    out property <string> tools: "M14.5 5.5 A4 4 0 0 0 19 11 L12 18 A2 2 0 0 1 9 15 L16 8 A4 4 0 0 0 14.5 5.5 Z";
+    out property <string> link: "M10 14 L14 10 M8.5 12.5 L6.5 14.5 A3 3 0 0 0 10.5 18.5 L12.5 16.5 M15.5 11.5 L17.5 9.5 A3 3 0 0 0 13.5 5.5 L11.5 7.5";
+    out property <string> qr: "M4 4 H10 V10 H4 Z M14 4 H20 V10 H14 Z M4 14 H10 V20 H4 Z M14 14 H16 M18 14 H20 V16 M14 18 H16 V20 M18 18 V20 H20";
+    out property <string> power: "M12 3 V12 M7 6.5 A7.5 7.5 0 1 0 17 6.5";
+    out property <string> wifi: "M3 9 A13 13 0 0 1 21 9 M6 12.5 A8.5 8.5 0 0 1 18 12.5 M9 16 A4 4 0 0 1 15 16 M12 19.5 H12.01";
+    out property <string> shield: "M12 3 L19 6 V11 C19 15.5 16 19 12 21 C8 19 5 15.5 5 11 V6 Z";
+    out property <string> folder: "M3 6 H10 L12 8 H21 V19 H3 Z";
+    out property <string> clock: "M12 3.5 A8.5 8.5 0 1 0 12 20.5 A8.5 8.5 0 1 0 12 3.5 Z M12 7.5 V12 L15 14";
+    out property <string> chip: "M7 7 H17 V17 H7 Z M10 10 H14 V14 H10 Z M9 4 V7 M15 4 V7 M9 17 V20 M15 17 V20 M4 9 H7 M4 15 H7 M17 9 H20 M17 15 H20";
+    out property <string> handshake: "M3 12 L7 8 L11 10 L14 8 L21 12 M7 8 L3 12 L8 17 L11 15 M14 8 L18 13 L14 17 L11 15";
+    out property <string> refresh: "M19 8 A8 8 0 1 0 20 13 M19 3.5 V8 H14.5";
+    out property <string> trash: "M5 7 H19 M9 7 V4.5 H15 V7 M7 7 L8 20 H16 L17 7";
+    out property <string> copy: "M8 8 H19 V19 H8 Z M5 15 V5 H15";
+    out property <string> alert: "M12 4 L21 19 H3 Z M12 10 V14 M12 16.5 H12.01";
+    out property <string> close: "M6 6 L18 18 M18 6 L6 18";
+}
+
+// Text helpers.
+export component Txt inherits Text { color: Theme.text-primary; font-size: 13px; vertical-alignment: center; }
+export component Sub inherits Text { color: Theme.text-secondary; font-size: 12px; vertical-alignment: center; }
+export component Muted inherits Text { color: Theme.text-muted; font-size: 11px; vertical-alignment: center; }
+export component H1 inherits Text { color: Theme.text-primary; font-size: 20px; font-weight: 700; vertical-alignment: center; }
+export component H2 inherits Text { color: Theme.text-primary; font-size: 15px; font-weight: 650; vertical-alignment: center; }
+
+// A small status dot plus label: 0 online/running (green), 1 attention (amber), 2 error (red), 3 off (muted).
+export component StatusDot inherits HorizontalLayout {
+    in property <int> level: 0;
+    in property <string> text;
+    property <color> c: root.level == 0 ? Theme.success : (root.level == 1 ? Theme.accent-amber : (root.level == 2 ? Theme.danger : Theme.text-muted));
+    spacing: 6px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.c; }
+    }
+    Text { text: root.text; color: root.level == 3 ? Theme.text-muted : Theme.text-secondary; font-size: 12px; vertical-alignment: center; overflow: elide; min-width: 0px; }
+}
+
+// The status pill in the top bar: level 0 running (green), 1 starting or stopping (amber),
+// 2 problem (red), 3 stopped (muted).
+export component StatusPill inherits Rectangle {
+    in property <int> level: 0;
+    in property <string> text: "Running";
+    property <color> c: root.level == 0 ? Theme.success : (root.level == 1 ? Theme.accent-amber : (root.level == 2 ? Theme.danger : Theme.text-muted));
+    height: 26px;
+    width: pl.preferred-width;
+    border-radius: 13px;
+    background: root.c.with-alpha(0.14);
+    border-width: 1px;
+    border-color: root.c.with-alpha(0.45);
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Status: " + root.text;
+    pl := HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 7px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.c; }
+        }
+        Text { text: root.text; color: root.c; font-size: 12px; font-weight: 650; vertical-alignment: center; }
+    }
+}
+
+// The body of a page that is not built yet: its name and a line saying so. A page lane
+// replaces the stub's body and stops using this.
+export component PageStub inherits Rectangle {
+    in property <string> name;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.name + ": coming in this release";
+    VerticalLayout {
+        alignment: center;
+        spacing: 6px;
+        H2 { text: root.name; horizontal-alignment: center; }
+        Sub { text: "Coming in this release"; horizontal-alignment: center; }
+    }
+}
+
+// What the Rust side and every page share about the window.
+//
+// `page`: 0 Overview, 1 Devices, 2 Render computers, 3 Jobs, 4 Library, 5 Settings, 6 Log,
+// 7 Help another coordinator, 8 Tools. Any page may set it (a link to another page).
+export global ShellState {
+    /// The page shown.
+    in-out property <int> page: 0;
+    /// The status pill's text and color level (0 green, 1 amber, 2 red, 3 muted).
+    in property <string> status-text: "Starting…";
+    in property <int> status-level: 1;
+    /// True while the coordinator runs: the top-bar button reads Stop, otherwise Start.
+    in property <bool> running: false;
+    /// True while it is starting or stopping: Start/Stop and Connect a phone are disabled.
+    in property <bool> busy: true;
+    /// True when a pairing code can be made now (the coordinator runs and the caller may).
+    in-out property <bool> can-pair: false;
+    /// The coordinator the sidebar names, and where it runs.
+    in property <string> coordinator-name: "This computer";
+    in property <string> coordinator-place: "This computer";
+    /// True while the pages show another computer's coordinator. The top bar then offers
+    /// Disconnect instead of Stop, and what only the local coordinator can do is hidden.
+    in property <bool> remote: false;
+    /// Why an action is greyed out for this access level ("You have monitor access…"); empty
+    /// for the local coordinator. Pages use it as the hint of a greyed button.
+    in property <string> denied-reason: "";
+    /// Sidebar counters; an empty text hides the badge.
+    in property <string> devices-badge: "";
+    in property <string> jobs-badge: "";
+    /// A generic strip under the top bar. Empty text hides it. Tone: 0 information,
+    /// 1 warning, 2 problem. Rust and any page may set both; the close button clears the text.
+    in-out property <string> banner-text: "";
+    in-out property <int> banner-tone: 0;
+    /// The top-bar Stop or Start button.
+    callback stop-start();
+    /// The wizard's Rust side may call this after it has written the coordinator folder; the
+    /// shell then starts the coordinator. (The shell also notices on its own when the wizard
+    /// closes and the folder is set up.)
+    callback wizard-finished();
+    /// The top bar's Disconnect while a remote coordinator is shown: back to this computer.
+    callback disconnect();
+    /// The "More" menu's Open data folder.
+    callback open-data-folder();
+    /// The "More" menu's Quit: stops the coordinator and ends the program.
+    callback quit();
+}
+
+// One sidebar entry.
+component NavRow inherits Rectangle {
+    in property <string> icon;
+    in property <string> name;
+    in property <bool> on;
+    in property <string> badge;
+    in property <bool> compact: false;
+    callback clicked();
+    height: 36px;
+    border-radius: 8px;
+    background: root.on ? Theme.accent-cyan-surface : (touch.has-hover ? Theme.bg-card-hover : transparent);
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.tab;
+    accessible-label: root.name;
+    accessible-checked: root.on;
+    accessible-action-default => { root.clicked(); }
+    if root.compact: Tooltip { text: @markdown("\{root.name}"); }
+    fs := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: root.compact ? 0px : 12px;
+        padding-right: root.compact ? 0px : 10px;
+        spacing: 11px;
+        alignment: root.compact ? center : stretch;
+        VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.icon; size: 18px; ink: root.on ? Theme.accent-cyan : Theme.text-secondary; }
+        }
+        if !root.compact: Text { text: root.name; font-size: 13px; font-weight: root.on ? 650 : 500; color: root.on ? Theme.text-primary : Theme.text-secondary; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        if !root.compact && root.badge != "": VerticalLayout {
+            alignment: center;
+            KitBadge { text: root.badge; }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The banner slot under the top bar.
+component Banner inherits Rectangle {
+    in property <string> text;
+    in property <int> tone: 0;
+    property <color> edge: root.tone == 2 ? Theme.danger : (root.tone == 1 ? Theme.accent-amber : Theme.accent-cyan);
+    height: bl.preferred-height + 20px;
+    background: root.tone == 2 ? Theme.danger-surface : (root.tone == 1 ? Theme.surface-warning : Theme.surface-info);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    bl := HorizontalLayout {
+        padding-left: 24px;
+        padding-right: 12px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            KitIcon { d: root.tone == 0 ? CIcons.clock : CIcons.alert; size: 18px; ink: root.edge; }
+        }
+        Text { text: root.text; color: Theme.text-primary; font-size: 13px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            KitIconButton { d: CIcons.close; label: "Dismiss message"; size: 28px; clicked => { ShellState.banner-text = ""; } }
+        }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: root.edge.with-alpha(0.5); }
+}
+
+// The window's chrome: the sidebar on the left, the top bar and the banner slot, and the page
+// area (`@children`) below. Narrower than 820 px the sidebar shrinks to icons.
+export component Shell inherits Rectangle {
+    property <bool> compact: root.width < 820px;
+
+    pure function title(p: int) -> string {
+        if p == 0 { return "Overview"; }
+        if p == 1 { return "Devices"; }
+        if p == 2 { return "Render computers"; }
+        if p == 3 { return "Jobs"; }
+        if p == 4 { return "Library"; }
+        if p == 5 { return "Settings"; }
+        if p == 6 { return "Log"; }
+        if p == 7 { return "Help another coordinator"; }
+        return "Tools";
+    }
+
+    HorizontalLayout {
+        // Sidebar.
+        Rectangle {
+            width: root.compact ? 56px : 232px;
+            background: Theme.bg-dark;
+            VerticalLayout {
+                padding: 12px;
+                padding-top: 16px;
+                spacing: 4px;
+                // Coordinator switcher: "This computer", every saved remote and "Add a coordinator…".
+                Rectangle {
+                    height: 44px;
+                    switcher := Rectangle {
+                        y: 0px;
+                        height: 30px;
+                        border-radius: 8px;
+                        background: switch-touch.has-hover ?Theme.bg-input : transparent;
+                        border-width: switch-fs.has-focus ? 2px : 0px;
+                        border-color: Theme.accent-cyan-hover;
+                        accessible-role: AccessibleRole.button;
+                        accessible-label: "Coordinator: " + ShellState.coordinator-name;
+                        accessible-description: ShellState.coordinator-place;
+                        accessible-action-default => { SwitcherState.opened(); switch-popup.show(); }
+                        switch-fs := ActivateScope {
+                            activated => { SwitcherState.opened(); switch-popup.show(); }
+                        }
+                        HorizontalLayout {
+                            padding-left: root.compact ? 0px : 8px;
+                            padding-right: root.compact ? 0px : 8px;
+                            spacing: 10px;
+                            alignment: root.compact ? center : stretch;
+                            Rectangle {
+                                width: 30px;
+                                height: 30px;
+                                border-radius: 8px;
+                                background: Theme.accent-cyan-surface;
+                                KitIcon { d: ShellState.remote ? CIcons.server : KitIcons.gem; size: 18px; ink: Theme.accent-cyan; }
+                            }
+                            if !root.compact: VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                Text { text: ShellState.coordinator-name; font-size: 13px; font-weight: 700; color: Theme.text-primary; overflow: elide; }
+                                Text { text: ShellState.coordinator-place; font-size: 11px; color: Theme.text-muted; overflow: elide; }
+                            }
+                            if !root.compact: VerticalLayout {
+                                alignment: center;
+                                KitIcon { d: KitIcons.chevron-down; size: 14px; ink: Theme.text-muted; }
+                            }
+                        }
+                        switch-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { SwitcherState.opened(); switch-popup.show(); }
+                        }
+                    }
+                    switch-popup := PopupWindow {
+                        x: 0px;
+                        y: 34px;
+                        width: 308px;
+                        Rectangle {
+                            background: Theme.popup-surface;
+                            border-radius: 12px;
+                            border-width: 1px;
+                            border-color: Theme.border-dialog;
+                            drop-shadow-blur: 32px;
+                            drop-shadow-offset-y: 8px;
+                            drop-shadow-color: Theme.modal-shadow;
+                            SwitcherMenu { }
+                        }
+                    }
+                }
+                NavRow { icon: CIcons.overview; name: "Overview"; on: ShellState.page == 0; compact: root.compact; clicked => { ShellState.page = 0; } }
+                NavRow { icon: CIcons.phone; name: "Devices"; on: ShellState.page == 1; badge: ShellState.devices-badge; compact: root.compact; clicked => { ShellState.page = 1; } }
+                NavRow { icon: CIcons.server; name: "Render computers"; on: ShellState.page == 2; compact: root.compact; clicked => { ShellState.page = 2; } }
+                NavRow { icon: CIcons.jobs; name: "Jobs"; on: ShellState.page == 3; badge: ShellState.jobs-badge; compact: root.compact; clicked => { ShellState.page = 3; } }
+                NavRow { icon: CIcons.book; name: "Library"; on: ShellState.page == 4; compact: root.compact; clicked => { ShellState.page = 4; } }
+                Rectangle { height: 10px; }
+                if !ShellState.remote: NavRow { icon: CIcons.handshake; name: "Help another coordinator"; on: ShellState.page == 7; compact: root.compact; clicked => { ShellState.page = 7; } }
+                if !ShellState.remote: NavRow { icon: CIcons.tools; name: "Tools"; on: ShellState.page == 8; compact: root.compact; clicked => { ShellState.page = 8; } }
+                Rectangle { vertical-stretch: 1; }
+                NavRow { icon: CIcons.log; name: "Log"; on: ShellState.page == 6; compact: root.compact; clicked => { ShellState.page = 6; } }
+                NavRow { icon: KitIcons.gear; name: "Settings"; on: ShellState.page == 5; compact: root.compact; clicked => { ShellState.page = 5; } }
+            }
+            Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border-subtle; }
+        }
+
+        // Top bar, banner and page.
+        VerticalLayout {
+            horizontal-stretch: 1;
+            Rectangle {
+                height: 60px;
+                HorizontalLayout {
+                    padding-left: 24px;
+                    padding-right: 16px;
+                    spacing: 12px;
+                    VerticalLayout {
+                        alignment: center;
+                        H1 { text: root.title(ShellState.page); overflow: elide; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        StatusPill { level: ShellState.status-level; text: ShellState.status-text; }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if !root.compact && ShellState.remote: VerticalLayout {
+                        alignment: center;
+                        KitButton {
+                            icon: CIcons.link;
+                            text: "Disconnect";
+                            hint: "Go back to this computer. The pairing stays saved.";
+                            h: 34px;
+                            clicked => { ShellState.disconnect(); }
+                        }
+                    }
+                    if root.compact && ShellState.remote: VerticalLayout {
+                        alignment: center;
+                        KitIconButton {
+                            d: CIcons.link;
+                            label: "Disconnect";
+                            hint: "Go back to this computer. The pairing stays saved.";
+                            size: 34px;
+                            icon_size: 18px;
+                            clicked => { ShellState.disconnect(); }
+                        }
+                    }
+                    if !root.compact && !ShellState.remote: VerticalLayout {
+                        alignment: center;
+                        KitButton {
+                            icon: CIcons.power;
+                            text: ShellState.running ? "Stop" : "Start";
+                            enabled: !ShellState.busy;
+                            h: 34px;
+                            clicked => { ShellState.stop-start(); }
+                        }
+                    }
+                    if root.compact && !ShellState.remote: VerticalLayout {
+                        alignment: center;
+                        KitIconButton {
+                            d: CIcons.power;
+                            label: ShellState.running ? "Stop" : "Start";
+                            enabled: !ShellState.busy;
+                            size: 34px;
+                            icon_size: 18px;
+                            clicked => { ShellState.stop-start(); }
+                        }
+                    }
+                    if !root.compact: VerticalLayout {
+                        alignment: center;
+                        KitButton {
+                            kind: 1;
+                            icon: CIcons.qr;
+                            text: "Connect a phone";
+                            enabled: ShellState.can-pair;
+                            h: 34px;
+                            clicked => { PairState.open-requested(0); }
+                        }
+                    }
+                    if root.compact: VerticalLayout {
+                        alignment: center;
+                        KitIconButton {
+                            d: CIcons.qr;
+                            label: "Connect a phone";
+                            enabled: ShellState.can-pair;
+                            size: 34px;
+                            icon_size: 18px;
+                            clicked => { PairState.open-requested(0); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        more := KitIconButton { d: KitIcons.more; label: "More"; size: 34px; clicked => { more-popup.show(); } }
+                    }
+                }
+                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border-subtle; }
+                more-popup := PopupWindow {
+                    x: parent.width - 200px - 12px;
+                    y: 52px;
+                    width: 200px;
+                    Rectangle {
+                        background: Theme.popup-surface;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.border-dialog;
+                        VerticalLayout {
+                            padding: 8px;
+                            if !ShellState.remote: Rectangle {
+                                height: 34px;
+                                border-radius: 6px;
+                                background: folder-touch.has-hover ? Theme.bg-card-hover : transparent;
+                                border-width: folder-fs.has-focus ? 2px : 0px;
+                                border-color: Theme.accent-cyan-hover;
+                                accessible-role: AccessibleRole.button;
+                                accessible-label: "Open data folder";
+                                accessible-action-default => { ShellState.open-data-folder(); }
+                                folder-fs := ActivateScope {
+                                    activated => { ShellState.open-data-folder(); }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    spacing: 8px;
+                                    VerticalLayout { alignment: center; KitIcon { d: CIcons.folder; size: 16px; ink: Theme.text-secondary; } }
+                                    Text { text: "Open data folder"; color: Theme.text-primary; font-size: 13px; vertical-alignment: center; }
+                                }
+                                folder-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { ShellState.open-data-folder(); }
+                                }
+                            }
+                            Rectangle {
+                                height: 34px;
+                                border-radius: 6px;
+                                background: quit-touch.has-hover ? Theme.bg-card-hover : transparent;
+                                border-width: quit-fs.has-focus ? 2px : 0px;
+                                border-color: Theme.accent-cyan-hover;
+                                accessible-role: AccessibleRole.button;
+                                accessible-label: "Quit";
+                                accessible-description: "Stops the coordinator and closes the program";
+                                accessible-action-default => { ShellState.quit(); }
+                                quit-fs := ActivateScope {
+                                    activated => { ShellState.quit(); }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    spacing: 8px;
+                                    VerticalLayout { alignment: center; KitIcon { d: CIcons.power; size: 16px; ink: Theme.text-secondary; } }
+                                    Text { text: "Quit"; color: Theme.text-primary; font-size: 13px; vertical-alignment: center; }
+                                }
+                                quit-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { ShellState.quit(); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if ShellState.banner-text != "": Banner {
+                text: ShellState.banner-text;
+                tone: ShellState.banner-tone;
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                @children
+            }
+        }
+    }
+}

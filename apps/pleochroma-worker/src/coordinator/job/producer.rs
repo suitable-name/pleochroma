@@ -1,7 +1,8 @@
-//! A coordinator job's producer thread: wait for the viewer's turn (or whole-image slot),
-//! take lanes, run the `LanePool` over the request's sample range, and hand every finished
-//! chunk to the emitter (see `crate::stream_emit::run_stream_with`), which keeps
-//! heartbeating the viewer the whole time.
+//! A coordinator job's producer thread.
+//!
+//! Wait for the viewer's turn (or whole-image slot), take lanes, run the `LanePool` over the
+//! request's sample range, and hand every finished chunk to the emitter (see
+//! `crate::stream_emit::run_stream_with`), which keeps heartbeating the viewer the whole time.
 
 use super::{
     Coordinator, LaneKey, RateBook,

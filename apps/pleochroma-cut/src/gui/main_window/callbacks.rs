@@ -100,6 +100,7 @@ pub(super) fn setup_render_callbacks(
         render_ctx,
         settings_store,
         &solid.mesh_bounding_radius,
+        &solid.preview_state,
     );
     render::render_export::setup_render_export_callbacks(
         ui,
@@ -425,6 +426,7 @@ pub(super) fn setup_window_close(
             crate::gui::color_pattern::close_window();
             crate::gui::render_jobs::stop_for_app_close();
             crate::gui::help::close_help_window();
+            crate::gui::material_reference::close_window();
             return slint::CloseRequestResponse::HideWindow;
         }
         if let Some(ui) = ui_weak_close.upgrade() {

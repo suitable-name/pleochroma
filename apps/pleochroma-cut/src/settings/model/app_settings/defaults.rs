@@ -76,6 +76,11 @@ pub(super) fn default_export_filename_template() -> String {
 }
 
 impl Default for AppSettings {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one struct literal that must name every field of the flat settings struct; \
+                  helpers cannot shorten it"
+    )]
     fn default() -> Self {
         Self {
             ray_trace: super::super::RaySettings::default(),
@@ -164,6 +169,11 @@ impl Default for AppSettings {
             path_cache_disk_limit_gb: super::DEFAULT_PATH_CACHE_DISK_LIMIT_GB,
             manipulate_snap_off: false,
             slice_symmetric: true,
+            material_reference_sort_column: 0,
+            material_reference_sort_descending: false,
+            material_reference_filter: 0,
+            material_reference_query: String::new(),
+            material_reference_dispersion_bg: true,
             show_crystal_axis: false,
             render_body_color_override: None,
             render_body_color_bands: None,

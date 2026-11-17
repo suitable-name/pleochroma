@@ -268,3 +268,49 @@ fn facing_takes_turn_from_yaw_and_tilt_from_elevation() {
         [0.0, 0.0, 12.0]
     );
 }
+
+/// Whether two rotations agree element by element.
+fn same_rotation(a: Mat3, b: Mat3) -> bool {
+    (a - b).to_cols_array().iter().all(|v| v.abs() < 1e-4)
+}
+
+#[test]
+fn from_rotation_gives_back_the_pose_and_keeps_the_turn_at_the_poles() {
+    for tilt in [5.0_f32, 45.0, 90.0, 135.0, 175.0] {
+        for turn in [0.0_f32, 30.0, 120.0, 250.0, 359.0] {
+            for spin in [0.0_f32, 15.0, 200.0] {
+                let pose = StonePose {
+                    tilt_deg: tilt,
+                    turn_deg: turn,
+                    spin_deg: spin,
+                };
+                let back = StonePose::from_rotation(pose.rotation(), StonePose::IDENTITY);
+                assert!(
+                    same_rotation(back.rotation(), pose.rotation()),
+                    "{pose:?} came back as {back:?}"
+                );
+                assert!(
+                    (back.tilt_deg - tilt).abs() < 1e-2,
+                    "{pose:?} came back as {back:?}"
+                );
+            }
+        }
+    }
+    // Table straight up or down: the turn is undefined, so the previous one is kept and the
+    // spin takes the rest.
+    for tilt in [0.0_f32, 180.0] {
+        let pose = StonePose {
+            tilt_deg: tilt,
+            turn_deg: 70.0,
+            spin_deg: 20.0,
+        };
+        let previous = StonePose {
+            tilt_deg: 3.0,
+            turn_deg: 70.0,
+            spin_deg: 0.0,
+        };
+        let back = StonePose::from_rotation(pose.rotation(), previous);
+        assert!((back.turn_deg - 70.0).abs() < 1e-3, "{back:?}");
+        assert!(same_rotation(back.rotation(), pose.rotation()), "{back:?}");
+    }
+}

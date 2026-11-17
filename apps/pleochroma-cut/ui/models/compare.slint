@@ -57,6 +57,14 @@ export global CompareModel {
     // Empty `metric_rows` while the sides are still solving or when a side has no figures
     // (`metric_note` says why).
     in property <[CompareMetricRow]> metric_rows;
+    // The Zones (ASET-style) row: both sides' Red, Green, Blue and Dark shares (percent of the
+    // stone's face) as two stacked bars, and the words for the change ("Blue -17, Dark -15").
+    // The row is neutral: it carries no better or worse. `has_aset` is false (and the lists
+    // empty) while a side was not traced for zones.
+    in property <bool> has_aset: false;
+    in property <[float]> aset_before: [];
+    in property <[float]> aset_after: [];
+    in property <string> aset_change: "";
     // The sentences about what changed, one per line.
     in property <string> metric_summary;
     // A dimmed line: why there are no figures, or why the tilt average failed.

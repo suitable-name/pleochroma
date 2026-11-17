@@ -310,9 +310,9 @@ pavilion angle if so, per Chapter 6's retargeting walkthrough.
 
 1. Click **Solve**.
 2. Read the status strip (Chapter 5):
-   - `Closed solid -- volume ...` -- you have a valid stone. With the values
-     above the line reads about `Closed solid -- volume 1.7270 (model
-     units^3), L/W 1.000, H/W 0.596, C/W 0.149, P/W 0.420.` Continue to
+   - `Closed solid · volume ...` -- you have a valid stone. With the values
+     above the line reads about `Closed solid · volume 1.7270 (model
+     units³), L/W 1.000, H/W 0.596, C/W 0.149, P/W 0.420.` Continue to
      step 8.
    - `<Block> has no anchor: add a tier with an exact scale value.` -- that
      block still has no anchor, for example because one of the Meets

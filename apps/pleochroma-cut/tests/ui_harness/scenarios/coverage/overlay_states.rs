@@ -94,6 +94,16 @@ pub const OVERLAY_DENY: &[DenyRule] = &[
         "close window",
         "closes the window under test",
     ),
+    deny(
+        DenyMatch::Contains,
+        "material details",
+        "opens the Material Reference window (driven by the material_reference scenarios)",
+    ),
+    deny(
+        DenyMatch::Contains,
+        "material reference",
+        "opens the Material Reference window (driven by the material_reference scenarios)",
+    ),
 ];
 
 pub(super) const NONE: &[DenyRule] = &[];
@@ -218,10 +228,10 @@ pub(super) fn parameters(app: &HarnessApp, tab: i32) {
 }
 
 /// The Live Render view with the Stone tab showing and every folding card of it open (Crystal
-/// Axis, Girdle & Edges, Clarity, Play-of-Color). The tab reads `ParametersModel.stone_folds` when
+/// Axis, Girdle & Edges, Clarity, Play-of-Color, Gem Data). The tab reads `ParametersModel.stone_folds` when
 /// it mounts, so the bits are set first and the tab is mounted again through another tab.
 pub(super) fn parameters_stone_open(app: &HarnessApp) {
-    app.ui().global::<ParametersModel>().set_stone_folds(15);
+    app.ui().global::<ParametersModel>().set_stone_folds(31);
     parameters(app, 2);
     parameters(app, 0);
 }

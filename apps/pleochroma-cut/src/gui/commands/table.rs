@@ -626,6 +626,19 @@ pub static COMMANDS: &[Command] = &[
         set!(ShortcutsModel.set_open(true)),
     ),
     command(
+        "help.material_reference",
+        "Material Reference...",
+        Category::Help,
+        "materials table gem data hardness toughness cleavage refractive index dispersion specific gravity density curves spectra colors compare",
+        None,
+        NONE,
+        |ui: &MainWindow| {
+            // An empty name opens the table on the current material.
+            ui.global::<crate::EditorModel>()
+                .invoke_open_material_reference("".into());
+        },
+    ),
+    command(
         "help.guide",
         "Guide: New Design Walkthrough",
         Category::Help,

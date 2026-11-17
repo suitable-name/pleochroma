@@ -17,9 +17,9 @@ use crate::{
         show_toast,
         solid_preview::preview_state::{CameraPose, SolidPreviewState},
     },
-    settings::SettingsPersister,
+    settings::{SettingsPersister, model::AppSettings},
 };
-use glam::Vec3;
+use glam::{Mat3, Vec3};
 use pleochroma::{
     geometry::{
         plane::GpuFacetPlane,
@@ -52,21 +52,36 @@ const SLIDER_HOLD_TIMEOUT: Duration = Duration::from_millis(400);
 /// moves: the pan places the contact point of the posed stone, the pose faces the panned eye.
 const PRODUCT_SHOT_PASSES: usize = 4;
 
-/// The pose after a drag of `(dx, dy)` logical pixels in the picture: vertical tilts the stone
-/// (down leans the table towards the viewer), horizontal turns it (right turns the front of the
-/// stone to the right), at the orbit's degrees per pixel. The deltas are first mapped through the
-/// camera `roll`, as an orbit drag's are, so a rolled view drags along the picture. The tilt
-/// stops at `0` and `180`, the turn wraps; the spin is kept. A non-finite delta changes nothing.
+/// The pose after a drag of `(dx, dy)` logical pixels in the picture, relative to the camera at
+/// `yaw`: the stone turns exactly as it appears to turn under an orbit drag of the same pixels
+/// (`orbit_step`), with the camera and the lights staying put. Vertical tips the posed stone
+/// about the camera's right axis (down rolls its top towards the viewer, from whatever side the
+/// camera looks), horizontal turns it about the world vertical (right turns its front to the
+/// right), at the orbit's degrees per pixel.
+///
+/// The deltas are first mapped through the camera `roll`, as an orbit drag's are, so a rolled
+/// view drags along the picture. The result is read back into tilt, turn and spin
+/// ([`StonePose::from_rotation`]), so there is no stop: a tip past table up or table down
+/// carries on smoothly, like the orbit over the pole. A non-finite delta changes nothing.
 #[must_use]
-pub fn pose_drag_step(pose: StonePose, roll: f32, dx: f32, dy: f32) -> StonePose {
+pub fn pose_drag_step(pose: StonePose, yaw: f32, roll: f32, dx: f32, dy: f32) -> StonePose {
     if !dx.is_finite() || !dy.is_finite() {
         return pose;
     }
     let (dx, dy) = unroll_drag_delta(roll, dx, dy);
+    // The camera at `yaw` has the right axis `(cos yaw, 0, -sin yaw)` at every pitch, over the
+    // pole too (`Camera::new`); turning about it moves the top towards the eye.
+    let tipped = if dy == 0.0 {
+        pose
+    } else {
+        let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let tip = Mat3::from_axis_angle(right, (dy * DEGREES_PER_PIXEL).to_radians());
+        StonePose::from_rotation(tip * pose.rotation(), pose)
+    };
+    // A turn about the world vertical adds to the turn exactly: `Ry(a) * Ry(turn) = Ry(turn + a)`.
     StonePose {
-        tilt_deg: dy.mul_add(DEGREES_PER_PIXEL, pose.tilt_deg),
-        turn_deg: dx.mul_add(DEGREES_PER_PIXEL, pose.turn_deg),
-        spin_deg: pose.spin_deg,
+        turn_deg: dx.mul_add(DEGREES_PER_PIXEL, tipped.turn_deg),
+        ..tipped
     }
     .clamped()
 }
@@ -219,6 +234,71 @@ pub fn product_shot(
         distance,
         pan,
     })
+}
+
+/// [`product_shot`] for a stone given as its `planes` and `tools`: the corners of the solid they
+/// bound are measured first. `None` when they close no solid. The one measurement the Product
+/// Shot button, a lighting that lays the stone out like it and the export fan-out share.
+#[must_use]
+pub fn product_shot_for_stone(
+    planes: &[GpuFacetPlane],
+    tools: &[ToolPrimitive],
+    yaw: f32,
+    spin_deg: f32,
+    aspect: f32,
+) -> Option<ProductShot> {
+    product_shot(&solid_vertices(planes, tools), yaw, spin_deg, aspect)
+}
+
+/// [`product_shot_for_stone`] for the stone the render context holds, framed for the picture the
+/// view shows (the Live Render viewport, or a traced picture's own shape). The camera yaw and the
+/// Stone Pose spin are the context's. Measured outside the context lock, which the render thread
+/// shares.
+#[must_use]
+pub(super) fn product_shot_for_view(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+) -> Option<ProductShot> {
+    let (planes, tools, yaw, spin, render_size) = {
+        let ctx = RenderContext::lock(render_ctx);
+        (
+            Arc::clone(&ctx.active_planes),
+            Arc::clone(&ctx.active_tools),
+            ctx.yaw,
+            ctx.stone_pose.spin_deg,
+            (ctx.width, ctx.height),
+        )
+    };
+    let (viewport, traced) = shown_viewport(ui);
+    let (width, height) = pan_picture_size(traced, viewport, render_size);
+    let aspect = if width > 0.0 && height > 0.0 {
+        width / height
+    } else {
+        1.0
+    };
+    product_shot_for_stone(&planes, &tools, yaw, spin, aspect)
+}
+
+/// Writes `shot`'s pose and camera into the render context and marks it dirty. The caller
+/// stores the same values in the settings and redraws the Solid raster if it wants to.
+pub(super) const fn write_product_shot(ctx: &mut RenderContext, shot: &ProductShot) {
+    ctx.stone_pose = shot.pose;
+    ctx.yaw = shot.yaw;
+    ctx.pitch = shot.pitch;
+    ctx.camera_roll = shot.roll;
+    ctx.distance = shot.distance;
+    ctx.camera_pan = shot.pan;
+    ctx.dirty = true;
+}
+
+/// Stores `shot`'s pose and camera in the settings, the view the window starts with next time.
+pub(super) const fn store_product_shot(app: &mut AppSettings, shot: &ProductShot) {
+    app.stone_pose = shot.pose.to_array();
+    app.camera_yaw = shot.yaw;
+    app.camera_pitch = shot.pitch;
+    app.camera_roll = shot.roll;
+    app.camera_distance = shot.distance;
+    app.camera_pan = shot.pan;
 }
 
 /// The toast Product Shot ends with. The Tray Reflection shows the mirror image only on a studio
@@ -473,49 +553,17 @@ fn setup_product_shot(
             let Some(ui) = ui_weak.upgrade() else {
                 return;
             };
-            let (planes, tools, yaw, spin, render_size) = {
-                let ctx = RenderContext::lock(&render_ctx);
-                (
-                    Arc::clone(&ctx.active_planes),
-                    Arc::clone(&ctx.active_tools),
-                    ctx.yaw,
-                    ctx.stone_pose.spin_deg,
-                    (ctx.width, ctx.height),
-                )
-            };
-            let (viewport, traced) = shown_viewport(&ui);
-            let (width, height) = pan_picture_size(traced, viewport, render_size);
-            let aspect = if width > 0.0 && height > 0.0 {
-                width / height
-            } else {
-                1.0
-            };
-            // Measured outside the context lock, which the render thread shares.
-            let vertices = solid_vertices(&planes, &tools);
-            let Some(shot) = product_shot(&vertices, yaw, spin, aspect) else {
+            let Some(shot) = product_shot_for_view(&ui, &render_ctx) else {
                 show_toast(&ui, "Product Shot needs a solved stone.", "info");
                 return;
             };
             let tray_reflection = {
                 let mut ctx = RenderContext::lock(&render_ctx);
-                ctx.stone_pose = shot.pose;
-                ctx.yaw = shot.yaw;
-                ctx.pitch = shot.pitch;
-                ctx.camera_roll = shot.roll;
-                ctx.distance = shot.distance;
-                ctx.camera_pan = shot.pan;
-                ctx.dirty = true;
+                write_product_shot(&mut ctx, &shot);
                 resubmit_at_current_pose(&ui, &ctx, &preview_state);
                 ctx.tray_reflection
             };
-            settings_store.update(|s| {
-                s.settings.stone_pose = shot.pose.to_array();
-                s.settings.camera_yaw = shot.yaw;
-                s.settings.camera_pitch = shot.pitch;
-                s.settings.camera_roll = shot.roll;
-                s.settings.camera_distance = shot.distance;
-                s.settings.camera_pan = shot.pan;
-            });
+            settings_store.update(|s| store_product_shot(&mut s.settings, &shot));
             push_stone_pose_to_controls(&ui, shot.pose, false);
             show_toast(
                 &ui,
@@ -561,7 +609,7 @@ fn setup_pose_drag(
         };
         let pose = {
             let ctx = RenderContext::lock(&render_ctx);
-            pose_drag_step(ctx.stone_pose, ctx.camera_roll, dx, dy)
+            pose_drag_step(ctx.stone_pose, ctx.yaw, ctx.camera_roll, dx, dy)
         };
         apply_pose(
             &ui,
@@ -592,40 +640,100 @@ mod tests {
         ]
     }
 
+    /// Whether two rotations agree element by element.
+    fn same_rotation(a: Mat3, b: Mat3) -> bool {
+        (a - b).to_cols_array().iter().all(|v| v.abs() < 1e-4)
+    }
+
     #[test]
     fn a_pose_drag_down_tilts_and_right_turns_at_the_orbit_rate() {
-        let pose = pose_drag_step(StonePose::IDENTITY, 0.0, 0.0, 100.0);
+        let pose = pose_drag_step(StonePose::IDENTITY, 0.0, 0.0, 0.0, 100.0);
         assert!((pose.tilt_deg - 45.836_624).abs() < 1e-3);
-        assert!(pose.turn_deg.abs() < 1e-6);
-        let pose = pose_drag_step(StonePose::IDENTITY, 0.0, 100.0, 0.0);
+        assert!(pose.turn_deg.abs() < 1e-3 || (pose.turn_deg - 360.0).abs() < 1e-3);
+        let pose = pose_drag_step(StonePose::IDENTITY, 0.0, 0.0, 100.0, 0.0);
         assert!((pose.turn_deg - 45.836_624).abs() < 1e-3);
         assert!(pose.tilt_deg.abs() < 1e-6);
     }
 
     #[test]
-    fn a_pose_drag_clamps_the_tilt_wraps_the_turn_and_keeps_the_spin() {
+    fn a_pose_drag_down_leans_the_table_towards_the_camera_from_any_side() {
+        // The camera looks from +X (yaw 90 degrees): down leans the table towards +X, not to the
+        // side, whatever the stone's turn.
+        for turn in [0.0_f32, 90.0, 200.0] {
+            let posed = StonePose {
+                tilt_deg: 0.0,
+                turn_deg: turn,
+                spin_deg: 0.0,
+            };
+            let pose = pose_drag_step(posed, PI / 2.0, 0.0, 0.0, 100.0);
+            let normal = pose.rotation() * Vec3::Y;
+            assert!(normal.x > 0.7, "turn {turn}: {normal:?}");
+            assert!(normal.z.abs() < 1e-3, "turn {turn}: {normal:?}");
+        }
+        // A tilted, turned stone tips about the camera's right axis: the normal's component along
+        // that axis stays, and it moves towards the eye.
         let posed = StonePose {
-            tilt_deg: 170.0,
-            turn_deg: 350.0,
-            spin_deg: 33.0,
+            tilt_deg: 30.0,
+            turn_deg: 90.0,
+            spin_deg: 10.0,
         };
-        let pose = pose_drag_step(posed, 0.0, 100.0, 100.0);
-        assert!((pose.tilt_deg - 180.0).abs() < 1e-6, "stops at table down");
-        assert!(pose.turn_deg < 40.0, "350 + 45.8 wraps into the next turn");
-        assert!((pose.spin_deg - 33.0).abs() < 1e-6);
-        let pose = pose_drag_step(posed, 0.0, 0.0, -1000.0);
-        assert!(pose.tilt_deg.abs() < 1e-6, "stops at table up");
+        let before = posed.rotation() * Vec3::Y;
+        let after = pose_drag_step(posed, 0.0, 0.0, 0.0, 40.0).rotation() * Vec3::Y;
+        assert!((after.x - before.x).abs() < 1e-4, "{before:?} -> {after:?}");
+        assert!(after.z > before.z, "{before:?} -> {after:?}");
+    }
+
+    #[test]
+    fn a_pose_drag_is_the_camera_relative_rotation_and_never_stops() {
+        let right = |yaw: f32| Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        for yaw in [0.0_f32, 0.7, 2.5, -1.2] {
+            for posed in [
+                StonePose {
+                    tilt_deg: 170.0,
+                    turn_deg: 350.0,
+                    spin_deg: 33.0,
+                },
+                StonePose {
+                    tilt_deg: 20.0,
+                    turn_deg: 45.0,
+                    spin_deg: 300.0,
+                },
+            ] {
+                // Down past table-down and up past table-up carry on: the result is the drag's
+                // rotation of the posed stone, exactly.
+                for dy in [100.0_f32, -1000.0] {
+                    let pose = pose_drag_step(posed, yaw, 0.0, 0.0, dy);
+                    let expected =
+                        Mat3::from_axis_angle(right(yaw), (dy * DEGREES_PER_PIXEL).to_radians())
+                            * posed.rotation();
+                    assert!(
+                        same_rotation(pose.rotation(), expected),
+                        "yaw {yaw}, dy {dy}: {posed:?} -> {pose:?}"
+                    );
+                }
+                // Horizontal is a turntable turn about the world vertical.
+                let pose = pose_drag_step(posed, yaw, 0.0, 100.0, 0.0);
+                let expected = Mat3::from_rotation_y((100.0 * DEGREES_PER_PIXEL).to_radians())
+                    * posed.rotation();
+                assert!(
+                    same_rotation(pose.rotation(), expected),
+                    "{posed:?} -> {pose:?}"
+                );
+            }
+        }
     }
 
     #[test]
     fn a_pose_drag_follows_a_rolled_picture_and_ignores_non_finite_deltas() {
-        // A quarter roll sends a horizontal drag along the stone's vertical axis.
+        // A quarter roll sends a horizontal drag along the picture's vertical: it tips the upright
+        // table back from the camera at yaw 0.
         let pose = pose_drag_step(
             StonePose {
                 tilt_deg: 90.0,
                 turn_deg: 0.0,
                 spin_deg: 0.0,
             },
+            0.0,
             PI / 2.0,
             100.0,
             0.0,
@@ -636,7 +744,7 @@ mod tests {
             turn_deg: 20.0,
             spin_deg: 30.0,
         };
-        assert_eq!(pose_drag_step(posed, 0.0, f32::NAN, 1.0), posed);
+        assert_eq!(pose_drag_step(posed, 0.0, 0.0, f32::NAN, 1.0), posed);
     }
 
     #[test]
@@ -785,5 +893,29 @@ mod tests {
             }),
             "Stone Pose: tilt 90\u{b0}, turn 30\u{b0}, spin 0\u{b0}"
         );
+    }
+
+    /// A product shot goes to the render context and to the settings alike: the pose, the camera
+    /// and the pan the stone is placed by.
+    #[test]
+    fn a_product_shot_is_written_to_the_context_and_the_settings() {
+        let shot = product_shot(&stone(), 0.6, 25.0, 1.0).expect("a stone with corners");
+        let mut ctx = RenderContext::default();
+        write_product_shot(&mut ctx, &shot);
+        assert_eq!(ctx.stone_pose, shot.pose);
+        assert_eq!(ctx.yaw.to_bits(), shot.yaw.to_bits());
+        assert_eq!(ctx.pitch.to_bits(), shot.pitch.to_bits());
+        assert_eq!(ctx.camera_roll.to_bits(), 0);
+        assert_eq!(ctx.distance.to_bits(), shot.distance.to_bits());
+        assert_eq!(ctx.camera_pan, shot.pan);
+        assert!(ctx.dirty);
+
+        let mut app = AppSettings::default();
+        store_product_shot(&mut app, &shot);
+        assert_eq!(app.stone_pose, shot.pose.to_array());
+        assert_eq!(app.camera_yaw.to_bits(), shot.yaw.to_bits());
+        assert_eq!(app.camera_pitch.to_bits(), shot.pitch.to_bits());
+        assert_eq!(app.camera_distance.to_bits(), shot.distance.to_bits());
+        assert_eq!(app.camera_pan, shot.pan);
     }
 }

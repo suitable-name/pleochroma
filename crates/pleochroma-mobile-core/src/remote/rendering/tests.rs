@@ -356,3 +356,40 @@ fn a_metered_network_refuses_heavy_sessions_unless_allowed() {
     settings.allow_metered = true;
     assert!(metered_refusal(&platform, &settings, true).is_ok());
 }
+
+#[test]
+fn the_waiting_report_names_the_computer() {
+    assert_eq!(
+        waiting_report("Studio PC"),
+        "Remote · Waiting for Studio PC…"
+    );
+    assert_eq!(
+        waiting_report("  "),
+        "Remote · Waiting for the remote computer…"
+    );
+    assert_eq!(
+        waiting_report(""),
+        "Remote · Waiting for the remote computer…"
+    );
+}
+
+#[test]
+fn the_preparing_report_shows_counts_only_when_the_total_is_known() {
+    assert_eq!(
+        preparing_report("Studio PC", 12, 40),
+        "Remote · Preparing Studio PC's graphics card… 12 of 40"
+    );
+    assert_eq!(
+        preparing_report("Studio PC", 0, 0),
+        "Remote · Preparing Studio PC's graphics card…"
+    );
+    assert_eq!(
+        preparing_report("", 3, 8),
+        "Remote · Preparing the remote computer's graphics card… 3 of 8"
+    );
+    // A count past the total never reads as more than the total.
+    assert_eq!(
+        preparing_report("Studio PC", 50, 40),
+        "Remote · Preparing Studio PC's graphics card… 40 of 40"
+    );
+}

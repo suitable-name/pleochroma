@@ -26,6 +26,7 @@ fn fields() -> MaterialSaveFields<'static> {
         per_axis_dispersion_json: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     }
 }
 
@@ -183,4 +184,41 @@ fn the_biaxial_curve_seed_reads_the_dialog_fields_as_the_material_does() {
     assert!((indicatrix.n_alpha - seed_alpha).abs() < 1e-3);
     assert!((indicatrix.n_beta - ri).abs() < 1e-3);
     assert!((indicatrix.n_gamma - seed_gamma).abs() < 1e-3);
+}
+
+/// A save that says nothing about gem data keeps what the row holds, text replaces it, and blank
+/// text clears it; the stored text reads back as the display type.
+#[test]
+fn a_save_keeps_replaces_or_clears_the_gem_data() {
+    let db = Database::new(Some(":memory:")).expect("in-memory database");
+    let json = r#"{"mohs":[7.5,8.0],"toughness":["good","good"],"cleavage":"Imperfect basal"}"#;
+    save_gem_material_fields(
+        &db,
+        &material(),
+        &MaterialSaveFields {
+            gem_data_json: Some(json),
+            ..fields()
+        },
+    )
+    .expect("save with data");
+    assert_eq!(stored(&db).gem_data_json.as_deref(), Some(json));
+
+    save_gem_material_fields(&db, &material(), &fields()).expect("save without");
+    let rows = db.get_custom_materials().expect("read");
+    assert_eq!(rows[0].gem_data_json.as_deref(), Some(json));
+    let entries = custom_material_gem_data_from_rows(&rows);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].1.mohs, Some((7.5, 8.0)));
+    assert_eq!(entries[0].1.cleavage.as_deref(), Some("Imperfect basal"));
+
+    save_gem_material_fields(
+        &db,
+        &material(),
+        &MaterialSaveFields {
+            gem_data_json: Some(""),
+            ..fields()
+        },
+    )
+    .expect("clear");
+    assert_eq!(stored(&db).gem_data_json, None);
 }

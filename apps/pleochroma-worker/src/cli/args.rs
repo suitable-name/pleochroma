@@ -2,7 +2,10 @@
 //! subcommand, plus the [`Command`] enum that wraps them.
 
 use pleochroma_net::messages::{PeerRole, adaptive::PayloadChoice};
-use std::{net::IpAddr, path::PathBuf};
+use std::{
+    net::{IpAddr, SocketAddrV4},
+    path::PathBuf,
+};
 
 /// Which engine(s) trace a request.
 ///
@@ -73,7 +76,8 @@ pub struct ServeArgs {
     pub key: Option<PathBuf>,
     /// The VIEWER allowlist. Defaults to `pki::default_viewer_allowlist_path(ca)`
     /// (`allowlist-viewers.txt` next to `--ca`, or a pre-role `allowlist.txt` while only
-    /// that exists) when `None` -- see `serve::run`.
+    /// that exists) when `None` -- see `serve::run`. A missing default file is created
+    /// empty at start-up; a missing explicit path is an error.
     pub allowlist: Option<PathBuf>,
     /// Accept any client certificate that chains to the CA, skipping the allowlist.
     pub trust_any_client_cert: bool,
@@ -108,6 +112,13 @@ pub struct ServeArgs {
     /// `crate::serve::library`). `None` uses `facet_diagrams.sqlite` relative to the
     /// working directory.
     pub db: Option<PathBuf>,
+    /// `--no-library`: serve no design library at all ("rendering only"). Without it, a
+    /// missing `--db` falls back to `facet_diagrams.sqlite`. With it, nothing is opened or
+    /// created for the library, and the jobs and cache folders are anchored on the data
+    /// folder instead of the library file: the data folder of the loaded settings (the
+    /// window), else the folder above the one holding `--ca`, else the working directory.
+    /// Cannot be combined with `--db`.
+    pub no_library: bool,
     /// `--max-connections <n>`: the most connections `serve::run` handles at once
     /// (default 64, see `serve::ConnectionLimiter`), counted separately for the viewer
     /// port and for joined workers on the worker port -- each listener gets its own cap
@@ -154,6 +165,10 @@ pub struct ServeArgs {
     /// viewer. `auto` follows each connection's measured speed (loopback peers get raw);
     /// the others pin one encoding for every link.
     pub payload_encoding: PayloadChoice,
+    /// `--allow-remote-admin` (default off): let a monitor or admin device, paired with a
+    /// code from `cert issue-token --role monitor|admin`, administer this coordinator
+    /// over the viewer port. Off, such a device is refused in plain words.
+    pub allow_remote_admin: bool,
 }
 
 /// Arguments of `cert init`.
@@ -196,10 +211,18 @@ pub struct CertIssueTokenArgs {
     pub admin_addr: String,
     /// Client name the token enrolls.
     pub name: String,
-    /// `--role viewer|worker` (default viewer): which enrollment listener `admin_addr`
-    /// must be -- the viewer one (7879) or the worker one (7881). A mismatch is refused
-    /// by the listener, never silently minted in the wrong role.
+    /// `--role viewer|worker|monitor|admin` (default viewer): which enrollment listener
+    /// `admin_addr` must be -- the worker one (7881) for a worker, the viewer one (7879)
+    /// for the others. A mismatch is refused by the listener, never silently minted in
+    /// the wrong role. Monitor and admin codes also need the coordinator to run with
+    /// `serve --allow-remote-admin`.
     pub role: PeerRole,
+    /// `--address <ip:port>` (repeatable, at most three): the coordinator addresses put
+    /// in the pairing link. Empty means this machine's LAN addresses on the coordinator
+    /// port.
+    pub addresses: Vec<SocketAddrV4>,
+    /// `--no-qr`: print the code and link only, no QR code.
+    pub no_qr: bool,
 }
 
 /// `pleochroma-worker join <coordinator-host:port> ...` (worker feature): dial a
@@ -264,11 +287,14 @@ pub enum Command {
     CertClaim(CertClaimArgs),
     /// Print a help page.
     Help(HelpTopic),
+    /// `--version` / `-V`: print the program name and version, exit 0.
+    Version,
 }
 
-/// Which `--help` page a command line resolves to -- see
-/// [`super::parse::HelpTopic::from_argv`] for the resolution rule and
-/// [`super::USAGE_ROOT`] and its siblings for the actual page text.
+/// Which `--help` page a command line resolves to.
+///
+/// See [`super::parse::HelpTopic::from_argv`] for the resolution rule and [`super::USAGE_ROOT`] and
+/// its siblings for the actual page text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HelpTopic {
     /// `pleochroma-worker --help` / `pleochroma-worker -h` / no arguments at all: the

@@ -666,6 +666,8 @@ export component SolidViewportView inherits Rectangle {
         x: 12px;
         y: toolbar.top_height + 8px + root.banner_room + root.hint_room;
         narrow: root.width < 900px;
+        view_right: root.absolute-position.x + root.width - 12px;
+        view_bottom: root.absolute-position.y + root.height - 64px;
     }
 
     // Hover tooltip, bottom-left of the picture. Shown only while the pointer is over the

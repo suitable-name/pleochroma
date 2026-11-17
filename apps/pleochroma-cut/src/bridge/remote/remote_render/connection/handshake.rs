@@ -2,7 +2,10 @@
 //! and the settings UI's standalone "Test connection" operation built on top of it.
 
 use super::super::types::{RemoteError, RemoteStream, host_from_address};
-use crate::settings::WorkerSettings;
+use crate::{
+    bridge::remote::{rediscover, route},
+    settings::WorkerSettings,
+};
 use socket2::{SockRef, TcpKeepalive};
 use std::{
     collections::HashMap,
@@ -72,10 +75,79 @@ pub fn connect_and_handshake(
 /// order; `None` for a file whose metadata cannot be read.
 type CertStamps = [Option<std::time::SystemTime>; 3];
 
-/// One cached `ClientConfig`, with the file stamps it was built from.
+/// One cached `ClientConfig`, with the file stamps and verification mode it was built from.
 struct CachedConfig {
     stamps: CertStamps,
+    fixed_name: bool,
     config: Arc<rustls::ClientConfig>,
+}
+
+/// Dials every address of `addresses` at the same time and returns the first connection that
+/// opens, together with its address. An unreachable computer costs one connect timeout, not
+/// one per address.
+///
+/// # Errors
+///
+/// The last connect error, or "no address is saved" for an empty list.
+fn open_any(addresses: Vec<String>) -> std::io::Result<(TcpStream, String)> {
+    if let [only] = addresses.as_slice() {
+        return open_tcp(only).map(|tcp| (tcp, only.clone()));
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    for address in addresses {
+        let sender = sender.clone();
+        std::thread::spawn(move || {
+            let opened = open_tcp(&address);
+            // The receiver is gone once one address answered; later results are dropped.
+            let _ = sender.send((address, opened));
+        });
+    }
+    drop(sender);
+    let mut last: Option<std::io::Error> = None;
+    while let Ok((address, opened)) = receiver.recv() {
+        match opened {
+            Ok(tcp) => return Ok((tcp, address)),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "no address is saved")
+    }))
+}
+
+/// Dials `worker`'s addresses in [`route::dial_order`] (its own address first, then the rest of
+/// the saved list, when the worker's address is one of them) and returns the first connection
+/// together with the address that answered.
+///
+/// When none answers and the remote was paired through a link (verified by its fixed
+/// certificate name), a background search for the moved coordinator starts
+/// ([`rediscover::notify_unreachable`]); this call still fails at once.
+fn open_first(worker: &WorkerSettings) -> Result<(TcpStream, String), RemoteError> {
+    let saved = route::lookup_for(&worker.cert_dir, &worker.address);
+    let order = route::dial_order(&worker.address, saved.as_ref());
+    let opened = open_any(order);
+    if opened.is_err() && saved.is_some_and(|r| r.fixed_name) {
+        rediscover::notify_unreachable(&worker.cert_dir);
+    }
+    opened.map_err(RemoteError::Io)
+}
+
+/// Connects to the announced `addresses` of a coordinator found on the network and performs the
+/// full mutual-TLS and `HELLO`/`WELCOME` handshake with the certificates saved for `worker`,
+/// verified by the fixed certificate name. Only the announced addresses are dialed, never the
+/// saved ones, so success proves the announcer holds a certificate of the saved authority.
+///
+/// # Errors
+///
+/// See [`RemoteError`]'s variants.
+pub fn verify_announced(
+    worker: &WorkerSettings,
+    addresses: &[String],
+) -> Result<pleochroma_net::client::ConnectionInfo, RemoteError> {
+    let config = cached_client_config(worker)?;
+    let (tcp, address) = open_any(addresses.to_vec()).map_err(RemoteError::Io)?;
+    let (_stream, welcome) = handshake_over(tcp, &address, &config)?;
+    Ok(welcome.into())
 }
 
 /// The modification times of `worker`'s three TLS files, from three `stat` calls. Cheaper
@@ -110,23 +182,33 @@ pub fn cached_client_config(
 ) -> Result<Arc<rustls::ClientConfig>, RemoteError> {
     static CACHE: OnceLock<Mutex<HashMap<String, CachedConfig>>> = OnceLock::new();
     let stamps = cert_stamps(worker);
+    // A remote paired through a link is verified by its fixed certificate name, whatever IP
+    // was dialed; a hand-entered one keeps checking the dialed name.
+    let fixed_name =
+        route::lookup_for(&worker.cert_dir, &worker.address).is_some_and(|r| r.fixed_name);
     let mut cache = CACHE
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
     if let Some(hit) = cache.get(&worker.cert_dir)
         && hit.stamps == stamps
+        && hit.fixed_name == fixed_name
     {
         return Ok(Arc::clone(&hit.config));
     }
     let ca = pleochroma_net::tls::load_ca(&worker.ca_path())?;
     let cert_chain = pleochroma_net::tls::load_certs(&worker.client_cert_path())?;
     let key = pleochroma_net::tls::load_private_key(&worker.client_key_path())?;
-    let config = pleochroma_net::tls::client_config(ca, cert_chain, key)?;
+    let config = if fixed_name {
+        pleochroma_net::tls::client_config_fixed_name(ca, cert_chain, key)?
+    } else {
+        pleochroma_net::tls::client_config(ca, cert_chain, key)?
+    };
     cache.insert(
         worker.cert_dir.clone(),
         CachedConfig {
             stamps,
+            fixed_name,
             config: Arc::clone(&config),
         },
     );
@@ -145,8 +227,17 @@ pub fn connect_and_handshake_with(
     worker: &WorkerSettings,
     config: &Arc<rustls::ClientConfig>,
 ) -> Result<(RemoteStream, pleochroma_net::messages::Welcome), RemoteError> {
-    let tcp = open_tcp(&worker.address)?;
-    let host = host_from_address(&worker.address);
+    let (tcp, address) = open_first(worker)?;
+    handshake_over(tcp, &address, config)
+}
+
+/// The TLS handshake and `HELLO`/`WELCOME` exchange over `tcp`, which reached `address`.
+fn handshake_over(
+    tcp: TcpStream,
+    address: &str,
+    config: &Arc<rustls::ClientConfig>,
+) -> Result<(RemoteStream, pleochroma_net::messages::Welcome), RemoteError> {
+    let host = host_from_address(address);
     let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
         .map_err(|_| RemoteError::InvalidServerName(host.to_string()))?;
     let conn = rustls::ClientConnection::new(Arc::clone(config), server_name)

@@ -180,7 +180,7 @@ fn queue_request(ui: &MainWindow, deps: &Deps, mut request: video_export::run::V
     match stored {
         Ok(_) => {
             super::controller::with_controller(super::controller::JobController::refresh);
-            announce_added(ui, &request);
+            announce_added(ui);
         }
         Err(error) => refuse(ui, &format!("The job could not be saved: {error}")),
     }
@@ -204,16 +204,9 @@ fn job_summary(request: &video_export::run::VideoExportRequest) -> String {
         + &super::convert::beam_detail(request.beam.as_ref())
 }
 
-/// Tells the person the job of `request` was queued (and what tilt videos leave out: the stone
-/// shadow and the tray reflection), through the dialog's status line and a toast.
-fn announce_added(ui: &MainWindow, request: &video_export::run::VideoExportRequest) {
-    let mut message =
-        "Added 1 render job to the queue. Start it from File > Render Jobs...".to_owned();
-    if let Some(note) = video_export::run::tilt_views_note(&request.scene) {
-        message.push(' ');
-        message.push_str(&note);
-    }
-    let message = message.as_str();
+/// Tells the person a render job was queued, through the dialog's status line and a toast.
+fn announce_added(ui: &MainWindow) {
+    let message = "Added 1 render job to the queue. Start it from File > Render Jobs...";
     let model = ui.global::<TiltVideoExportModel>();
     model.set_has_error(false);
     model.set_status_message(message.into());

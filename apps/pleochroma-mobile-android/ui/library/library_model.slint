@@ -19,6 +19,9 @@ export struct LibraryCardData {
     selected: bool,
     mine: bool,
     ignored: bool,
+    // On the computer view: the design is also on this phone. On This Phone: the design
+    // came from the computer by a sync.
+    synced: bool,
 }
 
 // One toggle chip of the tag sheet.
@@ -87,6 +90,32 @@ export global LibraryModel {
     in property <[TagChipData]> tag-remove;
     in-out property <string> tag-new-text: "";
 
+    // The paired computer's library. All of these default to hidden or empty, so the page
+    // looks as before until Rust sets them.
+    // The paired computer shares a library: the source bar is shown.
+    in property <bool> source-available: false;
+    // The computer's name for the switch and the texts.
+    in property <string> computer-name: "";
+    // 0 This Phone, 1 the computer.
+    in property <int> source-index: 0;
+    // The switch to the computer is being made ("Connecting...").
+    in property <bool> source-switching: false;
+    // Why the computer's library could not be shown; empty when it can.
+    in property <string> remote-error: "";
+    // The computer cannot be reached (the error card offers "Show This Phone").
+    in property <bool> remote-unreachable: false;
+    // The Sync button is shown.
+    in property <bool> sync-available: false;
+    // A sync runs.
+    in property <bool> syncing: false;
+    // 0..1; below 0 means indeterminate.
+    in property <float> sync-progress: -1;
+    // What the running sync is doing.
+    in property <string> sync-text: "";
+    // The outcome of the last sync; empty hides the result.
+    in property <string> sync-result: "";
+    in property <bool> sync-result-error: false;
+
     // Overlays of the page that Back closes.
     in-out property <bool> filter-open: false;
     in-out property <bool> sort-open: false;
@@ -94,6 +123,12 @@ export global LibraryModel {
     // The page became visible (the first visit opens the library).
     callback page-shown();
     callback import-designs();
+    // 0 This Phone, 1 the computer.
+    callback set-source(int);
+    callback sync-library();
+    callback cancel-sync();
+    callback dismiss-sync-result();
+    callback retry-remote();
     callback search-edited(string);
     callback set-list-mode(bool);
     callback set-sort(int);

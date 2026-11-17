@@ -217,7 +217,7 @@ pub fn create_persisted_compute_pipeline(
         );
     }
     let shard = super::pipeline_cache::shard_key(wgsl_source, entry_point, constants);
-    let cache = create_pipeline_cache_shard(device, adapter_info, &shard);
+    let (cache, loaded) = create_pipeline_cache_shard(device, adapter_info, &shard);
     let pipeline = create_compute_pipeline_cached(
         device,
         cache.as_ref(),
@@ -227,7 +227,7 @@ pub fn create_persisted_compute_pipeline(
         constants,
     );
     if let Some(cache) = &cache {
-        super::pipeline_cache::persist(cache, adapter_info, &shard);
+        super::pipeline_cache::persist(cache, adapter_info, &shard, loaded.as_deref());
     }
     pipeline
 }
@@ -254,16 +254,22 @@ pub fn create_pipeline_cache(
     })
 }
 
-/// Creates a cache for one pipeline identity; wgpu checks driver compatibility.
+/// Creates a cache for one pipeline identity; wgpu checks driver compatibility. Also returns the
+/// blob loaded from disk, so [`super::pipeline_cache::persist`] can skip an unchanged rewrite.
 fn create_pipeline_cache_shard(
     device: &wgpu::Device,
     adapter_info: &wgpu::AdapterInfo,
     shard: &str,
-) -> Option<wgpu::PipelineCache> {
+) -> (Option<wgpu::PipelineCache>, Option<Vec<u8>>) {
     if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
-        return None;
+        return (None, None);
     }
     let blob = super::pipeline_cache::load_blob(adapter_info, shard);
+    // Count the miss before the compile starts, so the shader cache card can come up during it.
+    #[cfg(not(target_arch = "wasm32"))]
+    if blob.is_none() && super::pipeline_cache::configured() {
+        super::pipeline_cache::note_missing_blob();
+    }
     // SAFETY: data comes from get_data in the application-controlled cache
     // directory. wgpu's cache header validation and fallback reject incompatible
     // or corrupt blobs; shader and pipeline validation stay enabled on every load.
@@ -274,7 +280,7 @@ fn create_pipeline_cache_shard(
             fallback: true,
         })
     };
-    Some(cache)
+    (Some(cache), blob)
 }
 
 /// Uploads `data` into a new buffer with `usage` via

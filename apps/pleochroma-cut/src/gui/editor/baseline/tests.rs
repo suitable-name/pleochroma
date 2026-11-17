@@ -1,6 +1,7 @@
 //! The strip's Slint-free helpers: the words and the cells.
 
 use super::present::{age_text, cells_of, label_text, material_label};
+use pleochroma::color::metrics::AsetAreaShares;
 use pleochroma_cut_core::MaterialSelection;
 use pleochroma_editor::{live_deltas::figure_deltas, sweep::RowMetrics};
 
@@ -14,6 +15,7 @@ fn metrics(brilliance_pct: f32, warning_count: usize) -> RowMetrics {
         yield_pct: Some(38.0),
         warning_count,
         has_girdle: true,
+        aset: None,
         tilt: None,
     }
 }
@@ -66,6 +68,42 @@ fn the_cells_follow_the_figures_with_their_tone() {
         .find(|cell| cell.short_label == "Warn.")
         .expect("the warning count is always shown");
     assert_eq!(warnings.tone, 2, "a facet that appears is worse");
+}
+
+fn with_contrast(contrast: f32) -> RowMetrics {
+    RowMetrics {
+        aset: Some(AsetAreaShares {
+            red_pct: 40.0,
+            green_pct: 20.0,
+            blue_pct: 20.0,
+            leak_pct: 10.0,
+            lost_pct: 10.0,
+            contrast,
+        }),
+        ..metrics(20.0, 0)
+    }
+}
+
+#[test]
+fn contrast_follows_extinction_and_precedes_yield_in_the_cells() {
+    let cells = cells_of(&figure_deltas(&with_contrast(20.0), &with_contrast(32.0)));
+    let names: Vec<&str> = cells.iter().map(|cell| cell.name.as_str()).collect();
+    let extinction = names
+        .iter()
+        .position(|name| *name == "Extinction")
+        .expect("extinction is shown");
+    assert_eq!(names.get(extinction + 1), Some(&"Contrast"));
+    assert_eq!(names.get(extinction + 2), Some(&"Yield"));
+    let contrast = &cells[extinction + 1];
+    assert_eq!(contrast.short_label, "Contr.");
+    assert_eq!(contrast.tone, 1, "more contrast by 12 points is better");
+    assert!(!contrast.flag);
+}
+
+#[test]
+fn a_design_without_zone_figures_has_no_contrast_cell() {
+    let cells = cells_of(&figure_deltas(&metrics(20.0, 0), &metrics(20.0, 0)));
+    assert!(cells.iter().all(|cell| cell.name != "Contrast"));
 }
 
 #[test]

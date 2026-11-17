@@ -5,7 +5,7 @@ The phone and tablet app: a touch-first [Slint](https://slint.dev) UI over
 Kotlin `NativeActivity` shim. The same UI also runs in a desktop window for development
 (the desktop preview, below).
 
-**Status.** Version 0.11.1 (versionCode 9), public on
+**Status.** Version 0.12.0 (versionCode 10), public on
 [Google Play](https://play.google.com/store/apps/details?id=com.indicatrixsuite.mobile). Anyone can also build the app and install it on their own
 Android phone or tablet: a debug APK from Android Studio or from `gradlew assembleDebug` plus
 `adb install` (see "Build and run"). The same UI also runs in a desktop window with the
@@ -50,7 +50,7 @@ apps/pleochroma-mobile-android/
   android/                    the Gradle project (Kotlin side, manifest, cargo-ndk task)
 ```
 
-Package and application id: `com.indicatrixsuite.mobile`. versionName 0.11.1, versionCode 9,
+Package and application id: `com.indicatrixsuite.mobile`. versionName 0.12.0, versionCode 10,
 minSdk 28, targetSdk 37, compileSdk 37, ABI `arm64-v8a`.
 
 ## One-time setup (Windows)
@@ -161,7 +161,7 @@ Automatic backup is off (`allowBackup="false"`). These controls remove what the 
 
 - **Forget Server** (Remote page) asks first, then deletes the stored pairing credentials
   with the Android Keystore key that protects them, and clears the saved server name and
-  address. Pairing again needs a new one-time token.
+  address. Pairing again needs a new pairing code.
 - **Clear Recent Items** (More page) empties the list of recently opened designs (at most
   10 are kept); the designs themselves are not deleted.
 - **Delete All Cutting Progress** (Preferences, and the Cut menu) asks first, then deletes the
@@ -173,7 +173,8 @@ Automatic backup is off (`allowBackup="false"`). These controls remove what the 
 ## Render controls
 
 In **Design > Render**, open **Settings** for the **Renderer**, **Compute**, and
-**Quality** dropdowns. Choose Path-Traced or Ray-Traced, an on-device backend or
+**Quality** dropdowns. A fresh install starts on Ray-Traced, which finishes in a
+moment. Choose Path-Traced or Ray-Traced, an on-device backend or
 **Remote · Upload Scene**, and Draft, Normal or Fine directly. Automatic stays
 on-device; choosing Remote explicitly starts the remote workflow. The settings
 tray also contains Light and, for Path-Traced, Denoise.

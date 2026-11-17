@@ -300,6 +300,18 @@ pub(super) fn db_error(op: &str, e: &anyhow::Error) -> LibraryResponse {
     server_error()
 }
 
+/// The [`LibraryResponse::Error`] of a coordinator that runs without a design library.
+///
+/// It uses [`LIBRARY_ERROR_CODE`] (the library failed on this server's side) with a plain
+/// sentence a client can show as it is.
+pub(super) fn no_library() -> LibraryResponse {
+    LibraryResponse::Error(ErrorMsg {
+        code: LIBRARY_ERROR_CODE,
+        message: "this coordinator has no design library".to_string(),
+        request_id: None,
+    })
+}
+
 /// The generic [`LibraryResponse::Error`] for a request this server could not serve:
 /// it names no cause, so a caller that already logged the real reason (here
 /// [`db_error`], and [`super::LibraryHandle`] for a database that would not open) can

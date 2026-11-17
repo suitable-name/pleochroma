@@ -232,6 +232,43 @@ fn run_cut_replan(replan: &Rc<CutReplan>, retries_left: u8) {
     );
 }
 
+/// Redraws the Solid viewport when the high-contrast preference switches, so the diagram
+/// takes the other palette at once instead of at the next edit. The plan worker reads the
+/// flag itself, so this only asks for a replan of the committed design with an empty dirty
+/// set (the solve is reused). The sink's first call happens while it registers and is not a
+/// switch. It holds weak handles to the window and the editor state, and unregisters
+/// (returns `false`) once either is gone.
+fn register_theme_replan(
+    ui: &MainWindow,
+    state: &Rc<RefCell<EditorState>>,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    preview_state: &Arc<SolidPreviewState>,
+    solid_last_solved: &view::SolidLastSolved,
+) {
+    let ui_weak = ui.as_weak();
+    let state_weak = Rc::downgrade(state);
+    let render_ctx = Arc::clone(render_ctx);
+    let preview_state = Arc::clone(preview_state);
+    let solid_last_solved = Arc::clone(solid_last_solved);
+    let registered = std::cell::Cell::new(false);
+    crate::gui::preferences::register_theme_sink(move |_| {
+        let (Some(_), Some(state)) = (ui_weak.upgrade(), state_weak.upgrade()) else {
+            return false;
+        };
+        if registered.replace(true) {
+            let replan = Rc::new(CutReplan {
+                ui_weak: ui_weak.clone(),
+                state,
+                render_ctx: Arc::clone(&render_ctx),
+                preview_state: Arc::clone(&preview_state),
+                solid_last_solved: Arc::clone(&solid_last_solved),
+            });
+            run_cut_replan(&replan, cut_slider::REPLAN_RETRIES);
+        }
+        true
+    });
+}
+
 /// Redraws the preview when the tier-cutoff slider moves, and when the Diagram's enlarged
 /// panel changes (`on_diagram_enlarged_panel_changed`, same queue).
 ///
@@ -262,6 +299,7 @@ pub(super) fn setup_tier_cutoff_callback(
         preview_state: Arc::clone(preview_state),
         solid_last_solved: Arc::clone(solid_last_solved),
     });
+    register_theme_replan(ui, state, render_ctx, preview_state, solid_last_solved);
     let intent_queue = edit_intent::EditIntentQueue::new(move |_intent| {
         run_cut_replan(&replan, cut_slider::REPLAN_RETRIES);
     });

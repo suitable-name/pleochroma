@@ -16,7 +16,14 @@ use crate::{
     gui::tilt::tilt_hover_preview,
     settings::LocalComputeTarget,
 };
-use pleochroma::renderer::gpu_backend::GpuBackend;
+use pleochroma::{
+    geometry::plane::GpuFacetPlane, optics::raytracer::DEFAULT_POSE,
+    renderer::gpu_backend::GpuBackend,
+};
+use pleochroma_solid::preview::{
+    StoneGeometryBuf,
+    camera::{fit_distance_for_view, orbit_distance_bounds, planar_bounding_radius},
+};
 use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
@@ -26,15 +33,80 @@ use std::{
 /// The suffix of a frame that is still being written.
 const PARTIAL_SUFFIX: &str = ".partial";
 
-/// The scene every frame of a tilt video starts from: `scene` without the stone shadow, the tray
-/// reflection and the stone pose. A tilt video shows the stone as designed, tipped about its own
-/// axes, so the Live Render pose, the shadow and the mirror are left out of every frame.
-fn tilt_frame_scene(scene: &SceneSnapshot) -> SceneSnapshot {
+/// The tray reflection a tilt video uses when "Tray Reflection" is on in its section and the Live
+/// Render's own Tray Reflection is Off: 4 %, the value the showcase renders used. (The Lighting
+/// tab's Tray Reflection slider has no starting value of its own: it starts Off.)
+pub const DEFAULT_VIDEO_TRAY_REFLECTION: f32 = 0.04;
+
+/// Which tray effects of the Live Render a tilt video draws: the "Stone Shadow" and "Tray
+/// Reflection" switches of the Export Tilt Video section. Both off is the stone as designed on
+/// the lit tray, as every tilt video was drawn before the switches existed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TiltTrayEffects {
+    /// Draw the stone shadow (the Live Render's, which needs a studio light with a backdrop).
+    pub stone_shadow: bool,
+    /// Draw the tray reflection (the Live Render's strength, or
+    /// [`DEFAULT_VIDEO_TRAY_REFLECTION`] when that is Off).
+    pub tray_reflection: bool,
+}
+
+/// Sets the stone shadow and the tray reflection of `scene` to what a tilt video draws, the one
+/// rule every video follows (the direct export and a queued job both build their scene with it).
+///
+/// An effect that is off is cleared. One that is on keeps the scene's own value; a Tray Reflection
+/// the scene has none of takes [`DEFAULT_VIDEO_TRAY_REFLECTION`], and the stone shadow is switched
+/// on whatever the Live Render held. Whether a lighting can show them at all (a studio light with
+/// a backdrop) is the scene's own rule (`SceneSnapshot::stone_shadow_enabled`,
+/// `effective_tray_reflection`); the closed-stone flag is resolved again for the new values, as
+/// the saved lighting overlay does.
+pub fn apply_tray_effects(scene: &mut SceneSnapshot, effects: TiltTrayEffects) {
+    scene.stone_shadow = effects.stone_shadow;
+    if !effects.tray_reflection {
+        scene.tray_reflection = 0.0;
+    } else if scene.tray_reflection <= 0.0 || scene.tray_reflection.is_nan() {
+        scene.tray_reflection = DEFAULT_VIDEO_TRAY_REFLECTION;
+    }
+    scene.stone_closed = SceneSnapshot::stone_closed_for(
+        scene.stone_shadow,
+        scene.tray_reflection,
+        &scene.active_planes,
+        &scene.tools,
+    );
+}
+
+/// The scene every frame of a tilt video starts from: `scene` without the stone pose. A tilt video
+/// shows the stone as designed, tipped about its own axes, so the Live Render pose is left out of
+/// every frame. The stone shadow and the tray reflection are whatever the request's scene holds:
+/// the video's "Stone Shadow" and "Tray Reflection" switches decided them when the request was
+/// built ([`apply_tray_effects`]), and a queued job froze them in its scene.
+///
+/// The framing is the video's own too: the stone centred (no pan) at [`video_distance`] for a
+/// `width` x `height` picture, whatever the viewport's zoom and pan were when the video
+/// started. Only the viewport's roll is kept (the "Turn Stone 90°" turn is added to it).
+fn tilt_frame_scene(scene: &SceneSnapshot, width: u32, height: u32) -> SceneSnapshot {
     let mut scene = scene.clone();
-    scene.stone_shadow = false;
-    scene.tray_reflection = 0.0;
     scene.clear_stone_pose();
+    scene.camera_pan = [0.0, 0.0];
+    scene.distance = video_distance(&scene.active_planes, width, height);
     scene
+}
+
+/// The camera distance of a tilt video of `width` x `height` pixels over the stone `planes`:
+/// the viewport's Fit distance, which shows the whole bounding sphere of the stone with Fit's
+/// margin, so the stone stays inside the picture whichever way the sweep tips it. It depends
+/// on the stone and the picture only, never on the viewport's zoom. Planes that do not close a
+/// solid fall back to the default pose's distance.
+#[must_use]
+pub fn video_distance(planes: &[GpuFacetPlane], width: u32, height: u32) -> f32 {
+    let aspect = width.max(1) as f32 / height.max(1) as f32;
+    planar_bounding_radius(&StoneGeometryBuf {
+        planes: planes.to_vec(),
+        ..StoneGeometryBuf::default()
+    })
+    .map_or(DEFAULT_POSE.distance, |radius| {
+        let (min, _) = orbit_distance_bounds(radius);
+        fit_distance_for_view(radius, aspect).max(min)
+    })
 }
 
 /// Receives the frame loop's progress. Called from the thread that renders.
@@ -349,25 +421,6 @@ pub fn axis_roll(axes: &[usize], axis_index: usize) -> f32 {
     (azimuth(first) - azimuth(axis_index)).to_radians()
 }
 
-/// `pan` for a picture turned by `turn` more radians of roll ("Turn Stone 90°") with the eye
-/// kept where it was, so the turned picture is the same view turned and the stone turns with
-/// it: `[x cos + y sin, y cos - x sin]`. `Camera::with_roll` turns the image basis
-/// (`right' = right cos + up sin`, `up' = up cos - right sin`), and the eye offset
-/// `right * x + up * y` that `Camera::with_pan` applies must not change. No turn keeps the pan
-/// bit for bit. The axis roll ([`axis_roll`]) leaves the pan alone: it lines each axis's
-/// picture axes up with the first axis's, where the same pan is the same eye.
-#[must_use]
-pub fn turned_pan(pan: [f32; 2], turn: f32) -> [f32; 2] {
-    if turn == 0.0 {
-        return pan;
-    }
-    let (sin, cos) = turn.sin_cos();
-    [
-        pan[0].mul_add(cos, pan[1] * sin),
-        pan[1].mul_add(cos, -(pan[0] * sin)),
-    ]
-}
-
 /// Draws the optical diagnostics (and their caption) over frame `(index, total)`'s `rgba`,
 /// when the scene asks for them. They fill the second half of the frame's progress.
 fn overlay_diagnostics(
@@ -568,10 +621,9 @@ pub fn render_frames_tapped(
         local_compute,
     };
     // Only the image roll changes from axis to axis (`axis_roll`); one copy of the scene
-    // for the whole video carries it. The pan stays: the axis roll brings every axis's picture
-    // axes onto the first axis's, so the same pan keeps the stone on the same spot of every
-    // frame and the joints between axes do not jump.
-    let mut scene = tilt_frame_scene(&request.scene);
+    // for the whole video carries it. The framing (centred, fitted distance) is the video's
+    // own and the same for every frame, so the joints between axes do not jump.
+    let mut scene = tilt_frame_scene(&request.scene, request.width, request.height);
 
     for (index, pose) in poses.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
@@ -685,26 +737,126 @@ mod tests {
     use pleochroma::color::ColorSpace;
     use std::sync::Mutex;
 
-    /// The frames of a tilt video start from the stone as designed: the Live Render pose, the
-    /// stone shadow and the tray reflection of the captured scene are all left out.
-    #[test]
-    fn the_tilt_frames_clear_the_stone_pose_the_shadow_and_the_reflection() {
-        let scene = SceneSnapshot::capture(&Mutex::new(RenderContext {
+    /// A scene captured from a Live Render with the Stone Shadow, a Tray Reflection of `0.06` and a
+    /// posed stone.
+    fn effects_scene() -> SceneSnapshot {
+        SceneSnapshot::capture(&Mutex::new(RenderContext {
             stone_pose: pleochroma::render_setup::StonePose {
                 tilt_deg: 60.0,
                 turn_deg: 20.0,
                 spin_deg: 0.0,
             },
             stone_shadow: true,
-            tray_reflection: 0.04,
+            tray_reflection: 0.06,
+            ..RenderContext::default()
+        }))
+        .expect("Diamond resolves")
+    }
+
+    /// The frames of a tilt video start from the stone as designed: the Live Render pose of the
+    /// captured scene is left out, whatever the tray effects are. The effects are the request
+    /// scene's own, so the frame scene keeps what it holds.
+    #[test]
+    fn the_tilt_frames_clear_the_stone_pose_and_keep_the_scenes_tray_effects() {
+        let scene = effects_scene();
+        assert!(!scene.stone_pose.is_identity(), "the capture carries it");
+        let frame = tilt_frame_scene(&scene, 64, 64);
+        assert!(frame.stone_pose.is_identity());
+        assert!(frame.stone_shadow);
+        assert_eq!(frame.tray_reflection.to_bits(), 0.06f32.to_bits());
+
+        let mut bare = scene;
+        apply_tray_effects(&mut bare, TiltTrayEffects::default());
+        let frame = tilt_frame_scene(&bare, 64, 64);
+        assert!(!frame.stone_shadow);
+        assert_eq!(frame.tray_reflection.to_bits(), 0);
+    }
+
+    /// The video's switches decide the effects: both off clears them (the video as it always was),
+    /// each switch keeps its own effect only, the shadow comes on whatever the Live Render held,
+    /// and a Tray Reflection that is Off in the Live Render takes the video's own 4 %.
+    #[test]
+    fn the_videos_switches_decide_the_shadow_and_the_reflection() {
+        let live = effects_scene();
+
+        let mut off = live.clone();
+        apply_tray_effects(&mut off, TiltTrayEffects::default());
+        assert!(!off.stone_shadow);
+        assert_eq!(off.tray_reflection.to_bits(), 0);
+
+        let mut shadow = live.clone();
+        apply_tray_effects(
+            &mut shadow,
+            TiltTrayEffects {
+                stone_shadow: true,
+                tray_reflection: false,
+            },
+        );
+        assert!(shadow.stone_shadow);
+        assert_eq!(shadow.tray_reflection.to_bits(), 0);
+
+        let mut mirror = live;
+        apply_tray_effects(
+            &mut mirror,
+            TiltTrayEffects {
+                stone_shadow: false,
+                tray_reflection: true,
+            },
+        );
+        assert!(!mirror.stone_shadow);
+        assert_eq!(
+            mirror.tray_reflection.to_bits(),
+            0.06f32.to_bits(),
+            "the Live Render's strength is kept"
+        );
+
+        // A Live Render with both off: the switches turn them on, the reflection at 4 %.
+        let mut plain = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            stone_shadow: false,
+            tray_reflection: 0.0,
             ..RenderContext::default()
         }))
         .expect("Diamond resolves");
-        assert!(!scene.stone_pose.is_identity(), "the capture carries it");
-        let frame = tilt_frame_scene(&scene);
-        assert!(frame.stone_pose.is_identity());
-        assert!(!frame.stone_shadow);
-        assert_eq!(frame.tray_reflection.to_bits(), 0);
+        apply_tray_effects(
+            &mut plain,
+            TiltTrayEffects {
+                stone_shadow: true,
+                tray_reflection: true,
+            },
+        );
+        assert!(plain.stone_shadow);
+        assert_eq!(
+            plain.tray_reflection.to_bits(),
+            DEFAULT_VIDEO_TRAY_REFLECTION.to_bits()
+        );
+        assert!(plain.stone_closed, "the Diamond is a closed stone");
+    }
+
+    /// A stone that closes no solid is looked at again for the new values, so a remote scene never
+    /// carries an effect the worker would refuse.
+    #[test]
+    fn the_videos_effects_leave_a_stone_that_is_not_closed_out_of_the_remote_scene() {
+        let mut open = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            stone_shadow: false,
+            tray_reflection: 0.0,
+            active_planes: std::sync::Arc::new(Vec::new()),
+            ..RenderContext::default()
+        }))
+        .expect("Diamond resolves");
+        assert!(
+            open.stone_closed,
+            "nothing was asked for, so nothing looked"
+        );
+        apply_tray_effects(
+            &mut open,
+            TiltTrayEffects {
+                stone_shadow: true,
+                tray_reflection: true,
+            },
+        );
+        assert!(!open.stone_closed);
+        assert!(!open.remote_stone_shadow());
+        assert_eq!(open.remote_tray_reflection().to_bits(), 0);
     }
 
     /// A fresh, empty folder for one test.
@@ -935,55 +1087,67 @@ mod tests {
         assert_eq!(axis_roll(&[2], 2), 0.0, "one axis is never rolled");
     }
 
-    /// The turned pan keeps the eye of the unturned camera, so the turned picture is the same
-    /// view turned; no turn keeps the pan exactly, a quarter turn maps `[x, y]` to `[y, -x]`,
-    /// and two turns add up.
+    /// The video's eye (height and distance) is the stone's own framing: two captures that
+    /// differ only in the viewport's zoom, pan and orbit give the very same camera at every
+    /// pose, centred and at the fitted distance. (The old frames carried the viewport's pan and
+    /// zoom, which put the stone high and large with its top cut off.)
     #[test]
-    fn a_turned_pan_keeps_the_eye_where_it_was() {
+    fn the_videos_camera_ignores_the_viewports_zoom_pan_and_orbit() {
         use pleochroma::optics::raytracer::Camera;
-        let pan = [0.4_f32, -0.25];
+        let capture = |distance: f32, camera_pan: [f32; 2], yaw: f32, pitch: f32| {
+            SceneSnapshot::capture(&Mutex::new(RenderContext {
+                yaw,
+                pitch,
+                camera_pan,
+                distance,
+                ..RenderContext::default()
+            }))
+            .expect("Diamond resolves")
+        };
+        let near_and_high = tilt_frame_scene(&capture(1.1, [0.2, 0.9], 2.0, 1.2), 512, 512);
+        let far_and_low = tilt_frame_scene(&capture(6.0, [-0.5, -0.7], -1.0, 0.1), 512, 512);
+        assert_eq!(near_and_high.camera_pan, [0.0, 0.0]);
+        assert_eq!(far_and_low.camera_pan, [0.0, 0.0]);
         assert_eq!(
-            turned_pan(pan, 0.0).map(f32::to_bits),
-            pan.map(f32::to_bits)
+            near_and_high.distance.to_bits(),
+            far_and_low.distance.to_bits()
         );
-        let quarter = turned_pan(pan, std::f32::consts::FRAC_PI_2);
-        assert!((quarter[0] - pan[1]).abs() < 1e-6, "{quarter:?}");
-        assert!((quarter[1] + pan[0]).abs() < 1e-6, "{quarter:?}");
-        let twice = turned_pan(turned_pan(pan, 0.3), 0.5);
-        let once = turned_pan(pan, 0.8);
-        assert!((twice[0] - once[0]).abs() < 1e-6 && (twice[1] - once[1]).abs() < 1e-6);
-        let eye = |roll: f32, pan: [f32; 2]| {
-            Camera::new(0.7, 0.4, 2.4, 40.0)
-                .with_roll(roll)
-                .with_pan(pan)
+        let fitted = video_distance(&near_and_high.active_planes, 512, 512);
+        assert_eq!(near_and_high.distance.to_bits(), fitted.to_bits());
+        let eye = |scene: &SceneSnapshot, axis: usize, tilt_deg: f64| {
+            let (yaw, pitch) = tilt_hover_preview::camera_pose_for_axis_tilt(axis, tilt_deg);
+            Camera::new(yaw, pitch, scene.distance, 40.0)
+                .with_roll(scene.camera_roll)
+                .with_pan(scene.camera_pan)
                 .origin
         };
-        for (base, turn) in [(0.0_f32, std::f32::consts::FRAC_PI_2), (0.6, -1.1)] {
-            let before = eye(base, pan);
-            let after = eye(base + turn, turned_pan(pan, turn));
-            assert!(before.distance(after) < 1e-5, "{before:?} vs {after:?}");
+        for (axis, tilt_deg) in [(0, 0.0), (0, 35.0), (2, -20.0)] {
+            assert_eq!(
+                eye(&near_and_high, axis, tilt_deg),
+                eye(&far_and_low, axis, tilt_deg),
+                "axis {axis} at {tilt_deg} degrees"
+            );
         }
     }
 
-    /// With the pan unchanged, the face-up eye of every axis of a multi-axis video is the first
-    /// axis's: the axis roll lines the picture axes up, so a panned stone does not jump at a
-    /// joint.
+    /// A wider-than-tall picture fits the stone by its height, a taller-than-wide one pulls the
+    /// eye back to fit its width, and planes that close no solid use the default distance.
     #[test]
-    fn a_panned_multi_axis_video_keeps_the_face_up_eye_on_every_axis() {
-        use pleochroma::optics::raytracer::Camera;
-        let axes = [1, 3, 0, 2];
-        let pan = [0.5_f32, -0.3];
-        let face_up = |axis: usize| {
-            let (yaw, pitch) = tilt_hover_preview::camera_pose_for_axis_tilt(axis, 0.0);
-            Camera::new(yaw, pitch, 2.4, 40.0)
-                .with_roll(axis_roll(&axes, axis))
-                .with_pan(pan)
-        };
-        let first = face_up(axes[0]);
-        for axis in axes {
-            let eye = face_up(axis).origin;
-            assert!(eye.distance(first.origin) < 2e-5, "axis {axis}: {eye:?}");
-        }
+    fn the_video_distance_follows_the_picture_and_the_stone() {
+        let scene = SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
+            .expect("Diamond resolves");
+        let planes = &scene.active_planes;
+        let square = video_distance(planes, 512, 512);
+        assert!(square > 0.0);
+        assert_eq!(
+            video_distance(planes, 1920, 1080).to_bits(),
+            square.to_bits()
+        );
+        assert!(video_distance(planes, 720, 1280) > square);
+        assert_eq!(
+            video_distance(&[], 512, 512).to_bits(),
+            DEFAULT_POSE.distance.to_bits()
+        );
     }
 
     /// Two axes rock through face-up: `0, 2, 0, -2, 0` for the first axis and `2, 0, -2, 0`

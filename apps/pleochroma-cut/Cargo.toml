@@ -25,6 +25,8 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 pleochroma-vault = { workspace = true }
+# The design-library mirror sync and remote browsing, shared with the Android app.
+pleochroma-library-mirror = { workspace = true }
 # The new-version check (GitHub releases): consent record, due rule, blocking `check`.
 pleochroma-update = { workspace = true }
 # `hdr` (Radiance `.hdr` decoding, for `EnvironmentMap::from_hdr_file`) is enabled
@@ -43,7 +45,7 @@ pleochroma = { workspace = true, features = ["hdr", "path-cache-disk", "stone-sh
 # `SceneState`, sends a `RenderRequest`, and reads the stream back. That feature exists
 # so a LIBRARY-ONLY `pleochroma-worker` can avoid compiling `pleochroma` at all; a viewer that
 # renders has no such option and would fail to compile without it.
-pleochroma-net = { workspace = true, features = ["render"] }
+pleochroma-net = { workspace = true, features = ["render", "pairing"] }
 # `SampleCursor` (re-exported from `bridge::sample_cursor`): the disjoint sample-range
 # claim point, shared with the render coordinator's lane pool.
 pleochroma-dispatch = { workspace = true }
@@ -202,6 +204,8 @@ ui-harness = ["dep:uiprobe-hooks"]
 
 [build-dependencies]
 slint-build = { workspace = true }
+# The shared Slint kit and theme (`@pleochroma-kit` imports), as a library path for slint-build.
+pleochroma-ui-kit = { workspace = true }
 # Unconditional on purpose: a `[target.'cfg(windows)'.build-dependencies]` gate follows
 # the platform the build script is evaluated for, so a Windows binary cross-compiled
 # from Linux lost its icon. `build.rs` decides at run time from `CARGO_CFG_TARGET_OS`
@@ -209,12 +213,6 @@ slint-build = { workspace = true }
 winresource = { workspace = true }
 
 [dev-dependencies]
-# Test-only: `bridge::library_mirror`'s tests build a deterministic stand-in for the
-# real server-side content hash (`apps/pleochroma-worker/src/serve/library/mod.rs`'s own
-# `hash_summary`/`hash_record`) so a scripted `FakeTransport` can produce
-# `DesignSummary`/`DesignRecord` version hashes that change exactly when a test wants
-# them to -- see that module's `tests::content_hash`.
-sha2 = { workspace = true }
 # The UI harness drives the real `MainWindow` through Slint's testing backend (accessibility
 # tree queries, mock time, event-loop pumping). `screenshots` adds the software renderer for
 # `ui_screens`; the other targets keep the mock renderer. `recording` adds the video recorder

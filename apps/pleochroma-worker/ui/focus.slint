@@ -1,0 +1,23 @@
+// Keyboard focus for the coordinator window's own controls (the ones the kit does not cover:
+// stepper buttons, filter chips, menu entries, radio cards, dialog buttons).
+//
+// `ActivateScope` is a `FocusScope` that takes Tab focus and answers Space and Return with
+// `activated()`. A control puts one inside itself, calls its `clicked` from `activated`, and
+// paints a ring while `has-focus` is true. `autofocus` puts the focus on it when it appears
+// (the safe button of a confirmation, or the first field of a dialog).
+export component ActivateScope inherits FocusScope {
+    in property <bool> autofocus: false;
+    callback activated();
+    init => {
+        if root.autofocus {
+            self.focus();
+        }
+    }
+    key-pressed(event) => {
+        if event.text == Key.Space || event.text == Key.Return {
+            root.activated();
+            return accept;
+        }
+        return reject;
+    }
+}

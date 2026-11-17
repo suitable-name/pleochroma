@@ -1,0 +1,703 @@
+// The pairing dialog: "Connect a phone" (QR code) and "Connect a computer" (link), the states
+// waiting, paired, expired, paused and problem. Written by lane S2-Z against the page contract:
+// `PairDialog` is the whole-window overlay (it draws nothing while `PairState.open` is false) and
+// `PairState` is the state the Rust side (`src/gui/pages/pair.rs`) drives.
+//
+// Rules the screen keeps (plan §6, decisions D7 and misses 4–6):
+// - the QR code is on screen at once with a default name; the name typed after pairing is a label
+//   that is applied to the device, never part of the code;
+// - the phone tab has no copy button; the computer tab has one, and the clipboard is cleared when
+//   the code runs out;
+// - closing the dialog cancels the code (Rust side);
+// - the paired screen names the address that claimed the code and offers "Not my device".
+//
+// A token or a pairing link never reaches a text of this file: the computer tab shows the link
+// with its code masked (`link-shown`, made by the Rust side).
+import { Theme } from "@pleochroma-kit/theme.slint";
+import { KitIcon, KitIcons, KitButton, KitChip, KitFillSegments } from "@pleochroma-kit/components/kit/kit.slint";
+
+// What the dialog shows and what it asks for. Phases: 0 making a code, 1 waiting for the device,
+// 2 paired, 3 expired (no focus to refresh), 4 paused after five refreshes, 5 problem.
+export global PairState {
+    in-out property <bool> open: false;
+    // 0 phone (QR code), 1 another computer (link).
+    in-out property <int> mode: 0;
+    in-out property <int> phase: 0;
+    // True while the dialog has the keyboard focus; the Rust side refreshes only then.
+    in-out property <bool> focused: true;
+
+    // The code.
+    in property <image> qr;
+    in property <string> link-shown;
+    in property <[string]> addresses;
+    in property <float> fraction: 1;
+    in property <string> remaining-text: "3:00";
+    in property <bool> copied: false;
+
+    // The device that paired.
+    in property <string> coordinator-name: "this computer";
+    in property <string> device-ip;
+    in-out property <string> device-name;
+    in property <string> device-certificate;
+    in property <string> device-access;
+    in property <bool> removed: false;
+    in property <string> notice;
+
+    // The problem state.
+    in property <string> problem-text;
+    in property <string> problem-action: "Try again";
+
+    // The top bar and the wizard call this; the Rust side opens the dialog on the tab (0 or 1).
+    callback open-requested(int);
+    callback close-requested();
+    callback mode-selected(int);
+    // A fresh code (Expired / Paused / Problem, or "Connect another").
+    callback new-code();
+    callback copy-link();
+    callback name-edited(string);
+    callback remove-device();
+    callback connect-another();
+}
+
+// A circular countdown: the arc is `fraction` of the full turn, `text` sits in the middle.
+component CountdownRing inherits Rectangle {
+    in property <float> fraction: 1;
+    in property <string> text;
+    property <float> f: Math.min(0.999, Math.max(0.001, root.fraction));
+    property <angle> a: root.f * 360deg;
+    property <float> ex: 12 + 9 * Math.sin(root.a);
+    property <float> ey: 12 - 9 * Math.cos(root.a);
+    width: 48px;
+    height: 48px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Time left: " + root.text;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M12 3 A9 9 0 1 1 12 21 A9 9 0 1 1 12 3 Z";
+        stroke: Theme.bg-elevated;
+        stroke-width: 3px;
+        fill: transparent;
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M12 3 A9 9 0 \{root.f > 0.5 ? 1 : 0} 1 \{root.ex} \{root.ey}";
+        stroke: Theme.accent-cyan;
+        stroke-width: 3px;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+    Text { text: root.text; font-size: 12px; font-weight: 700; color: Theme.text-primary; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+// A numbered instruction.
+component Step inherits HorizontalLayout {
+    in property <string> n;
+    in property <string> text;
+    height: 22px;
+    spacing: 10px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            background: Theme.accent-cyan-surface;
+            Text { text: root.n; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+    Text { text: root.text; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+}
+
+// A small label/value line of the paired state.
+component FactRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    height: 24px;
+    spacing: 12px;
+    Text { width: 88px; text: root.label; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; }
+    Text { text: root.value; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+}
+
+// A ghost action in the danger color (the kit has no danger button kind).
+component DangerGhost inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    height: 32px;
+    width: dg.preferred-width + 24px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.danger.with-alpha(0.45);
+    background: touch.has-hover ? Theme.danger.with-alpha(0.12) : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    dg := Text { x: 12px; height: parent.height; text: root.text; font-size: 13px; font-weight: 600; color: Theme.danger; vertical-alignment: center; }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A small status dot plus label: 0 green, 1 amber, 2 red.
+component StatusLine inherits HorizontalLayout {
+    in property <int> level: 1;
+    in property <string> text;
+    spacing: 6px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Status: " + root.text;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.level == 0 ? Theme.success : (root.level == 1 ? Theme.accent-amber : Theme.danger);
+        }
+    }
+    Text { text: root.text; color: Theme.text-secondary; font-size: 12px; vertical-alignment: center; }
+}
+
+// A section caption in small capitals.
+component Caption inherits Text {
+    color: Theme.text-muted;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    height: 14px;
+}
+
+export component PairDialog inherits Rectangle {
+    // The card is 720 x 520 and shrinks with the window; `compact` is the narrow layout.
+    property <length> card-w: Math.min(720px, root.width - 24px);
+    property <length> card-h: Math.min(520px, root.height - 24px);
+    property <bool> compact: root.card-w < 680px;
+    property <length> left-w: root.compact ? 240px : 300px;
+    property <int> phase: PairState.phase;
+    property <bool> paired: root.phase == 2;
+    property <bool> problem: root.phase == 5;
+    // Phases that show a code (or the place of one).
+    property <bool> coded: root.phase != 2 && root.phase != 5;
+    property <bool> stale: root.phase == 3 || root.phase == 4;
+
+    if PairState.open: Rectangle {
+        background: Theme.overlay-backdrop;
+        TouchArea { }
+        fs := FocusScope {
+            init => { self.focus(); }
+            changed has-focus => { PairState.focused = self.has-focus; }
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    PairState.close-requested();
+                    return accept;
+                }
+                return reject;
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: root.card-w;
+                height: root.card-h;
+                border-radius: 16px;
+                background: Theme.surface-dialog;
+                border-width: 1px;
+                border-color: Theme.border-dialog;
+                drop-shadow-blur: 48px;
+                drop-shadow-offset-y: 12px;
+                drop-shadow-color: Theme.modal-shadow;
+                accessible-role: groupbox;
+                accessible-label: PairState.mode == 1 ? "Connect a computer" : "Connect a phone";
+
+                VerticalLayout {
+                    // Header.
+                    HorizontalLayout {
+                        min-height: 68px;
+                        max-height: 68px;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        padding-top: 18px;
+                        padding-bottom: 16px;
+                        spacing: 16px;
+                        Text {
+                            text: PairState.mode == 1 ? "Connect a computer" : "Connect a phone";
+                            font-size: 20px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        if !root.paired: KitFillSegments {
+                            width: 280px;
+                            labels: ["Phone", "Another computer"];
+                            picked: PairState.mode;
+                            selected(i) => {
+                                PairState.mode-selected(i);
+                                fs.focus();
+                            }
+                        }
+                    }
+
+                    // Body.
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        padding-bottom: 12px;
+                        spacing: 24px;
+
+                        // Left: the QR code, or the big check.
+                        if (PairState.mode == 0 && root.coded) || root.paired: VerticalLayout {
+                            width: root.left-w;
+                            alignment: start;
+                            spacing: 10px;
+                            if !root.paired: Rectangle {
+                                width: root.left-w;
+                                height: root.left-w;
+                                border-radius: 12px;
+                                // A QR code is black on white by definition; this is the only literal color.
+                                background: white;
+                                Image {
+                                    x: 12px;
+                                    y: 12px;
+                                    width: parent.width - 24px;
+                                    height: parent.height - 24px;
+                                    source: PairState.qr;
+                                    image-rendering: pixelated;
+                                    accessible-role: image;
+                                    accessible-label: "Pairing code for your phone";
+                                }
+                                if PairState.phase == 0: Text {
+                                    text: "Making a code…";
+                                    font-size: 13px;
+                                    color: Theme.bg-darkest;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                if root.stale: Rectangle {
+                                    border-radius: 12px;
+                                    background: white.with-alpha(0.93);
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 12px;
+                                        Text {
+                                            text: root.phase == 4 ? "Code paused" : "Code expired";
+                                            font-size: 16px;
+                                            font-weight: 700;
+                                            color: Theme.bg-darkest;
+                                            horizontal-alignment: center;
+                                        }
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            KitButton {
+                                                kind: 1;
+                                                text: "Show a new code";
+                                                h: 34px;
+                                                clicked => {
+                                                    PairState.new-code();
+                                                    fs.focus();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if !root.paired: Text {
+                                text: "Your phone must be on the same Wi-Fi as this computer.";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                height: 28px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                            }
+                            if root.paired: Rectangle {
+                                width: root.left-w;
+                                height: root.left-w;
+                                border-radius: 12px;
+                                background: Theme.success.with-alpha(0.08);
+                                border-width: 1px;
+                                border-color: Theme.success.with-alpha(0.35);
+                                Rectangle {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 136px;
+                                    height: 136px;
+                                    border-radius: 68px;
+                                    background: Theme.success.with-alpha(0.16);
+                                    border-width: 3px;
+                                    border-color: Theme.success;
+                                    KitIcon { x: 34px; y: 34px; d: KitIcons.check; size: 68px; stroke: 6px; ink: Theme.success; }
+                                }
+                            }
+                            if root.paired: Text {
+                                text: PairState.removed ? "Access removed." : "It now shows under Devices as online.";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                height: 28px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Right, phone: steps, addresses in the code, countdown.
+                        if PairState.mode == 0 && root.coded: VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: space-between;
+                            VerticalLayout {
+                                spacing: root.compact ? 6px : 10px;
+                                Caption { text: "HOW TO PAIR"; }
+                                Step { n: "1"; text: "On your phone, open More → Remote"; }
+                                Step { n: "2"; text: "Tap Scan QR code"; }
+                                Step { n: "3"; text: "Point the camera at this code, then tap Pair"; }
+                            }
+                            if !root.compact: Rectangle { height: 1px; background: Theme.border-subtle; }
+                            VerticalLayout {
+                                spacing: 8px;
+                                Caption { text: "IN THIS CODE"; }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    alignment: start;
+                                    for address in PairState.addresses: KitChip { text: address; ink: Theme.text-primary; }
+                                }
+                            }
+                            Rectangle { height: 1px; background: Theme.border-subtle; }
+                            HorizontalLayout {
+                                height: 52px;
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    CountdownRing { fraction: root.stale ? 0 : PairState.fraction; text: root.stale ? "0:00" : PairState.remaining-text; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text {
+                                        text: root.stale ? "This code no longer works." : "Code valid for 3 minutes · works once.";
+                                        font-size: 13px;
+                                        color: Theme.text-primary;
+                                        height: 18px;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: root.phase == 4 ? "Click Show a new code when you are ready." : (root.stale ? "Come back to this window for a new code." : "A new code replaces this one when it runs out.");
+                                        font-size: 11px;
+                                        color: Theme.text-muted;
+                                        height: 14px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                            Text { text: "Closing this window cancels the code."; font-size: 11px; color: Theme.text-muted; height: 14px; vertical-alignment: center; }
+                        }
+
+                        // Right, another computer: the link (code masked), copy, steps.
+                        if PairState.mode == 1 && root.coded: VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: start;
+                            spacing: root.compact ? 10px : 14px;
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text { text: "Pairing link"; font-size: 12px; color: Theme.text-secondary; height: 16px; vertical-alignment: center; }
+                                Rectangle {
+                                    height: 40px;
+                                    border-radius: 8px;
+                                    background: Theme.bg-input;
+                                    border-width: 1px;
+                                    border-color: Theme.border-medium;
+                                    accessible-role: AccessibleRole.text;
+                                    accessible-label: "Pairing link with its code hidden: " + PairState.link-shown;
+                                    Text {
+                                        x: 14px;
+                                        width: parent.width - 28px;
+                                        height: parent.height;
+                                        text: PairState.link-shown;
+                                        font-family: "Consolas";
+                                        font-size: 12px;
+                                        color: Theme.text-primary;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                height: root.compact ? 48px : 34px;
+                                spacing: 14px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    KitButton {
+                                        kind: 1;
+                                        icon: KitIcons.copy;
+                                        text: PairState.copied ? "Copied" : "Copy pairing link";
+                                        enabled: root.phase == 1;
+                                        h: 34px;
+                                        clicked => {
+                                            PairState.copy-link();
+                                            fs.focus();
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 6px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        KitIcon { d: KitIcons.warn; size: 13px; ink: Theme.accent-amber; }
+                                    }
+                                    Text {
+                                        text: "Anyone with this link can pair until it expires. Send it only to yourself.";
+                                        font-size: 11px;
+                                        color: Theme.accent-amber;
+                                        vertical-alignment: center;
+                                        wrap: word-wrap;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                            }
+                            Rectangle { height: 1px; background: Theme.border-subtle; }
+                            VerticalLayout {
+                                spacing: root.compact ? 6px : 10px;
+                                Caption { text: "ON THE OTHER COMPUTER"; }
+                                Step { n: "1"; text: "Open Pleochroma on the other computer"; }
+                                Step { n: "2"; text: "Remote Coordinator → Paste pairing link"; }
+                                Step { n: "3"; text: "Confirm"; }
+                            }
+                            Rectangle { height: 1px; background: Theme.border-subtle; }
+                            HorizontalLayout {
+                                height: 52px;
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    CountdownRing { fraction: root.stale ? 0 : PairState.fraction; text: root.stale ? "0:00" : PairState.remaining-text; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text {
+                                        text: root.stale ? "This code no longer works." : "Code valid for 3 minutes · works once.";
+                                        font-size: 13px;
+                                        color: Theme.text-primary;
+                                        height: 18px;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: root.stale ? "The clipboard was cleared." : "The clipboard is cleared when the code expires.";
+                                        font-size: 11px;
+                                        color: Theme.text-muted;
+                                        height: 14px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    if root.stale: HorizontalLayout {
+                                        alignment: start;
+                                        height: 26px;
+                                        KitButton {
+                                            kind: 1;
+                                            text: "Show a new code";
+                                            h: 26px;
+                                            clicked => {
+                                                PairState.new-code();
+                                                fs.focus();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Right, paired.
+                        if root.paired: VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: space-between;
+                            VerticalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "Paired from " + PairState.device-ip;
+                                    font-size: 20px;
+                                    font-weight: 700;
+                                    color: Theme.text-primary;
+                                    height: 28px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: PairState.removed ? "This device can no longer connect." : "This device can now render on " + PairState.coordinator-name + ".";
+                                    font-size: 13px;
+                                    color: Theme.text-secondary;
+                                    height: 18px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text { text: "Name this device"; font-size: 12px; color: Theme.text-secondary; height: 16px; vertical-alignment: center; }
+                                Rectangle {
+                                    height: 34px;
+                                    border-radius: 8px;
+                                    background: Theme.bg-input;
+                                    border-width: 1px;
+                                    border-color: name-input.has-focus ? Theme.accent-cyan : Theme.border-medium;
+                                    name-input := TextInput {
+                                        x: 12px;
+                                        width: parent.width - 24px;
+                                        height: parent.height;
+                                        text <=> PairState.device-name;
+                                        enabled: !PairState.removed;
+                                        font-size: 13px;
+                                        color: Theme.text-primary;
+                                        vertical-alignment: center;
+                                        single-line: true;
+                                        accessible-label: "Device name";
+                                        accepted => { PairState.name-edited(self.text); }
+                                    }
+                                }
+                                Text { text: "Shown in Devices. You can rename it later."; font-size: 11px; color: Theme.text-muted; height: 14px; vertical-alignment: center; }
+                            }
+                            Rectangle {
+                                height: 100px;
+                                border-radius: 10px;
+                                background: Theme.bg-input;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                VerticalLayout {
+                                    padding: 12px;
+                                    padding-left: 14px;
+                                    padding-right: 14px;
+                                    spacing: 2px;
+                                    FactRow { label: "Address"; value: PairState.device-ip; }
+                                    FactRow { label: "Certificate"; value: PairState.device-certificate; }
+                                    FactRow { label: "Access"; value: PairState.device-access; }
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: 6px;
+                                if !PairState.removed: HorizontalLayout {
+                                    alignment: start;
+                                    DangerGhost {
+                                        text: "Not my device — remove access";
+                                        clicked => {
+                                            PairState.remove-device();
+                                            fs.focus();
+                                        }
+                                    }
+                                }
+                                if !PairState.removed: Text {
+                                    text: "If your phone says the code was already used, someone else paired: remove that device.";
+                                    font-size: 11px;
+                                    color: Theme.text-muted;
+                                    height: 30px;
+                                    wrap: word-wrap;
+                                }
+                                if PairState.notice != "": Text {
+                                    text: PairState.notice;
+                                    font-size: 11px;
+                                    color: Theme.danger;
+                                    height: 16px;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+
+                        // Problem: the cause in plain words and the one action that fixes it.
+                        if root.problem: VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 14px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 72px;
+                                    height: 72px;
+                                    border-radius: 36px;
+                                    background: Theme.accent-amber.with-alpha(0.14);
+                                    border-width: 1px;
+                                    border-color: Theme.accent-amber.with-alpha(0.45);
+                                    KitIcon { x: 20px; y: 20px; d: KitIcons.warn; size: 32px; ink: Theme.accent-amber; }
+                                }
+                            }
+                            Text {
+                                text: "Can't make a pairing code";
+                                font-size: 20px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: PairState.problem-text;
+                                font-size: 13px;
+                                color: Theme.text-secondary;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                alignment: center;
+                                KitButton {
+                                    kind: 1;
+                                    text: PairState.problem-action;
+                                    h: 34px;
+                                    clicked => {
+                                        PairState.new-code();
+                                        fs.focus();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Footer.
+                    Rectangle { height: 1px; background: Theme.border-dialog; }
+                    HorizontalLayout {
+                        min-height: 58px;
+                        max-height: 58px;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            if root.phase == 0: StatusLine { level: 1; text: "Making a code…"; }
+                            if root.phase == 1 && PairState.mode == 0: StatusLine { level: 1; text: "Waiting for your phone…"; }
+                            if root.phase == 1 && PairState.mode == 1: StatusLine { level: 1; text: "Waiting for the other computer…"; }
+                            if root.phase == 2: StatusLine { level: 0; text: PairState.removed ? "Access removed" : "Paired"; }
+                            if root.phase == 3: StatusLine { level: 1; text: "Code expired"; }
+                            if root.phase == 4: StatusLine { level: 1; text: "Code paused"; }
+                            if root.phase == 5: StatusLine { level: 2; text: "No code"; }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        if !root.paired: VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                text: "Close";
+                                clicked => { PairState.close-requested(); }
+                            }
+                        }
+                        if root.paired: VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                text: "Connect another";
+                                clicked => {
+                                    PairState.connect-another();
+                                    fs.focus();
+                                }
+                            }
+                        }
+                        if root.paired: VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                kind: 1;
+                                text: "Done";
+                                clicked => { PairState.close-requested(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

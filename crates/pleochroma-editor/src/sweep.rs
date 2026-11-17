@@ -75,12 +75,13 @@ use crate::{
 // The tests reach these through `super::*`.
 #[cfg(test)]
 use crate::metric_deltas::measure_tilt_average_geom;
-#[cfg(test)]
-use pleochroma::{color::metrics::evaluate_gem_optical_metrics_geom, geometry::StoneGeometry};
 use pleochroma::{
+    color::metrics::AsetAreaShares,
     geometry::stone_metrics::measure_solid,
     optics::{materials::GemMaterial, raytracer::EnvironmentSource},
 };
+#[cfg(test)]
+use pleochroma::{color::metrics::evaluate_gem_optical_metrics_geom, geometry::StoneGeometry};
 #[cfg(test)]
 use pleochroma_cut_core::volumetric_yield;
 use pleochroma_cut_core::{Design, Edit, EditError, design::snap_noise};
@@ -286,6 +287,9 @@ pub struct RowMetrics {
     pub has_girdle: bool,
     /// The tilt averages, when the sweep asked for them.
     pub tilt: Option<TiltAverages>,
+    /// The Zones (ASET-style) shares and Contrast of the table-up view; `None` when the
+    /// measurement did not trace them.
+    pub aset: Option<AsetAreaShares>,
 }
 
 /// One angle of a sweep.

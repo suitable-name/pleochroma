@@ -662,6 +662,8 @@ enum Step {
     Terminal(Result<(), RemoteShortfall>),
     /// A `samples_done` report to feed the [`ProgressWatch`].
     Progress(u32),
+    /// The remote is building its shader cache: alive, so the stall clock restarts.
+    Preparing,
     /// Nothing the wait acts on (connection notices, preview frames, capability news).
     Ignore,
 }
@@ -686,6 +688,7 @@ fn classify(update: RemoteUpdate) -> Step {
         RemoteUpdate::Progress { samples_done, .. } | RemoteUpdate::Frame { samples_done, .. } => {
             Step::Progress(samples_done)
         }
+        RemoteUpdate::Preparing { .. } => Step::Preparing,
         RemoteUpdate::Connected { .. }
         | RemoteUpdate::Preview { .. }
         | RemoteUpdate::DisplayFrame { .. }
@@ -715,6 +718,7 @@ fn wait_for_remote(
             Ok(update) => match classify(update) {
                 Step::Terminal(outcome) => return outcome,
                 Step::Progress(samples_done) => watch.observe(samples_done, Instant::now()),
+                Step::Preparing => watch.preparing(Instant::now()),
                 Step::Ignore => {}
             },
             Err(RecvTimeoutError::Timeout) => {}

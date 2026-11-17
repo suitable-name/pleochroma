@@ -205,11 +205,15 @@ fn run_one(
     cache: Option<&AssetCache>,
     id: &pleochroma_net::messages::JobId,
     cancel: &AtomicBool,
+    on_change: &dyn Fn(&pleochroma_net::messages::JobId),
 ) {
+    // The job is running now (the store marked it when it handed it over).
+    on_change(id);
     let job = match store.load_job(id) {
         Ok(job) => job,
         Err(note) => {
             store.finish_failed(id, &note, unix_now());
+            on_change(id);
             return;
         }
     };
@@ -226,13 +230,23 @@ fn run_one(
         Outcome::Cancelled => store.finish_cancelled(id, now),
         Outcome::Failed(note) => store.finish_failed(id, &note, now),
     }
+    on_change(id);
 }
 
 /// Runs the executor until `stop` is raised. Blocks; the service runs it on a thread.
-pub fn run(store: &JobStore, lane: &RenderLane, cache: Option<&AssetCache>, stop: &AtomicBool) {
+///
+/// `on_change` is called with a job's id when it starts running and again when it ends, however
+/// it ends (the service tells its observer and drops the cached job list).
+pub fn run(
+    store: &JobStore,
+    lane: &RenderLane,
+    cache: Option<&AssetCache>,
+    stop: &AtomicBool,
+    on_change: &dyn Fn(&pleochroma_net::messages::JobId),
+) {
     while !stop.load(Ordering::Acquire) {
         if let Some(claim) = store.claim_next(stop, HOUSEKEEPING) {
-            run_one(store, lane, cache, &claim.id, &claim.cancel);
+            run_one(store, lane, cache, &claim.id, &claim.cancel, on_change);
         } else {
             let removed = store.purge_expired(unix_now());
             if removed > 0 {

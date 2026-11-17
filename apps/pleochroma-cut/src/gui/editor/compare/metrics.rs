@@ -24,7 +24,7 @@ mod tilt_run;
 use super::session::{CompareSession, CompareSide, resolve_metrics_material, sized_for_design};
 use crate::gui::solid_preview::cut_slider::cut_geometry_no_solve;
 use pleochroma::{
-    color::metrics::{FinishedStone, total_evaluations},
+    color::metrics::{AsetAreaShares, FinishedStone, total_evaluations},
     geometry::{
         facet_finishes_with_frosted,
         meet_solver::SolvedTier,
@@ -38,8 +38,8 @@ use pleochroma_cut_core::{
 };
 use pleochroma_editor::{
     metric_deltas::{
-        MetricRow, OpticalFigures, describe_metric_deltas, describe_metric_deltas_for,
-        measure_table_up_finished, metric_rows,
+        MetricRow, OpticalFigures, aset_change_text, describe_metric_deltas,
+        describe_metric_deltas_for, measure_table_up_finished, metric_rows,
     },
     sweep::TiltAverages,
 };
@@ -129,11 +129,52 @@ pub(super) struct SessionMetrics {
     runs: u64,
 }
 
+/// The Zones (ASET-style) row of the strip: both sides' shares and the words for the change.
+/// The row is neutral: it carries no better or worse.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(super) struct ZonesRow {
+    /// The "before" side's Red, Green, Blue and Dark shares, percent of the stone's face.
+    pub(super) before: [f32; 4],
+    /// The "after" side's Red, Green, Blue and Dark shares.
+    pub(super) after: [f32; 4],
+    /// `Blue −17 · Dark −15` (real minus sign, middle dot), or `about the same`.
+    pub(super) change: String,
+}
+
+/// The four bar parts of `shares`: Red, Green, Blue and Dark (Leak plus Lost).
+fn zone_parts(shares: &AsetAreaShares) -> [f32; 4] {
+    [
+        shares.red_pct,
+        shares.green_pct,
+        shares.blue_pct,
+        shares.dark_pct(),
+    ]
+}
+
+/// The strip's wording of the zone change: the shared `Blue -17, Dark -15` text with a real minus
+/// sign and a middle dot between the parts (`Blue −17 · Dark −15`). `about the same` is untouched.
+fn zones_change_display(text: &str) -> String {
+    text.replace(", ", " · ").replace('-', "\u{2212}")
+}
+
+impl ZonesRow {
+    /// The row for two stones that both carry zone shares.
+    fn between(before: &AsetAreaShares, after: &AsetAreaShares) -> Self {
+        Self {
+            before: zone_parts(before),
+            after: zone_parts(after),
+            change: zones_change_display(&aset_change_text(before, after)),
+        }
+    }
+}
+
 /// The text of the strip, ready to push into the model.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct StripText {
     /// The table rows; empty when there are no figures.
     pub(super) rows: Vec<MetricRow>,
+    /// The Zones (ASET-style) row; `None` unless both sides were traced for zones.
+    pub(super) zones: Option<ZonesRow>,
     /// The sentences, one per line.
     pub(super) summary: String,
     /// A dimmed line: why there are no figures, or why the tilt run failed.
@@ -286,6 +327,9 @@ impl SessionMetrics {
         if let (Some(before), Some(after)) = (&self.before, &self.after) {
             let tilt = self.tilt_pair();
             text.rows = metric_rows(before, after, tilt);
+            if let (Some(was), Some(now)) = (&before.aset, &after.aset) {
+                text.zones = Some(ZonesRow::between(was, now));
+            }
             text.summary = describe_metric_deltas(before, after, tilt).join("\n");
             if let TiltState::Failed(reason) = &self.tilt {
                 text.note.clone_from(reason);
@@ -488,7 +532,15 @@ mod tests {
         let session = session(round_brilliant(), round_brilliant());
         let metrics = SessionMetrics::measure(&session, lighting());
         let strip = metrics.strip();
-        assert_eq!(strip.rows.len(), 5);
+        assert_eq!(strip.rows.len(), 6);
+        assert_eq!(strip.rows[5].label, "Contrast");
+        let zones = strip.zones.as_ref().expect("both sides carry zone shares");
+        assert_eq!(zones.before, zones.after);
+        assert_eq!(zones.change, "about the same");
+        assert!(
+            (zones.before.iter().sum::<f32>() - 100.0).abs() < 1.0,
+            "the four parts fill the face"
+        );
         assert_eq!(strip.summary, "No clear optical difference.");
         assert_eq!(strip.note, "");
         assert!(strip.tilt_available && !strip.tilt_running && !strip.tilt_done);
@@ -505,12 +557,47 @@ mod tests {
     fn a_changed_crown_angle_gives_a_different_row_set_and_some_words() {
         let session = session(round_brilliant(), steeper_crown());
         let strip = SessionMetrics::measure(&session, lighting()).strip();
-        assert_eq!(strip.rows.len(), 5);
+        assert_eq!(strip.rows.len(), 6);
         assert!(
             strip.rows.iter().any(|row| row.before != row.after),
             "a steeper crown must move at least one figure"
         );
         assert_ne!(strip.summary, "", "the change is put into words");
+    }
+
+    #[test]
+    fn the_zones_row_is_built_from_both_sides_and_names_the_moves() {
+        let session = session(round_brilliant(), steeper_crown());
+        let strip = SessionMetrics::measure(&session, lighting()).strip();
+        let zones = strip.zones.expect("both sides carry zone shares");
+        let figures = |side: &CompareSide| {
+            figures_for(side, lighting())
+                .and_then(|figures| figures.aset)
+                .expect("a solving side carries zone shares")
+        };
+        let (was, now) = (figures(&session.before), figures(&session.after));
+        assert_eq!(zones.before, zone_parts(&was));
+        assert_eq!(zones.after, zone_parts(&now));
+        assert_eq!(
+            zones.change,
+            zones_change_display(&aset_change_text(&was, &now))
+        );
+    }
+
+    #[test]
+    fn the_zone_change_uses_a_real_minus_sign_and_a_middle_dot() {
+        assert_eq!(
+            zones_change_display("Blue -17, Dark -15"),
+            "Blue \u{2212}17 \u{b7} Dark \u{2212}15"
+        );
+        assert_eq!(zones_change_display("Blue +12"), "Blue +12");
+        assert_eq!(zones_change_display("about the same"), "about the same");
+    }
+
+    #[test]
+    fn a_strip_without_both_sides_has_no_zones_row() {
+        let broken = SessionMetrics::measure(&session(round_brilliant(), unsolvable()), lighting());
+        assert_eq!(broken.strip().zones, None);
     }
 
     #[test]
@@ -664,8 +751,8 @@ mod tests {
         ));
         let strip = metrics.strip();
         assert!(strip.tilt_done && !strip.tilt_running && !strip.tilt_available);
-        assert_eq!(strip.rows.len(), 8);
-        assert_eq!(strip.rows[5].label, "Tilt Brilliance");
+        assert_eq!(strip.rows.len(), 9);
+        assert_eq!(strip.rows[6].label, "Tilt Brilliance");
         assert!(
             strip
                 .summary
@@ -731,7 +818,7 @@ mod tests {
                 .starts_with("The tilt average stopped after an internal error")
         );
         assert!(strip.tilt_available, "Failed allows another try");
-        assert_eq!(strip.rows.len(), 5);
+        assert_eq!(strip.rows.len(), 6);
         assert!(metrics.begin_tilt(&session).is_some());
     }
 

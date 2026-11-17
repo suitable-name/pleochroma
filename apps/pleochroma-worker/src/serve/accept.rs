@@ -1,8 +1,9 @@
-//! The VIEWER listener's accept loop: per-socket tuning, the connection caps (a
-//! per-source-address cap and a wider global cap on connections that have not finished
-//! authenticating, then the real `--max-connections` cap), the transport (mutual TLS or
-//! `--insecure-no-tls`), and one thread per connection running the viewer handler. See
-//! `crate::serve`'s "Robustness" section for why the caps are acquired in this order.
+//! The VIEWER listener's accept loop.
+//!
+//! Per-socket tuning, the connection caps (a per-source-address cap and a wider global cap on
+//! connections that have not finished authenticating, then the real `--max-connections` cap), the
+//! transport (mutual TLS or `--insecure-no-tls`), and one thread per connection running the viewer
+//! handler. See `crate::serve`'s "Robustness" section for why the caps are acquired in this order.
 
 use super::{
     ConnectionLimiter, ConnectionSlot,
@@ -10,6 +11,10 @@ use super::{
     library::LibraryHandle,
     socket::{apply_handshake_timeout, tune_accepted_socket},
     tls::{Transport, accept_tls},
+};
+use crate::control::{
+    shutdown::{ConnectionSet, ListenerStop},
+    table::ConnectionTable,
 };
 use pleochroma_net::messages::PeerRole;
 use std::{
@@ -95,9 +100,10 @@ struct PreAuthSlots {
     _handshake: ConnectionSlot,
 }
 
-/// Everything the viewer listener's connection threads share, built once by
-/// [`super::start`] and handed to every thread behind one `Arc` -- one argument instead
-/// of a positional parameter per setting.
+/// Everything the viewer listener's connection threads share, built once by [`super::start`] and
+/// handed to every thread behind one `Arc`.
+///
+/// One argument instead of a positional parameter per setting.
 pub struct ViewerListener {
     /// Mutual TLS (with the viewer [`super::tls::Auth`]) or plaintext.
     pub transport: Transport,
@@ -110,10 +116,23 @@ pub struct ViewerListener {
     /// (`--max-preauth-per-ip`).
     pub pre_auth_addresses: PreAuthAddresses,
     /// The library database every connection opens its own read-only handle from, when
-    /// it serves its first library request (see [`LibraryHandle`]).
+    /// it serves its first library request (see [`LibraryHandle`]). Still the anchor of the
+    /// asset cache and the job directory when [`Self::library_present`] is false.
     pub db_path: PathBuf,
+    /// Whether the library database could be opened at start-up. When it could not, the
+    /// coordinator runs without a library: every library request is answered with a plain
+    /// "no library" error ([`LibraryHandle::absent`]) and everything else works.
+    pub library_present: bool,
     /// `--max-connections`, for the refusal message.
     pub max_connections: usize,
+    /// Every accepted viewer socket, so shutdown can close them all at once.
+    pub connections: ConnectionSet,
+    /// The identified viewer connections (fingerprint, name, role) with a kill switch each,
+    /// for the control API's device list and `revoke`.
+    pub table: ConnectionTable,
+    /// What a remote administration session acts through: the same control API the coordinator
+    /// window uses (see [`crate::admin`]).
+    pub core: Arc<super::ServeCore>,
     /// The render side of a `worker` build.
     #[cfg(feature = "worker")]
     pub render: RenderSetup,
@@ -179,9 +198,27 @@ fn viewer_key(
     )
 }
 
-/// Accepts viewer connections on `listener` forever, one thread per connection.
-pub fn run_accept_loop(listener: &TcpListener, shared: &Arc<ViewerListener>) {
+/// The library handle of one connection: lazy over the database, or the "no library" handle
+/// when the coordinator started without one.
+fn library_for(shared: &ViewerListener, peer: Option<SocketAddr>) -> LibraryHandle {
+    if shared.library_present {
+        LibraryHandle::lazy(shared.db_path.clone(), peer)
+    } else {
+        LibraryHandle::absent(peer)
+    }
+}
+
+/// Accepts viewer connections on `listener` until `stop` is raised, one thread per
+/// connection.
+///
+/// The flag is read right after every accept, before the new stream is looked at, so the
+/// wake-up connection of [`ListenerStop::stop`] is dropped unserved and the loop returns,
+/// which drops `listener` and frees the port.
+pub fn run_accept_loop(listener: &TcpListener, shared: &Arc<ViewerListener>, stop: &ListenerStop) {
     for incoming in listener.incoming() {
+        if stop.is_stopped() {
+            return;
+        }
         match incoming {
             Ok(stream) => {
                 let peer = stream.peer_addr().ok();
@@ -247,6 +284,9 @@ fn spawn_connection_handler(
     shared_ref: &Arc<ViewerListener>,
 ) {
     let shared = Arc::clone(shared_ref);
+    // Held by the connection's thread for its whole life; shutdown closes the socket
+    // through the set, and dropping the guard takes it out again.
+    let tracked = shared.connections.register(&stream);
     match &shared_ref.transport {
         Transport::Insecure => {
             tracing::warn!(
@@ -257,12 +297,13 @@ fn spawn_connection_handler(
                 "the accept loop always pre-acquires the real slot for Transport::Insecure",
             );
             thread::spawn(move || {
+                let _tracked = tracked;
                 let mut stream = stream;
                 match slot {
                     // `_slot` releases this connection's counted slot when the arm ends.
                     Ok(_slot) => {
                         drop(pre_auth);
-                        serve_accepted(stream, peer, (None, None), &shared);
+                        serve_accepted(stream, peer, (None, None), &shared, &|| {});
                     }
                     Err(active) => {
                         connection::refuse_for_capacity(
@@ -276,37 +317,132 @@ fn spawn_connection_handler(
                 }
             });
         }
-        Transport::Tls { config, auth } => {
+        Transport::Tls { config, auth, .. } => {
             let config = Arc::clone(config);
             let auth = auth.clone();
+            // A second handle to the socket: the table's kill switch for this connection.
+            let kill_switch = stream.try_clone().ok();
             thread::spawn(move || {
-                let Some((mut tls_stream, cert_role)) = accept_tls(stream, &config, &auth, peer)
-                else {
-                    return; // accept_tls already logged why; `pre_auth` drops with the thread
-                };
-                // The real slot is acquired only now that accept_tls has succeeded.
-                let certificate = tls_stream
-                    .conn
-                    .peer_certificates()
-                    .and_then(<[_]>::first)
-                    .map(|c| c.clone().into_owned());
-                match shared.limiter.try_acquire() {
-                    Ok(_slot) => {
-                        // Authenticated and counted against `--max-connections`: no
-                        // longer a pre-authentication connection.
-                        drop(pre_auth);
-                        serve_accepted(tls_stream, peer, (Some(cert_role), certificate), &shared);
-                    }
-                    Err(active) => connection::refuse_for_capacity(
-                        &mut tls_stream,
-                        peer,
-                        active,
-                        shared.max_connections,
-                    ),
-                }
+                let _tracked = tracked;
+                serve_tls_connection(
+                    stream,
+                    kill_switch,
+                    (&config, &auth),
+                    peer,
+                    pre_auth,
+                    &shared,
+                );
             });
         }
     }
+}
+
+/// The thread body of one TLS viewer connection: [`accept_tls`], the role gate, the real
+/// connection slot, then the administration session or the viewer handler.
+///
+/// `kill_switch` is a second handle to the socket for the connection table, so revoking the
+/// device can shut it down.
+fn serve_tls_connection(
+    stream: TcpStream,
+    kill_switch: Option<TcpStream>,
+    (config, auth): (&Arc<rustls::ServerConfig>, &super::tls::Auth),
+    peer: Option<SocketAddr>,
+    pre_auth: PreAuthSlots,
+    shared: &ViewerListener,
+) {
+    let Some((mut tls_stream, cert_role)) = accept_tls(stream, config, auth, peer) else {
+        return; // accept_tls already logged why; `pre_auth` drops with the thread
+    };
+    // The real slot is acquired only now that accept_tls has succeeded.
+    let certificate = tls_stream
+        .conn
+        .peer_certificates()
+        .and_then(<[_]>::first)
+        .map(|c| c.clone().into_owned());
+    // Listed under its certificate's name and fingerprint until the thread ends;
+    // revoking the device shuts the socket down through the kill switch. Only a
+    // connection the role gate lets in is kept at all: a certificate of the port's
+    // own role (its allowlist was checked by `accept_tls`), or a monitor or
+    // administrator certificate that remote administration admits. A refused one
+    // (a removed monitor, a worker certificate on the viewer port) never shows as
+    // connected. Even then it is listed only once its `HELLO` was accepted (the
+    // handler calls `list_now`), so a peer that connects and says nothing, or
+    // whose `HELLO` is refused, is never shown.
+    let admitted = cert_role == auth.role
+        || (matches!(cert_role, PeerRole::Monitor | PeerRole::Admin)
+            && shared.core.info.remote_admin
+            && certificate.as_ref().is_some_and(|certificate| {
+                crate::admin::session::is_listed(
+                    &shared.core,
+                    cert_role,
+                    &pleochroma_net::tls::fingerprint(certificate),
+                )
+            }));
+    let listed = certificate
+        .as_ref()
+        .filter(|_| admitted)
+        .map(|certificate| {
+            shared
+                .table
+                .register_certificate_pending(certificate, cert_role, peer, kill_switch)
+        });
+    let list_now = || {
+        if let Some(tracked) = &listed {
+            tracked.list_now();
+        }
+    };
+    match shared.limiter.try_acquire() {
+        Ok(_slot) => {
+            // Authenticated and counted against `--max-connections`: no
+            // longer a pre-authentication connection.
+            drop(pre_auth);
+            // A monitor or admin certificate gets an administration session
+            // while remote administration is on; off, it goes to the viewer
+            // handler, whose `HELLO` gate refuses it in plain words.
+            if shared.core.info.remote_admin
+                && matches!(cert_role, PeerRole::Monitor | PeerRole::Admin)
+            {
+                serve_admin(
+                    tls_stream,
+                    peer,
+                    cert_role,
+                    certificate.as_ref(),
+                    shared,
+                    &list_now,
+                );
+            } else {
+                serve_accepted(
+                    tls_stream,
+                    peer,
+                    (Some(cert_role), certificate),
+                    shared,
+                    &list_now,
+                );
+            }
+        }
+        Err(active) => {
+            connection::refuse_for_capacity(&mut tls_stream, peer, active, shared.max_connections);
+        }
+    }
+}
+
+/// Runs one remote administration session inside `catch_unwind`: the `HELLO` gate with the
+/// administration policy, then [`crate::admin::session::run`]. `certificate` is the peer's
+/// authenticated client certificate.
+fn serve_admin<S>(
+    stream: S,
+    peer: Option<SocketAddr>,
+    role: PeerRole,
+    certificate: Option<&rustls::pki_types::CertificateDer<'static>>,
+    shared: &ViewerListener,
+    admitted: &dyn Fn(),
+) where
+    S: crate::admin::SessionIo,
+{
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::admin::serve_connection(stream, role, certificate, peer, &shared.core, admitted)
+    }));
+    report_connection_result(peer, result);
 }
 
 /// Runs the viewer handler inside `catch_unwind` (`worker` builds: the render-capable
@@ -320,10 +456,11 @@ fn serve_accepted<S>(
     peer: Option<SocketAddr>,
     (cert_role, certificate): PeerAuth,
     shared: &ViewerListener,
+    admitted: &dyn Fn(),
 ) where
     S: Read + Write + crate::stream_emit::TimeoutRead + crate::stream_emit::TimeoutWrite,
 {
-    let library = LibraryHandle::lazy(shared.db_path.clone(), peer);
+    let library = library_for(shared, peer);
     let render = &shared.render;
     let viewer = viewer_key(certificate.as_ref(), peer);
     let preference = super::socket::payload_preference_for_choice(render.payload, peer);
@@ -344,6 +481,7 @@ fn serve_accepted<S>(
         coordinator: Some((&render.coordinator, viewer)),
         assets: render.assets.as_deref(),
         jobs: render.jobs.as_ref(),
+        admitted: Some(admitted),
     };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         connection::handle_viewer_connection(stream, &ctx)
@@ -358,8 +496,11 @@ fn serve_accepted<S: Read + Write + connection::ClearHandshakeTimeout>(
     peer: Option<SocketAddr>,
     (cert_role, _certificate): PeerAuth,
     shared: &ViewerListener,
+    admitted: &dyn Fn(),
 ) {
-    let library = LibraryHandle::lazy(shared.db_path.clone(), peer);
+    // The library-only handler has no `HELLO` hook: the connection is listed as it starts.
+    admitted();
+    let library = library_for(shared, peer);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         connection::handle_connection(stream, &library, cert_role)
     }));

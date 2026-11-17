@@ -7,7 +7,7 @@
 //! narrowing the filters reaches the rest.
 
 use pleochroma_vault::{
-    db::sqlite::{DisplayFilters, SortOrder},
+    db::sqlite::{Database, DisplayFilters, SortOrder},
     model::{entry::DiagramListItem, facets::parse_facets_count, filter::RangeFilter},
 };
 
@@ -89,7 +89,8 @@ impl LibraryHandle {
                     .flatten()
                     .unwrap_or(0);
                 let entry_tags = tags.remove(&item.id).unwrap_or_default();
-                card_of(item, entry_tags, updated_unix)
+                let synced = is_live_mirror(&database, &item.url);
+                card_of(item, entry_tags, updated_unix, synced)
             })
             .collect();
         drop(database);
@@ -143,8 +144,20 @@ impl LibraryHandle {
     }
 }
 
-/// The card for one search row.
-fn card_of(item: DiagramListItem, tags: Vec<String>, updated_unix: i64) -> LibraryCard {
+/// Whether `url` has a mirror state a sync wrote and the user has not deleted. A state that
+/// cannot be read counts as none: the card then reads as the user's own, which is the safe way
+/// round for the Synced pill (it promises nothing).
+pub(super) fn is_live_mirror(database: &Database, url: &str) -> bool {
+    matches!(database.get_mirror_state(url), Ok(Some(state)) if !state.deleted_locally)
+}
+
+/// The card for one search row; `synced` says whether a sync copied the design here.
+fn card_of(
+    item: DiagramListItem,
+    tags: Vec<String>,
+    updated_unix: i64,
+    synced: bool,
+) -> LibraryCard {
     let facets = item.facets_count.as_deref();
     let (main, girdle) = parse_facets_count(facets);
     let facet_total = main.unwrap_or(0).saturating_add(girdle.unwrap_or(0));
@@ -172,6 +185,7 @@ fn card_of(item: DiagramListItem, tags: Vec<String>, updated_unix: i64) -> Libra
             .and_then(|ri| ri.trim().parse::<f64>().ok()),
         tags,
         mine: item.url.starts_with("local://"),
+        synced,
         ignored: item.ignored,
         updated_unix,
     }

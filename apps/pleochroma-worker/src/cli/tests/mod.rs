@@ -4,9 +4,11 @@
 //! - [`render`]: the one-shot `render` subcommand;
 //! - [`serve`]: the coordinator (`serve`) flags;
 //! - [`cert`]: the `cert` sub-subcommands;
-//! - [`join`]: the `join` subcommand.
+//! - [`join`]: the `join` subcommand;
+//! - [`global`]: `--headless`, `--minimized`, `--config` and the launch decision.
 
 mod cert;
+mod global;
 mod help;
 mod join;
 mod render;

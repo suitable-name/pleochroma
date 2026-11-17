@@ -36,8 +36,8 @@ component LightingChip inherits Rectangle {
 
     // The UV lamps are part of the `physical-color` build only (`PhysicscolorModel.ui_enabled`).
     Tooltip { text: PhysicscolorModel.ui_enabled
-        ? @markdown("Lighting: the four studio rigs, or the lit models -- the grading tray (D65 hemisphere + head shadow), light tent with black cards, daylight sky with sun -- the contrast view (ASET-style: red 45-75 deg, green 0-45 deg, blue 75-90 deg overhead, black below the horizon; not scored by the metrics) -- or a 365 nm or 395 nm UV lamp (CPU only, lights fluorescent materials).")
-        : @markdown("Lighting: the four studio rigs, or the lit models -- the grading tray (D65 hemisphere + head shadow), light tent with black cards, daylight sky with sun, and the ASET-style contrast view (red 45-75 deg, green 0-45 deg, blue 75-90 deg overhead; not scored by the metrics)."); }
+        ? @markdown("Lighting: the four studio rigs, or the lit models -- the grading tray (D65 hemisphere + head shadow), light tent with black cards, daylight sky with sun -- the contrast view (ASET-style: red 45-75 deg, green 0-45 deg, blue 75-90 deg overhead, black below the horizon; the metrics score it as the Grading tray, and its zones are the face-up card's Zones (ASET-style)) -- or a 365 nm or 395 nm UV lamp (CPU only, lights fluorescent materials).")
+        : @markdown("Lighting: the four studio rigs, or the lit models -- the grading tray (D65 hemisphere + head shadow), light tent with black cards, daylight sky with sun, and the ASET-style contrast view (red 45-75 deg, green 0-45 deg, blue 75-90 deg overhead; the metrics score it as the Grading tray, and its zones are the face-up card's Zones (ASET-style))."); }
 
     chip_focus := FocusScope {
         key-pressed(event) => {

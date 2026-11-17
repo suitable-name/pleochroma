@@ -4,13 +4,16 @@
 //
 // The tab fills its parent (the sheet or side pane of the Design page) and switches its
 // own sub-pages: 0 the settings, 1 the material picker (with a search field), 2 the
-// body-color picker, 3 the custom-material form. Rust owns the page
+// body-color picker, 3 the custom-material form, 4 the Material Details. Rust owns the page
 // (`PropsModel.stone-page`, changed through `PropsModel.open-page`); the sheet leaving full
 // height (the Back key, a drag down) takes a sub-page back to the settings.
 //
-// The material card shows the swatch, the name, the family line and four fact chips, with
-// "Change Material"; its "..." button unfolds RI Override and New Custom Material. The body
-// color is a row that opens the Body Color page (pick only, no editor on the phone).
+// The material card shows the swatch, the name with a "Built-in" tag, the family line, the six
+// fact chips in one even 2 x 3 grid (RI, Critical, Dispersion, SG, Mohs, Toughness; a toughness
+// range, or a narrow card, puts Toughness on a full-width row of its own) and a cleavage line
+// (the warning style for a cutting risk), with "Change Material" and "Material Details"; its
+// "..." button unfolds RI Override and New Custom Material. The body color is a row that opens
+// the Body Color page (pick only, no editor on the phone).
 //
 // Every value is a design edit and can be undone; the sliders apply when released.
 import { ListView } from "std-widgets.slint";
@@ -30,19 +33,23 @@ import { InfoButton } from "../../shell/info.slint";
 import { MaterialItem, PropsModel } from "props_model.slint";
 import { SectionHeader, SettingBlock, NumberField, SliderBlock, PickerRow, Card, FoldCard, Swatch, FactChip } from "props_parts.slint";
 import { NumberSheet } from "number_sheet.slint";
+import { MaterialDetailsPage } from "material_details_page.slint";
 import { RenderModel } from "../render/render_model.slint";
+import { TierIcons } from "../tiers/tier_icons.slint";
 
 // The material card: identity on top, "Change Material", and the "..." menu below.
 component MaterialCard inherits Card {
     inner-padding: 0px;
 
     VerticalLayout {
-        padding: Theme.space-lg;
-        padding-right: Theme.space-xs;
+        padding-left: Theme.space-lg;
+        padding-top: Theme.space-lg;
         padding-bottom: Theme.space-md;
         spacing: Theme.space-md;
 
         HorizontalLayout {
+            // The "..." button keeps its 48 px target at the card's right edge.
+            padding-right: Theme.space-xs;
             spacing: Theme.space-md;
 
             Swatch {
@@ -57,12 +64,42 @@ component MaterialCard inherits Card {
                 spacing: 2px;
                 horizontal-stretch: 1;
 
-                Text {
-                    text: PropsModel.material-title;
-                    color: Theme.on-surface;
-                    font-size: Theme.text-title-large;
-                    font-weight: 700;
-                    wrap: word-wrap;
+                HorizontalLayout {
+                    spacing: Theme.space-sm;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: PropsModel.material-title;
+                        color: Theme.on-surface;
+                        font-size: Theme.text-title-large;
+                        font-weight: 700;
+                        wrap: word-wrap;
+                    }
+
+                    // "Built-in" is a small tag after the name, so the family line below never
+                    // starts a wrapped row with a "·".
+                    if PropsModel.material-builtin: VerticalLayout {
+                        alignment: center;
+
+                        Rectangle {
+                            height: 24px;
+                            width: built-in-tag.preferred-width + 2 * Theme.space-sm;
+                            border-radius: 12px;
+                            border-width: 1px;
+                            border-color: Theme.outline-variant;
+                            accessible-role: AccessibleRole.text;
+                            accessible-label: "Built-in material";
+
+                            built-in-tag := Text {
+                                x: Theme.space-sm;
+                                height: parent.height;
+                                text: "Built-in";
+                                color: Theme.on-surface-variant;
+                                font-size: max(12px, Theme.text-label);
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
                 }
 
                 Text {
@@ -84,27 +121,116 @@ component MaterialCard inherits Card {
             }
         }
 
-        // The facts as a grid of two columns.
-        if PropsModel.material-chips.length > 0: Rectangle {
-            property <length> cell: (self.width - Theme.space-sm - Theme.space-md) / 2;
+        // Everything under the header keeps the card's 16 px margin on the right.
+        VerticalLayout {
+            padding-right: Theme.space-lg;
+            spacing: Theme.space-md;
 
-            height: Math.ceil(PropsModel.material-chips.length / 2) * 32px + (Math.ceil(PropsModel.material-chips.length / 2) - 1) * Theme.space-sm;
+            // The facts as one even grid of two columns: RI, Critical, Dispersion, SG, Mohs and
+            // Toughness (2 x 3). A toughness range, or a card under 296 px (a window under
+            // 360 dp), puts the toughness chip on a row of its own, full width, so it is never
+            // abbreviated.
+            if PropsModel.material-chips.length > 0 || PropsModel.material-toughness != "": Rectangle {
+                property <bool> toughness-own-row: PropsModel.material-toughness-range || self.width < 296px;
+                property <bool> toughness-in-grid: PropsModel.material-toughness != "" && !self.toughness-own-row;
+                property <int> count: PropsModel.material-chips.length + (self.toughness-in-grid ? 1 : 0);
+                property <length> cell: (self.width - Theme.space-sm) / 2;
+                property <length> grid-height: self.count > 0 ? Math.ceil(self.count / 2) * 32px + (Math.ceil(self.count / 2) - 1) * Theme.space-sm : 0px;
 
-            for chip[index] in PropsModel.material-chips: FactChip {
-                x: Math.mod(index, 2) * (parent.cell + Theme.space-sm);
-                y: Math.floor(index / 2) * (32px + Theme.space-sm);
-                width: parent.cell;
-                text: chip;
+                height: self.grid-height + (PropsModel.material-toughness != "" && self.toughness-own-row ? (self.grid-height > 0px ? Theme.space-sm : 0px) + 32px : 0px);
+
+                for chip[index] in PropsModel.material-chips: FactChip {
+                    x: Math.mod(index, 2) * (parent.cell + Theme.space-sm);
+                    y: Math.floor(index / 2) * (32px + Theme.space-sm);
+                    width: parent.cell;
+                    text: chip;
+                }
+
+                if PropsModel.material-toughness != "": FactChip {
+                    x: parent.toughness-own-row ? 0px : Math.mod(PropsModel.material-chips.length, 2) * (parent.cell + Theme.space-sm);
+                    y: parent.toughness-own-row ? parent.grid-height + (parent.grid-height > 0px ? Theme.space-sm : 0px) : Math.floor(PropsModel.material-chips.length / 2) * (32px + Theme.space-sm);
+                    width: parent.toughness-own-row ? parent.width : parent.cell;
+                    text: PropsModel.material-toughness;
+                }
             }
-        }
 
-        HorizontalLayout {
-            alignment: start;
+            // A custom material has no gem data on the phone.
+            if !PropsModel.material-builtin && PropsModel.material-family != "" && PropsModel.material-toughness == "" && PropsModel.material-facts == "": Text {
+                text: "No gem data yet";
+                color: Theme.on-surface-variant;
+                font-size: Theme.text-body;
+            }
 
-            TonalButton {
-                text: "Change Material";
-                clicked => {
-                    PropsModel.open-page(1);
+            // Cleavage and fracture, under the chips. A perfect, good or distinct cleavage is a
+            // cutting risk: the warning icon and color. The text is placed by hand (not in a
+            // layout) so the card is as tall as the wrapped lines.
+            if PropsModel.material-facts != "": Rectangle {
+                height: max(facts-text.preferred-height, 20px);
+
+                if PropsModel.material-cleavage-warn: Icon {
+                    x: 0px;
+                    y: 0px;
+                    source: TierIcons.warning;
+                    tint: Theme.warning;
+                    glyph: 20px;
+                }
+
+                facts-text := Text {
+                    x: PropsModel.material-cleavage-warn ? 20px + Theme.space-sm : 0px;
+                    y: 0px;
+                    width: parent.width - self.x;
+                    text: PropsModel.material-facts;
+                    color: PropsModel.material-cleavage-warn ? Theme.warning : Theme.on-surface-variant;
+                    font-size: Theme.text-body;
+                    wrap: word-wrap;
+                    accessible-role: AccessibleRole.text;
+                    accessible-label: PropsModel.material-cleavage-warn ? "Cutting risk. " + PropsModel.material-facts : PropsModel.material-facts;
+                }
+            }
+
+            // The two buttons side by side; stacked on a card under 312 px (a window under
+            // 360 dp), where the labels would be cut.
+            button-row := Rectangle {
+                property <bool> stacked: self.width < 312px;
+
+                height: self.stacked && PropsModel.material-family != "" ? 2 * Theme.touch + Theme.space-sm : Theme.touch;
+
+                if !button-row.stacked: HorizontalLayout {
+                    alignment: start;
+                    spacing: Theme.space-sm;
+
+                    TonalButton {
+                        text: "Change Material";
+                        clicked => {
+                            PropsModel.open-page(1);
+                        }
+                    }
+
+                    if PropsModel.material-family != "": TonalButton {
+                        text: "Material Details";
+                        clicked => {
+                            PropsModel.open-page(4);
+                        }
+                    }
+                }
+
+                if button-row.stacked: VerticalLayout {
+                    alignment: start;
+                    spacing: Theme.space-sm;
+
+                    TonalButton {
+                        text: "Change Material";
+                        clicked => {
+                            PropsModel.open-page(1);
+                        }
+                    }
+
+                    if PropsModel.material-family != "": TonalButton {
+                        text: "Material Details";
+                        clicked => {
+                            PropsModel.open-page(4);
+                        }
+                    }
                 }
             }
         }
@@ -675,6 +801,11 @@ export component StoneTab inherits Rectangle {
     }
 
     if PropsModel.stone-page == 3: CustomForm { }
+
+    if PropsModel.stone-page == 4: MaterialDetailsPage {
+        width: parent.width;
+        height: parent.height;
+    }
 
     NumberSheet { }
 }

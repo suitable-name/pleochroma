@@ -36,6 +36,9 @@ export global ViewportModel {
     // The Material Editor's visibility. Kept here like `render_paused`, since the material picker
     // row that opens it uses this global.
     in-out property <bool> material_editor_open: false;
+    // The name of a Load Preset Template the Material Editor selects and loads when it opens
+    // (set before `material_editor_open`, cleared by the dialog); "" opens it as usual.
+    in-out property <string> material_editor_template: "";
 
     in property <[string]> material_options: ["Diamond", "Emerald", "Moissanite", "Quartz", "Ruby", "Sapphire", "Spinel", "Tanzanite", "Topaz", "Zircon"];
     in-out property <int> selected_material_index: 0;
@@ -140,6 +143,20 @@ export global ViewportModel {
     in property <float> scintillation_pct: 0.0;
     in property <float> windowing_pct: 0.0;
     in property <float> extinction_pct: 0.0;
+    // The face-up Contrast figure, 0 to 100; below 0 means not measured (the row is hidden).
+    in property <float> contrast: -1;
+    // The Zones (ASET-style) shares in percent, in the order red, green, blue, dark. Empty when
+    // not measured (the card's block is hidden).
+    in property <[float]> aset_shares: [];
+    // The Dark share's parts as the card prints them ("Dark = Leak 9 % + Lost 12 %"); empty when
+    // not measured.
+    in property <string> aset_split_text: "";
+    // The Zones (ASET-style) line of the copied figures text, with one decimal ("Zones (ASET-style):
+    // Red 44.0% ..."); empty when not measured. `copy_metrics` appends it.
+    in property <string> aset_copy_text: "";
+    // Whether the "How the Face-Up Figures Are Measured" popover over the Live Render viewport is
+    // open (the card's "?" button opens it).
+    in-out property <bool> figures_help_open: false;
 
     callback camera_orbit(float, float);
     // A pan drag of `(dx, dy)` logical pixels in either viewport (the middle button, or Ctrl or
@@ -155,7 +172,8 @@ export global ViewportModel {
     callback camera_drag_begin();
     callback camera_drag_end();
     // A Stone Pose drag of `(dx, dy)` logical pixels in the Live Render view (Alt or Ctrl and Shift
-    // with the left button): vertical tilts the stone, horizontal turns it
+    // with the left button): the stone turns the way the camera orbit turns it, vertical about
+    // the camera's right axis, horizontal about the vertical, without a stop
     // (`gui::render::stone_pose`). Its button edges come as
     // `stone_pose_drag_begin` / `stone_pose_drag_end`, besides the camera drag edges above.
     callback stone_pose_drag(float, float);
@@ -261,6 +279,21 @@ export global ViewportModel {
     // catalogue: the toolbar shows a "color data updated" badge (it keeps rendering from its
     // stored bands until the user updates it in the editor).
     in property <bool> selected_material_color_outdated: false;
+
+    // The Material Editor's Gem Data section: what the user entered for the custom material.
+    // Rust fills these when the dialog's pre-fill is pushed (blank for a built-in or a material
+    // without gem data) and reads them when Save runs
+    // (`gui::optics::custom_materials::gem_data_form`), so `save_custom_material` keeps its
+    // signature. The Mohs fields hold typed text (blank = not recorded); the toughness fields are
+    // combo indices: 0 "Not recorded", 1 to 6 Very poor to Exceptional.
+    in-out property <string> gem_data_mohs_from: "";
+    in-out property <string> gem_data_mohs_to: "";
+    in-out property <int> gem_data_toughness_from: 0;
+    in-out property <int> gem_data_toughness_to: 0;
+    in-out property <string> gem_data_cleavage: "";
+    in-out property <string> gem_data_fracture: "";
+    in-out property <string> gem_data_care: "";
+    in-out property <string> gem_data_source: "";
 
     // ---- The Live Render toolbar's "Color" control -------------------------------------
     // (`ui/components/gem_viewport/render_color_picker.slint`; Rust side:

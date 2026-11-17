@@ -1,6 +1,6 @@
 // The optical-figures strip under the images of the pop-out compare window.
 //
-// Left: a small table with the five table-up figures of the "before" and the "after"
+// Left: a small table with the table-up figures (and Contrast) of the "before" and the "after"
 // stone, the change between them and a word for it (better / worse / same), coloured
 // with the theme's success and danger tokens. Right: a few plain sentences about what
 // changed, and the "Tilt average" button, which adds three rows with the means over four
@@ -33,18 +33,62 @@ component StripHeading inherits Rectangle {
     }
 }
 
+// A stacked bar of the four zone shares (Red, Green, Blue, Dark; percent) in the zone colors.
+// An empty or short list draws an empty track.
+component ZoneBar inherits Rectangle {
+    in property <[float]> shares: [];
+    in property <string> side: "";
+    property <float> total: max(1.0, root.shares[0] + root.shares[1] + root.shares[2] + root.shares[3]);
+    // C2: the percentages on hover and for a screen reader.
+    pure function describe() -> string {
+        return root.shares.length >= 4 ? root.side + ": Red " + Math.round(root.shares[0]) + " %, Green " + Math.round(root.shares[1]) + " %, Blue " + Math.round(root.shares[2]) + " %, Dark " + Math.round(root.shares[3]) + " %" : "";
+    }
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.describe();
+    Tooltip { text: @markdown("\{root.describe()}"); }
+
+    height: 6px;
+    border-radius: 2px;
+    background: Theme.border-subtle;
+    clip: true;
+
+    if root.shares.length >= 4: HorizontalLayout {
+        spacing: 0px;
+        Rectangle { width: root.width * (root.shares[0] / root.total); background: Theme.aset-red; }
+        Rectangle { width: root.width * (root.shares[1] / root.total); background: Theme.aset-green; }
+        Rectangle { width: root.width * (root.shares[2] / root.total); background: Theme.aset-blue; }
+        Rectangle { width: root.width * (root.shares[3] / root.total); background: Theme.aset-dark; }
+    }
+}
+
+// The pinned column header (C1: it never scrolls away).
+component MetricHeader inherits HorizontalLayout {
+    height: 18px;
+    spacing: 6px;
+    Rectangle { horizontal-stretch: 1; }
+    StripHeading { width: 58px; text: "Before"; hint: "The figure for the labeled left reference."; }
+    StripHeading { width: 58px; text: "After"; hint: "The figure for the labeled right candidate."; }
+    StripHeading { width: 62px; text: "Change"; hint: "How far the figure moved, and whether that is better or worse for the stone. Less windowing and more brilliance are better. See the glossary."; }
+    Rectangle { width: 44px; }
+}
+
+// One swatch and its zone name, for the zones legend.
+component ZoneKey inherits HorizontalLayout {
+    in property <string> label;
+    in property <brush> swatch;
+    spacing: 4px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle { width: 8px; height: 8px; border-radius: 2px; background: root.swatch; border-width: 1px; border-color: Theme.border-medium; }
+    }
+    Text { text: root.label; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+}
+
 component MetricTable inherits VerticalLayout {
     alignment: start;
+    in property <bool> with_header: true;
 
-    HorizontalLayout {
-        height: 18px;
-        spacing: 6px;
-        Rectangle { horizontal-stretch: 1; }
-        StripHeading { width: 58px; text: "Before"; hint: "The figure for the labeled left reference."; }
-        StripHeading { width: 58px; text: "After"; hint: "The figure for the labeled right candidate."; }
-        StripHeading { width: 62px; text: "Change"; hint: "How far the figure moved, and whether that is better or worse for the stone. Less windowing and more brilliance are better. See the glossary."; }
-        Rectangle { width: 44px; }
-    }
+    if root.with_header: MetricHeader { }
 
     for row in CompareModel.metric_rows: Rectangle {
         height: 18px;
@@ -78,8 +122,37 @@ component MetricTable inherits VerticalLayout {
             }
         }
     }
-}
 
+    // Zones (ASET-style): neutral, so no tone, only the two bars and what moved.
+    if CompareModel.has_aset: Rectangle {
+        height: 18px;
+
+        accessible-role: AccessibleRole.list-item;
+        accessible-label: "Zones (ASET-style): " + (CompareModel.aset_change == "about the same" ? CompareModel.aset_change : CompareModel.aset_change + " points");
+
+        Tooltip { text: @markdown("Zones (ASET-style): the share of the stone's face that shows each zone of the Contrast view, Red 45-75° above the girdle plane, Green 0-45°, Blue 75-90°, Dark below the girdle plane or lost inside. Left bar before, right bar after. Zones have no better or worse. See the glossary."); }
+
+        HorizontalLayout {
+            spacing: 6px;
+            Text { horizontal-stretch: 1; text: "Zones (ASET-style)"; font-size: 11px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+            Rectangle { width: 58px; ZoneBar { width: 100%; y: (parent.height - self.height) / 2; shares: CompareModel.aset_before; side: "Before"; } }
+            Rectangle { width: 58px; ZoneBar { width: 100%; y: (parent.height - self.height) / 2; shares: CompareModel.aset_after; side: "After"; } }
+            // C2: spans the Change and verdict columns, right-aligned and bold like every other row; no verdict word, the zones are neither better nor worse.
+            Text { width: 112px; text: CompareModel.aset_change; font-size: 11px; font-weight: 700; color: Theme.text-secondary; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+        }
+    }
+
+    // C2: a one-line legend for the zone colors.
+    if CompareModel.has_aset: HorizontalLayout {
+        height: 20px;
+        spacing: 12px;
+        alignment: start;
+        ZoneKey { label: "Red"; swatch: Theme.aset-red; }
+        ZoneKey { label: "Green"; swatch: Theme.aset-green; }
+        ZoneKey { label: "Blue"; swatch: Theme.aset-blue; }
+        ZoneKey { label: "Dark"; swatch: Theme.aset-dark; }
+    }
+}
 
 component MetricSummary inherits VerticalLayout {
     horizontal-stretch: 1;
@@ -126,9 +199,10 @@ component MetricSummary inherits VerticalLayout {
     }
 
     if CompareModel.metric_rows.length > 0: Text {
-        text: CompareModel.tilt_done
+        text: (CompareModel.tilt_done
             ? "Table up under the viewport lighting. Tilt rows are means over four axes and 181 tilts."
-            : "Table up under the viewport lighting, each side in its own material.";
+            : "Table up under the viewport lighting, each side in its own material.")
+            + (CompareModel.has_aset ? " The zones and Contrast do not depend on the lighting." : "");
         font-size: 11px;
         color: Theme.text-muted;
         wrap: word-wrap;
@@ -140,7 +214,8 @@ export component CompareMetricsStrip inherits Rectangle {
     in property <length> height_budget: 1000px;
     property <bool> has_rows: CompareModel.metric_rows.length > 0;
     property <bool> narrow: root.width < 650px;
-    property <length> table_height: (CompareModel.metric_rows.length + 1) * 18px;
+    // Rows, the zones row and its legend.
+    property <length> table_height: (CompareModel.metric_rows.length + 1 + (CompareModel.has_aset ? 2 : 0)) * 18px + (CompareModel.has_aset ? 2px : 0px);
     property <length> content_height: root.has_rows ? (root.narrow ? root.table_height + 228px : max(root.table_height + 16px, 150px)) : 80px;
     height: min(root.content_height, root.height_budget);
     border-radius: Theme.radius-sm;
@@ -149,23 +224,32 @@ export component CompareMetricsStrip inherits Rectangle {
     border-color: Theme.border-subtle;
     clip: true;
 
-    // Scroll all figures and actions while reserving the image area above them.
-    ScrollView {
+    // C1, narrow: ONE scroll area under a pinned column header. It starts at the top (the header and
+    // the first row are what you see first), and nothing is nested.
+    if root.narrow: VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        // The header keeps the scroll area's 12 px bar gutter on its right, so its columns sit over the values.
+        if root.has_rows: HorizontalLayout { padding-right: 12px; MetricHeader { } }
+        narrow_scroll := ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                width: max(1px, root.width - 16px - 12px);
+                spacing: 8px;
+                if root.has_rows: MetricTable { with_header: false; }
+                MetricSummary { }
+            }
+        }
+    }
+
+    // Wide: the table and the summary side by side; a scroll area only when the budget is short.
+    if !root.narrow: ScrollView {
         width: root.width;
         height: root.height;
         Rectangle {
             width: max(1px, root.width - 16px);
             height: root.content_height;
-            if root.narrow: VerticalLayout {
-                padding: 8px;
-                spacing: 8px;
-                if root.has_rows: ScrollView {
-                    height: root.table_height + 12px;
-                    MetricTable { width: max(340px, root.width - 32px); }
-                }
-                MetricSummary { vertical-stretch: 1; }
-            }
-            if !root.narrow: HorizontalLayout {
+            HorizontalLayout {
                 padding: 8px;
                 spacing: 16px;
                 // A wide window gives the table room to breathe instead of leaving the strip's right half empty.

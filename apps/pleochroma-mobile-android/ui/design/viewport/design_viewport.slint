@@ -23,7 +23,7 @@
 // (`ui/design/render`). The camera gestures are the same; the raster, picks and handles
 // belong to Solid and Diagram only.
 import { ProgressBar } from "../../shell/inputs.slint";
-import { PleoFigures, PleoFigure } from "../../../../pleochroma-cut/ui/shared/figures.slint";
+import { PleoFigures, PleoFigure } from "@pleochroma-kit/shared/figures.slint";
 import { Theme } from "../../theme.slint";
 import { Icons } from "../../icons.slint";
 import { Prefs, Shell } from "../../models.slint";
@@ -235,9 +235,21 @@ export component DesignViewport inherits Rectangle {
     property <bool> panel-row: ViewportModel.view-mode == 1 && ViewportModel.diagram-single;
     property <length> below-rows: root.top-edge + ((ViewportModel.slice-mode && ViewportModel.view-mode == 0) || root.panel-row ? Theme.touch + Theme.space-sm : 0px);
 
-    // The five numbers, from the Checks tab's measurements (empty until measured).
+    // The numbers, from the Checks tab's measurements (empty until measured).
+    // The width of the figures card while it is folded (0 until it has been), which the open
+    // grid takes.
+    property <length> folded-figures-width: 0px;
     property <bool> has-figures: PropsModel.metric-labels.length >= 5 && PropsModel.metric-values.length >= 5;
-    property <[PleoFigure]> figures: root.has-figures ? [
+    // Contrast follows Extinction when it was measured (the rows come from `metric_rows`).
+    property <bool> has-contrast: root.has-figures && PropsModel.metric-labels.length >= 6 && PropsModel.metric-values.length >= 6 && PropsModel.metric-labels[5] == "Contrast";
+    property <[PleoFigure]> figures: root.has-contrast ? [
+        { name: PropsModel.metric-labels[0], short: "Bril", value: PropsModel.metric-values[0], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[1], short: "Fire", value: PropsModel.metric-values[1], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[2], short: "Scint", value: PropsModel.metric-values[2], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[3], short: "Wind", value: PropsModel.metric-values[3], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[4], short: "Ext", value: PropsModel.metric-values[4], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+        { name: PropsModel.metric-labels[5], short: "Contr", value: PropsModel.metric-values[5], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
+    ] : root.has-figures ? [
         { name: PropsModel.metric-labels[0], short: "Bril", value: PropsModel.metric-values[0], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
         { name: PropsModel.metric-labels[1], short: "Fire", value: PropsModel.metric-values[1], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
         { name: PropsModel.metric-labels[2], short: "Scint", value: PropsModel.metric-values[2], delta: "", part: 0, ink: Theme.accent, trend: 0, flag: false },
@@ -415,20 +427,50 @@ export component DesignViewport inherits Rectangle {
         }
     }
 
-    // The figures card: the five gemological numbers on glass, under the top row (Solid
-    // and Render). Folded to one line on a phone; a tap on the card copies the numbers.
-    if root.has-figures && ViewportModel.view-mode != 1 && !ViewportModel.slice-mode: PleoFigures {
-        x: root.pad-left;
-        y: root.top-edge;
-        figures: root.figures;
-        title: "FACE-UP";
-        show_bars: false;
-        show_deltas: false;
-        font-base: max(12px, Theme.base-font * 0.86);
-        fold-button-size: Theme.touch;
-        header-height: Theme.touch;
-        folded <=> ViewportModel.figures-folded;
-        copy => { ViewportModel.figures-copy(); }
+    // The figures card: the gemological numbers (five, and Contrast) on glass, under the top row (Solid
+    // and Render). Folded to one line on a phone; a tap on the card copies the numbers. Open, the
+    // card is a 2 x 3 grid (full names, 12 sp) at the width of the folded card, not a tall column:
+    // the sheet no longer cuts it and the Render pill clears it. The folded width is remembered
+    // while the card is folded (a card that starts open has none yet and takes 330 px, or the
+    // view's width).
+    //
+    // The header is 36 px tall and the card's own fold button is as big, so the chevron sits on
+    // the row of the title. The 48 px touch rule is met by the transparent target after the card,
+    // centred on that button; it is the only control in its corner, and the rest of the card
+    // copies the numbers.
+    if root.has-figures && ViewportModel.view-mode != 1 && !ViewportModel.slice-mode: Rectangle {
+        figures-card := PleoFigures {
+            x: root.pad-left;
+            y: root.top-edge;
+            figures: root.figures;
+            title: "FACE-UP";
+            show_bars: false;
+            show_deltas: false;
+            font-base: max(12px, Theme.base-font * 0.86);
+            grid: true;
+            grid-width: min(root.folded-figures-width > 0px ? root.folded-figures-width : 330px, root.width - root.pad-left - root.pad-right);
+            fold-button-size: 36px;
+            header-height: 36px;
+            folded <=> ViewportModel.figures-folded;
+            copy => { ViewportModel.figures-copy(); }
+            changed width => {
+                if (self.folded) {
+                    root.folded-figures-width = self.width;
+                }
+            }
+        }
+
+        // The card pads its header by 4 px at the top and 10 px at the right, both scaled by its
+        // font size over 11 px.
+        TouchArea {
+            width: Theme.touch;
+            height: Theme.touch;
+            x: figures-card.x + figures-card.width - 10px * figures-card.font-base / 11px - 18px - Theme.touch / 2;
+            y: figures-card.y + 4px * figures-card.font-base / 11px + 18px - Theme.touch / 2;
+            clicked => {
+                ViewportModel.figures-folded = !ViewportModel.figures-folded;
+            }
+        }
     }
 
     if ViewportModel.info-visible: Rectangle {

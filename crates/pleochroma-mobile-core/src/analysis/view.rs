@@ -178,8 +178,10 @@ pub(super) fn tilt_view(state: &AppState) -> TiltView {
     }
 }
 
-/// The metric rows of `reading`, in the order the desktop lists them: the five light-return
-/// figures, then Doubling for a birefringent stone (one whose two light modes part at all).
+/// The metric rows of `reading`, in the order the desktop lists them.
+///
+/// The five light-return figures come first, then Contrast when it was measured, then
+/// Doubling for a birefringent stone (one whose two light modes part at all).
 #[must_use]
 pub fn metric_rows(reading: &MetricsReading) -> Vec<MetricRow> {
     let mut rows = vec![
@@ -209,6 +211,13 @@ pub fn metric_rows(reading: &MetricsReading) -> Vec<MetricRow> {
             meaning: "Light that is lost, or comes back too dim to see.",
         },
     ];
+    if let Some(contrast) = reading.contrast {
+        rows.push(MetricRow {
+            label: "Contrast",
+            value: format!("{contrast:.0}"),
+            meaning: "How finely your own shadow is broken up across the face, 0 to 100.",
+        });
+    }
     if reading.doubling_arcmin > 0.0 {
         rows.push(MetricRow {
             label: "Doubling",
@@ -235,8 +244,9 @@ impl TiltReading {
         self.axes.get(index)
     }
 
-    /// The SVG path strings (brilliance, extinction, windowing) of axis `index`, in the
-    /// 100 x 100 box the chart's `Path` uses (x spans the whole tilt range, y is
+    /// The SVG path strings (brilliance, extinction, windowing) of axis `index`.
+    ///
+    /// They fit the 100 x 100 box the chart's `Path` uses (x spans the whole tilt range, y is
     /// `100 - value`). `None` for an unknown axis or curves of the wrong length.
     #[must_use]
     pub fn paths(&self, index: usize) -> Option<[String; 3]> {

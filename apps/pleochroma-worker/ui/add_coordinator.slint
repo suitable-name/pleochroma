@@ -1,0 +1,354 @@
+// "Add a coordinator": the whole-window dialog that pairs this computer with another
+// coordinator for monitoring or managing it. Two ways in: paste the pairing link, or type the
+// code and the address. `src/gui/add_coordinator.rs` fills `AddState` and answers its callbacks;
+// the dialog draws nothing while `AddState.open` is false.
+//
+// A pairing link or code is a secret: this file never shows one back. The link field masks the
+// code in the link once it has been checked (Rust side); the code field is a password field.
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme, KitIcon, KitIcons, KitButton, KitFillSegments, CIcons } from "frame.slint";
+
+export global AddState {
+    in-out property <bool> open: false;
+    /// 0 pairing link, 1 code and address.
+    in-out property <int> mode: 0;
+    in-out property <string> link;
+    in-out property <string> address;
+    in-out property <string> code;
+    /// True while a helper thread pairs; the fields and buttons wait.
+    in property <bool> busy: false;
+    /// A plain-words problem from the last try; empty when there is none. The footer shows it
+    /// in place of the status line.
+    in property <string> error;
+    /// The line in the footer and its level: 0 fine, 1 information, 2 problem.
+    in property <string> status-text;
+    in property <int> status-level: 1;
+    /// What a checked link names: the coordinator, where, the access it grants and how long the
+    /// code lasts.
+    in property <bool> link-ok: false;
+    in property <string> link-name;
+    in property <string> link-place;
+    in property <string> link-access;
+    in property <string> link-expires;
+    /// True when what is typed can be tried (Connect is enabled).
+    in property <bool> can-connect: false;
+
+    callback close-requested();
+    /// The text of a field changed: Rust checks the shape of what is typed.
+    callback edited();
+    /// A Paste button: 0 the link field, 1 the code field. Rust reads the clipboard.
+    callback paste(int);
+    /// "Connect": Rust pairs on a helper thread.
+    callback connect();
+}
+
+component Caps inherits Text {
+    color: Theme.text-muted;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    vertical-alignment: center;
+}
+
+component Step inherits HorizontalLayout {
+    in property <string> n;
+    in property <string> text;
+    height: 22px;
+    spacing: 10px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            background: Theme.accent-cyan-surface;
+            Text { text: root.n; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+    Text { text: root.text; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+}
+
+// One labelled fact in the "this link contains" card.
+component Fact inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> mono: false;
+    in property <color> ink: Theme.text-primary;
+    alignment: center;
+    spacing: 3px;
+    Caps { text: root.label; }
+    Text { text: root.value; font-size: root.mono ? 12px : 13px; font-family: root.mono ? "Consolas" : ""; font-weight: 600; color: root.ink; overflow: elide; }
+}
+
+export component AddCoordinatorDialog inherits Rectangle {
+    // The card is 720 x 520 and shrinks with the window.
+    property <length> card-w: min(720px, root.width - 24px);
+    property <length> card-h: min(520px, root.height - 24px);
+    property <bool> compact: root.card-w < 680px;
+
+    if AddState.open: Rectangle {
+        background: Theme.overlay-backdrop;
+        TouchArea { }
+        fs := FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape && !AddState.busy {
+                    AddState.close-requested();
+                    return accept;
+                }
+                return reject;
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: root.card-w;
+                height: root.card-h;
+                border-radius: 16px;
+                background: Theme.surface-dialog;
+                border-width: 1px;
+                border-color: Theme.border-dialog;
+                drop-shadow-blur: 48px;
+                drop-shadow-offset-y: 12px;
+                drop-shadow-color: Theme.modal-shadow;
+                accessible-role: AccessibleRole.groupbox;
+                accessible-label: "Add a coordinator";
+
+                VerticalLayout {
+                    // Header.
+                    HorizontalLayout {
+                        min-height: 76px;
+                        max-height: 76px;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        padding-top: 22px;
+                        padding-bottom: 20px;
+                        spacing: 16px;
+                        Text { text: "Add a coordinator"; font-size: 20px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        KitFillSegments {
+                            width: root.compact ? 250px : 300px;
+                            labels: ["Pairing link", "Code and address"];
+                            picked: AddState.mode;
+                            enabled: !AddState.busy;
+                            selected(i) => {
+                                AddState.mode = i;
+                                AddState.edited();
+                            }
+                        }
+                    }
+
+                    // Body. It scrolls when the window is too short for it, so the footer with
+                    // Connect is always in view.
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        padding-bottom: 14px;
+                        spacing: 14px;
+                        alignment: start;
+
+                        if AddState.mode == 0: VerticalLayout {
+                            spacing: 6px;
+                            Text { text: "Pairing link"; font-size: 12px; color: Theme.text-secondary; height: 16px; vertical-alignment: center; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    height: 40px;
+                                    text <=> AddState.link;
+                                    placeholder-text: "pleochroma://pair?…";
+                                    accessible-label: "Pairing link";
+                                    enabled: !AddState.busy;
+                                    font-size: 12px;
+                                    edited => { AddState.edited(); }
+                                }
+                                KitButton { h: 40px; icon: KitIcons.copy; text: "Paste"; enabled: !AddState.busy; clicked => { AddState.paste(0); } }
+                            }
+                        }
+                        if AddState.mode == 0 && AddState.link-ok: VerticalLayout {
+                            spacing: 6px;
+                            Caps { text: "THIS LINK CONTAINS"; height: 14px; }
+                            Rectangle {
+                                height: 72px;
+                                border-radius: 10px;
+                                background: Theme.bg-input;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                accessible-role: AccessibleRole.text;
+                                accessible-label: "This link is for " + AddState.link-name + " at " + AddState.link-place + ". Access: " + AddState.link-access + ". Expires: " + AddState.link-expires;
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 16px;
+                                    spacing: 14px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            width: 42px;
+                                            height: 42px;
+                                            border-radius: 10px;
+                                            background: Theme.accent-cyan-surface;
+                                            KitIcon { x: 12px; y: 12px; d: CIcons.server; size: 18px; ink: Theme.accent-cyan; }
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        alignment: center;
+                                        spacing: 3px;
+                                        Text { text: AddState.link-name; font-size: 15px; font-weight: 650; color: Theme.text-primary; overflow: elide; }
+                                        Text { text: AddState.link-place; font-size: 12px; font-family: "Consolas"; color: Theme.text-secondary; overflow: elide; }
+                                    }
+                                    if !root.compact: Rectangle { width: 1px; background: Theme.border-subtle; }
+                                    if !root.compact: Fact { width: 126px; label: "ACCESS"; value: AddState.link-access; ink: Theme.accent-cyan; }
+                                    if !root.compact: Rectangle { width: 1px; background: Theme.border-subtle; }
+                                    if !root.compact: Fact { width: 130px; label: "EXPIRES"; value: AddState.link-expires; }
+                                }
+                            }
+                            if root.compact: Text { text: "Access: " + AddState.link-access; font-size: 12px; color: Theme.accent-cyan; font-weight: 600; }
+                        }
+
+                        if AddState.mode == 1: VerticalLayout {
+                            spacing: 6px;
+                            Text { text: "IP address (like 192.168.178.40:7878)"; font-size: 12px; color: Theme.text-secondary; height: 16px; vertical-alignment: center; }
+                            LineEdit {
+                                text <=> AddState.address;
+                                placeholder-text: "192.168.178.40:7878";
+                                accessible-label: "Address of the coordinator";
+                                enabled: !AddState.busy;
+                                font-size: 12px;
+                                edited => { AddState.edited(); }
+                            }
+                        }
+                        if AddState.mode == 1: VerticalLayout {
+                            spacing: 6px;
+                            Text { text: "Code"; font-size: 12px; color: Theme.text-secondary; height: 16px; vertical-alignment: center; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    text <=> AddState.code;
+                                    input-type: InputType.password;
+                                    placeholder-text: "GW1-…";
+                                    accessible-label: "Access code";
+                                    enabled: !AddState.busy;
+                                    font-size: 12px;
+                                    edited => { AddState.edited(); }
+                                }
+                                KitButton { h: 34px; icon: KitIcons.copy; text: "Paste"; enabled: !AddState.busy; clicked => { AddState.paste(1); } }
+                            }
+                        }
+                        if AddState.mode == 1: Rectangle {
+                            height: 40px;
+                            border-radius: 10px;
+                            background: Theme.bg-input;
+                            border-width: 1px;
+                            border-color: Theme.border-subtle;
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                spacing: 10px;
+                                VerticalLayout { alignment: center; KitIcon { d: CIcons.shield; size: 16px; ink: Theme.accent-cyan; } }
+                                Text { text: "The code decides the access."; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; }
+                                Text { text: "Monitor only or full administration, set when the code is made"; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; horizontal-alignment: right; }
+                            }
+                        }
+
+                        // Help card.
+                        Rectangle {
+                            height: 190px;
+                            border-radius: 10px;
+                            background: Theme.surface-info;
+                            border-width: 1px;
+                            border-color: Theme.border-subtle;
+                            VerticalLayout {
+                                padding: 14px;
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                spacing: 6px;
+                                HorizontalLayout {
+                                    height: 20px;
+                                    spacing: 8px;
+                                    VerticalLayout { alignment: center; KitIcon { d: KitIcons.info; size: 16px; ink: Theme.accent-cyan; } }
+                                    Text { text: "Where do I get a code?"; font-size: 13px; font-weight: 650; color: Theme.text-primary; vertical-alignment: center; }
+                                }
+                                Step { n: "1"; text: "On a coordinator with a window: Settings → Security → Remote administration → Create code"; }
+                                Step { n: "2"; text: "On a server without a window: run"; }
+                                Rectangle {
+                                    height: 52px;
+                                    border-radius: 8px;
+                                    background: Theme.surface-sunken;
+                                    border-width: 1px;
+                                    border-color: Theme.border-subtle;
+                                    Text {
+                                        x: 12px;
+                                        width: parent.width - 24px;
+                                        height: parent.height;
+                                        text: "pleochroma-worker --headless cert issue-token --ca <ca.pem> --admin-addr <host:port> --role admin --name \"Studio PC\"";
+                                        font-size: 12px;
+                                        font-family: "Consolas";
+                                        color: Theme.text-primary;
+                                        vertical-alignment: center;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 30px;
+                                    height: 32px;
+                                    Text { text: "Fill in the CA file and the coordinator's admin address. It prints a code, a link and a QR code."; font-size: 11px; color: Theme.text-muted; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: top; }
+                                }
+                            }
+                        }
+                        }
+                    }
+
+                    // Footer.
+                    Rectangle { height: 1px; background: Theme.border-dialog; }
+                    HorizontalLayout {
+                        min-height: 62px;
+                        max-height: 62px;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: AddState.error != "" ? Theme.danger : (AddState.status-level == 0 ? Theme.success : (AddState.status-level == 2 ? Theme.danger : Theme.accent-amber));
+                                    }
+                                }
+                                Text {
+                                    text: AddState.error != "" ? AddState.error : AddState.status-text;
+                                    font-size: 12px;
+                                    font-weight: AddState.error != "" ? 600 : 400;
+                                    color: AddState.error != "" ? Theme.danger : Theme.text-secondary;
+                                    vertical-alignment: center;
+                                    wrap: word-wrap;
+                                    horizontal-stretch: 1;
+                                    accessible-role: AccessibleRole.text;
+                                }
+                            }
+                        }
+                        VerticalLayout { alignment: center; KitButton { text: "Close"; enabled: !AddState.busy; clicked => { AddState.close-requested(); } } }
+                        VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                kind: 1;
+                                icon: CIcons.link;
+                                text: AddState.busy ? "Connecting…" : "Connect";
+                                enabled: AddState.can-connect && !AddState.busy;
+                                clicked => { AddState.connect(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

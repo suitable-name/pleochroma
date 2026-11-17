@@ -29,7 +29,9 @@
 //! - [`optimize`] and [`retarget`]: the searches that run in the solve Worker;
 //! - [`deep_solve`]: Deep Solve, the check of the stone against its printed proportions,
 //!   which runs in the solve Worker beside them (its section is on the Optimize tab);
-//! - [`snapshot`]: Snapshot design / Compare to snapshot.
+//! - [`snapshot`]: Snapshot design / Compare to snapshot;
+//! - [`material_reference`]: the Material Reference dialog (Design > Material Reference... and
+//!   the Design settings' Details...).
 //!
 //! The tutorial browser's listing and the finished marks are [`tutorials`].
 //!
@@ -46,6 +48,7 @@ pub mod edit_add;
 pub mod guide;
 pub mod history;
 pub mod inspector;
+pub mod material_reference;
 pub mod new_design;
 pub mod nudge;
 pub mod optimize;
@@ -72,6 +75,7 @@ pub fn wire(ui: &AppWindow, ctx: &Ctx) {
     optimize::wire(ui, ctx);
     deep_solve::wire(ui, ctx);
     retarget::wire(ui, ctx);
+    material_reference::wire(ui, ctx);
     new_design::wire(ui, ctx);
     snapshot::wire(ui, ctx);
     guide::wire(ui, ctx);

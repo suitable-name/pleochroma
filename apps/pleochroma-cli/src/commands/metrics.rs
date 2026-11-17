@@ -16,12 +16,22 @@
 //! sampled estimate, repeatable for the same design but not smooth in the angles. A design
 //! without frosting is exactly the polished stone's.
 //!
+//! The table-up group also carries Contrast and the zone shares of the face-up view
+//! (`GemOpticalMetrics::aset`): the percentages of the stone's face whose light leaves in the red
+//! (45-75 deg), green (0-45 deg) or blue (75-90 deg) zone of the Contrast view (ASET-style)
+//! lighting, and the dark share, split into leak (out through the pavilion, the windowing rays)
+//! and lost (no exit within the bounce budget, or out sideways). Contrast is Pleochroma's own
+//! measure, 0 to 100: the mean difference in Blue share between neighbouring spots of the 18 x 18
+//! grid. `--aset-grid` prints those Blue shares under the figures, so Contrast can be recomputed
+//! by hand. ASET is a registered trademark of the Gemological Institute of America, Inc. (GIA).
+//! Pleochroma is not affiliated with or endorsed by GIA or the American Gem Society.
+//!
 //! The girdle is given twice. `girdle_pct_of_width` is the band, the full height of the girdle
 //! faces (`StoneProportions`), the figure the total depth adds up with. `girdle_line_pct_of_width`
 //! is the girdle read at its line, as the editor's proportion verdict and the cutting sheet read
 //! it (`pleochroma_editor::view_model::girdle_reading::GirdleReading`, its thinnest end), and is
-//! empty without a girdle line. It is the last CSV column ([`APPENDED_CSV_KEYS`]), so the older
-//! columns keep their place.
+//! empty without a girdle line. It is the first of the appended CSV columns
+//! ([`APPENDED_CSV_KEYS`]), which follow every older column, so the older columns keep their place.
 
 use super::{deliver, key_values, list_block, open};
 use crate::{
@@ -36,7 +46,10 @@ use crate::{
     stone::{Analysis, analyze},
 };
 use pleochroma::{
-    color::metrics::{FinishedStone, GemOpticalMetrics, evaluate_gem_optical_metrics_finished},
+    color::metrics::{
+        ASET_GRID, AsetAreaShares, AsetSpotGrid, FinishedStone, GemOpticalMetrics,
+        evaluate_aset_spot_grid_finished, evaluate_gem_optical_metrics_finished, pattern_contrast,
+    },
     geometry::{
         StoneGeometry,
         meet_solver::SolvedTier,
@@ -75,9 +88,24 @@ const TABLE_UP_PITCH: f32 = std::f32::consts::FRAC_PI_2;
 /// The key of the girdle read at its line (see [`girdle_line_percent`]).
 const GIRDLE_LINE_KEY: &str = "girdle_line_pct_of_width";
 
+/// The key of Contrast, the mean neighbour difference of the Blue shares.
+const CONTRAST_KEY: &str = "table_up_contrast";
+
+/// The caption printed above the grid of `--aset-grid`.
+const GRID_CAPTION: &str = "Blue-zone (ASET-style) share per spot, percent (18 x 18, as seen face-up; '.' = off the stone):";
+
 /// Figures placed last in the CSV row, in this order and after every older column, so a script
 /// that reads the columns by position keeps working. Text and JSON keep them beside their kin.
-const APPENDED_CSV_KEYS: [&str; 1] = [GIRDLE_LINE_KEY];
+const APPENDED_CSV_KEYS: [&str; 8] = [
+    GIRDLE_LINE_KEY,
+    CONTRAST_KEY,
+    "table_up_aset_red_pct",
+    "table_up_aset_green_pct",
+    "table_up_aset_blue_pct",
+    "table_up_aset_dark_pct",
+    "table_up_aset_leak_pct",
+    "table_up_aset_lost_pct",
+];
 
 /// What one figure reads as.
 enum Reading {
@@ -187,6 +215,8 @@ impl Figure {
 /// Everything measured off one stone.
 struct Measured {
     table_up: GemOpticalMetrics,
+    /// The Blue share of every spot of the face-up grid, when it was asked for (`--aset-grid`).
+    aset_grid: Option<AsetSpotGrid>,
     tilt: Option<ObjectiveComponents>,
     proportions: StoneProportions,
     /// The thinnest girdle thickness at its line, percent of the width ([`girdle_line_percent`]).
@@ -200,6 +230,7 @@ struct Measured {
 }
 
 /// Measures the stone of `design`, whose solve is `solved` and whose analysis is `analysis`.
+/// `aset_grid` also reads the grid of Blue shares Contrast is computed from.
 fn measure(
     design: &Design,
     analysis: &Analysis,
@@ -207,6 +238,7 @@ fn measure(
     scoring: &Scoring,
     lighting: LightingPreset,
     tilt: bool,
+    aset_grid: bool,
 ) -> Result<Measured, CliError> {
     let planes_gpu = design_to_gpu_planes_from_solved(design, solved);
     let planes = design.planes_from_solved(solved);
@@ -226,6 +258,11 @@ fn measure(
     let environment = lighting.studio(1.0, CANONICAL_LIGHT_YAW, CANONICAL_LIGHT_PITCH);
     let table_up =
         evaluate_gem_optical_metrics_finished(stone, gem, 0.0, TABLE_UP_PITCH, environment);
+    let aset_grid = if aset_grid {
+        evaluate_aset_spot_grid_finished(stone, gem, 0.0, TABLE_UP_PITCH, environment)
+    } else {
+        None
+    };
     let tilt = tilt
         .then(|| evaluate_objective_finished_under(stone, gem, ObjectiveFidelity::Full, lighting));
     let solid = measure_solid(&planes)
@@ -254,6 +291,7 @@ fn measure(
     let girdle_line_pct = girdle_line_percent(GirdleReading::of(design, solved, &proportions));
     Ok(Measured {
         table_up,
+        aset_grid,
         tilt,
         proportions,
         girdle_line_pct,
@@ -319,7 +357,14 @@ fn optics_figures(measured: &Measured) -> Vec<Figure> {
             "Scintillation",
             Some(f64::from(table.scintillation_pct)),
         ),
+        Figure::plain(
+            GROUP_TABLE_UP,
+            CONTRAST_KEY,
+            "Contrast",
+            table.aset.map(|shares| f64::from(shares.contrast)),
+        ),
     ];
+    figures.extend(zone_figures(table.aset));
     if let Some(tilt) = &measured.tilt {
         figures.extend([
             Figure::percent(
@@ -343,6 +388,51 @@ fn optics_figures(measured: &Measured) -> Vec<Figure> {
         ]);
     }
     figures
+}
+
+/// The zone shares of the face-up view, each `None` when the stone has no readings. Red, green
+/// and blue are the zones of the Contrast view (ASET-style) lighting; dark is leak plus lost.
+fn zone_figures(aset: Option<AsetAreaShares>) -> [Figure; 6] {
+    let share =
+        |pick: fn(&AsetAreaShares) -> f32| aset.as_ref().map(|shares| f64::from(pick(shares)));
+    [
+        Figure::percent(
+            GROUP_TABLE_UP,
+            "table_up_aset_red_pct",
+            "Zone red, 45-75 deg",
+            share(|shares| shares.red_pct),
+        ),
+        Figure::percent(
+            GROUP_TABLE_UP,
+            "table_up_aset_green_pct",
+            "Zone green, 0-45 deg",
+            share(|shares| shares.green_pct),
+        ),
+        Figure::percent(
+            GROUP_TABLE_UP,
+            "table_up_aset_blue_pct",
+            "Zone blue, 75-90 deg",
+            share(|shares| shares.blue_pct),
+        ),
+        Figure::percent(
+            GROUP_TABLE_UP,
+            "table_up_aset_dark_pct",
+            "Zone dark",
+            share(AsetAreaShares::dark_pct),
+        ),
+        Figure::percent(
+            GROUP_TABLE_UP,
+            "table_up_aset_leak_pct",
+            "Zone dark: leak",
+            share(|shares| shares.leak_pct),
+        ),
+        Figure::percent(
+            GROUP_TABLE_UP,
+            "table_up_aset_lost_pct",
+            "Zone dark: lost",
+            share(|shares| shares.lost_pct),
+        ),
+    ]
 }
 
 /// The proportions, the yield and the counts.
@@ -417,6 +507,8 @@ struct Built {
     n_d: f64,
     lighting: &'static str,
     figures: Vec<Figure>,
+    /// The Blue shares of the face-up grid, printed under the figures of the text report.
+    aset_grid: Option<AsetSpotGrid>,
     notes: Vec<String>,
 }
 
@@ -436,6 +528,7 @@ fn build(loaded: &Loaded, catalogue: &Catalogue, args: &MetricsArgs) -> Result<B
         &scoring,
         args.lighting,
         args.tilt,
+        args.aset_grid && matches!(args.format, ReportFormat::Text),
     )?;
     let mut notes = loaded.notes.clone();
     notes.extend(scoring.note.clone());
@@ -446,8 +539,54 @@ fn build(loaded: &Loaded, catalogue: &Catalogue, args: &MetricsArgs) -> Result<B
         n_d: scoring.n_d(),
         lighting: lighting_name(args.lighting),
         figures: figures(&measured),
+        aset_grid: measured.aset_grid,
         notes,
     })
+}
+
+/// The number of left-right and up-down neighbour pairs of spots that are both on the stone:
+/// the pairs Contrast averages over.
+fn neighbour_pairs(grid: &AsetSpotGrid) -> usize {
+    let on_stone = |ix: usize, iz: usize| {
+        ix < ASET_GRID && iz < ASET_GRID && grid.blue[ix * ASET_GRID + iz].is_some()
+    };
+    let mut pairs = 0;
+    for ix in 0..ASET_GRID {
+        for iz in 0..ASET_GRID {
+            if on_stone(ix, iz) {
+                pairs += usize::from(on_stone(ix + 1, iz)) + usize::from(on_stone(ix, iz + 1));
+            }
+        }
+    }
+    pairs
+}
+
+/// The grid of `--aset-grid`: the Blue share of every spot in percent, rows from the top of the
+/// view down and columns left to right, `.` off the stone, then the Contrast line that the
+/// shares add up to.
+fn aset_grid_text(grid: &AsetSpotGrid) -> String {
+    let mut text = String::from(GRID_CAPTION);
+    text.push('\n');
+    for iz in (0..ASET_GRID).rev() {
+        for ix in 0..ASET_GRID {
+            match grid.blue[ix * ASET_GRID + iz] {
+                Some(blue) => {
+                    let _ = write!(text, "{:>6.1}", f64::from(blue) * 100.0);
+                }
+                None => {
+                    let _ = write!(text, "{:>6}", ".");
+                }
+            }
+        }
+        text.push('\n');
+    }
+    let _ = writeln!(
+        text,
+        "Contrast = 100 x mean |difference| over the {} left-right and up-down pairs = {}",
+        neighbour_pairs(grid),
+        fixed(f64::from(pattern_contrast(&grid.blue)), PERCENT_DECIMALS)
+    );
+    text
 }
 
 /// The figures as groups of right-aligned values.
@@ -493,6 +632,10 @@ fn text_report(built: &Built) -> String {
     ]);
     text.push('\n');
     text.push_str(&figure_lines(&built.figures));
+    if let Some(grid) = &built.aset_grid {
+        text.push('\n');
+        text.push_str(&aset_grid_text(grid));
+    }
     if !built.notes.is_empty() {
         text.push('\n');
         text.push_str(&list_block("Notes", &built.notes));
@@ -592,6 +735,7 @@ mod tests {
             design: PathBuf::new(),
             material: Some(MaterialArg::Ri(1.76)),
             tilt,
+            aset_grid: false,
             format,
             lighting: CANONICAL_LIGHTING_PRESET,
             out: None,
@@ -765,16 +909,21 @@ mod tests {
         assert_eq!(missing.json(), Value::Null);
     }
 
-    /// Scripts that read the CSV by position keep working: the new column is the last one, and
-    /// every older column keeps its place. Text keeps it beside the band.
+    /// Scripts that read the CSV by position keep working: the appended columns are the last
+    /// ones, and every older column keeps its place. Text keeps the girdle line beside the band.
     #[test]
-    fn the_girdle_line_column_comes_last_in_the_csv_and_beside_the_band_in_text() {
+    fn the_appended_columns_come_last_in_the_csv_and_the_girdle_line_sits_beside_the_band_in_text()
+    {
         let built = built(false);
         let text = csv_report(&built);
         let lines: Vec<&str> = text.lines().collect();
         let header: Vec<&str> = lines[0].split(',').collect();
         assert_eq!(header.len(), lines[1].split(',').count(), "{text}");
-        assert_eq!(header.last(), Some(&GIRDLE_LINE_KEY), "{text}");
+        assert_eq!(
+            header.last().copied(),
+            APPENDED_CSV_KEYS.last().copied(),
+            "{text}"
+        );
         let at = |key: &str| {
             header
                 .iter()
@@ -812,6 +961,184 @@ mod tests {
     fn the_report_is_the_same_every_time() {
         assert_eq!(text_report(&built(false)), text_report(&built(false)));
         assert_eq!(json_report(&built(false)), json_report(&built(false)));
+    }
+
+    fn built_with_grid() -> Built {
+        let mut design = testing::template();
+        design.meta.headers = vec!["Round".to_string()];
+        let loaded = Loaded::in_memory(design, "round.psdd");
+        let grid_args = MetricsArgs {
+            aset_grid: true,
+            ..args(false, ReportFormat::Text)
+        };
+        build(&loaded, &Catalogue::default(), &grid_args).expect("measures")
+    }
+
+    fn reading(built: &Built, key: &str) -> f64 {
+        figure(built, key).value_text().parse().expect("a number")
+    }
+
+    #[test]
+    fn contrast_and_the_zone_shares_follow_scintillation_in_the_text_report() {
+        let text = text_report(&built(false));
+        let labels = [
+            "Scintillation",
+            "Contrast",
+            "Zone red, 45-75 deg",
+            "Zone green, 0-45 deg",
+            "Zone blue, 75-90 deg",
+            "Zone dark",
+            "Zone dark: leak",
+            "Zone dark: lost",
+        ];
+        let positions: Vec<usize> = labels
+            .iter()
+            .map(|label| {
+                text.find(label)
+                    .unwrap_or_else(|| panic!("no {label}: {text}"))
+            })
+            .collect();
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]), "{text}");
+        assert!(
+            text.find("Contrast").expect("contrast") < text.find("\nProportions:").expect("group"),
+            "{text}"
+        );
+        assert!(!text.contains("ASET Zones"), "{text}");
+        assert!(!text.contains(GRID_CAPTION), "{text}");
+    }
+
+    #[test]
+    fn the_json_report_carries_contrast_and_the_zone_shares() {
+        let value: Value = serde_json::from_str(&json_report(&built(false))).expect("valid JSON");
+        for key in APPENDED_CSV_KEYS.iter().skip(1) {
+            assert!(value["figures"][*key].is_number(), "{key}");
+        }
+        let contrast = value["figures"][CONTRAST_KEY].as_f64().expect("a number");
+        assert!((0.0..=100.0).contains(&contrast), "{contrast}");
+    }
+
+    #[test]
+    fn the_zone_shares_add_up_and_dark_is_leak_plus_lost() {
+        let built = built(false);
+        let share = |name: &str| reading(&built, &format!("table_up_aset_{name}_pct"));
+        let total = share("red") + share("green") + share("blue") + share("leak") + share("lost");
+        assert!((99.0..=100.05).contains(&total), "{total}");
+        assert!(
+            (share("dark") - (share("leak") + share("lost"))).abs() < 0.02,
+            "dark {} leak {} lost {}",
+            share("dark"),
+            share("leak"),
+            share("lost")
+        );
+        assert_eq!(
+            figure(&built, "table_up_aset_leak_pct").value_text(),
+            figure(&built, "table_up_windowing_pct").value_text(),
+            "leak is the windowing rays"
+        );
+    }
+
+    #[test]
+    fn the_contrast_and_zone_columns_are_appended_after_the_girdle_line_in_the_csv() {
+        let text = csv_report(&built(false));
+        let header: Vec<&str> = text.lines().next().expect("a header").split(',').collect();
+        let tail = &header[header.len() - APPENDED_CSV_KEYS.len()..];
+        assert_eq!(tail, APPENDED_CSV_KEYS, "{text}");
+        assert_eq!(tail[0], GIRDLE_LINE_KEY);
+        assert_eq!(tail[1], CONTRAST_KEY);
+        let position = |key: &str| header.iter().position(|column| *column == key);
+        assert_eq!(
+            position(GIRDLE_LINE_KEY),
+            position("warnings").map(|at| at + 1),
+            "the older columns keep their place"
+        );
+    }
+
+    #[test]
+    fn the_neighbour_pairs_count_left_right_and_up_down_pairs_on_the_stone() {
+        let mut grid = AsetSpotGrid {
+            blue: [None; ASET_GRID * ASET_GRID],
+        };
+        assert_eq!(neighbour_pairs(&grid), 0);
+        grid.blue[0] = Some(0.0);
+        assert_eq!(neighbour_pairs(&grid), 0, "one spot has no neighbour");
+        grid.blue[ASET_GRID] = Some(0.5);
+        grid.blue[ASET_GRID + 1] = Some(1.0);
+        assert_eq!(neighbour_pairs(&grid), 2);
+        // A diagonal is not a neighbour.
+        grid.blue[1] = None;
+        grid.blue[ASET_GRID + 1] = None;
+        grid.blue[2 * ASET_GRID + 1] = Some(1.0);
+        assert_eq!(neighbour_pairs(&grid), 1);
+    }
+
+    #[test]
+    fn the_grid_text_has_a_row_per_iz_with_dots_off_the_stone_and_percent_on_it() {
+        let mut grid = AsetSpotGrid {
+            blue: [None; ASET_GRID * ASET_GRID],
+        };
+        // Column 3, row 17 (the top row), and column 4 beside it.
+        grid.blue[3 * ASET_GRID + 17] = Some(0.2);
+        grid.blue[4 * ASET_GRID + 17] = Some(0.0);
+        let text = aset_grid_text(&grid);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], GRID_CAPTION);
+        assert_eq!(lines.len(), ASET_GRID + 2, "{text}");
+        let top: Vec<&str> = lines[1].split_whitespace().collect();
+        assert_eq!(top.len(), ASET_GRID);
+        assert_eq!(&top[2..6], [".", "20.0", "0.0", "."], "{text}");
+        assert!(lines[2..=ASET_GRID].iter().all(|row| !row.contains('2')));
+        assert_eq!(
+            lines[ASET_GRID + 1],
+            "Contrast = 100 x mean |difference| over the 1 left-right and up-down pairs = 20.00"
+        );
+    }
+
+    #[test]
+    fn the_aset_grid_prints_eighteen_rows_and_a_contrast_line_equal_to_the_figure() {
+        let built = built_with_grid();
+        let grid = built.aset_grid.as_ref().expect("the grid was asked for");
+        let text = text_report(&built);
+        let start = text.find(GRID_CAPTION).expect("the caption");
+        let block: Vec<&str> = text[start..].lines().collect();
+        assert_eq!(block[0], GRID_CAPTION);
+        assert!(
+            block[1..=ASET_GRID]
+                .iter()
+                .all(|row| row.split_whitespace().count() == ASET_GRID),
+            "{text}"
+        );
+        let pairs = neighbour_pairs(grid);
+        assert!((300..=328).contains(&pairs), "{pairs}");
+        let contrast = figure(&built, CONTRAST_KEY).value_text();
+        assert_eq!(
+            block[ASET_GRID + 1],
+            format!(
+                "Contrast = 100 x mean |difference| over the {pairs} left-right and up-down pairs = {contrast}"
+            ),
+            "{text}"
+        );
+        // The grid sits between the figures and the notes, never in JSON or CSV.
+        assert!(start > text.find("\nStone:\n").expect("the stone group"));
+        assert!(!json_report(&built).contains("Blue-zone"));
+        assert!(!csv_report(&built).contains("Blue-zone"));
+        assert!(built_without_grid().aset_grid.is_none());
+    }
+
+    fn built_without_grid() -> Built {
+        built(false)
+    }
+
+    #[test]
+    fn end_to_end_the_aset_grid_flag_prints_the_grid_and_refuses_json_and_csv() {
+        let input = testing::write_design("metrics-e2e-grid.psdd", &testing::template());
+        let outcome = testing::run(&["metrics", &input, "--ri", "1.76", "--aset-grid"]);
+        assert_eq!(outcome.exit, EXIT_OK, "{}", outcome.stderr);
+        assert!(outcome.stdout.contains(GRID_CAPTION), "{}", outcome.stdout);
+        let json = testing::run(&["metrics", &input, "--ri", "1.76", "--aset-grid", "--json"]);
+        assert_eq!(json.exit, EXIT_USAGE, "{}", json.stderr);
+        let plain = testing::run(&["metrics", &input, "--ri", "1.76"]);
+        assert_eq!(plain.exit, EXIT_OK, "{}", plain.stderr);
+        assert!(!plain.stdout.contains(GRID_CAPTION));
     }
 
     #[test]

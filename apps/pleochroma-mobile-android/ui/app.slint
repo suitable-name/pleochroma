@@ -34,7 +34,7 @@ import { RetargetModel } from "design/retarget.slint";
 import { NewDesignPage } from "design/new_design_page.slint";
 import { ViewportModel } from "design/viewport/viewport_model.slint";
 import { TiersModel, TierRowData, TierChipData, AnglePresetData } from "design/tiers/tiers_model.slint";
-import { PropsModel, MaterialItem, LightingItem, WarningItem, ProportionItem } from "design/props/props_model.slint";
+import { PropsModel, MaterialItem, LightingItem, WarningItem, ProportionItem, CurveItem, TickItem, ColorPairItem, LineItem } from "design/props/props_model.slint";
 import { CutModel, CutRowData } from "cut/cut_model.slint";
 import { CuttingModeScreen } from "cut/cutting_mode.slint";
 import { RenderModel } from "design/render/render_model.slint";
@@ -51,7 +51,7 @@ export { OptimizeModel, OptimizeRange }
 export { RetargetModel }
 export { RemoteModel, JobRow }
 export { TiersModel, TierRowData, TierChipData, AnglePresetData }
-export { PropsModel, MaterialItem, LightingItem, WarningItem, ProportionItem }
+export { PropsModel, MaterialItem, LightingItem, WarningItem, ProportionItem, CurveItem, TickItem, ColorPairItem, LineItem }
 export { CutModel, CutRowData }
 
 export component AppWindow inherits Window {
@@ -97,11 +97,15 @@ export component AppWindow inherits Window {
         Shell.width-changed(root.width);
     }
 
-    changed default-font-size => {
+    // Both are observed through mirror properties: no `changed` handler on a built-in Window
+    // property.
+    property <length> font-size-mirror: root.default-font-size;
+    changed font-size-mirror => {
         root.mirror-font-size();
     }
 
-    changed width => {
+    property <length> width-mirror: root.width;
+    changed width-mirror => {
         Shell.width-changed(root.width);
     }
 

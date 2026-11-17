@@ -78,8 +78,6 @@ where it is described):
   Deep Solve's results.
 - **Menus**: File > Export Gem Cut Studio (.gcs); Edit > Edit as Text and Angle
   Sweep; and the three Regenerate entries of the Library menu.
-- **Top toolbar** (Chapter 1): the Remote button, until a remote worker is set up
-  or a remote library is showing.
 - **Library** (Chapter 2): the Advanced Filters panel's "Compute Missing Tilt
   Curves" button and its "Regenerate for Filtered Set" section, and the detail
   header's Export .gcs button.

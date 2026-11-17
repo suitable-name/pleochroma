@@ -100,12 +100,14 @@ impl GemMaterial {
                 // citrine_annealed_amethyst.csv`. That table is secondary and unverified, so
                 // only its shape is claimed. No polarized citrine spectrum exists and citrine's
                 // pleochroism is very weak, so the o- and e-ray sets are equal.
-                // Strength: the fit at 0.53 of the table, then `.scaled(2.0)`, i.e. 1.06 x the
-                // table per mm over the 9.905 mm face-up path. The x 2 strength matches the
-                // colored-pixel saturation of the dealer photos (s_uv 0.79; 0.57 at x 1).
-                // Swatch L*85 C*77 h 87.
+                // Strength: the fit at 0.53 of the table per mm over the 9.905 mm face-up path
+                // (peaks stored as per mm x 0.53 x 9.905), the owner's strength of 2026-10-27.
+                // Restored 2026-11-16: the saturation round's `.scaled(2.0)` of 2026-11-04 (swatch
+                // L*85 C*77 h 87, to match the dealer photos' s_uv 0.79) is superseded, since an
+                // external reference render of the same designs is a pale beige, nearer this one.
+                // Swatch L*92 C*51 h 94.
                 // Calibration record: docs/chromophores/calibration-records.md#citrine
-                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
+                // Calibration record: docs/chromophores/calibration-records.md#loyd-v0111-round-2026-11-16
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
                         AbsorptionBand::energy(330.0, 8_477.0, 8.69),
@@ -117,8 +119,7 @@ impl GemMaterial {
                         AbsorptionBand::energy(410.0, 7_064.0, 0.714),
                         AbsorptionBand::energy(500.0, 5_181.0, 0.121),
                     ],
-                )
-                .scaled(2.0),
+                ),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,
                 alpha_axis: None,

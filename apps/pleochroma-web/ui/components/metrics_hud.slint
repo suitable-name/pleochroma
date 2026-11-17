@@ -23,18 +23,36 @@ component Stat inherits HorizontalLayout {
     }
 }
 
+// A 60 px stacked bar of the four zone shares (Red, Green, Blue, Dark).
+component ZonesBar inherits Rectangle {
+    width: 60px;
+    height: 8px;
+    border-radius: 2px;
+    clip: true;
+    background: Theme.aset-dark;
+    HorizontalLayout {
+        Rectangle { horizontal-stretch: MetricsModel.zones-pct[0]; background: Theme.aset-red; }
+        Rectangle { horizontal-stretch: MetricsModel.zones-pct[1]; background: Theme.aset-green; }
+        Rectangle { horizontal-stretch: MetricsModel.zones-pct[2]; background: Theme.aset-blue; }
+        Rectangle { horizontal-stretch: MetricsModel.zones-pct[3]; background: Theme.aset-dark; }
+    }
+}
+
 // Real-time five-point gemological metrics HUD over the Render tab, with the desktop's labels,
 // units and thresholds (`gem_viewport.slint`): Brilliance, Fire, Scintillation, Windowing
-// (ruby above 10 %) and Extinction (amber above 12 %). `compact` shows the stats in rows.
+// (ruby above 10 %) and Extinction (amber above 12 %), then Contrast and, on the wide layout, a
+// line with the Zones (ASET-style) shares (also on the phone, wrapping). `compact` shows the stats in rows.
 export component MetricsHud inherits Rectangle {
     in property <bool> compact: false;
+    // The widest the HUD may be (the view's width less its margins); a long zones line wraps.
+    in property <length> room: 10000px;
 
     opacity: MetricsModel.pending ? 0.55 : 1.0;
     background: #0f172aee;
     border-radius: Theme.radius-sm;
     border-width: 1px;
     border-color: Theme.border-medium;
-    width: hud.preferred-width;
+    width: root.compact ? min(330px, root.room) : hud.preferred-width;
     height: hud.preferred-height;
 
     hud := VerticalLayout {
@@ -59,6 +77,11 @@ export component MetricsHud inherits Rectangle {
                 value: Math.round(MetricsModel.extinction-pct) + "%";
                 tint: MetricsModel.extinction-pct > 12.0 ? Theme.accent-amber : Theme.text-secondary;
             }
+            if !root.compact && MetricsModel.has-aset: Stat {
+                label: "Contrast:";
+                value: "" + Math.round(MetricsModel.contrast);
+                tint: Theme.text-secondary;
+            }
             if !root.compact && MetricsModel.doubling-arcmin > 0.0: Stat {
                 label: "Doubling:";
                 value: Math.round(MetricsModel.doubling-arcmin * 10.0) / 10.0 + " arcmin";
@@ -82,6 +105,11 @@ export component MetricsHud inherits Rectangle {
                 value: Math.round(MetricsModel.extinction-pct) + "%";
                 tint: MetricsModel.extinction-pct > 12.0 ? Theme.accent-amber : Theme.text-secondary;
             }
+            if MetricsModel.has-aset: Stat {
+                label: "Contrast:";
+                value: "" + Math.round(MetricsModel.contrast);
+                tint: Theme.text-secondary;
+            }
             if MetricsModel.doubling-arcmin > 0.0: Stat {
                 label: "Doubling:";
                 value: Math.round(MetricsModel.doubling-arcmin * 10.0) / 10.0 + " arcmin";
@@ -90,10 +118,43 @@ export component MetricsHud inherits Rectangle {
             // Keeps the last stat at its own width instead of stretching label and value apart.
             Rectangle { horizontal-stretch: 1; }
         }
-        // What the numbers were scored under, when that is not the viewport's preset.
-        if MetricsModel.has-metrics && MetricsModel.scored-under-text != "": Text {
+                // The Zones (ASET-style) line: label, a 60 px stacked bar, the shares, and what the
+        // numbers were scored under after a " · ". It is the last row on every layout (the
+        // phone wraps it); the label and the bar then stay on a row of their own.
+        if MetricsModel.has-metrics && MetricsModel.has-aset && !root.compact: HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Zones (ASET-style)"; font-size: 11px; font-weight: 600; color: Theme.text-muted; vertical-alignment: center; }
+            VerticalLayout { alignment: center; ZonesBar {} }
+            Text {
+                horizontal-stretch: 1;
+                text: MetricsModel.zones-text + (MetricsModel.scored-under-text != "" ? " · " + MetricsModel.scored-under-text : "");
+                font-size: 11px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        if MetricsModel.has-metrics && MetricsModel.has-aset && root.compact: VerticalLayout {
+            spacing: 3px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "Zones (ASET-style)"; font-size: 11px; font-weight: 600; color: Theme.text-muted; vertical-alignment: center; }
+                VerticalLayout { alignment: center; ZonesBar {} }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text {
+                text: MetricsModel.zones-text + (MetricsModel.scored-under-text != "" ? " · " + MetricsModel.scored-under-text : "");
+                font-size: 11px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+                // Two lines when the scored-under note joins the shares.
+                min-height: MetricsModel.scored-under-text != "" ? 30px : 15px;
+            }
+        }
+        // No zones measured: the scored-under note keeps its own line.
+        if MetricsModel.has-metrics && !MetricsModel.has-aset && MetricsModel.scored-under-text != "": Text {
             text: MetricsModel.scored-under-text;
-            font-size: 10px;
+            font-size: 11px;
             color: Theme.text-muted;
             overflow: elide;
         }

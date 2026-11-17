@@ -18,14 +18,14 @@ switch tabs. Its fields are:
 | Material Name | text field | Rejected with a warning if it matches a built-in material's own name. |
 | Refractive Index Curve | switch: **Simple** / **Coefficients** | **Simple** uses the two sliders below. **Coefficients** types the curve as a Sellmeier or Cauchy fit and hides those two sliders -- see "Dispersion coefficients" below. |
 | Refractive Index (nd) | slider, 1.30–3.20 | Simple mode. |
-| Dispersion (Fire ΔnF-C) | slider, 0.000–0.210 | Simple mode. |
-| Specific Gravity | slider, 0.0–7.0 | Shows "not recorded" at 0 -- leave it there if you don't know the figure. |
+| Dispersion (Fire ΔnF-C) | slider, 0.000–0.210 | Simple mode. This is the F–C figure (486.1 to 656.3 nm), the optical one. The Stone tab's Dispersion chip and the Material Reference show the B–G figure of the same curve instead, the one gem references print (Chapter 6, "Dispersion in the Stone Tab: B–G and F–C"). |
 | Birefringence (Δn = ne − no) | slider, −0.050 to +0.100 | Zero means isotropic. |
 | Crystal System | combo | Cubic, Tetragonal, Hexagonal, Trigonal, Orthorhombic, Monoclinic, Triclinic. |
 | Optical Character | combo | Isotropic, Uniaxial (+), Uniaxial (−), Biaxial (+), Biaxial (−). |
 | Biaxial nβ − nα | slider | Only shown when Optical Character is one of the two Biaxial choices. |
 | Crystal Axis | **Not Set** / **Set**, then **Tilt** and **Azimuth**; for a biaxial material a **Second Axis** with a **Turn** | Shown for every material that is not isotropic. The default direction of the material's crystal axis (for a biaxial material, the axis of the largest index). A design takes it unless it sets its own (Chapter 25). |
 | Per-Axis Curves | **Simple** / **Curves**, then **Curve For** | Shown for every material that is not isotropic. **Curves** types a Sellmeier or Cauchy fit for the extraordinary ray of a uniaxial material, or for the alpha and gamma rays of a biaxial one (see "Curves for the Extraordinary Ray" below). |
+| Gem Data | section, optional | Hardness (Mohs), toughness, specific gravity, cleavage, fracture, care and your source for the material -- see "Gem Data" below. Leave it empty if you do not know them. Specific gravity used to be a slider in the main form; it is now a number field in this section. |
 | Inclusion Families | **Add Family**, up to four | Needles, plates or random needles that give the material its own silk (Chapter 27). |
 | Play-of-Color | enable, then **Imitates**, **Pattern**, colors, **Purity**, **Coverage**, **Reseed** | Lets the material show the flashes of an opal or a labradorite (Chapter 28). |
 | Color Mode | radio toggle | **Fantasy** (unconstrained colors) or **Physics** (mineralogical host crystal + real chromophores). Only in builds with the `physical-color` feature -- see "Physics Color Mode" below. |
@@ -35,6 +35,26 @@ switch tabs. Its fields are:
 Buttons: **Delete**, **Cancel**, **Save**, and **Save & Apply** (saves, then
 makes it the design's material as one undo step; it ends a running preview, and for a
 library row it becomes the material that row is shown as).
+
+### Gem Data
+
+The optional **Gem Data** section holds what you know about how the stone behaves in the hand, so that the Stone tab's identity card (its SG, Mohs and Toughness chips and the cleavage line) and the Material Reference (Chapter 6) can show it for your material as they do for a built-in one. The section's caption reads "Gem Data" with the word "Optional" beside it, and a line says "Entered by you. Leave a field blank to leave it unrecorded." Every field is optional. A field left blank is left out of the Stone tab's card and reads **Not recorded** in the Material Reference. A cutter's own stone rarely has Miller indices to hand, so the text fields take plain words.
+
+| Field | Control | Notes |
+|---|---|---|
+| Mohs | two number fields, **from** and **to** | 1 to 10. Enter one number in both for a single value. Blank is not recorded. |
+| Toughness | two combos, **from** and **to** | GIA's words: Very Poor, Poor, Fair, Good, Excellent, Exceptional, or Not Recorded. The same word in both for a single grade. |
+| Specific gravity | number field | The density compared with water, for example 3.53; above 0 and up to 30. It sets the carat weight the Material Reference estimates for your design. Blank is not recorded (the field shows "Not recorded" as its hint). It is a typed number, not a slider. |
+| Cleavage | text | For example "Perfect basal {001}" or "None". When the text starts with Perfect, Good or Distinct, the Stone tab shows the cleavage line as a warning. |
+| Fracture | text | For example "Conchoidal". |
+| Care | text, 200 characters at most | A short note, for example "Avoid sudden temperature changes while dopping." |
+| Source | text | Where the figures come from: your notes, a book, a supplier's sheet. |
+
+The section does not change anything about how the stone renders or how a design is solved. Its figures are saved with the material in your library and travel with a design that uses the material, in a `[material.custom.gem_data]` table of the `.psdd` file (Chapter 11). The table is written only when at least one field is filled, and the file's version does not change: an older build opens the file, ignores the table and keeps it when it saves again. A value this version cannot read (a toughness word it does not know, a Mohs figure outside 1 to 10) loads as not recorded, with a note, and never stops the file from opening.
+
+Wherever the program shows gem data for a custom material it marks it as yours: the Stone tab's card and the Material Reference's details page read "Entered by you" under Sources, followed by your own source text, and the table tags the material **Mine** (the **My Materials** filter lists them). A custom material with no gem data shows "No gem data yet — add it in the Material Editor" on the Stone tab's card, and the link (**Edit Material...**) opens this editor.
+
+**Starting from a built-in.** In the Material Reference, **Duplicate as Custom...** on a built-in material's details page opens this editor with that material chosen as the **Load Preset Template**, so the optics start from the built-in values.
 
 ### Dispersion Coefficients (Sellmeier and Cauchy)
 

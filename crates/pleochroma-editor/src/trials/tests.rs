@@ -25,6 +25,7 @@ fn figures(brilliance: f32, windowing: f32) -> RowMetrics {
         warning_count: 0,
         has_girdle: true,
         tilt: None,
+        aset: None,
     }
 }
 
@@ -222,4 +223,64 @@ fn sorting_by_a_figure_puts_the_best_first_and_unscored_last() {
         order(TrialSort::Figure(DeltaFigure::Windowing)),
         vec![3, 1, 2]
     );
+}
+
+fn traced(brilliance: f32, contrast: f32) -> RowMetrics {
+    RowMetrics {
+        aset: Some(pleochroma::color::metrics::AsetAreaShares {
+            red_pct: 40.0,
+            green_pct: 20.0,
+            blue_pct: 20.0,
+            leak_pct: 10.0,
+            lost_pct: 10.0,
+            contrast,
+        }),
+        ..figures(brilliance, 60.0)
+    }
+}
+
+#[test]
+fn a_trial_with_zone_figures_gets_a_contrast_cell_and_the_others_do_not() {
+    let design = rbc();
+    let mut list = TrialList::new();
+    list.push(draft(&design, Some(traced(20.0, 18.0)), 1));
+    list.push(draft(&design, Some(traced(20.0, 30.0)), 1));
+    list.push(draft(&design, Some(figures(20.0, 60.0)), 1));
+    let baseline = traced(20.0, 20.0);
+    let rows = trial_rows(&list, Some(&baseline));
+    let contrast = |row: &TrialRowView| {
+        row.cells
+            .iter()
+            .find(|cell| cell.figure == DeltaFigure::Contrast)
+            .cloned()
+    };
+    let first = contrast(&rows[0]).expect("a traced trial has the cell");
+    assert_eq!(first.text, "18.0");
+    assert_eq!(first.change_text, "\u{2212}2.0");
+    assert_eq!(first.tone, DeltaTone::Same, "two points are inside four");
+    assert!(!first.best);
+    let second = contrast(&rows[1]).expect("cell");
+    assert_eq!(second.tone, DeltaTone::Better);
+    assert!(second.best, "the highest Contrast of the list is the best");
+    assert!(contrast(&rows[2]).is_none(), "no zone figures, no cell");
+    assert_eq!(
+        rows[0].cells.last().map(|cell| cell.figure),
+        Some(DeltaFigure::Contrast),
+        "cells follow DeltaFigure::ALL"
+    );
+}
+
+#[test]
+fn sorting_by_contrast_puts_the_highest_first_and_untraced_last() {
+    let design = rbc();
+    let mut list = TrialList::new();
+    list.push(draft(&design, Some(traced(20.0, 18.0)), 1));
+    list.push(draft(&design, Some(figures(20.0, 60.0)), 1));
+    list.push(draft(&design, Some(traced(20.0, 30.0)), 1));
+    let order: Vec<u32> = list
+        .sort_by(TrialSort::Figure(DeltaFigure::Contrast))
+        .iter()
+        .map(|trial| trial.number)
+        .collect();
+    assert_eq!(order, vec![3, 1, 2]);
 }

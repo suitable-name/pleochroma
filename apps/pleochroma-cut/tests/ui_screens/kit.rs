@@ -11,7 +11,7 @@ use crate::{
     },
 };
 use pleochroma_cut::{
-    ActivityModel, BatchModel, LibraryModel, MainWindow, SettingsModel, ViewportModel,
+    ActivityModel, BatchModel, EditorModel, LibraryModel, MainWindow, SettingsModel, ViewportModel,
 };
 use slint::{
     ComponentHandle, LogicalPosition, Model,
@@ -393,17 +393,37 @@ impl Sc<'_, '_> {
         Ok(())
     }
 
-    /// Hides the toast, checks the privacy rule and captures the main window.
+    /// Hides the toast, closes the dialogs no shot asks for, checks the privacy rule and
+    /// captures the main window.
     ///
     /// # Errors
     ///
     /// Private text is visible, or the capture fails.
     pub fn snap_main(&self) -> Result<Shot, String> {
         self.ctx.app.clear_notice();
+        self.dismiss_unasked();
         pump(150);
         let view = self.ctx.app.main_view();
         self.privacy(&view)?;
         screenshot::capture(self.ctx.app.ui().window())
+    }
+
+    /// Closes what can open by itself during a shot and is never part of one: the start-up
+    /// batch offers, which can arrive after [`Self::prepare`] stopped waiting for them, and the
+    /// anchor explainer a failed solve opens once per session. Their scrim would dim the shot.
+    fn dismiss_unasked(&self) {
+        let ui = self.ui();
+        let batch = ui.global::<BatchModel>();
+        if batch.get_preview_visible() {
+            batch.invoke_preview_dismiss_offer();
+        }
+        if batch.get_tilt_visible() {
+            batch.invoke_tilt_dismiss_offer();
+        }
+        let editor = ui.global::<EditorModel>();
+        if editor.get_anchor_explainer_open() {
+            editor.set_anchor_explainer_open(false);
+        }
     }
 
     /// Checks the privacy rule and captures a secondary window.

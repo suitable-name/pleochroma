@@ -1,8 +1,10 @@
-//! One `join` connection: dial the coordinator's worker port over mutual TLS, `HELLO`
-//! as a worker, expect `WELCOME.registration`, then serve the coordinator's requests
-//! with the same loop a viewer connection uses (`crate::serve::serve_requests`) until
-//! the connection ends.
+//! One `join` connection.
+//!
+//! Dial the coordinator's worker port over mutual TLS, `HELLO` as a worker, expect
+//! `WELCOME.registration`, then serve the coordinator's requests with the same loop a viewer
+//! connection uses (`crate::serve::serve_requests`) until the connection ends.
 
+use super::handle::Slot;
 use crate::{
     assets::AssetCache,
     cli::ComputeMode,
@@ -66,7 +68,11 @@ impl JoinTarget {
         let ca = pleochroma_net::tls::load_ca(&ca_path).map_err(|e| e.to_string())?;
         let certs = pleochroma_net::tls::load_certs(&cert_path).map_err(|e| e.to_string())?;
         let key = pleochroma_net::tls::load_private_key(&key_path).map_err(|e| e.to_string())?;
-        let client_config = pleochroma_net::tls::client_config(ca, certs, key)
+        // Verified against the coordinator's fixed certificate name when it has one, so
+        // joining by a host name, an address that changed or over a VPN keeps working; a
+        // certificate from before the fixed name is checked against the dialed name, as
+        // before.
+        let client_config = pleochroma_net::tls::client_config_fixed_name(ca, certs, key)
             .map_err(|e| format!("failed to build the TLS client config: {e}"))?;
         Ok(Self {
             addr: addr.to_string(),
@@ -186,13 +192,44 @@ pub struct Session {
     pub ended: Result<(), NetError>,
 }
 
+impl JoinError {
+    /// The problem in plain words for the window, with what to do about it.
+    #[must_use]
+    pub fn plain(&self, addr: &str) -> String {
+        match self {
+            Self::Connect(_) => format!(
+                "Can't reach the coordinator at {addr}. Check that it is running and that both computers are on the same network."
+            ),
+            Self::Tls(_) => "The coordinator did not accept this computer's certificate. Connect again with a new link from \"Add a render computer\" on the coordinator.".to_owned(),
+            Self::Refused(e) if e.code == error_codes::ROLE_REFUSED => "The coordinator does not accept this computer as a render computer. Connect again with a new link from \"Add a render computer\" on the coordinator.".to_owned(),
+            Self::Refused(e) => format!("The coordinator refused this computer: {}", e.message),
+            Self::Handshake(e) => format!(
+                "This computer and the coordinator could not agree ({e}). Update Pleochroma on both computers to the same version."
+            ),
+            Self::NotACoordinator => format!(
+                "{addr} is not a coordinator's render-computer address. Connect again with a new link."
+            ),
+        }
+    }
+}
+
 /// One connection's whole life: dial, register, serve until it ends.
 ///
 /// # Errors
 ///
 /// A [`JoinError`] if the connection never registered.
 pub fn join_once(target: &JoinTarget, setup: &WorkerSetup) -> Result<Session, JoinError> {
-    let mut tls = dial(target)?;
+    join_once_observed(target, setup, None)
+}
+
+/// [`join_once`], reporting to `slot` (the window's live status and the socket a stop shuts
+/// down).
+pub(super) fn join_once_observed(
+    target: &JoinTarget,
+    setup: &WorkerSetup,
+    slot: Option<&Arc<Slot>>,
+) -> Result<Session, JoinError> {
+    let mut tls = dial(target, slot)?;
     // Recomputed per connection, not reused from start-up: see `WorkerSetup::capability`.
     let hello = handshake::local_worker_hello(setup.current_capability());
     let welcome = handshake_with_hello(&mut tls, &hello).map_err(|e| match e {
@@ -215,6 +252,9 @@ pub fn join_once(target: &JoinTarget, setup: &WorkerSetup) -> Result<Session, Jo
         registration.worker_id,
         welcome.payload_encoding
     );
+    if let Some(slot) = slot {
+        slot.joined(&target.addr);
+    }
 
     // No fixed timeout: the idle deadline of `IdleDeadlineStream` applies.
     let _ = tls.set_read_timeout(None);
@@ -245,6 +285,8 @@ pub fn join_once(target: &JoinTarget, setup: &WorkerSetup) -> Result<Session, Jo
             assets: setup.assets.as_deref(),
             // A joined worker keeps no durable jobs; the coordinator does.
             jobs: None,
+            // The coordinator lists the render this chunk belongs to; a chunk is not a viewer's.
+            viewer: None,
         },
     );
     Ok(Session {
@@ -258,7 +300,7 @@ type JoinStream = rustls::StreamOwned<rustls::ClientConnection, IdleDeadlineStre
 
 /// TCP connect (first address that answers), socket tuning, the handshake deadline,
 /// and the TLS handshake.
-fn dial(target: &JoinTarget) -> Result<JoinStream, JoinError> {
+fn dial(target: &JoinTarget, slot: Option<&Arc<Slot>>) -> Result<JoinStream, JoinError> {
     let addrs: Vec<SocketAddr> = target
         .addr
         .to_socket_addrs()
@@ -276,6 +318,9 @@ fn dial(target: &JoinTarget) -> Result<JoinStream, JoinError> {
     let peer = tcp.peer_addr().ok();
     serve::tune_accepted_socket(&tcp, peer);
     serve::apply_handshake_timeout(&tcp, peer);
+    if let Some(slot) = slot {
+        slot.attach_socket(&tcp);
+    }
 
     let conn = rustls::ClientConnection::new(
         Arc::clone(&target.client_config),
@@ -287,6 +332,7 @@ fn dial(target: &JoinTarget) -> Result<JoinStream, JoinError> {
         IdleDeadlineStream {
             tcp,
             idle: JOIN_IDLE_TIMEOUT,
+            slot: slot.map(Arc::clone),
         },
     );
     tls.conn
@@ -303,6 +349,8 @@ fn dial(target: &JoinTarget) -> Result<JoinStream, JoinError> {
 pub struct IdleDeadlineStream {
     tcp: TcpStream,
     idle: Duration,
+    /// The window's view of this connection, told about every write.
+    slot: Option<Arc<Slot>>,
 }
 
 impl Read for IdleDeadlineStream {
@@ -313,7 +361,11 @@ impl Read for IdleDeadlineStream {
 
 impl Write for IdleDeadlineStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.tcp.write(buf)
+        let written = self.tcp.write(buf)?;
+        if let Some(slot) = &self.slot {
+            slot.note_write(written);
+        }
+        Ok(written)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {

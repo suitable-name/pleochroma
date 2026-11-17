@@ -22,6 +22,14 @@ export global MetricsModel {
     // The mean angular separation of the two images in a birefringent stone, arcminutes
     // (0 for an isotropic one: the HUD shows the line only above 0).
     in property <float> doubling-arcmin: 0;
+    // The pattern Contrast, 0 to 100 (shown only when `has-aset`: the Worker measured it).
+    in property <float> contrast: 0;
+    // Contrast and the zones line below are valid.
+    in property <bool> has-aset: false;
+    // The Zones (ASET-style) shares as one line: "Red 44% · Green 19% · Blue 16% · Dark 21%".
+    in property <string> zones-text: "";
+    // The same four shares (Red, Green, Blue, Dark) in percent, for the mini bar.
+    in property <[float]> zones-pct: [0, 0, 0, 0];
 }
 
 // The Tilt Performance dialog: four camera azimuths (0, 45, 90, 135 degrees) of 181 points

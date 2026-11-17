@@ -201,7 +201,7 @@ fn custom_material() -> Guide {
     .step(
         GuideStep::new(
             "What a custom material holds",
-            "The built-in list has 33 materials. A custom material is one you describe yourself, for a stone the list does not have.",
+            "The built-in list has 39 materials. A custom material is one you describe yourself, for a stone the list does not have.",
         )
         .actions([
             "Refractive index (nd) and dispersion (the fire, as the spread between the blue and red lines).",

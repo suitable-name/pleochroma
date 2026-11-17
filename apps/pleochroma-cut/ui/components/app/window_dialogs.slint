@@ -1,6 +1,7 @@
 import { HelpModel } from "../../models/help.slint";
 import { RadvWorkaroundModel } from "../../models/radv_workaround.slint";
 import { RawTextModel } from "../../models/raw_text.slint";
+import { RemoteWorkerModel } from "../../models/remote_worker.slint";
 import { SweepModel } from "../../models/sweep.slint";
 import { TutorialsModel } from "../../models/tutorials.slint";
 import { UpdateModel } from "../../models/update.slint";
@@ -208,6 +209,27 @@ export component WindowQuestionDialogs inherits Rectangle {
         primary => { RadvWorkaroundModel.restart_with_workaround(); }
         secondary => { RadvWorkaroundModel.dont_use(); }
         cancel => { RadvWorkaroundModel.not_now(); }
+    }
+
+    // The "Render on <computer>?" question after a pairing, when the render settings would keep
+    // the new computer unused (`RemoteWorkerModel.use_remote_prompt_open`, raised by Rust). Both
+    // answers close it; "Keep on this computer" changes nothing, like Escape.
+    if RemoteWorkerModel.use_remote_prompt_open: ConfirmActionDialog {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 420;
+        heading: "Render on " + RemoteWorkerModel.use_remote_name + "?";
+        message: RemoteWorkerModel.use_remote_final_too
+            ? "Live Render and final pictures currently run on this computer only. Turn on " + RemoteWorkerModel.use_remote_name + " as well, so both computers render together?"
+            : "Live Render currently runs on this computer only. Turn on " + RemoteWorkerModel.use_remote_name + " as well, so both computers render together?";
+        primary_label: "Use " + RemoteWorkerModel.use_remote_name;
+        primary_hint: "Render on both computers. You can change this later in the Render settings.";
+        cancel_label: "Keep on this computer";
+        secondary_label: "";
+        primary => { RemoteWorkerModel.use_remote_answered(true); }
+        cancel => { RemoteWorkerModel.use_remote_answered(false); }
     }
 
     // Window-close unsaved-changes guard (see `close_confirm_open` in `app.slint`). Save and

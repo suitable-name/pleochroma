@@ -1,0 +1,171 @@
+// What the Rust side and the Settings page share. `settings.slint` re-exports `SettingsState`
+// (a global is a Rust type only if `app.slint` exports it, through the page file).
+//
+// Every property is filled by `src/gui/pages/settings.rs` from the live settings. The page never
+// edits a property itself: it calls `set-bool`, `set-int` or `set-text` with a key, Rust
+// validates and saves, and then pushes the new values (or an `error`) back.
+
+/// One computer or person with remote access (a Monitor or Admin entry of this coordinator).
+export struct AccessRowData {
+    name: string,
+    /// "Full administration" or "Monitor only".
+    access: string,
+    /// "Today 09:12"-style text, or "Never".
+    seen: string,
+    online: bool,
+    /// The certificate fingerprint (64 hex characters), the key of "Remove access".
+    fingerprint: string,
+}
+
+export global SettingsState {
+    /// True once Rust has filled the state.
+    in property <bool> loaded: false;
+    /// The section shown: 0 General, 1 Network, 2 Security, 3 Performance, 4 Storage, 5 Advanced.
+    in-out property <int> section: 0;
+    /// The last refused change, in plain words; empty when the last change worked.
+    in-out property <string> error;
+    /// True after a change that only a restart applies (ports, network, storage, certificates).
+    in property <bool> restart-needed: false;
+    /// True while the coordinator is not running here (the restart button then reads Start).
+    in property <bool> can-restart: true;
+
+    // General.
+    in property <string> name;
+    /// "Start with Windows (in the tray)" on Windows, "Start at login (in the tray)" elsewhere.
+    in property <string> autostart-label: "Start at login (in the tray)";
+    in property <bool> start-at-login;
+    in property <bool> keep-awake;
+    in property <bool> close-to-tray;
+    in property <bool> update-check;
+    in property <bool> high-contrast;
+
+    // Network.
+    /// 0 this computer only, 1 devices on my network, 2 a specific address.
+    in property <int> listen;
+    in property <string> bind-address;
+    in property <string> port;
+    /// The three ports that follow the base port, as text ("7879").
+    in property <string> port-viewer-enroll;
+    in property <string> port-worker;
+    in property <string> port-worker-enroll;
+    in property <int> max-connections;
+    in property <int> max-per-address;
+    in property <bool> discovery;
+    /// The "Can phones reach this computer?" card. Levels: 0 fine, 1 attention, 2 not known.
+    in property <string> net-profile: "Checking…";
+    in property <int> net-profile-level: 2;
+    in property <string> net-firewall: "Checking…";
+    in property <int> net-firewall-level: 2;
+    in property <string> net-contact: "No device has connected yet";
+    in property <int> net-contact-level: 2;
+    in property <string> net-advice;
+
+    // Security.
+    in property <bool> allow-pairing;
+    in property <string> cert-names;
+
+    // Performance.
+    in property <int> job-memory;
+    in property <int> whole-seconds;
+    in property <int> whole-megapixels;
+    in property <int> jobs-per-device;
+    /// 0 to 16 computers, 17 means all.
+    in property <int> interactive-workers;
+    in property <string> pinned-worker;
+    /// 0 default, 1 fast, 2 off.
+    in property <int> compression;
+    in property <bool> accept-workers;
+    in property <int> cpu-threads;
+
+    // Storage.
+    in property <int> retention-days;
+    in property <int> cache-mib;
+    in property <string> data-folder;
+    in property <bool> data-folder-custom;
+    in property <string> jobs-folder;
+    in property <string> cache-folder;
+    in property <string> log-folder;
+
+    // Advanced.
+    in property <bool> accept-any-cert;
+    in property <string> override-viewer;
+    in property <string> override-viewer-enroll;
+    in property <string> override-worker;
+    in property <string> override-worker-enroll;
+
+    // Remote administration of this coordinator (Security, local only). `remote-admin` is the
+    // setting; `remote-admin-active` is true once the running coordinator accepts remote
+    // administration (a restart applies the setting).
+    in property <bool> remote-admin: false;
+    in property <bool> remote-admin-active: false;
+    in property <[AccessRowData]> access-rows;
+    /// The "Create an access code" form: 0 monitor only, 1 full administration.
+    in-out property <int> code-level: 0;
+    in-out property <string> code-name;
+    in property <bool> code-busy: false;
+    in property <string> code-error;
+    /// The code dialog (dialog 4): who it is for, the access it grants, the link with its code
+    /// masked, the time left, and whether the link was copied.
+    in property <string> code-for;
+    in property <string> code-access;
+    in property <string> code-link-shown;
+    in property <string> code-remaining: "3:00";
+    in property <bool> code-copied: false;
+    in property <bool> code-expired: false;
+
+    // The settings of a remote coordinator (while `ShellState.remote`): what its status shows
+    // and what the signed-in access level may change.
+    in property <string> remote-name;
+    in property <string> remote-display-name;
+    in property <bool> remote-allow-pairing;
+    in property <bool> remote-discovery;
+    in property <bool> remote-can-change: false;
+    in property <bool> remote-can-restart: false;
+    /// Why the remote's settings are greyed out (empty when they are not).
+    in property <string> remote-note;
+
+    // The dialogs: 0 none, 1 export a backup, 2 restore a backup, 3 confirm "Accept any client
+    // certificate", 4 a new access code for another computer.
+    in-out property <int> dialog: 0;
+    in-out property <string> dialog-error;
+    in-out property <string> dialog-done;
+    in property <bool> dialog-busy: false;
+
+    /// The page appeared: Rust refreshes the values and the network check.
+    callback page-opened();
+    /// A switch changed: the key (see `src/gui/pages/settings.rs`) and the new value.
+    callback set-bool(string, bool);
+    /// A number or a choice changed: the key and the new value.
+    callback set-int(string, int);
+    /// A text was committed (Enter or the field lost focus): the key and the text.
+    callback set-text(string, string);
+    /// "Restart now".
+    callback restart-now();
+    /// "Use an existing coordinator folder...": Rust opens the folder picker.
+    callback choose-existing-folder();
+    /// "Back to the default folder".
+    callback reset-data-folder();
+    /// "Open data folder".
+    callback open-data-folder();
+    /// "Check again" in the network card.
+    callback recheck-network();
+    /// The backup dialog's button: Rust asks for the file, then works. Mode 1 export, 2 restore.
+    /// The password and, for an export, its repeat.
+    callback run-backup(int, string, string);
+    /// The confirm dialog's "Accept any client certificate" button.
+    callback confirm-accept-any();
+    /// The switch "Allow other computers to monitor or manage this coordinator".
+    callback set-remote-admin(bool);
+    /// "Create code": the access level (0 monitor, 1 admin) and the name of the computer.
+    callback create-code(int, string);
+    /// The code dialog's "Copy link".
+    callback copy-code();
+    /// The code dialog's "Close": the unused code is cancelled.
+    callback close-code();
+    /// "Remove access" on a row: the fingerprint.
+    callback remove-access(string);
+    /// A switch of the remote coordinator's settings: the key (`allow_pairing`, `discovery`).
+    callback remote-set-bool(string, bool);
+    /// The remote coordinator's name was committed.
+    callback remote-set-name(string);
+}

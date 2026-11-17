@@ -233,6 +233,7 @@ fn figures(brilliance_pct: f32, windowing_pct: f32) -> RowMetrics {
         yield_pct: Some(30.0),
         warning_count: 0,
         has_girdle: true,
+        aset: None,
         tilt: None,
     }
 }

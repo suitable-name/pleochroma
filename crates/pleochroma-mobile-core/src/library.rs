@@ -27,12 +27,28 @@
 //! - `store`: reading and writing one entry, tags, marks and delete;
 //! - `thumbs`: thumbnails and their cache on disk;
 //! - `design_source` and `measure`: reading a stored design and measuring it;
-//! - `variants`: the saved variants of a design.
+//! - `variants`: the saved variants of a design;
+//! - `mirror`: copying the designs of a paired computer into this library (a sync).
+//!
+//! # Synced designs
+//!
+//! A sync copies a paired computer's designs into the same database, under the computer's own
+//! `url` and with a `library_mirror_state` row. A row with a live state (one the user has not
+//! deleted) is *synced*: [`LibraryCard::synced`]. "Mine" keeps the vault's rule, a `local://`
+//! url, so a design the computer itself imported is both mine and synced.
+//!
+//! **Synced rows are written only by the sync.** Saving a design over a synced entry
+//! ([`LibraryHandle::save`]) makes a new entry of the user's own and leaves the synced one to
+//! go on updating; importing a file whose name a synced design already uses
+//! ([`LibraryHandle::import`]) stores it under the next free `name (2)`. Tags and the ignore
+//! mark live in side tables, so they stay through syncs. Deleting a synced design keeps it
+//! deleted: the sync does not copy it again.
 
 mod design_source;
 mod handle;
 mod import;
 mod measure;
+mod mirror;
 mod search;
 mod store;
 mod thumbs;
@@ -40,6 +56,8 @@ mod variants;
 
 #[cfg(test)]
 mod frosting_tests;
+#[cfg(test)]
+mod mirror_tests;
 #[cfg(test)]
 mod tests;
 
@@ -50,7 +68,12 @@ use std::sync::{
 
 use crate::{platform::AppDirs, settings::LibrarySort};
 
+pub(crate) use design_source::design_file_bytes;
 pub use handle::{LibraryHandle, LibraryOpener};
+pub use mirror::{
+    MirrorContent, MirrorCounts, MirrorHandle, MirrorOptions, MirrorProgress, SyncOutcome,
+    phone_mirror_options, progress_text,
+};
 pub use pleochroma_vault::model::design_variant::{NewVariant, VariantSummary};
 pub use search::QUERY_ROW_CAP;
 
@@ -76,9 +99,12 @@ pub struct LibraryCard {
     pub ri: Option<f64>,
     /// The entry's tags, alphabetical.
     pub tags: Vec<String>,
-    /// Whether the design is the user's own (imported or saved here) rather than synced
-    /// from a remote catalogue.
+    /// Whether the design is the user's own (imported or saved on either device: its url is
+    /// `local://`) rather than from a catalogue.
     pub mine: bool,
+    /// Whether the design was copied from the paired computer by a sync and the user has not
+    /// deleted it. A synced design is written only by the sync: saving over it makes a copy.
+    pub synced: bool,
     /// Whether the entry is marked ignored (hidden unless the query shows ignored).
     pub ignored: bool,
     /// When the entry last changed, in Unix seconds; `0` when unknown.

@@ -18,7 +18,13 @@ use pleochroma_mobile_core::{
 };
 use slint::{Timer, VecModel, Weak};
 
-use super::{filters::FilterState, tags::SheetState, thumbs::ThumbPool};
+use super::{
+    filters::FilterState,
+    remote_source::{RemoteBrowse, Source},
+    sync::SyncUi,
+    tags::SheetState,
+    thumbs::ThumbPool,
+};
 use crate::{AppWindow, LibraryCardData, TagChipData, design::Shared};
 
 /// How many designs one search page holds.
@@ -88,6 +94,14 @@ pub(super) struct Runtime {
     pub pending_delete: Vec<EntryId>,
     /// A bump makes the grid scroll back to the top.
     pub scroll_token: i32,
+    /// Whose library is shown: the phone's or the paired computer's.
+    pub source: Source,
+    /// The thread of the requests to the computer (switching, searching, opening, probing).
+    pub remote_queue: Option<BackgroundQueue>,
+    /// What the page knows about the computer's library.
+    pub remote: RemoteBrowse,
+    /// The sync job.
+    pub sync: SyncUi,
 }
 
 thread_local! {
@@ -119,6 +133,12 @@ pub(super) fn with<R>(job: impl FnOnce(&mut Runtime) -> R) -> Option<R> {
 /// Ends the threads and drops every handle. Call on the UI thread after the event loop.
 pub(super) fn shutdown() {
     let runtime = RUNTIME.with(|slot| slot.borrow_mut().take());
+    // A running sync and the requests to the computer stop first, so the queues' joins
+    // (two seconds at most) meet threads that are already finishing.
+    if let Some(runtime) = &runtime {
+        super::sync::stop_for_shutdown(runtime);
+        super::remote_source::stop_all(runtime);
+    }
     // Dropped here, outside the borrow: the drops join threads.
     drop(runtime);
 }

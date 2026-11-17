@@ -1,0 +1,325 @@
+import { Theme } from "../../theme.slint";
+import { KitButton, KitChip } from "../kit/kit.slint";
+import { MaterialReferenceModel } from "../../models/material_reference.slint";
+import { WrapText, RefCard, RefDataRow, RefStyle } from "common.slint";
+
+// The text cards of the Material Details page.
+
+// Optics: the rows of the model in two columns.
+export component OpticsCard inherits RefCard {
+    title: "OPTICS";
+
+    // Two columns when the card is wide enough for a label and a value in each. The page decides
+    // (the card's own width cannot, since the grid's shape would feed back into it).
+    in property <bool> two_cols: true;
+    property <int> half: root.two_cols
+        ? Math.ceil(MaterialReferenceModel.optics_rows.length / 2)
+        : MaterialReferenceModel.optics_rows.length;
+    GridLayout {
+        spacing-horizontal: 24px;
+        spacing-vertical: 6px;
+        for row[i] in MaterialReferenceModel.optics_rows: RefDataRow {
+            row: i < root.half ? i : i - root.half;
+            col: i < root.half ? 0 : 1;
+            item: row;
+            label_width: 112px;
+        }
+    }
+}
+
+// Durability and Cutting: the gem data rows (hardness with its bar), the specific gravity with the
+// design's weight, and the care note. A custom material with no gem data says so instead.
+export component DurabilityCard inherits RefCard {
+    title: "DURABILITY AND CUTTING";
+
+    VerticalLayout {
+        spacing: 7px;
+        for row in MaterialReferenceModel.durability_rows: RefDataRow {
+            item: row;
+            bar: row.label == "Hardness" && MaterialReferenceModel.mohs_hi > 0;
+            fill: MaterialReferenceModel.mohs_hi / 10.0;
+        }
+    }
+    // The weight: one row, SG with its range and the design's estimate.
+    if MaterialReferenceModel.weight_line != "": VerticalLayout {
+        spacing: 2px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                width: 104px;
+                text: "Specific gravity";
+                font-size: 12px;
+                color: Theme.text-secondary;
+                vertical-alignment: top;
+                overflow: elide;
+            }
+            WrapText {
+                horizontal-stretch: 1;
+                text: MaterialReferenceModel.weight_line;
+                font-size: 12px;
+                font-weight: 500;
+                ink: Theme.text-primary;
+                
+            }
+        }
+        if MaterialReferenceModel.weight_basis != "": HorizontalLayout {
+            padding-left: 112px;
+            WrapText {
+                horizontal-stretch: 1;
+                text: MaterialReferenceModel.weight_basis;
+                font-size: 10px;
+                ink: Theme.text-muted;
+                
+            }
+        }
+        if MaterialReferenceModel.weight_design != "": HorizontalLayout {
+            padding-left: 112px;
+            WrapText {
+                horizontal-stretch: 1;
+                text: MaterialReferenceModel.weight_design;
+                font-size: 11px;
+                font-weight: 600;
+                ink: Theme.accent-cyan;
+                
+            }
+        }
+    }
+    if MaterialReferenceModel.durability_notes != "": WrapText {
+        text: MaterialReferenceModel.durability_notes;
+        font-size: 10px;
+        ink: Theme.accent-amber;
+        
+    }
+    if MaterialReferenceModel.care != "": HorizontalLayout {
+        spacing: 8px;
+        Text {
+            width: 104px;
+            text: "Care";
+            font-size: 12px;
+            color: Theme.text-secondary;
+            vertical-alignment: top;
+        }
+        WrapText {
+            horizontal-stretch: 1;
+            text: MaterialReferenceModel.care;
+            font-size: 12px;
+            ink: Theme.text-primary;
+            
+        }
+    }
+}
+
+// Sources: where the values come from, by group. The last card of the details page.
+export component SourcesCard inherits RefCard {
+    title: "SOURCES";
+
+    WrapText {
+        text: MaterialReferenceModel.sources;
+        font-size: 11px;
+        ink: Theme.text-muted;
+    }
+    for group in MaterialReferenceModel.source_groups: VerticalLayout {
+        spacing: 2px;
+        Text { text: group.label; font-size: 11px; font-weight: 700; color: Theme.text-secondary; }
+        WrapText { text: group.value; font-size: 11px; ink: Theme.text-muted; }
+    }
+}
+
+// One swatch of the color table; a small amber mark says the color was clipped into sRGB.
+component ColorSwatchCell inherits Rectangle {
+    in property <color> fill;
+    in property <bool> clipped;
+    in property <string> name;
+
+    width: 104px;
+    height: 24px;
+    border-radius: 5px;
+    background: root.fill;
+    border-width: 1px;
+    border-color: Theme.chip-edge;
+    accessible-role: AccessibleRole.image;
+    accessible-label: root.name;
+    if root.clipped: Rectangle {
+        x: parent.width - 9px;
+        y: 3px;
+        width: 5px;
+        height: 5px;
+        border-radius: 3px;
+        background: Theme.accent-amber;
+        Tooltip { text: @markdown("This color is outside the sRGB range and is shown clipped to it."); }
+    }
+}
+
+// Color by Direction and Light: the body color along each ray in daylight and under a 3200 K lamp,
+// and the face-up color (bold). The note explains a color change and the assumptions.
+export component ColorsCard inherits RefCard {
+    title: "COLOR BY DIRECTION AND LIGHT";
+
+    HorizontalLayout {
+        spacing: 20px;
+        VerticalLayout {
+            spacing: 6px;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle { width: 92px; }
+                Text {
+                    width: 104px;
+                    text: "Daylight";
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                }
+                Rectangle {
+                    width: 104px;
+                    Tooltip { text: @markdown("A 3200 K lamp."); }
+                    Text {
+                        width: 100%;
+                        text: "Incandescent";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+            for row in MaterialReferenceModel.color_rows: HorizontalLayout {
+                spacing: 10px;
+                Text {
+                    width: 92px;
+                    text: row.label;
+                    font-size: 12px;
+                    font-weight: row.face_up ? 700 : 400;
+                    color: row.face_up ? Theme.text-primary : Theme.text-secondary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                ColorSwatchCell {
+                    fill: row.daylight;
+                    clipped: row.daylight_clipped;
+                    name: row.label + " in daylight";
+                }
+                ColorSwatchCell {
+                    fill: row.incandescent;
+                    clipped: row.incandescent_clipped;
+                    name: row.label + " under a 3200 K lamp";
+                }
+            }
+        }
+        WrapText {
+            horizontal-stretch: 1;
+            min-width: 120px;
+            text: MaterialReferenceModel.color_note;
+            font-size: 11px;
+            ink: Theme.text-secondary;
+        }
+    }
+}
+
+// One variant row: swatch, name, first source line and an Estimated chip. A click selects it.
+component VariantItem inherits Rectangle {
+    in property <string> label;
+    in property <color> swatch;
+    in property <string> source_line;
+    in property <bool> estimated;
+    in property <bool> selected;
+    callback clicked();
+
+    height: 46px;
+    border-radius: Theme.radius-md;
+    background: touch.has-hover ? Theme.bg-card-hover : Theme.surface-sunken;
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? Theme.accent-cyan : Theme.border-dialog;
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.label + (root.estimated ? ", estimated" : "");
+    accessible-description: root.source_line;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.clicked(); }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                border-radius: 5px;
+                background: root.swatch;
+                border-width: 1px;
+                border-color: Theme.chip-edge;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 1px;
+            Text { text: root.label; font-size: 12px; font-weight: 600; color: Theme.text-primary; overflow: elide; }
+            Text { text: root.source_line; font-size: 10px; color: Theme.text-muted; overflow: elide; }
+        }
+        if root.estimated: VerticalLayout {
+            alignment: center;
+            KitChip {
+                text: "Estimated";
+                ink: Theme.accent-cyan;
+                fill: Theme.accent-cyan-surface;
+            }
+        }
+    }
+}
+
+// Color Variants: the material's own color, the built-in variants and the user's. A click selects
+// one for the spectrum and colors above.
+export component VariantsCard inherits RefCard {
+    title: "COLOR VARIANTS";
+    caption: MaterialReferenceModel.can_use_for_design ? "" : "Pick one for a design from the Stone tab.";
+
+    VerticalLayout {
+        spacing: 6px;
+        for v[i] in MaterialReferenceModel.variant_rows: VariantItem {
+            label: v.label;
+            swatch: v.swatch;
+            source_line: v.source;
+            estimated: v.estimated;
+            selected: i == MaterialReferenceModel.selected_variant;
+            clicked => { MaterialReferenceModel.variant_selected(i); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        WrapText {
+            horizontal-stretch: 1;
+            text: "Click a variant to see its spectrum and colors here.";
+            font-size: 10px;
+            ink: Theme.text-muted;
+            
+        }
+        if MaterialReferenceModel.can_use_for_design && MaterialReferenceModel.selected_variant > 0: KitButton {
+            text: "Use for Design";
+            kind: 1;
+            h: 28px;
+            hint: "Apply this variant's color to the open design as one undoable step.";
+            clicked => { MaterialReferenceModel.use_variant(MaterialReferenceModel.selected_variant); }
+        }
+    }
+}
+
+// Effects: one line, or a note that there is nothing to show.
+export component EffectsCard inherits RefCard {
+    title: "EFFECTS";
+
+    WrapText {
+        text: MaterialReferenceModel.effects_summary;
+        font-size: 12px;
+        ink: Theme.text-secondary;
+        
+    }
+}

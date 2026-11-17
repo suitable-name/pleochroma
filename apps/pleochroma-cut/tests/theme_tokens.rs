@@ -12,7 +12,11 @@
 //!
 //! It only reads the `.slint` sources as text.
 
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// Colour tokens whose value is deliberately the same in both palettes: white on a dark
 /// fill, and the data colours (a chart series, the Compare overlay's red and green).
@@ -21,6 +25,9 @@ const CONSTANT_TOKENS: &[&str] = &[
     "chart-extinction",
     "compare-removed",
     "compare-added",
+    "aset-red",
+    "aset-green",
+    "aset-blue",
     "swatch-white",
     "swatch-black",
 ];
@@ -65,6 +72,7 @@ const CONVERTED_FILES: &[&str] = &[
     "components/gem_viewport/status_pill.slint",
     "components/gem_viewport/problem_banner.slint",
     "components/gem_viewport/live_figures.slint",
+    "components/gem_viewport/figures_help.slint",
     "components/gem_viewport/view_parts.slint",
     "components/kit/panel.slint",
     "components/kit/figures.slint",
@@ -281,6 +289,10 @@ const NORMAL_PINS: &[(&str, &str)] = &[
     ("brand-mark-bg", "#1e3a8a"),
     ("compare-removed", "#ef4444"),
     ("compare-added", "#22c55e"),
+    ("aset-red", "#ef4444"),
+    ("aset-green", "#22c55e"),
+    ("aset-blue", "#6f7dff"),
+    ("aset-dark", "#56627a"),
     ("swatch-clear", "#e2e8f0"),
     ("swatch-clear-off", "#94a3b844"),
     ("swatch-keep", "#94a3b822"),
@@ -301,10 +313,23 @@ struct Token {
     normal: [f64; 4],
 }
 
+/// The shared kit's folder, `crates/pleochroma-ui-kit/ui`: the theme, the palette and the kit
+/// widgets live there, and the files at the same paths under this crate's `ui/` re-export them.
+fn kit_ui_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/pleochroma-ui-kit/ui")
+}
+
+/// The source of `ui/<relative>`: the kit's file when the kit holds that path, this crate's own
+/// otherwise.
 fn read_ui(relative: &str) -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("ui")
-        .join(relative);
+    let in_kit = kit_ui_dir().join(relative);
+    let path = if in_kit.is_file() {
+        in_kit
+    } else {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("ui")
+            .join(relative)
+    };
     fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
 }
@@ -341,16 +366,11 @@ fn colour_properties(source: &str) -> Vec<(String, String)> {
 }
 
 /// Every colour token of `theme.slint`, by name. `theme.slint` forwards each token from the
-/// shared `PleoPalette` (`ui/shared/palette.slint`), which holds the values: a forwarded token
+/// shared `PleoPalette` (`crates/pleochroma-ui-kit/ui/shared/palette.slint`), which holds the values: a forwarded token
 /// is read from there. A token that is not a `root.high-contrast ? <hc> : <normal>` pair must be
 /// one of [`CONSTANT_TOKENS`].
 fn theme_tokens() -> BTreeMap<String, Token> {
-    let palette_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("ui")
-        .join("shared")
-        .join("palette.slint");
-    let palette_source = fs::read_to_string(&palette_path)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", palette_path.display()));
+    let palette_source = read_ui("shared/palette.slint");
     let palette: BTreeMap<String, String> =
         colour_properties(&palette_source).into_iter().collect();
     let mut tokens = BTreeMap::new();
@@ -534,6 +554,11 @@ fn high_contrast_pairs_meet_their_ratios() {
         ("accent-purple", "badge-purple-bg", Black, 4.5),
         ("chart-extinction", "surface-chip", Black, 4.5),
         ("chart-extinction", "chart-bg", Black, 4.5),
+        ("aset-blue", "surface-chip", Black, 4.5),
+        // The Dark zone segment against the near-black cards (3.66:1 on `surface-chip`).
+        ("aset-dark", "bg-card", Black, 3.0),
+        ("aset-dark", "surface-chip", Black, 3.0),
+        ("aset-dark", "surface-dialog", Black, 3.0),
         (
             "chart-extinction",
             "tint-red",

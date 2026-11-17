@@ -16,10 +16,11 @@ use std::{
 /// Bytes of one full-resolution `Vec3` radiance pixel.
 const BYTES_PER_PIXEL: u64 = 12;
 
-/// Full-resolution `Vec3` buffers one coordinator job holds at once regardless of how
-/// many lanes it runs: the emitter's pending delta, running total and spare, and the
-/// lane pool's merged sum. The per-lane buffers ([`FRAME_BUFFERS_PER_LANE`]) and chunks
-/// parked ahead of the merge frontier (charged through [`JobParkedBudget`]) come on top.
+/// Full-resolution `Vec3` buffers one coordinator job holds at once regardless of how many lanes it
+/// runs: the emitter's pending delta, running total and spare, and the lane pool's merged sum.
+///
+/// The per-lane buffers ([`FRAME_BUFFERS_PER_LANE`]) and chunks parked ahead of the merge frontier
+/// (charged through [`JobParkedBudget`]) come on top.
 pub const FRAME_BUFFERS_PER_JOB: u64 = 4;
 
 /// Full-resolution `Vec3` buffers one lane of a job can hold at the same time, counted
@@ -64,19 +65,21 @@ pub fn contribution_bytes(width: u32, height: u32) -> u64 {
     frame_bytes(width, height)
 }
 
-/// Bytes of the HDR map a job pins for its whole run: the encoded file (shared by every
-/// lane through one `Arc`, see `assets::HeldAsset::bytes`) and, when the own lane
-/// renders it, the decoded texels (`width * height * 12`). The importance-sampling
-/// tables built beside the texels are not included.
+/// Bytes of the HDR map a job pins for its whole run.
+///
+/// The encoded file (shared by every lane through one `Arc`, see `assets::HeldAsset::bytes`) and,
+/// when the own lane renders it, the decoded texels (`width * height * 12`). The
+/// importance-sampling tables built beside the texels are not included.
 #[must_use]
 pub fn hdr_bytes(encoded_len: u64, decoded_texels: Option<u64>) -> u64 {
     encoded_len.saturating_add(decoded_texels.map_or(0, |texels| texels.saturating_mul(12)))
 }
 
-/// Everything a job is charged against [`MemoryBudget`]: the lane-independent frame
-/// buffers ([`job_bytes`]), `lanes` lanes ([`lane_bytes`]) and `extra_bytes` (the
-/// [`contribution_bytes`] and [`hdr_bytes`] the job holds). The producer reserves the
-/// lane-independent part and `extra_bytes` when the job starts and the lane part once
+/// Everything a job is charged against [`MemoryBudget`].
+///
+/// The lane-independent frame buffers ([`job_bytes`]), `lanes` lanes ([`lane_bytes`]) and
+/// `extra_bytes` (the [`contribution_bytes`] and [`hdr_bytes`] the job holds). The producer
+/// reserves the lane-independent part and `extra_bytes` when the job starts and the lane part once
 /// the lanes are checked out; the sum is what must fit.
 #[must_use]
 pub fn job_estimate_bytes(width: u32, height: u32, lanes: u32, extra_bytes: u64) -> u64 {
@@ -143,9 +146,10 @@ impl MemoryBudget {
         *self.used.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Charges `bytes` against the cap without an RAII guard: for a caller (a
-    /// [`pleochroma_dispatch::Merger`]'s parked chunks, see [`JobParkedBudget`]) that
-    /// reserves and releases from entirely different call sites -- not one scope a
+    /// Charges `bytes` against the cap without an RAII guard.
+    ///
+    /// For a caller (a [`pleochroma_dispatch::Merger`]'s parked chunks, see [`JobParkedBudget`])
+    /// that reserves and releases from entirely different call sites -- not one scope a
     /// [`Reservation`] could span. `false` past the cap; nothing is charged then.
     pub fn charge(&self, bytes: u64) -> bool {
         let mut used = self.used.lock().unwrap_or_else(PoisonError::into_inner);
@@ -204,9 +208,10 @@ pub struct SlotGuard<'a> {
     viewer: Arc<str>,
 }
 
-/// What a running job holds in its viewer's limits until it ends: its FIFO [`Turn`], one
-/// of the viewer's whole-image [`SlotGuard`]s, or nothing (live-view jobs). Everything it
-/// holds is released when it is dropped.
+/// What a running job holds in its viewer's limits until it ends: its FIFO [`Turn`], one of the
+/// viewer's whole-image [`SlotGuard`]s, or nothing (live-view jobs).
+///
+/// Everything it holds is released when it is dropped.
 #[derive(Default)]
 pub struct Admission<'a> {
     _turn: Option<Turn<'a>>,
@@ -270,10 +275,10 @@ impl ViewerQueues {
         }
     }
 
-    /// Takes one of `viewer`'s whole-image slots, blocking until fewer than `cap` (at least
-    /// one) of its whole-image jobs are running, or returns `None` as soon as `cancelled()`
-    /// says so. Slots are not FIFO-ordered: whichever waiter re-checks first takes a freed
-    /// one.
+    /// Takes one of `viewer`'s whole-image slots, blocking until fewer than `cap` (at least one) of
+    /// its whole-image jobs are running, or returns `None` as soon as `cancelled()` says so.
+    ///
+    /// Slots are not FIFO-ordered: whichever waiter re-checks first takes a freed one.
     pub fn wait_slot(
         &self,
         viewer: &Arc<str>,

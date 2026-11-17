@@ -1,5 +1,6 @@
-//! The Render tab's metrics HUD: brilliance, fire, scintillation, windowing and extinction
-//! of the pose on screen, as the desktop's HUD shows them.
+//! The Render tab's metrics HUD: brilliance, fire, scintillation, windowing, extinction,
+//! contrast and the Zones (ASET-style) shares of the pose on screen, as the desktop's HUD
+//! shows them.
 //!
 //! [`scene_changed`] is called by the live render sync (`crate::render`) with the scene it
 //! would render and the concave tools cut out of it. Two scenes with equal `MetricsJob`s
@@ -24,7 +25,7 @@ use pleochroma::geometry::tool::ToolPrimitive;
 use pleochroma_web_core::{
     host::WorkerPool,
     scene::SceneSpec,
-    solve::{MetricsJob, MetricsResultData, SolveResponse},
+    solve::{AsetSharesData, MetricsJob, MetricsResultData, SolveResponse},
     solve_error::SolveError,
 };
 use slint::{ComponentHandle, Timer, TimerMode};
@@ -128,6 +129,7 @@ pub fn scene_gone(ctx: &Ctx) {
     if let Some(ui) = ctx.ui.upgrade() {
         let model = ui.global::<MetricsModel>();
         model.set_has_metrics(false);
+        model.set_has_aset(false);
         model.set_pending(false);
         model.set_status_text(slint::SharedString::new());
         model.set_scored_under_text(slint::SharedString::new());
@@ -237,18 +239,69 @@ fn push_numbers(ctx: &Ctx, metrics: &MetricsResultData, pending: bool, note: &st
     model.set_windowing_pct(metrics.windowing_pct);
     model.set_extinction_pct(metrics.extinction_pct);
     model.set_doubling_arcmin(metrics.doubling_arcmin);
+    if let Some(aset) = &metrics.aset {
+        model.set_contrast(aset.contrast);
+        model.set_zones_text(zones_text(aset).into());
+        model.set_zones_pct(slint::ModelRc::new(slint::VecModel::from(zones_pct(aset))));
+    }
+    model.set_has_aset(metrics.aset.is_some());
     model.set_status_text(slint::SharedString::new());
     model.set_scored_under_text(note.into());
     model.set_has_metrics(true);
     model.set_pending(pending);
 }
 
+/// The four zone shares in percent, in the order Red, Green, Blue, Dark (Leak plus Lost), for the
+/// HUD's mini bar.
+fn zones_pct(aset: &AsetSharesData) -> Vec<f32> {
+    vec![
+        aset.red_pct,
+        aset.green_pct,
+        aset.blue_pct,
+        aset.leak_pct + aset.lost_pct,
+    ]
+}
+
+/// The Zones (ASET-style) shares as the HUD's value line, whole percents: Red, Green, Blue and
+/// Dark (Leak plus Lost). The label "Zones (ASET-style)" sits beside it in the HUD.
+fn zones_text(aset: &AsetSharesData) -> String {
+    format!(
+        "Red {:.0}% \u{b7} Green {:.0}% \u{b7} Blue {:.0}% \u{b7} Dark {:.0}%",
+        aset.red_pct,
+        aset.green_pct,
+        aset.blue_pct,
+        aset.leak_pct + aset.lost_pct,
+    )
+}
+
 fn show_unavailable(ctx: &Ctx, text: &str) {
     if let Some(ui) = ctx.ui.upgrade() {
         let model = ui.global::<MetricsModel>();
         model.set_has_metrics(false);
+        model.set_has_aset(false);
         model.set_pending(false);
         model.set_status_text(text.into());
         model.set_scored_under_text(slint::SharedString::new());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_zones_line_names_four_zones_and_adds_the_dark_parts() {
+        let aset = AsetSharesData {
+            red_pct: 44.2,
+            green_pct: 18.6,
+            blue_pct: 16.1,
+            leak_pct: 9.0,
+            lost_pct: 12.1,
+            contrast: 27.3,
+        };
+        assert_eq!(
+            zones_text(&aset),
+            "Red 44% \u{b7} Green 19% \u{b7} Blue 16% \u{b7} Dark 21%"
+        );
     }
 }

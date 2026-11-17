@@ -1,0 +1,187 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon, KitIcons, KitCard } from "../kit/kit.slint";
+import { DataRow } from "../../models/material_reference.slint";
+
+// Shared pieces of the Material Reference window.
+
+export global RefStyle {
+    // The series colors of the charts: 0 cyan, 1 amber, 2 purple. A ray's own color shows in its
+    // chip swatch, never on the line, so a line stays readable on the chart background.
+    public pure function ink(i: int) -> color {
+        return i == 1 ? Theme.accent-amber : (i == 2 ? Theme.accent-purple : Theme.accent-cyan);
+    }
+
+    // A number or text that is not recorded.
+    public pure function is_missing(t: string) -> bool {
+        return t == "" || t == "\u{2014}";
+    }
+
+    // An index with four decimals ("1.7408"); `Math.round` keeps the f32 noise out of the text.
+    public pure function four_decimals(v: float) -> string {
+        let r = Math.round(v * 10000);
+        let whole = Math.floor(r / 10000);
+        let frac = r - whole * 10000;
+        let pad = frac < 10 ? "000" : (frac < 100 ? "00" : (frac < 1000 ? "0" : ""));
+        return whole + "." + pad + frac;
+    }
+}
+
+// A card: a small-capitals title over the content (`@children`), on the raised surface. The card is
+// as tall as its content.
+export component RefCard inherits KitCard {
+    in property <string> title;
+    // A second, quieter line right of the title.
+    in property <string> caption;
+
+    card_body := VerticalLayout {
+        padding: 16px;
+        padding-top: 14px;
+        spacing: 10px;
+        HorizontalLayout {
+            height: 18px;
+            spacing: 10px;
+            Text {
+                text: root.title;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.caption;
+                font-size: 11px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        @children
+    }
+}
+
+// A chip with a border, for the details header: the value of one figure. `highlight` is the
+// accent color.
+export component RefPill inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> highlight: false;
+
+    height: 24px;
+    width: pill_text.preferred-width + 20px;
+    border-radius: 12px;
+    background: root.highlight ? Theme.accent-cyan-surface : Theme.surface-sunken;
+    border-width: 1px;
+    border-color: root.highlight ? Theme.accent-cyan : Theme.border-dialog;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    pill_text := Text {
+        x: 10px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: root.highlight ? Theme.accent-cyan : Theme.text-secondary;
+        vertical-alignment: center;
+    }
+}
+
+// Wrapped text that reports its wrapped height. A `Text` with `wrap` inside a layout is measured
+// before the layout has given it its width, so a card around it comes out too short; this wrapper
+// fixes the text's width to its own and takes its height from the text.
+export component WrapText inherits Rectangle {
+    in property <string> text;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 400;
+    in property <brush> ink: Theme.text-primary;
+
+    height: wrapped.preferred-height;
+    wrapped := Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        text: root.text;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        color: root.ink;
+        wrap: word-wrap;
+    }
+}
+
+// One labelled value of the Optics or Durability card. A value that is not recorded is muted and
+// carries the reason as its tooltip. A source disagreement shows as an amber note under the row,
+// with an info mark on the label. `bar` draws the Mohs bar right beside the value, filled to `fill`.
+export component RefDataRow inherits VerticalLayout {
+    in property <DataRow> item;
+    in property <length> label_width: 104px;
+    in property <bool> bar: false;
+    in property <float> fill: 0;
+
+    spacing: 2px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            width: root.label_width;
+            text: root.item.label;
+            font-size: 12px;
+            color: Theme.text-secondary;
+            vertical-alignment: top;
+            overflow: elide;
+        }
+        if root.item.note != "": VerticalLayout {
+            alignment: start;
+            padding-top: 2px;
+            KitIcon {
+                d: KitIcons.info;
+                size: 13px;
+                ink: Theme.accent-amber;
+                accessible-role: AccessibleRole.image;
+                accessible-label: "This value has a source note";
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            height: value_text.preferred-height;
+            if root.item.tooltip != "": Tooltip { text: @markdown("\{root.item.tooltip}"); }
+            value_text := Text {
+                x: 0px;
+                y: 0px;
+                // A row with a bar keeps its value on one line so the bar sits right beside it.
+                width: root.bar ? self.preferred-width : parent.width;
+                text: root.item.value;
+                font-size: 12px;
+                font-weight: root.item.missing ? 400 : 500;
+                color: root.item.missing ? Theme.text-disabled : Theme.text-primary;
+                wrap: root.bar ? no-wrap : word-wrap;
+                vertical-alignment: top;
+            }
+            if root.bar: Rectangle {
+                x: value_text.width + 12px;
+                y: 5px;
+                width: 70px;
+                height: 6px;
+                border-radius: 3px;
+                background: Theme.bg-input;
+                Rectangle {
+                    x: 0px;
+                    width: parent.width * Math.min(1.0, Math.max(0.0, root.fill));
+                    border-radius: 3px;
+                    background: Theme.accent-cyan;
+                }
+            }
+        }
+    }
+    if root.item.note != "": HorizontalLayout {
+        padding-left: root.label_width + 8px;
+        WrapText {
+            horizontal-stretch: 1;
+            text: "Sources differ: " + root.item.note;
+            font-size: 10px;
+            ink: Theme.accent-amber;
+        }
+    }
+}
+

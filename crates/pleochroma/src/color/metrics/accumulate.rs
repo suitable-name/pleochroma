@@ -5,6 +5,8 @@
 //! each file stays within the house size limit.
 
 use super::{
+    aset::{AsetAccumulator, AsetZoneWeights},
+    classify::RayClassification,
     doubling::{DoublingSums, WeightedCounts},
     evaluate::{MetricsWanted, placeholder_metrics},
     scintillation::{
@@ -62,6 +64,32 @@ pub(super) struct MetricsAccumulators {
     pub(super) weighted: Option<WeightedCounts>,
     /// The sums behind the Doubling figure; all zero for an isotropic stone.
     pub(super) doubling: DoublingSums,
+    /// The ASET-style zone sums and the per-spot Blue shares behind Contrast; filled from the
+    /// d-line classification of every ray, by [`Self::fold_aset`].
+    pub(super) aset: AsetAccumulator,
+}
+
+impl MetricsAccumulators {
+    /// Folds one classified ray of grid spot `spot` (`ix * 18 + iz`) into the zone sums,
+    /// weighted by `mode_weight` (`1.0` for an isotropic ray, one half per eigenmode).
+    ///
+    /// A returned ray and a head-shadowed upward exit count in the zones their exit direction
+    /// falls in; a windowed ray is Leak; a ray without an upward exit is Lost. A ray blocked
+    /// at entry or non-finite counts as a hit of the spot but in no zone.
+    pub(super) fn fold_aset(&mut self, spot: usize, class: &RayClassification, mode_weight: f32) {
+        let weights = match class {
+            RayClassification::Invalid | RayClassification::EntryBlocked => {
+                AsetZoneWeights::default()
+            }
+            RayClassification::Windowed => AsetZoneWeights::LEAK,
+            RayClassification::Extinct { exit_dir: None } => AsetZoneWeights::LOST,
+            RayClassification::Extinct {
+                exit_dir: Some(exit_dir),
+            } => AsetZoneWeights::from_exit(*exit_dir),
+            RayClassification::Returned(ray) => AsetZoneWeights::from_exit(ray.exit_dir),
+        };
+        self.aset.add(spot, weights, mode_weight);
+    }
 }
 
 /// Prints the `DIAG_FIRE_DEBUG` Fire diagnostic line. Pure formatting over
@@ -138,6 +166,7 @@ pub(super) fn finish_metrics(
         windowing_pct,
         extinction_pct,
         doubling_arcmin: acc.doubling.arcmin(),
+        aset: Some(acc.aset.finish(n_total)),
     }
 }
 

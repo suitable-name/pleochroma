@@ -1,0 +1,160 @@
+import { Theme } from "../../theme.slint";
+import { MaterialReferenceModel } from "../../models/material_reference.slint";
+import { WrapText, RefCard, RefStyle } from "common.slint";
+
+// The Refractive Index card: one curve per principal direction over wavelength, with the
+// Fraunhofer lines G, F, D, C and B marked. Rust builds every path in a 0..100 viewbox; this draws
+// them (`fit: fill`, as the tilt chart does) and reads the hover values from `ri_hover`.
+export component RiCard inherits RefCard {
+    title: "REFRACTIVE INDEX";
+
+    // The legend: a line per direction with its n at the D line.
+    HorizontalLayout {
+        height: 18px;
+        spacing: 14px;
+        alignment: end;
+        for s in MaterialReferenceModel.ri_series: HorizontalLayout {
+            spacing: 5px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle { width: 14px; height: 2px; border-radius: 1px; background: RefStyle.ink(s.ink); }
+            }
+            Text {
+                text: s.label + " " + s.value;
+                font-size: 11px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    chart := Rectangle {
+        height: 190px;
+        background: Theme.chart-bg;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.chart-border;
+        clip: true;
+        accessible-role: AccessibleRole.image;
+        accessible-label: "Refractive index against wavelength for each principal direction, from 380 to 780 nanometers, with the Fraunhofer lines G, F, D, C and B marked. The readout line under the chart gives the index at the D line and the dispersion.";
+
+        // The plot area the paths are scaled into. Gutters hold the index labels (left), the line
+        // letters (top) and the wavelength labels (bottom).
+        plot := Rectangle {
+            x: 48px;
+            y: 22px;
+            width: parent.width - 48px - 14px;
+            height: parent.height - 22px - 22px;
+
+            for t in MaterialReferenceModel.ri_y_ticks: Rectangle {
+                y: plot.height * t.position / 100.0;
+                width: 100%;
+                height: 1px;
+                background: Theme.chart-grid;
+            }
+            for g in MaterialReferenceModel.ri_guides: Rectangle {
+                x: plot.width * g.x / 100.0;
+                width: 1px;
+                height: 100%;
+                background: Theme.chart-guide;
+            }
+            for s in MaterialReferenceModel.ri_series: Path {
+                width: 100%;
+                height: 100%;
+                fit: fill;
+                viewbox-width: 100;
+                viewbox-height: 100;
+                commands: s.path;
+                stroke: RefStyle.ink(s.ink);
+                stroke-width: 2px;
+                fill: transparent;
+            }
+
+            // The hover: a crosshair at the nearest 5 nm sample and a card with each index.
+            property <int> sample_index: Math.max(0, Math.min(MaterialReferenceModel.ri_hover.length - 1,
+                Math.round(hover.mouse-x / plot.width * (MaterialReferenceModel.ri_hover.length - 1))));
+            hover := TouchArea {
+                width: 100%;
+                height: 100%;
+            }
+            if hover.has-hover && MaterialReferenceModel.ri_hover.length > 0: Rectangle {
+                x: plot.width * MaterialReferenceModel.ri_hover[plot.sample_index].x / 100.0 - 0.5px;
+                width: 1px;
+                height: 100%;
+                background: Theme.chart-crosshair;
+            }
+        }
+
+        // Index labels at the gridlines.
+        for t in MaterialReferenceModel.ri_y_ticks: Text {
+            x: 6px;
+            y: plot.y + plot.height * t.position / 100.0 - 7px;
+            width: 40px;
+            text: t.text;
+            font-size: 10px;
+            color: Theme.text-disabled;
+        }
+        // The Fraunhofer letters above the plot.
+        for g in MaterialReferenceModel.ri_guides: Text {
+            x: plot.x + plot.width * g.x / 100.0 - 6px;
+            y: 6px;
+            width: 12px;
+            text: g.label;
+            font-size: 10px;
+            font-weight: 700;
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+        }
+        for t in MaterialReferenceModel.ri_x_ticks: Text {
+            x: plot.x + plot.width * t.position / 100.0 - 24px;
+            y: parent.height - 18px;
+            width: 48px;
+            text: t.text;
+            font-size: 10px;
+            color: Theme.text-disabled;
+            horizontal-alignment: center;
+        }
+
+        // The hover card, a sibling of the plot so it draws over the lines.
+        if hover.has-hover && MaterialReferenceModel.ri_hover.length > 0: card := Rectangle {
+            property <length> cx: plot.x + plot.width * MaterialReferenceModel.ri_hover[plot.sample_index].x / 100.0;
+            property <length> card_w: 230px;
+            property <length> card_h: 38px;
+            property <bool> flip: self.cx > chart.width - self.card_w - 24px;
+            x: self.flip ? self.cx - self.card_w - 10px : self.cx + 10px;
+            y: Math.max(plot.y, Math.min(plot.y + plot.height - self.card_h, plot.y + hover.mouse-y - self.card_h - 8px));
+            width: self.card_w;
+            height: self.card_h;
+            background: Theme.surface-graph-popup;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            Text {
+                x: 8px;
+                y: 6px;
+                width: parent.width - 16px;
+                height: parent.height - 12px;
+                text: MaterialReferenceModel.ri_hover[plot.sample_index].text;
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    WrapText {
+        text: MaterialReferenceModel.ri_readout;
+        font-size: 12px;
+        font-weight: 700;
+        ink: Theme.accent-cyan;
+        
+    }
+    WrapText {
+        text: MaterialReferenceModel.ri_model_line;
+        font-size: 10px;
+        ink: Theme.text-muted;
+        
+    }
+}

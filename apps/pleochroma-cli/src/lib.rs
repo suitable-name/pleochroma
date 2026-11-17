@@ -11,7 +11,8 @@
 //!
 //! | Command | What it does |
 //! |---|---|
-//! | `info` | name, gear, symmetry, tiers and material of a design |
+//! | `info` | name, gear, symmetry, tiers and material of a design, with the material's gem data |
+//! | `materials` | the Material Reference table, or the optics, colors and gem data of one material |
 //! | `solve` | solve the design, report closure and warnings, optionally save it |
 //! | `metrics` | optical and geometric figures, as text, JSON or CSV |
 //! | `validate` | manufacturability warnings and the overall verdict (exit 4 on Problem) |

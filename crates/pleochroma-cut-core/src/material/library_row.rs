@@ -13,7 +13,7 @@
 //! for the optical character) are the one place that spelling is written down.
 
 use super::{
-    ColorMode, CustomStructure, PerAxisDispersion, custom_structure_from_json,
+    ColorMode, CustomStructure, PerAxisDispersion, Toughness, custom_structure_from_json,
     custom_structure_to_json, inclusion_families_from_json, inclusion_families_to_json,
     pattern::{bands_from_rows, rows_from_bands},
     per_axis_dispersion_from_json, structure_spec_from_json, with_custom_physics,
@@ -31,6 +31,7 @@ use pleochroma::optics::{
     inclusions::{Family, bragg::StructureSpec},
     materials::{AbsorptionUnit, CrystalSystem, GemMaterial, OpticalCharacter},
 };
+use pleochroma_formats::native::CustomGemDataTable;
 
 /// Every crystal system, for reading a stored name back.
 const CRYSTAL_SYSTEMS: [CrystalSystem; 7] = [
@@ -206,7 +207,20 @@ pub struct LibraryMaterial<'a> {
     /// The JSON of the play-of-color choice (`structure_spec_to_json`), or `None` for "no
     /// structure".
     pub structure_json: Option<&'a str>,
+    /// The JSON of the gem data the author entered ([`LibraryMaterial::encode_gem_data`]), or
+    /// `None` for "not recorded".
+    pub gem_data_json: Option<&'a str>,
 }
+
+/// The toughness words by rank, the order of `GEM_TOUGHNESS_WORDS`.
+const TOUGHNESS_BY_RANK: [Toughness; 6] = [
+    Toughness::VeryPoor,
+    Toughness::Poor,
+    Toughness::Fair,
+    Toughness::Good,
+    Toughness::Excellent,
+    Toughness::Exceptional,
+];
 
 /// Stone width (mm) of a banded custom material's path scale: the physics color's default.
 /// The bands are per millimetre, and the path is half this width. The render setup replaces it
@@ -563,6 +577,42 @@ impl LibraryMaterial<'_> {
         self.structure_json.and_then(custom_structure_from_json)
     }
 
+    /// The gem data the row stores, if the text parses and holds at least one value. A value
+    /// outside its scale stays in the table; its checked views
+    /// (`CustomGemDataTable::mohs_range`, `CustomGemDataTable::toughness_ranks`) read it as
+    /// not recorded.
+    #[must_use]
+    pub fn gem_data(&self) -> Option<CustomGemDataTable> {
+        self.gem_data_json.and_then(Self::decode_gem_data)
+    }
+
+    /// The table of stored gem-data JSON `json`: `None` for text that is not valid JSON and for
+    /// a table with no value in it.
+    #[must_use]
+    pub fn decode_gem_data(json: &str) -> Option<CustomGemDataTable> {
+        serde_json::from_str::<CustomGemDataTable>(json)
+            .ok()
+            .filter(|table| !table.is_empty())
+    }
+
+    /// The JSON text the library row stores for `table` (the same keys as the file's
+    /// `[material.custom.gem_data]` table), or `None` for a table with no value in it, so an
+    /// editor that cleared every field writes `NULL`.
+    #[must_use]
+    pub fn encode_gem_data(table: &CustomGemDataTable) -> Option<String> {
+        if table.is_empty() {
+            return None;
+        }
+        serde_json::to_string(table).ok()
+    }
+
+    /// The toughness word at `rank` on the scale of `GEM_TOUGHNESS_WORDS` (0 very poor to 5
+    /// exceptional), as the `Toughness` the Material Reference shows; `None` past the scale.
+    #[must_use]
+    pub fn toughness_from_rank(rank: u8) -> Option<Toughness> {
+        TOUGHNESS_BY_RANK.get(usize::from(rank)).copied()
+    }
+
     /// The default crystal-axis orientation of this material: `Some` only when the tilt and the
     /// azimuth are both stored and finite (the Second Axis turn rides along when stored). `None`
     /// is the material's built-in axis, untouched. A built-in material has no library row, so it
@@ -666,12 +716,14 @@ impl LibraryMaterial<'_> {
             ),
             None => snapshot,
         };
-        snapshot.with_inclusion_families(
-            self.inclusion_families()
-                .and_then(|families| inclusion_families_to_json(&families)),
-            self.custom_structure()
-                .and_then(|structure| custom_structure_to_json(&structure)),
-        )
+        snapshot
+            .with_inclusion_families(
+                self.inclusion_families()
+                    .and_then(|families| inclusion_families_to_json(&families)),
+                self.custom_structure()
+                    .and_then(|structure| custom_structure_to_json(&structure)),
+            )
+            .with_gem_data(self.gem_data())
     }
 }
 

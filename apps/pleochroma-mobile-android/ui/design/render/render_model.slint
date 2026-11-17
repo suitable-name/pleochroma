@@ -12,7 +12,7 @@ export global RenderModel {
     // ---- the overlay ---------------------------------------------------------------
     // The UI owns the settings tray; native Back closes a dropdown before the tray.
     in-out property <bool> controls-open: false;
-    // The line under the picture: "Rendering 24 / 64", "Done", "Paused: Device Is Hot",
+    // The line under the picture: "Rendering 24 / 64", "Done", "Paused: device is hot",
     // "Solve the design to render it".
     in property <string> status-text: "";
     // The pill's two lines in plain words, from Rust: a title ("Refining", "Done", "Paused")
@@ -29,7 +29,7 @@ export global RenderModel {
     // A trace exists that Pause can act on.
     in property <bool> can-pause: false;
     // Sample counts for the path tracer, quality tiers for the ray tracer.
-    in property <[string]> quality-choices: ["32 samples", "64 samples"];
+    in property <[string]> quality-choices: ["16 samples", "32 samples", "64 samples"];
     in property <int> quality: 1;
     in property <bool> denoise: true;
     // One finger moves the light instead of the camera.

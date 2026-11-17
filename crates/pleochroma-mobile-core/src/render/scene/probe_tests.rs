@@ -27,7 +27,8 @@ use crate::{
     },
 };
 
-/// A state with the Render mode on show over the round brilliant template, not solved.
+/// A Path-Traced state with the Render mode on show over the round brilliant template, not
+/// solved.
 fn render_on_show() -> AppState {
     let platform: Arc<dyn Platform> = Arc::new(MockPlatform::default());
     let mut app = AppState::new(platform);
@@ -36,6 +37,7 @@ fn render_on_show() -> AppState {
         template.fresh_spec(template.default_material_selection()),
         1,
     );
+    app.settings.render.engine = 0;
     app.settings.render.live_spp_compact = 8;
     app.settings.render.denoise = false;
     app.settings.render.backend = RenderBackend::DeviceCpu;

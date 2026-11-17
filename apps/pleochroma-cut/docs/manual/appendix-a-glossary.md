@@ -25,9 +25,10 @@ uses **block** for that.
 **Abbe number** — A single figure for how strongly a material spreads
 colors: V_d = (n_d − 1) / (n_F − n_C), using the refractive index at the
 sodium D line and at the blue F and red C lines. A lower number means more
-dispersion and more fire (diamond is about 55, a crown glass about 64). The
-Material Editor shows it live when you type a refractive-index curve as
-coefficients (Chapter 29).
+dispersion and more fire (diamond is about 55, a crown glass about 64). It
+is built on the F–C interval (see **B–G dispersion**). The Material Editor shows it
+live when you type a refractive-index curve as coefficients (Chapter 29), and the
+Material Reference shows it on each material's details page (Chapter 6).
 
 **Abraded edges** — A narrow worn band of ground surface along every facet edge, as on a stone that has been worn or knocked about. Set with Width and Wear in the Stone tab (Chapter 26).
 
@@ -55,6 +56,15 @@ pavilion, girdle) needs at least one anchor, or its overall size has
 nothing to be measured against.
 
 **Asterism** — A star of light on a gem, the six rays of a star sapphire. It comes from parallel needles that scatter light onto a cone; a true star needs a curved dome, so a faceted stone shows only fragments of one (Chapter 27).
+
+**B–G dispersion** — The figure gemological references print for dispersion: the
+refractive index at 430.8 nm (the Fraunhofer G line, violet) minus the index at
+686.7 nm (the B line, red). Diamond's is 0.044. The Stone tab's Dispersion chip, the
+Material Reference and the command line show it. It is larger than the **F–C**
+figure (486.1 to 656.3 nm), which is the one the Material Editor takes and the
+**Abbe number** is built on: for a diamond 0.026, in general about 0.58 times the
+B–G figure. Both are computed from the same index curve of the material
+(Chapter 6).
 
 **Backdrop** — The lit tray under the stone: a matte surface of a chosen reflectance
 (**White** 90 %, **Grey** 18 %, **Black** 2 %) lying under the stone out to the horizon
@@ -99,6 +109,14 @@ Editor's physics color mode builds a color from chromophores; that editor is
 shown only in builds with the `physical-color` feature (Chapter 6), but a
 material's stored chromophore recipe is kept and rendered in every build.
 
+**Cleavage** — The tendency of a crystal to split along flat planes when struck, set
+by its atomic structure. A gem is described by how many directions it cleaves in and
+how easily (perfect, good, distinct, imperfect, poor), with the plane's Miller
+indices, for example "perfect basal {001}" for topaz. A stone with a perfect cleavage
+can split in cutting, polishing and mounting. Glass and opal have none. Shown as the
+cleavage line of the Stone tab's identity card (amber when it is a cutting risk) and in the
+Material Reference (Chapter 6).
+
 **Code** — A tier's label on the cutting sheet, in cutting mode and in the tier
 table's CODE column: P1, P2, ... for pavilion tiers, G1, ... for girdle tiers,
 C1, C2, ... for crown tiers, T for the table and Culet for the culet. Each letter
@@ -120,6 +138,13 @@ estimates from published band positions (they say "Estimated"); you can save you
 tiers and masts against the Baseline (Chapter
 14). Not a comparison against the catalogue's printed proportions — see
 Deep Solve for that.
+
+**Contrast** — A number from 0 to 100 that says how finely the viewer's own shadow is
+broken up across the face-up stone: 100 times the mean difference of the Blue share
+between neighboring spots of the measuring grid. It is Pleochroma's own measure, not an
+AGS or GIA figure; a high value means finely broken-up shadow, not a better grade. Its
+relation to the "pattern" wording of Moses et al. 2004 (Gems & Gemology 40(3)) is in
+Chapter 2, "How the Face-Up Figures Are Measured".
 
 **Critical angle** — The angle, measured from a facet's normal, beyond
 which light hitting that facet from inside the stone reflects internally
@@ -148,10 +173,11 @@ from automatic orbit-consistency handling, for a deliberately asymmetric
 design (Chapter 4).
 
 **Dispersion** — How much a material's refractive index varies across the
-visible spectrum, which is what produces "fire" (spectral flare). Reported
-in this manual as the Abbe number V_d (lower means more dispersive) or, for
-a few entries, directly as Δn(F–C). A custom material can carry its full
-curve as Sellmeier or Cauchy coefficients (Chapter 29).
+visible spectrum, which is what produces "fire" (spectral flare). The app shows it as
+**B–G dispersion**, the figure gem references print (diamond 0.044); the
+Material Editor takes it as **F–C** (Δn(F–C), diamond 0.026), and the
+**Abbe number** V_d (lower means more dispersive) is built on F–C. A custom material
+can carry its full curve as Sellmeier or Cauchy coefficients (Chapter 29).
 
 **Doubling** — How far apart, in arc-minutes, the two images of a birefringent stone fall
 when you look through the table: the ordinary and the extraordinary ray leave the stone
@@ -159,7 +185,10 @@ at slightly different points. Zero along the crystal axis. Shown beside **Axis**
 viewport's metrics bar (Chapter 25).
 
 **Extinction** — The percentage of a stone's face reading as dark, dead
-shadow rather than bright; one of the app's optical performance readouts.
+shadow rather than bright; one of the app's optical performance readouts. It
+counts the light that is **Lost** inside, and the light that leaves upward but is
+unlit or hidden by the head shadow (Chapter 2, "How the Face-Up Figures Are
+Measured").
 
 **Face-up tone** — The lightness `L*` and color strength `C*` of the light a
 stone returns face-up, worked out from how far that light travelled through the
@@ -173,6 +202,17 @@ a whole symmetric family of identical facets (an orbit), not just one.
 
 **Fire** — A unitless index of spectral flare (the rainbow-colored flashes
 caused by dispersion); one of the app's optical performance readouts.
+
+**Fracture** — How a crystal breaks where it does not cleave: conchoidal (shell-like
+curves, as in glass), uneven, subconchoidal or splintery. Given with the gem data
+(Chapter 6).
+
+**Fraunhofer lines** — The dark lines in the sun's spectrum that serve as fixed
+wavelengths for measuring refractive index and dispersion. The ones used here are
+G (430.8 nm, violet), F (486.1 nm, blue-green), D (589.3 nm, yellow, the sodium line
+of n_D), C (656.3 nm, red) and B (686.7 nm, red). B–G dispersion uses the outer
+pair and F–C the middle pair. The Material Reference marks all five on its
+refractive-index chart (Chapter 6).
 
 **Free tier** — A tier whose Meets constraint is **Unspecified Vertex** or
 **Named Facet(s)** — its depth is derived by the solver from where its
@@ -202,12 +242,20 @@ of the Stone tab (Chapter 2).
 **Index** — The position on the cutting machine's dividing head (its
 "gear") where a facet is cut.
 
+**Leak** — The part of the face where light goes out through the pavilion instead of
+returning: the same rays Windowing counts, and the part of the **Dark** zone that
+corresponds to ASET leakage (see *Zones (ASET-style)*).
+
 **Lighting rig** — One of the ways of lighting the stone in the live view and in
 renders: the lit models (light tent, grading tray and others), the studio rigs and
 the daylight rigs.
 Picked in the Lighting & Environment tab (Chapter 2). A rig is
 only the lights; **Saved lighting** stores a rig together with everything else about
 the look.
+
+**Lost** — The part of the face where a ray finds no way out within 10 bounces, or
+leaves the stone sideways. With **Leak** it forms the **Dark** share; Lost is not an
+ASET zone, and it counts toward Extinction.
 
 **Material effects** — The settings of the Stone tab that belong to the
 individual stone and are saved in its design: Inclusion Haze, Crystal Axis,
@@ -227,6 +275,12 @@ a tier that reaches none prints only its depth and is cut to it by
 measurement (Chapter 11). When the named facets meet in more than one
 corner, the solver takes the shallowest, unless you have picked one (see
 *Picked corner*, Chapter 4).
+
+**Mohs hardness** — The scale of scratch resistance from 1 (talc) to 10 (diamond):
+a material scratches any material below it. A species is given as a range, for
+example 7.5–8 for emerald. It says nothing about how well a stone resists a blow;
+that is **toughness**. A glass has no Mohs figure of its own and shows about 5.5
+with its Knoop hardness (Chapter 6).
 
 **Noise threshold** — How far a figure has to move before the program calls it a
 real change. Brilliance, Windowing and Extinction: 2 points; Scintillation: 3;
@@ -258,6 +312,11 @@ in the Render & Output tab and remembered whenever a run starts (Chapter 9).
 Environment and Render & Output. Open from the toolbar buttons, the View menu, the
 command palette or Ctrl+Alt+1/2/3, in the Live Render view and in the Edit view
 (Chapter 2).
+
+**Parting** — A break along a plane, like cleavage, but only where the crystal is
+twinned or stressed, so a given stone may or may not show it (the Gem Data lists
+basal and rhombohedral parting for sapphire and ruby). Shown in the Material Reference when the material has one
+(Chapter 6).
 
 **Pavilion** — The block of a stone below the girdle, usually culminating
 in a culet or point.
@@ -385,6 +444,11 @@ family of identical facets cut at the same angle and depth.
 performance as it tips away from face-up viewing, along a chosen compass
 direction around the stone (Chapter 2).
 
+**Toughness** — A stone's resistance to breaking, chipping or cracking, graded by
+GIA from very poor to exceptional. It is separate from hardness: a diamond is the
+hardest gem, but its toughness is only good to exceptional because it cleaves. A material no gemological source grades reads "Not graded"
+(Chapter 6).
+
 **Tray Reflection** — The optional glossy surface under the stone: a smooth, endless mirror at the culet whose head-on reflectance is the slider value (about 4 % is black acrylic or glass, 100 % a mirror) and which reflects more at glancing angles. The stone appears mirrored in it. Studio lights with a backdrop only; off by default.
 
 **Trial** — A numbered record of the design at a moment you kept it, with its
@@ -406,12 +470,23 @@ History tab (Chapter 18).
 **Windowing** — The percentage of a stone's face reading as see-through
 rather than reflective, caused by light leaking straight through the
 pavilion instead of totally internally reflecting; one of the app's
-optical performance readouts.
+optical performance readouts. The same share is the **Leak** part of the
+Dark zone.
 
 **Zone (pattern zone)** — One region of a Color Pattern with its own color: the
 **base zone** that fills the stone wherever no other zone is, and up to four more
 zones, each with a shape. The Color Pattern Editor lists them as layers, top layer
 first; an upper layer covers the ones below it (Chapter 29).
+
+**Zones (ASET-style)** — The block of the FACE-UP card that splits the face into
+**Red** (light leaving 45° to 75° above the girdle plane), **Green** (0° to 45°),
+**Blue** (75° to 90°, where your head is) and **Dark** (**Leak** plus **Lost**), as
+percentages. They are the zones of the lighting Contrast view (ASET-style), with this
+program's own blended edges instead of the published sharp limits; **Lost** is not an
+ASET zone. They do not depend on the lighting. ASET is a registered trademark of the
+Gemological Institute of America, Inc. (GIA); Pleochroma is not affiliated with or
+endorsed by GIA or the American Gem Society (Chapter 2, "How the Face-Up Figures Are
+Measured").
 
 ## Next Steps
 

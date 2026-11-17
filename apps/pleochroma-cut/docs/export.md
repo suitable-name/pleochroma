@@ -19,7 +19,7 @@ export is started from the Edit tab; a job whose stone is posed is format 8, whi
 every other format, and tilt videos always show the stone as designed. An export with
 **Include Optical Diagnostics** is refused while the stone is posed ("Optical Diagnostics
 cannot be combined with a Stone Pose").
-Tilt videos do not show the tray reflection.
+A tilt video draws the tray reflection only when its **Tray Reflection** switch is on.
 The desktop app and remote workers must all use protocol 44. See the
 [rendering manual](manual/09-rendering-and-export.md) for the approximation's limits.
 

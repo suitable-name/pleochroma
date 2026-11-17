@@ -17,12 +17,11 @@ fn hash_str(hasher: &mut Sha256, s: &str) {
 }
 
 fn hash_opt_str(hasher: &mut Sha256, s: Option<&str>) {
-    match s {
-        Some(s) => {
-            hasher.update([1u8]);
-            hash_str(hasher, s);
-        }
-        None => hasher.update([0u8]),
+    if let Some(s) = s {
+        hasher.update([1u8]);
+        hash_str(hasher, s);
+    } else {
+        hasher.update([0u8]);
     }
 }
 
@@ -93,12 +92,11 @@ pub(super) fn revision_token(url: &str, revision: Revision) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hash_str(&mut hasher, "pleochroma/design-revision/1");
     hash_str(&mut hasher, url);
-    match stamp {
-        Some(t) => {
-            hasher.update([1u8]);
-            hasher.update(t.to_le_bytes());
-        }
-        None => hasher.update([0u8]),
+    if let Some(t) = stamp {
+        hasher.update([1u8]);
+        hasher.update(t.to_le_bytes());
+    } else {
+        hasher.update([0u8]);
     }
     hasher.finalize().into()
 }

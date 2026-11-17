@@ -24,7 +24,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (Caltech Miku, Zambia).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl, Miku, Zambia, light green emerald (M. N. Taran), 2.148 mm, E perpendicular / parallel to c, http://minerals.gps.caltech.edu/FILES/Visible/Beryl/taran/Emerald_Zambia.a and .c (reference_spectra/variant_emerald_zambian_miku_{eperpc,eparc}.csv)",
-  "Bands refitted per ray with bounded energy Gaussians (Cr3+ 4T1 and 4T2, Fe2+ near 825-880 nm, UV edge), constant baseline removed; scaled to a medium-dark bluish green stone (fit record, emerald.zambian)",
+  "Bands refitted per ray with bounded energy Gaussians (Cr3+ 4T1 and 4T2, Fe2+ near 825-880 nm, absorption edge below 400 nm), constant baseline removed; scaled to a medium-dark bluish green stone (fit record, emerald.zambian)",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#emerald-zambian"
 
@@ -53,7 +53,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (Caltech Jos, Nigeria).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl, Jos, Nigeria, light green emerald (M. N. Taran), 0.95 mm, both rays (reference_spectra/variant_emerald_light_jos_nigeria_{eperpc,eparc}.csv)",
-  "Bands refitted per ray (Cr3+ 4T1 / 4T2, Fe2+ near 808 nm, UV edge), baseline removed; scaled to a pale green stone (fit record, emerald.light)",
+  "Bands refitted per ray (Cr3+ 4T1 / 4T2, Fe2+ near 808 nm, absorption edge below 400 nm), baseline removed; scaled to a pale green stone (fit record, emerald.light)",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#emerald-light"
 
@@ -81,7 +81,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 309, sparse digitised traces).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 309, golden heliodor, Goias, 3.306 mm, baseline corrected (reference_spectra/variant_heliodor_golden_grr309_{eperpc,eparc}.csv; sparse digitised traces, o-ray 374-1295 nm, e-ray from 410 nm)",
-  "Fe3+ (UV edge, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+  "Fe3+ (absorption edge below 400 nm, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#heliodor"
 
@@ -154,7 +154,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 1780).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 1780, deep blue aquamarine (Tatu mine, Minas Gerais; stand-in for Santa Maria, there is no Santa Maria sample on the server), 2.449 mm (reference_spectra/variant_aquamarine_santa_maria_grr1780_{eperpc,eparc}.csv)",
-  "Refitted 2026-10-27 per ray (UV edge, Fe3+ 428 nm, IVCT 660 nm, Fe2+ 830-860 nm, near-infrared band) with the header's visible pedestal (A 0.16 o / 0.40 e) removed first; ONE factor 0.5 over every band, the edge included (owner rule). The crystal's o-ray is yellow-green and its face-up color a teal blue, greener than the trade name suggests",
+  "Refitted 2026-10-27 per ray (absorption edge below 400 nm, Fe3+ 428 nm, IVCT 660 nm, Fe2+ 830-860 nm, near-infrared band) with the header's visible pedestal (A 0.16 o / 0.40 e) removed first; ONE factor 0.5 over every band, the edge included (owner rule). The crystal's o-ray is yellow-green and its face-up color a teal blue, greener than the trade name suggests",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#aquamarine-santa-maria"
 
@@ -218,7 +218,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 309, sparse digitised traces).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 309, golden heliodor, Goias, 3.306 mm, baseline corrected (reference_spectra/variant_heliodor_golden_grr309_{eperpc,eparc}.csv; sparse digitised traces, o-ray 374-1295 nm, e-ray from 410 nm)",
-  "Fe3+ (UV edge, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+  "Fe3+ (absorption edge below 400 nm, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#heliodor"
 
@@ -290,8 +290,8 @@ reference_path_mm = 7.0
 estimated = true
 sources = [
   "Built from the bands of a different beryl (red beryl GRR 602) and published positions; strength estimated.",
-  "no digital morganite spectrum exists (Caltech GRR 508 and 2536b are figures). Mn3+ band shapes (visible bands only, no UV edge) from the measured red beryl GRR 602 (variant_red_beryl_grr602_*.csv); Mn3+ band at 560-567 nm from the Caltech GRR 2536b page text and GIA Gems & Gemology Fall 2024 GNI",
-  "A trace of the heliodor Fe3+ edge (GRR 309) is added to the o-ray so the hue is pink rather than purple; the e-ray keeps only the Mn3+ band and the UV edge (the heliodor 404 nm band turned it peach, the documented e-ray is light violet). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+  "no digital morganite spectrum exists (Caltech GRR 508 and 2536b are figures). Mn3+ band shapes (visible bands only, no absorption edge below 400 nm) from the measured red beryl GRR 602 (variant_red_beryl_grr602_*.csv); Mn3+ band at 560-567 nm from the Caltech GRR 2536b page text and GIA Gems & Gemology Fall 2024 GNI",
+  "A trace of the heliodor Fe3+ edge (GRR 309) is added to the o-ray so the hue is pink rather than purple; the e-ray keeps only the Mn3+ band and the absorption edge below 400 nm (the heliodor 404 nm band turned it peach, the documented e-ray is light violet). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#morganite-pink"
 
@@ -348,7 +348,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 309, sparse digitised traces).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 309, golden heliodor, Goias, 3.306 mm, baseline corrected (reference_spectra/variant_heliodor_golden_grr309_{eperpc,eparc}.csv; sparse digitised traces, o-ray 374-1295 nm, e-ray from 410 nm)",
-  "Fe3+ (UV edge, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+  "Fe3+ (absorption edge below 400 nm, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#heliodor"
 
@@ -697,7 +697,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 3770).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: elbaite GRR 3770, pure blue, 2.00 mm (variant_tourmaline_indicolite_grr3770_{eperpc,eparc}.csv), checked against GRR 1935 blue, Usakos, 3.641 mm (variant_tourmaline_indicolite_grr1935_blue_*.csv)",
-  "Refitted 2026-10-27 (UV edge, a weak 640 nm shoulder, Fe2+ 720 nm, near-infrared Fe2+ band per ray) with the visible floor (A 0.394 o / 0.341 e) removed; ONE factor 3.0 over every band, the edge included (owner rule). The measured crystal is a teal green (face-up hue about 155), greener than the trade name suggests; the factor gives a saleable face-up lightness",
+  "Refitted 2026-10-27 (absorption edge below 400 nm, a weak 640 nm shoulder, Fe2+ 720 nm, near-infrared Fe2+ band per ray) with the visible floor (A 0.394 o / 0.341 e) removed; ONE factor 3.0 over every band, the edge included (owner rule). The measured crystal is a teal green (face-up hue about 155), greener than the trade name suggests; the factor gives a saleable face-up lightness",
   "Fe2+ at 713-720 nm and 1120 nm; the Fe2+ band is almost unpolarized in both crystals (o:e 0.95:0.94 and 0.91:0.98), unlike the 3:1 of the Tourmaline built-in (R2 section 0.2). The o and e sets are stored separately (pleochroic) but nearly equal in the Fe2+ band",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-indicolite"
@@ -727,8 +727,8 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 1935 green).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: elbaite GRR 1935, small green crystal, Usakos, Namibia, 3.645 mm, baseline corrected (variant_tourmaline_verdelite_grr1935_green_{eperpc,eparc}.csv)",
-  "Refitted 2026-10-27 with four bands per ray (UV edge, 525-620 nm shoulder, Fe2+ 711 nm, near-infrared Fe2+), the fit of the Tourmaline Material Default (model / data 0.94-1.03 at 550-750 nm); ONE factor 1.4 over every band. The earlier yellow-green hue (h 136) is not reachable from this crystal: its face-up hue is about 154",
-  "Fe2+ near 712 nm plus Fe2+-Ti4+ charge transfer and UV edge absorbing blue (Caltech tourmaline index page)",
+  "Refitted 2026-10-27 with four bands per ray (absorption edge below 400 nm, 525-620 nm shoulder, Fe2+ 711 nm, near-infrared Fe2+), the fit of the Tourmaline Material Default (model / data 0.94-1.03 at 550-750 nm); ONE factor 1.4 over every band. The earlier yellow-green hue (h 136) is not reachable from this crystal: its face-up hue is about 154",
+  "Fe2+ near 712 nm plus Fe2+-Ti4+ charge transfer and a short-wavelength absorption edge reaching into the blue (Caltech tourmaline index page)",
 ]
 fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-verdelite"
 

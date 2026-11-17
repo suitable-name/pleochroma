@@ -1,5 +1,6 @@
-//! How a connection's adaptive-compression state ([`PeerLink`]) is built: from the
-//! user's `--payload-encoding` choice, the peer's stable identity and whether the peer is
+//! How a connection's adaptive-compression state ([`PeerLink`]) is built.
+//!
+//! From the user's `--payload-encoding` choice, the peer's stable identity and whether the peer is
 //! on this machine.
 
 use pleochroma_net::messages::{

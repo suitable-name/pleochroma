@@ -78,8 +78,7 @@ pub(in crate::gui::editor) fn setup_gear_apply_callback(
             PENDING_GEAR_REMAP_GENERATION
                 .with(|cell| cell.set(Some(st.generation.load(Ordering::Relaxed))));
             drop(st);
-            ui.global::<EditorModel>()
-                .set_gear_remap_rows(ModelRc::new(VecModel::from(rows)));
+            set_remap_preview(&ui, rows, from_gear, to_gear);
             ui.global::<EditorModel>().set_gear_remap_open(true);
         },
     );
@@ -112,9 +111,19 @@ pub(in crate::gui::editor) fn setup_gear_apply_callback(
             let rows: Vec<GearRemapRow> =
                 gear_remap_preview(&st.design, from_gear, to_gear, rounding);
             drop(st);
-            ui.global::<EditorModel>()
-                .set_gear_remap_rows(ModelRc::new(VecModel::from(rows)));
+            set_remap_preview(&ui, rows, from_gear, to_gear);
         });
+}
+
+/// Hands the dialog its preview rows, the two gear tooth counts and how many rows fall between
+/// two teeth of the new gear (the legend under the table).
+fn set_remap_preview(ui: &MainWindow, rows: Vec<GearRemapRow>, from_gear: i32, to_gear: i32) {
+    let rounded = rows.iter().filter(|row| row.non_integral).count();
+    let editor = ui.global::<EditorModel>();
+    editor.set_gear_remap_from_gear(from_gear);
+    editor.set_gear_remap_to_gear(to_gear);
+    editor.set_gear_remap_rounded_count(i32::try_from(rounded).unwrap_or(i32::MAX));
+    editor.set_gear_remap_rows(ModelRc::new(VecModel::from(rows)));
 }
 
 /// The gear-remap confirmation panel's "Apply": commits [`EditorState::pending_gear_remap`] as

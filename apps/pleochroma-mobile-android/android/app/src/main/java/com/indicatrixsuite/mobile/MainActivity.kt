@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
@@ -59,6 +60,12 @@ class MainActivity : NativeActivity() {
     private var printView: WebView? = null
     private var backNavigation: BackNavigationController? = null
 
+    /** The browse for the paired computer; null until Rust asks for one. UI thread only. */
+    private var discovery: NsdDiscovery? = null
+
+    /** The system dialog for the local network is open. UI thread only. */
+    private var askingLocalNetwork = false
+
     // ---------------------------------------------------------------------------------
     // Lifecycle
     // ---------------------------------------------------------------------------------
@@ -74,6 +81,15 @@ class MainActivity : NativeActivity() {
         if (savedInstanceState == null) {
             handleIncoming(intent)
         }
+        // Rust keeps this activity to start and stop the scanner and the rediscovery.
+        attached = this
+        nativeAttachActivity()
+    }
+
+    override fun onStop() {
+        // Browsing for the computer is only useful while the app is on screen.
+        discovery?.stop()
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -84,6 +100,18 @@ class MainActivity : NativeActivity() {
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onDestroy() {
+        discovery?.stop()
+        discovery = null
+        if (askingLocalNetwork) {
+            // The dialog dies with the activity: Rust must not wait for its answer.
+            askingLocalNetwork = false
+            nativeLocalNetworkAnswered(0)
+        }
+        // Rust lets go of this activity, unless a newer one was attached in the meantime.
+        if (attached === this) {
+            attached = null
+            nativeDetachActivity()
+        }
         backNavigation?.close()
         backNavigation = null
         printView = null
@@ -285,6 +313,73 @@ class MainActivity : NativeActivity() {
         null
     }
 
+    /**
+     * `startQrScan()Ljava/lang/String;`: opens the QR scanner ([ScannerActivity]). The camera
+     * permission is asked there, only now. A scanned `pleochroma://pair` link comes back in
+     * [onActivityResult] and goes to Rust through [nativePairingLink], like a deep link.
+     */
+    fun startQrScan(): String? = guarded {
+        onUi { startActivityForResult(Intent(this, ScannerActivity::class.java), SCAN_REQUEST_CODE) }
+        null
+    }
+
+    /**
+     * `startRediscovery()Ljava/lang/String;`: browses `_pleochroma._tcp` for 30 seconds
+     * (multicast lock held only meanwhile). Each service found is reported to
+     * [nativeServiceFound]; the end of the browse, by whatever cause, to
+     * [nativeRediscoveryEnded].
+     */
+    fun startRediscovery(): String? = guarded {
+        onUi {
+            val browser = discovery ?: NsdDiscovery(
+                this,
+                { name, version, ca, addresses -> nativeServiceFound(name, version, ca, addresses) },
+                { nativeRediscoveryEnded() },
+            ).also { discovery = it }
+            browser.start()
+        }
+        null
+    }
+
+    /**
+     * `ensureLocalNetwork()I`: Android 17 (API 37) blocks every connection to a device on the
+     * local network until the user allows `ACCESS_LOCAL_NETWORK`. Returns 1 when the app may
+     * use it already (or the Android version asks for nothing), 0 when the system dialog is
+     * open (the answer comes back through [nativeLocalNetworkAnswered]; a second call while
+     * it is open also returns 0 and shares that answer), and -1 when the request could not
+     * be started (Rust then tries the connection anyway).
+     */
+    fun ensureLocalNetwork(): Int =
+        try {
+            onUi {
+                when {
+                    Build.VERSION.SDK_INT < LOCAL_NETWORK_SDK -> 1
+                    checkSelfPermission(PERMISSION_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED -> 1
+                    askingLocalNetwork -> 0
+                    else -> {
+                        askingLocalNetwork = true
+                        try {
+                            requestPermissions(arrayOf(PERMISSION_LOCAL_NETWORK), LOCAL_NETWORK_REQUEST_CODE)
+                        } catch (e: Exception) {
+                            // No dialog is open, so nothing will answer: do not wait for one.
+                            askingLocalNetwork = false
+                            throw e
+                        }
+                        0
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "asking for local network access failed", e)
+            -1
+        }
+
+    /** `stopRediscovery()Ljava/lang/String;`: ends the browse and releases the multicast lock. */
+    fun stopRediscovery(): String? = guarded {
+        onUi { discovery?.stop() }
+        null
+    }
+
     /** Starts [intent] on the UI thread under a new request code tied to a [PendingRequest]. */
     private fun startForResult(intent: Intent, rustId: Long, kind: Int, saveBytes: ByteArray?) {
         onUi {
@@ -337,12 +432,34 @@ class MainActivity : NativeActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == SCAN_REQUEST_CODE) {
+            val link = data?.getStringExtra(ScannerActivity.EXTRA_LINK)
+            // The scanner already checked the prefix; Rust reads the link and asks the user.
+            if (resultCode == RESULT_OK && link != null) nativePairingLink(link)
+            return
+        }
         val request = requests.remove(requestCode) ?: return
         if (request.kind == KIND_SAVE) {
             finishSave(request, resultCode, data)
         } else {
             finishPick(request, resultCode, data)
         }
+    }
+
+    /**
+     * The answer of the local network dialog ([ensureLocalNetwork]). An empty result means the
+     * dialog was interrupted: that counts as a no, and the next attempt asks again.
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != LOCAL_NETWORK_REQUEST_CODE) return
+        askingLocalNetwork = false
+        val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+        nativeLocalNetworkAnswered(if (granted) 1 else 0)
     }
 
     /** Reads the picked files on a background thread and hands them to Rust. */
@@ -428,6 +545,7 @@ class MainActivity : NativeActivity() {
      */
     private fun handleIncoming(intent: Intent?) {
         if (intent == null) return
+        if (handlePairingLink(intent)) return
         val uris: List<Uri> = when (intent.action) {
             Intent.ACTION_VIEW -> listOfNotNull(intent.data)
             Intent.ACTION_SEND -> listOfNotNull(streamExtra(intent))
@@ -447,6 +565,26 @@ class MainActivity : NativeActivity() {
             }
             nativeRequestDone(INCOMING_ID, null)
         }
+    }
+
+    /**
+     * A `pleochroma://pair?...` link: hands it to Rust, which opens the confirm sheet. The link
+     * carries a one-time pairing code, so it is never logged, and the intent that held it is
+     * replaced afterwards so a recreated activity cannot deliver it a second time.
+     * Returns whether [intent] was a pairing link.
+     */
+    private fun handlePairingLink(intent: Intent): Boolean {
+        val uri = intent.data
+        if (intent.action != Intent.ACTION_VIEW || uri == null ||
+            !"pleochroma".equals(uri.scheme, ignoreCase = true) ||
+            !"pair".equals(uri.host, ignoreCase = true)
+        ) {
+            return false
+        }
+        val link = uri.toString()
+        setIntent(Intent(Intent.ACTION_MAIN))
+        nativePairingLink(link)
+        return true
     }
 
     private fun streamExtra(intent: Intent): Uri? =
@@ -496,8 +634,40 @@ class MainActivity : NativeActivity() {
 
     private external fun nativeSaveDone(requestId: Long, displayName: String?, error: String?)
 
+    /** A pairing link (`pleochroma://pair?...`); implemented in `src/remote.rs`, not in natives.rs. */
+    private external fun nativePairingLink(link: String)
+
+    /** Gives Rust this activity; implemented in `src/remote.rs`. */
+    private external fun nativeAttachActivity()
+
+    /**
+     * One service found while browsing: its name, the TXT values `v` and `ca`, and its IPv4
+     * addresses as a comma-separated `ip:port` list; implemented in `src/remote.rs`.
+     */
+    private external fun nativeServiceFound(name: String, version: String, ca: String, addresses: String)
+
+    /**
+     * The browse ended (its time ran out, the app stopped, it could not start, or Rust asked
+     * for it to stop); implemented in `src/remote.rs`. Called on the UI thread: Rust only
+     * clears its session and never calls back into this class from here.
+     */
+    private external fun nativeRediscoveryEnded()
+
+    /**
+     * The answer of the local network dialog: 1 allowed, 0 refused or interrupted;
+     * implemented in `src/remote.rs`. Called on the UI thread: Rust only records the answer
+     * and queues the work for its own thread.
+     */
+    private external fun nativeLocalNetworkAnswered(granted: Int)
+
+    /** Tells Rust that this activity is gone; implemented in `src/remote.rs`. */
+    private external fun nativeDetachActivity()
+
     companion object {
         private const val TAG = "pleochroma"
+
+        /** The activity Rust currently holds (singleTask: normally the only one). UI thread. */
+        private var attached: MainActivity? = null
 
         /** Request kinds sent from Rust (`KIND_*` in platform_android/mod.rs). */
         private const val KIND_DESIGNS = 0
@@ -514,6 +684,19 @@ class MainActivity : NativeActivity() {
         private const val INCOMING_ID = 0L
 
         private const val FIRST_REQUEST_CODE = 0x1000
+
+        /** The request code of the QR scanner; outside the range of [FIRST_REQUEST_CODE]. */
+        private const val SCAN_REQUEST_CODE = 0x0F00
+
+        /** The request code of the local network dialog (permission codes stay below 0x10000). */
+        private const val LOCAL_NETWORK_REQUEST_CODE = 0x0F01
+
+        /**
+         * The permission to reach devices on the local network, a runtime permission from
+         * Android 17 (API 37) on. A string, so this compiles against any compile SDK.
+         */
+        private const val PERMISSION_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+        private const val LOCAL_NETWORK_SDK = 37
         private const val UI_WAIT_MS = 2000L
 
         init {

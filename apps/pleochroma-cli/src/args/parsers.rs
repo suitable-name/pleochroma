@@ -106,6 +106,7 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
     let mut designs = Vec::new();
     let mut material = None;
     let mut tilt = false;
+    let mut aset_grid = false;
     let (mut json, mut csv) = (false, false);
     let mut lighting = CANONICAL_LIGHTING_PRESET;
     let (mut out, mut out_dir, mut db) = (None, None, None);
@@ -120,6 +121,7 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
                 set_material(&mut material, MaterialArg::Ri(ri))?;
             }
             "--tilt" => tilt = true,
+            "--aset-grid" => aset_grid = true,
             "--json" => json = true,
             "--csv" => csv = true,
             "--lighting" => lighting = parse_lighting(cursor.value("--lighting")?)?,
@@ -131,6 +133,11 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
     }
     if json && csv {
         return Err("give one of --json and --csv, not both".to_string());
+    }
+    if aset_grid && (json || csv) {
+        return Err(
+            "--aset-grid prints into the text report: leave out --json and --csv".to_string(),
+        );
     }
     let (format, extension, style) = if json {
         (ReportFormat::Json, "json", ReportStyle::Json)
@@ -152,6 +159,7 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
             design,
             material: material.clone(),
             tilt,
+            aset_grid,
             format,
             lighting,
             out,
@@ -772,30 +780,16 @@ fn apply_render_flag(
                 "{word} is for \"tilt-video\", not \"{command}\" (see --help)"
             ));
         }
-        "--stone-shadow" if kind == JobCommandKind::Render => {
+        "--stone-shadow" => {
             parsed.stone_shadow = Some(match cursor.value("--stone-shadow")? {
                 "on" => true,
                 "off" => false,
                 other => return Err(format!("--stone-shadow needs on or off, got {other:?}")),
             });
         }
-        "--stone-shadow" => {
-            return Err(
-                "--stone-shadow is for \"render\", not \"tilt-video\". Tilt videos do not show \
-                 the stone shadow yet."
-                    .to_string(),
-            );
-        }
-        "--tray-reflection" if kind == JobCommandKind::Render => {
+        "--tray-reflection" => {
             parsed.tray_reflection =
                 Some(parse_tray_reflection(cursor.value("--tray-reflection")?)?);
-        }
-        "--tray-reflection" => {
-            return Err(
-                "--tray-reflection is for \"render\", not \"tilt-video\". Tilt videos do not \
-                 show the tray reflection yet."
-                    .to_string(),
-            );
         }
         "--stone-pose" if kind == JobCommandKind::Render => {
             parsed.stone_pose = Some(parse_stone_pose(cursor.value("--stone-pose")?)?);

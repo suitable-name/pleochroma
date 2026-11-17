@@ -1,0 +1,874 @@
+// The Render computers page of the coordinator window: this computer's own render lane (an
+// on/off switch, GPU and CPU mode, CPU threads), the render computers that are joined now
+// (with Disconnect), the render computers that are allowed to join, and the total capacity.
+//
+// Page contract: one `RenderPage` with no required properties and one `RenderState` global.
+// `src/gui/pages/render.rs` fills the state from the coordinator status once a second and
+// answers the callbacks. Built from the desktop kit through `frame.slint`.
+import { ScrollView } from "std-widgets.slint";
+import { Theme, ShellState, KitIcon, KitIcons, KitIconButton, KitButton, KitCard, KitSection, KitSwitch, KitFillSegments, StatusDot, CIcons, Txt, Sub, Muted } from "../frame.slint";
+import { ActivateScope } from "../focus.slint";
+/// One joined render computer. The Rust side formats every text.
+export struct RcConnectedRow {
+    /// The registry id, for Disconnect.
+    id: int,
+    name: string,
+    /// "Worker · Windows".
+    kind: string,
+    /// "RTX 4070".
+    hardware: string,
+    /// "24 threads · 2 slots".
+    hardware-sub: string,
+    busy: bool,
+    /// "Busy" or "Idle".
+    state: string,
+    /// What it renders, or "1 of 2 slots busy".
+    state-sub: string,
+    /// "Connected for 12 min".
+    since: string,
+    /// "12.5 samples per second", or empty before it has rendered.
+    rate: string,
+    addr: string,
+}
+
+/// One render computer that is allowed to join.
+export struct RcAllowedRow {
+    name: string,
+    kind: string,
+    /// "Added 3 days ago".
+    added: string,
+    online: bool,
+    /// "Online" or "Offline".
+    state: string,
+    /// "Allowed to take jobs" or "Will join when it starts".
+    state-sub: string,
+    /// "Now" or "Last seen 2 h ago".
+    seen: string,
+    addr: string,
+}
+
+export global RenderState {
+    /// True once the Rust side has filled the page.
+    in property <bool> loaded: false;
+
+    // This computer.
+    /// "Render on this computer" is on.
+    in-out property <bool> own-enabled: false;
+    /// 0 GPU + CPU, 1 GPU only, 2 CPU only.
+    in-out property <int> own-mode: 0;
+    /// CPU threads of the own lane; 0 means automatic.
+    in-out property <int> own-threads: 0;
+    /// The most threads the stepper offers.
+    in property <int> max-threads: 16;
+    /// "Radeon 780M · 16 threads"; empty when unknown.
+    in property <string> own-hardware;
+    /// 0 idle (green), 1 busy (amber), 3 off (muted).
+    in property <int> own-level: 3;
+    in property <string> own-state: "Off";
+
+    // Joined and allowed render computers.
+    in-out property <[RcConnectedRow]> connected;
+    in-out property <[RcAllowedRow]> allowed;
+    /// "2 GPUs · 40 threads · up to 7680 × 4320"; empty when there is nothing to total.
+    in property <string> capacity;
+
+    /// What the signed-in role may do; the controls grey out when false.
+    in property <bool> can-change: true;
+    in property <bool> can-disconnect: true;
+    /// Why a control is greyed out ("This session can only watch."), shown under the card.
+    in property <string> denied-reason;
+    /// The last failed action in plain words; empty when the last action worked.
+    in-out property <string> error;
+
+    /// The owner flipped "Render on this computer".
+    callback set-enabled(bool);
+    /// The owner picked a mode: 0 GPU + CPU, 1 GPU only, 2 CPU only.
+    callback set-mode(int);
+    /// The owner changed the CPU threads (0 = automatic).
+    callback set-threads(int);
+    /// The owner asked to disconnect a joined render computer: its id.
+    callback disconnect(int);
+
+    // "Add a render computer": a one-time worker code with its link and QR code.
+    /// The dialog is open.
+    in-out property <bool> add-open: false;
+    /// 0 making a code, 1 waiting for the computer, 2 a computer connected, 3 the code ran out,
+    /// 4 no code could be made.
+    in-out property <int> add-phase: 0;
+    in property <image> add-qr;
+    /// The link with its code masked.
+    in property <string> add-link-shown;
+    in property <float> add-fraction: 1;
+    in property <string> add-remaining: "3:00";
+    in property <bool> add-copied: false;
+    /// The problem in plain words (phase 4) or a clipboard notice.
+    in property <string> add-notice;
+    /// The address a computer connected from (phase 2).
+    in property <string> add-from;
+    /// True when the signed-in role may make pairing codes.
+    in property <bool> can-add: true;
+    /// The owner asked for a code: opens the dialog.
+    callback add-requested();
+    /// The dialog was closed; the code is cancelled.
+    callback add-close();
+    /// A fresh code (expired, problem or "Add another").
+    callback add-new-code();
+    /// Copy the link of the live code.
+    callback add-copy();
+}
+
+component Th inherits Text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    color: Theme.text-muted;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+// A 28 px icon chip.
+component KindChip inherits VerticalLayout {
+    in property <string> icon;
+    in property <bool> dim: false;
+    width: 28px;
+    alignment: center;
+    Rectangle {
+        height: 28px;
+        border-radius: 8px;
+        background: root.dim ? Theme.bg-input : Theme.accent-cyan-surface;
+        KitIcon { x: 5px; y: 5px; d: root.icon; size: 18px; ink: root.dim ? Theme.text-muted : Theme.accent-cyan; }
+    }
+}
+
+// A name with a small second line.
+component NameCell inherits VerticalLayout {
+    in property <string> name;
+    in property <string> sub;
+    in property <bool> dim: false;
+    alignment: center;
+    spacing: 1px;
+    Text { text: root.name; font-size: 13px; font-weight: 600; color: root.dim ? Theme.text-secondary : Theme.text-primary; overflow: elide; }
+    Text { text: root.sub; font-size: 11px; color: Theme.text-muted; overflow: elide; }
+}
+
+// Column widths shared by the headers and the rows.
+global RC {
+    out property <length> hw: 130px;
+    out property <length> since: 170px;
+    out property <length> addr: 116px;
+    out property <length> action: 104px;
+}
+
+// The header of both tables. Narrow windows drop the hardware, connection and address columns.
+component RigHead inherits Rectangle {
+    in property <string> c1: "RENDER COMPUTER";
+    in property <string> c2: "HARDWARE";
+    in property <string> c3: "STATE";
+    in property <string> c4: "CONNECTION";
+    in property <bool> show-hw: true;
+    in property <bool> show-since: true;
+    in property <bool> show-addr: true;
+    in property <length> trail: RC.action;
+    height: 36px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        Rectangle { width: 28px; }
+        Th { horizontal-stretch: 2; min-width: 70px; preferred-width: 140px; text: root.c1; }
+        if root.show-hw: Th { width: RC.hw; text: root.c2; }
+        Th { horizontal-stretch: 3; min-width: 70px; preferred-width: 160px; text: root.c3; }
+        if root.show-since: Th { width: RC.since; text: root.c4; }
+        if root.show-addr: Th { width: RC.addr; text: "ADDRESS"; }
+        Rectangle { width: root.trail; }
+    }
+}
+
+component ConnectedRow inherits Rectangle {
+    in property <RcConnectedRow> data;
+    in property <bool> first: false;
+    in property <bool> show-hw: true;
+    in property <bool> show-since: true;
+    in property <bool> show-addr: true;
+    in property <bool> can-disconnect: true;
+    callback disconnect();
+    height: 54px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.data.name + ", " + root.data.kind + ", " + root.data.hardware + ", " + root.data.state + ", " + root.data.since;
+    if !root.first: Rectangle { y: 0px; height: 1px; background: Theme.border-subtle; }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        KindChip { icon: CIcons.server; }
+        NameCell { horizontal-stretch: 2; min-width: 70px; preferred-width: 140px; name: root.data.name; sub: root.data.kind; }
+        if root.show-hw: NameCell { width: RC.hw; name: root.data.hardware; sub: root.data.hardware-sub; }
+        VerticalLayout {
+            horizontal-stretch: 3;
+            min-width: 70px;
+            preferred-width: 160px;
+            alignment: center;
+            spacing: 1px;
+            StatusDot { level: root.data.busy ? 1 : 0; text: root.data.state; }
+            Text { text: root.data.state-sub; font-size: 11px; color: Theme.text-muted; overflow: elide; }
+        }
+        if root.show-since: NameCell { width: RC.since; name: root.data.since; sub: root.data.rate; }
+        if root.show-addr: Text { width: RC.addr; text: root.data.addr; font-size: 12px; font-family: "Consolas"; color: Theme.text-secondary; vertical-alignment: center; overflow: elide; }
+        VerticalLayout {
+            width: RC.action;
+            alignment: center;
+            KitButton {
+                text: "Disconnect";
+                hint: root.can-disconnect ? "Disconnects " + root.data.name + ". It can join again." : ShellState.denied-reason;
+                h: 30px;
+                enabled: root.can-disconnect;
+                clicked => {
+                    root.disconnect();
+                }
+            }
+        }
+    }
+}
+
+component AllowedRow inherits Rectangle {
+    in property <RcAllowedRow> data;
+    in property <bool> first: false;
+    in property <bool> show-hw: true;
+    in property <bool> show-since: true;
+    in property <bool> show-addr: true;
+    height: 54px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.data.name + ", " + root.data.kind + ", " + root.data.state + ", " + root.data.seen;
+    if !root.first: Rectangle { y: 0px; height: 1px; background: Theme.border-subtle; }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        KindChip { icon: CIcons.server; dim: !root.data.online; }
+        NameCell { horizontal-stretch: 2; min-width: 70px; preferred-width: 140px; name: root.data.name; sub: root.data.kind; dim: !root.data.online; }
+        if root.show-hw: Text { width: RC.hw; text: root.data.added; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; overflow: elide; }
+        VerticalLayout {
+            horizontal-stretch: 3;
+            min-width: 70px;
+            preferred-width: 160px;
+            alignment: center;
+            spacing: 1px;
+            StatusDot { level: root.data.online ? 0 : 3; text: root.data.state; }
+            Text { text: root.data.state-sub; font-size: 11px; color: Theme.text-muted; overflow: elide; }
+        }
+        if root.show-since: Text { width: RC.since; text: root.data.seen; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; overflow: elide; }
+        if root.show-addr: Text { width: RC.addr; text: root.data.addr; font-size: 12px; font-family: "Consolas"; color: Theme.text-secondary; vertical-alignment: center; overflow: elide; }
+        Rectangle { width: RC.action; }
+    }
+}
+
+// A small step button of the thread stepper.
+component StepButton inherits Rectangle {
+    in property <string> label;
+    in property <string> glyph;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: !root.enabled ? transparent : (ta.has-hover ? Theme.bg-card-hover : Theme.bg-card);
+    border-width: step-fs.has-focus ? 2px : 1px;
+    border-color: step-fs.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    step-fs := ActivateScope {
+        enabled: root.enabled;
+        activated => { root.clicked(); }
+    }
+    Text {
+        text: root.glyph;
+        font-size: 15px;
+        font-weight: 600;
+        color: root.enabled ? Theme.text-primary : Theme.text-disabled;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A numbered instruction of the dialog.
+component AddStep inherits HorizontalLayout {
+    in property <string> n;
+    in property <string> text;
+    height: 22px;
+    spacing: 10px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            background: Theme.accent-cyan-surface;
+            Text { text: root.n; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+    Text { text: root.text; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+}
+
+// The "Add a render computer" dialog: a one-time worker link and its QR code, with the steps for
+// the other computer. It draws nothing while `RenderState.add-open` is false.
+component AddDialog inherits Rectangle {
+    property <length> card-w: Math.min(640px, root.width - 24px);
+    property <length> card-h: Math.min(430px, root.height - 24px);
+    property <bool> with-qr: root.card-w >= 600px;
+    // A short window drops the subtitle and the steps so the buttons stay inside the card.
+    property <bool> short: root.card-h < 430px;
+    property <int> phase: RenderState.add-phase;
+    property <bool> coded: root.phase == 0 || root.phase == 1 || root.phase == 3;
+
+    if RenderState.add-open: Rectangle {
+        background: Theme.overlay-backdrop;
+        TouchArea { }
+        fs := FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    RenderState.add-close();
+                    return accept;
+                }
+                return reject;
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: root.card-w;
+                height: root.card-h;
+                border-radius: 16px;
+                background: Theme.surface-dialog;
+                border-width: 1px;
+                border-color: Theme.border-dialog;
+                drop-shadow-blur: 48px;
+                drop-shadow-offset-y: 12px;
+                drop-shadow-color: Theme.modal-shadow;
+                accessible-role: groupbox;
+                accessible-label: "Add a render computer";
+
+                VerticalLayout {
+                    // Header.
+                    VerticalLayout {
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        padding-top: 18px;
+                        padding-bottom: 10px;
+                        spacing: 2px;
+                        Text { text: "Add a render computer"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                        if !root.short: Text { text: "Another computer lends its graphics card and processor to this coordinator."; font-size: 12px; color: Theme.text-secondary; wrap: word-wrap; }
+                    }
+
+                    // Body.
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        padding-bottom: 8px;
+                        spacing: 24px;
+
+                        if root.with-qr && root.coded: VerticalLayout {
+                            width: 200px;
+                            alignment: start;
+                            Rectangle {
+                                width: 200px;
+                                height: 200px;
+                                border-radius: 12px;
+                                // A QR code is black on white by definition; this is the only literal color.
+                                background: white;
+                                Image {
+                                    x: 10px;
+                                    y: 10px;
+                                    width: parent.width - 20px;
+                                    height: parent.height - 20px;
+                                    source: RenderState.add-qr;
+                                    image-rendering: pixelated;
+                                    accessible-role: image;
+                                    accessible-label: "Pairing code for a render computer";
+                                }
+                                if root.phase == 0: Text {
+                                    text: "Making a code…";
+                                    font-size: 13px;
+                                    color: Theme.bg-darkest;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                if root.phase == 3: Rectangle {
+                                    border-radius: 12px;
+                                    background: white.with-alpha(0.93);
+                                    Text {
+                                        text: "Code expired";
+                                        font-size: 16px;
+                                        font-weight: 700;
+                                        color: Theme.bg-darkest;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+
+                        // The link, the steps and the clock.
+                        if root.coded: VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: start;
+                            spacing: 12px;
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text { text: "Pairing link"; font-size: 12px; color: Theme.text-secondary; height: 16px; vertical-alignment: center; }
+                                Rectangle {
+                                    height: 40px;
+                                    border-radius: 8px;
+                                    background: Theme.bg-input;
+                                    border-width: 1px;
+                                    border-color: Theme.border-medium;
+                                    accessible-role: AccessibleRole.text;
+                                    accessible-label: "Pairing link with its code hidden: " + RenderState.add-link-shown;
+                                    Text {
+                                        x: 14px;
+                                        width: parent.width - 28px;
+                                        height: parent.height;
+                                        text: RenderState.add-link-shown;
+                                        font-family: "Consolas";
+                                        font-size: 12px;
+                                        color: Theme.text-primary;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                height: 34px;
+                                spacing: 14px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    KitButton {
+                                        kind: 1;
+                                        icon: KitIcons.copy;
+                                        text: RenderState.add-copied ? "Copied" : "Copy pairing link";
+                                        enabled: root.phase == 1;
+                                        h: 34px;
+                                        clicked => {
+                                            RenderState.add-copy();
+                                            fs.focus();
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 6px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        KitIcon { d: KitIcons.warn; size: 13px; ink: Theme.accent-amber; }
+                                    }
+                                    Text {
+                                        text: "Anyone with this link can join until it expires. Send it only to yourself.";
+                                        font-size: 11px;
+                                        color: Theme.accent-amber;
+                                        vertical-alignment: center;
+                                        wrap: word-wrap;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                            }
+                            if RenderState.add-notice != "": Text {
+                                text: RenderState.add-notice;
+                                font-size: 11px;
+                                color: Theme.danger;
+                                wrap: word-wrap;
+                            }
+                            if !root.short: Rectangle { height: 1px; background: Theme.border-subtle; }
+                            if !root.short: VerticalLayout {
+                                spacing: 8px;
+                                Text { text: "ON THE OTHER COMPUTER"; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; color: Theme.text-muted; height: 14px; }
+                                AddStep { n: "1"; text: "Open Pleochroma and choose Help another coordinator"; }
+                                AddStep { n: "2"; text: "Paste the pairing link"; }
+                                AddStep { n: "3"; text: "Choose Connect"; }
+                            }
+                            Rectangle { height: 1px; background: Theme.border-subtle; }
+                            HorizontalLayout {
+                                height: 36px;
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Text {
+                                        text: root.phase == 3 ? "This code no longer works." : "Valid for " + RenderState.add-remaining + " · works once.";
+                                        font-size: 13px;
+                                        color: Theme.text-primary;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: root.phase == 3 ? "The clipboard was cleared." : "The clipboard is cleared when the code expires.";
+                                        font-size: 11px;
+                                        color: Theme.text-muted;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                                if root.phase == 3: VerticalLayout {
+                                    alignment: center;
+                                    KitButton {
+                                        kind: 1;
+                                        text: "Show a new code";
+                                        h: 30px;
+                                        clicked => {
+                                            RenderState.add-new-code();
+                                            fs.focus();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // A computer connected.
+                        if root.phase == 2: VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 14px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 72px;
+                                    height: 72px;
+                                    border-radius: 36px;
+                                    background: Theme.success.with-alpha(0.16);
+                                    border-width: 3px;
+                                    border-color: Theme.success;
+                                    KitIcon { x: 18px; y: 18px; d: KitIcons.check; size: 36px; stroke: 4px; ink: Theme.success; }
+                                }
+                            }
+                            Text {
+                                text: "A render computer connected from " + RenderState.add-from;
+                                font-size: 18px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: "It shows under Allowed render computers and joins when it starts. Rename or remove it in Devices.";
+                                font-size: 13px;
+                                color: Theme.text-secondary;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        // No code could be made.
+                        if root.phase == 4: VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 14px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 72px;
+                                    height: 72px;
+                                    border-radius: 36px;
+                                    background: Theme.accent-amber.with-alpha(0.14);
+                                    border-width: 1px;
+                                    border-color: Theme.accent-amber.with-alpha(0.45);
+                                    KitIcon { x: 20px; y: 20px; d: KitIcons.warn; size: 32px; ink: Theme.accent-amber; }
+                                }
+                            }
+                            Text { text: "Can't make a pairing code"; font-size: 20px; font-weight: 700; color: Theme.text-primary; horizontal-alignment: center; }
+                            Text { text: RenderState.add-notice; font-size: 13px; color: Theme.text-secondary; horizontal-alignment: center; wrap: word-wrap; }
+                            HorizontalLayout {
+                                alignment: center;
+                                KitButton {
+                                    kind: 1;
+                                    text: "Try again";
+                                    h: 34px;
+                                    clicked => {
+                                        RenderState.add-new-code();
+                                        fs.focus();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Footer.
+                    Rectangle { height: 1px; background: Theme.border-dialog; }
+                    HorizontalLayout {
+                        min-height: 58px;
+                        max-height: 58px;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            StatusDot { level: root.phase == 2 ? 0 : (root.phase == 4 ? 2 : 1); text: root.phase == 0 ? "Making a code…" : (root.phase == 1 ? "Waiting for the other computer…" : (root.phase == 2 ? "Connected" : (root.phase == 3 ? "Code expired" : "No code"))); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        if root.phase == 2: VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                text: "Add another";
+                                clicked => {
+                                    RenderState.add-new-code();
+                                    fs.focus();
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                kind: root.phase == 2 ? 1 : 0;
+                                text: root.phase == 2 ? "Done" : "Close";
+                                clicked => { RenderState.add-close(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component RenderPage inherits Rectangle {
+    property <bool> show-hw: root.width >= 700px;
+    property <bool> show-since: root.width >= 860px;
+    property <bool> show-addr: root.width >= 960px;
+    property <int> connected-count: RenderState.connected.length;
+    property <int> allowed-count: RenderState.allowed.length;
+    // The threads stepper only matters when the processor renders.
+    property <bool> uses-cpu: RenderState.own-mode != 1;
+
+    background: transparent;
+
+    ScrollView {
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            // This computer.
+            VerticalLayout {
+                spacing: 6px;
+                KitSection { label: "THIS COMPUTER"; }
+                KitCard {
+                    height: 148px;
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 14px;
+                        HorizontalLayout {
+                            height: 36px;
+                            spacing: 12px;
+                            KindChip { icon: CIcons.chip; }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                spacing: 1px;
+                                Txt { text: "Render on this computer"; font-weight: 600; height: 17px; overflow: elide; }
+                                Muted { text: "Lets your devices use this computer's graphics card and processor for renders."; height: 15px; overflow: elide; }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                KitSwitch {
+                                    on: RenderState.own-enabled;
+                                    enabled: RenderState.can-change;
+                                    hint: RenderState.can-change ? "" : ShellState.denied-reason;
+                                    label: "Render on this computer";
+                                    toggled => {
+                                        RenderState.own-enabled = !RenderState.own-enabled;
+                                        RenderState.set-enabled(RenderState.own-enabled);
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            height: 32px;
+                            spacing: 16px;
+                            KitFillSegments {
+                                horizontal-stretch: 1;
+                                min-width: 210px;
+                                max-width: 330px;
+                                labels: ["GPU + CPU", "GPU only", "CPU only"];
+                                picked: RenderState.own-mode;
+                                enabled: RenderState.can-change;
+                                selected(index) => {
+                                    RenderState.own-mode = index;
+                                    RenderState.set-mode(index);
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            if root.uses-cpu: HorizontalLayout {
+                                horizontal-stretch: 0;
+                                spacing: 8px;
+                                Sub { text: "CPU threads"; horizontal-stretch: 0; }
+                                StepButton {
+                                    glyph: "−";
+                                    label: "Fewer CPU threads";
+                                    enabled: RenderState.can-change && RenderState.own-threads > 0;
+                                    clicked => {
+                                        RenderState.own-threads = RenderState.own-threads - 1;
+                                        RenderState.set-threads(RenderState.own-threads);
+                                    }
+                                }
+                                Text {
+                                    width: 64px;
+                                    text: RenderState.own-threads == 0 ? "Automatic" : "" + RenderState.own-threads;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    accessible-role: AccessibleRole.text;
+                                    accessible-label: "CPU threads: " + (RenderState.own-threads == 0 ? "automatic" : "" + RenderState.own-threads);
+                                }
+                                StepButton {
+                                    glyph: "+";
+                                    label: "More CPU threads";
+                                    enabled: RenderState.can-change && RenderState.own-threads < RenderState.max-threads;
+                                    clicked => {
+                                        RenderState.own-threads = RenderState.own-threads + 1;
+                                        RenderState.set-threads(RenderState.own-threads);
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            height: 20px;
+                            spacing: 7px;
+                            VerticalLayout {
+                                alignment: center;
+                                KitIcon { d: KitIcons.cpu; size: 16px; ink: Theme.text-secondary; }
+                            }
+                            Sub { horizontal-stretch: 0; min-width: 0px; text: RenderState.own-hardware != "" ? RenderState.own-hardware : "Graphics card and processor"; overflow: elide; }
+                            Rectangle { horizontal-stretch: 1; }
+                            // Wide enough for "Rendering · Phone 1 · Live view"; it elides when the window is narrow.
+                            VerticalLayout { min-width: 160px; StatusDot { level: RenderState.own-level; text: RenderState.own-state; } }
+                        }
+                    }
+                }
+            }
+
+            if RenderState.denied-reason != "": Text {
+                text: RenderState.denied-reason;
+                font-size: 12px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            if RenderState.error != "": Text {
+                text: RenderState.error;
+                font-size: 12px;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            // Connected render computers.
+            VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    height: 32px;
+                    KitSection { horizontal-stretch: 1; label: "CONNECTED RENDER COMPUTERS"; }
+                    KitButton {
+                        kind: 1;
+                        icon: CIcons.qr;
+                        text: "Add a render computer";
+                        hint: RenderState.can-add ? "Makes a one-time link for another computer that should render for this coordinator." : ShellState.denied-reason;
+                        h: 32px;
+                        enabled: RenderState.can-add;
+                        clicked => {
+                            RenderState.add-requested();
+                        }
+                    }
+                }
+                if root.connected-count == 0: KitCard {
+                    height: 84px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        Text { text: "No other render computers are connected."; font-size: 13px; font-weight: 600; color: Theme.text-primary; horizontal-alignment: center; }
+                        Text { text: "A render computer joins with a pairing code from this coordinator."; font-size: 12px; color: Theme.text-muted; horizontal-alignment: center; }
+                    }
+                }
+                if root.connected-count > 0: KitCard {
+                    height: 36px + root.connected-count * 54px;
+                    VerticalLayout {
+                        RigHead { show-hw: root.show-hw; show-since: root.show-since; show-addr: root.show-addr; }
+                        for rig[i] in RenderState.connected: ConnectedRow {
+                            data: rig;
+                            first: i == 0;
+                            show-hw: root.show-hw;
+                            show-since: root.show-since;
+                            show-addr: root.show-addr;
+                            can-disconnect: RenderState.can-disconnect;
+                            disconnect => {
+                                RenderState.disconnect(rig.id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Allowed render computers.
+            if root.allowed-count > 0: VerticalLayout {
+                spacing: 6px;
+                KitSection { label: "ALLOWED RENDER COMPUTERS"; }
+                KitCard {
+                    height: 36px + root.allowed-count * 54px;
+                    VerticalLayout {
+                        RigHead { c2: "ADDED"; c3: "STATUS"; c4: "LAST SEEN"; show-hw: root.show-hw; show-since: root.show-since; show-addr: root.show-addr; }
+                        for rig[i] in RenderState.allowed: AllowedRow {
+                            data: rig;
+                            first: i == 0;
+                            show-hw: root.show-hw;
+                            show-since: root.show-since;
+                            show-addr: root.show-addr;
+                        }
+                    }
+                }
+            }
+
+            // Capacity.
+            if RenderState.capacity != "": Rectangle {
+                height: 44px;
+                border-radius: 12px;
+                background: Theme.surface-raised;
+                border-width: 1px;
+                border-color: Theme.border-subtle;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Total capacity: " + RenderState.capacity;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        KitIcon { d: KitIcons.chart; size: 16px; ink: Theme.accent-cyan; }
+                    }
+                    Muted { horizontal-stretch: 0; text: "TOTAL CAPACITY"; font-weight: 700; letter-spacing: 0.6px; }
+                    Txt { horizontal-stretch: 1; text: RenderState.capacity; font-weight: 600; overflow: elide; }
+                }
+            }
+        }
+    }
+
+    AddDialog {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+    }
+}

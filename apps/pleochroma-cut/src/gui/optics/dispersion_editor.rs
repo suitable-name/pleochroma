@@ -16,6 +16,7 @@
 use crate::{DispersionEditorModel, DispersionView, MainWindow};
 use pleochroma::optics::{dispersion::DispersionModel, materials::GemMaterial};
 use pleochroma_cut_core::native::{dispersion_model_from_json, dispersion_model_to_json};
+use pleochroma_editor::material_reference::curves::index_curve_path_fitted;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 /// The most coefficient fields any model has: a three-term Sellmeier's B1-B3 and C1-C3.
@@ -28,11 +29,6 @@ const NONE_TEXT: &str = "\u{2014}";
 /// The hint shown while no coefficient has been typed.
 const EMPTY_HINT: &str =
     "Type the coefficients from a published fit, or copy them from a built-in material to start.";
-/// The curve is sampled every 5 nm from 380 to 780 nm: this many steps.
-const CURVE_STEPS: u16 = 80;
-/// The curve's vertical range never gets narrower than this, so a flat curve is a line in
-/// the middle of the plot rather than a division by zero.
-const MIN_CURVE_SPAN: f32 = 0.002;
 
 /// The model families the section offers, in the order of the dialog's model combo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,7 +335,7 @@ impl Readout {
         self.n_d_value = model.n_d();
         self.delta_value = model.delta_f_c();
         self.warnings = warning_texts(model);
-        let (curve, top, bottom) = curve_path(model);
+        let (curve, top, bottom) = index_curve_path_fitted(model);
         self.curve = curve;
         self.curve_top = format!("{top:.4}");
         self.curve_bottom = format!("{bottom:.4}");
@@ -374,37 +370,6 @@ fn warning_texts(model: &DispersionModel) -> Vec<String> {
         );
     }
     texts
-}
-
-/// The curve `n(wavelength)` from 380 to 780 nm as SVG path data in a 0..100 square (the
-/// same `M x y L x y` form the tilt charts use), and the index at the top and bottom edges
-/// of the plot. The vertical range is the curve's own spread plus a margin, never narrower
-/// than [`MIN_CURVE_SPAN`].
-fn curve_path(model: &DispersionModel) -> (String, f32, f32) {
-    use std::fmt::Write as _;
-
-    let samples: Vec<f32> = (0..=CURVE_STEPS)
-        .map(|step| model.evaluate(f32::from(step).mul_add(5.0, DispersionModel::BAND_MIN_NM)))
-        .collect();
-    let low = samples.iter().copied().fold(f32::INFINITY, f32::min);
-    let high = samples.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let centre = f32::midpoint(high, low);
-    let half = (high - low).max(MIN_CURVE_SPAN) / 2.0 * 1.1;
-    let (bottom, top) = (centre - half, centre + half);
-    let range = top - bottom;
-
-    let mut path = String::new();
-    for (step, n) in (0..=CURVE_STEPS).zip(&samples) {
-        let x = f32::from(step) * (100.0 / f32::from(CURVE_STEPS));
-        let fraction = ((n - bottom) / range).clamp(0.0, 1.0);
-        let y = (1.0 - fraction) * 100.0;
-        if step > 0 {
-            path.push(' ');
-        }
-        let command = if step == 0 { 'M' } else { 'L' };
-        let _ = write!(path, "{command} {x:.2} {y:.2}");
-    }
-    (path, top, bottom)
 }
 
 /// The built-in materials whose ordinary-ray curve is a model of `kind` that passes

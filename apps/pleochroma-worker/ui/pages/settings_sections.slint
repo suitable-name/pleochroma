@@ -1,0 +1,476 @@
+// The six sections of the Settings page. Each is a column of cards that reads
+// `SettingsState` and reports a change with `set-bool`, `set-int` or `set-text` and a key
+// (the keys are listed in `src/gui/pages/settings.rs`).
+import { LineEdit } from "std-widgets.slint";
+import { Theme, ShellState, KitButton, KitBadge, KitFillSegments, KitIcon, KitIcons, CIcons } from "../frame.slint";
+import { SettingsState, AccessRowData } from "settings_state.slint";
+import { Panel, Head, Note, SwitchLine, NumStep, TextSetting, FormRow, StatusRow, PortChip, Btn } from "settings_parts.slint";
+
+// One row of the list of computers with remote access.
+component AccessRow inherits Rectangle {
+    in property <AccessRowData> data;
+    in property <bool> first: false;
+    height: 44px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.data.name + ", " + root.data.access + ", last seen " + root.data.seen + ", " + (root.data.online ? "online" : "offline");
+    if !root.first: Rectangle { y: 0px; height: 1px; background: Theme.border-subtle; x: 0px; width: parent.width; }
+    HorizontalLayout {
+        padding-left: 2px;
+        spacing: 12px;
+        VerticalLayout { alignment: center; KitIcon { d: CIcons.monitor; size: 18px; ink: root.data.online ? Theme.accent-cyan : Theme.text-muted; } }
+        Text { horizontal-stretch: 1; text: root.data.name; font-size: 13px; font-weight: 600; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+        VerticalLayout {
+            width: 128px;
+            alignment: center;
+            HorizontalLayout {
+                alignment: start;
+                KitBadge {
+                    text: root.data.access;
+                    fill: root.data.access == "Full administration" ? Theme.accent-cyan.with-alpha(0.18) : Theme.bg-elevated;
+                    ink: root.data.access == "Full administration" ? Theme.accent-cyan : Theme.text-secondary;
+                }
+            }
+        }
+        Text { width: 84px; text: root.data.seen; font-size: 12px; color: Theme.text-secondary; vertical-alignment: center; overflow: elide; }
+        HorizontalLayout {
+            width: 70px;
+            spacing: 6px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.data.online ? Theme.success : Theme.text-muted; }
+            }
+            Text { text: root.data.online ? "Online" : "Offline"; font-size: 12px; color: root.data.online ? Theme.text-secondary : Theme.text-muted; vertical-alignment: center; }
+        }
+        VerticalLayout {
+            alignment: center;
+            KitButton { kind: 2; h: 28px; text: "Remove"; hint: "Removes this computer's access at once."; clicked => { SettingsState.remove-access(root.data.fingerprint); } }
+        }
+    }
+}
+
+// Security: allow other computers to monitor or manage this coordinator, who may, and the codes
+// that give access. Shown only for this computer's own coordinator.
+export component RemoteAdminCards inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    Panel {
+        Head { title: "Remote administration"; }
+        SwitchLine {
+            label: "Allow other computers to monitor or manage this coordinator";
+            hint: "Off by default. Codes are made here only, never remotely.";
+            on: SettingsState.remote-admin;
+            toggled => { SettingsState.set-remote-admin(!SettingsState.remote-admin); }
+        }
+        if SettingsState.remote-admin && !SettingsState.remote-admin-active: Note {
+            text: "Restart the coordinator to start accepting remote administration.";
+            color: Theme.accent-amber;
+        }
+    }
+    if SettingsState.remote-admin && SettingsState.remote-admin-active: Panel {
+        Head { title: "People and computers with access"; }
+        if SettingsState.access-rows.length == 0: Note { text: "No other computer has access yet. Create a code below."; }
+        for row[i] in SettingsState.access-rows: AccessRow { data: row; first: i == 0; }
+    }
+    if SettingsState.remote-admin && SettingsState.remote-admin-active: Panel {
+        Head { title: "Create an access code"; }
+        FormRow {
+            label: "Access level";
+            KitFillSegments {
+                horizontal-stretch: 1;
+                labels: ["Monitor only", "Full administration"];
+                picked: SettingsState.code-level;
+                enabled: !SettingsState.code-busy;
+                selected(index) => { SettingsState.code-level = index; }
+            }
+        }
+        FormRow {
+            label: "Name";
+            LineEdit {
+                horizontal-stretch: 1;
+                text <=> SettingsState.code-name;
+                placeholder-text: "Laptop 2";
+                accessible-label: "Name of the computer that will use the code";
+                enabled: !SettingsState.code-busy;
+                font-size: 13px;
+            }
+        }
+        HorizontalLayout {
+            spacing: 14px;
+            alignment: start;
+            KitButton {
+                kind: 1;
+                icon: CIcons.link;
+                text: SettingsState.code-busy ? "Making a code…" : "Create code";
+                enabled: !SettingsState.code-busy;
+                h: 34px;
+                clicked => { SettingsState.create-code(SettingsState.code-level, SettingsState.code-name); }
+            }
+            VerticalLayout { alignment: center; Note { text: "The code works once and expires after 3 minutes."; } }
+        }
+        if SettingsState.code-error != "": Text { text: SettingsState.code-error; font-size: 12px; font-weight: 600; color: Theme.danger; wrap: word-wrap; }
+        Note { text: "Full administration can pair devices, remove access, cancel jobs and change settings on this coordinator. Give it only to a computer you trust. Monitor only sees everything but changes nothing."; }
+    }
+    if SettingsState.remote-admin && SettingsState.remote-admin-active: Panel {
+        Head { title: "Activity"; }
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout { alignment: center; KitIcon { d: CIcons.log; size: 16px; ink: Theme.text-secondary; } }
+            Text { horizontal-stretch: 1; text: "Remote actions are recorded in the Log (who, what, when)."; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; wrap: word-wrap; }
+            VerticalLayout { alignment: center; KitButton { kind: 2; h: 28px; text: "Open Log"; clicked => { ShellState.page = 6; } } }
+        }
+    }
+}
+
+// The settings of the remote coordinator shown now: what its status tells and its access level
+// may change. Everything else (network, ports, backup) belongs to that computer.
+export component RemoteSettingsSection inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    Panel {
+        Head { title: "Settings of " + SettingsState.remote-name; hint: SettingsState.remote-note != "" ? SettingsState.remote-note : "Changes apply on " + SettingsState.remote-name + ". Network, ports and backups can only be changed on that computer."; }
+    }
+    Panel {
+        Head { title: "Name"; hint: "How this coordinator appears on its devices and in pairing codes"; }
+        TextSetting {
+            enabled: SettingsState.remote-can-change;
+            text: SettingsState.remote-display-name;
+            placeholder: "Name of this coordinator";
+            label: "Coordinator name";
+            committed(value) => { SettingsState.remote-set-name(value); }
+        }
+    }
+    Panel {
+        Head { title: "Pairing and discovery"; }
+        SwitchLine {
+            label: "Allow pairing new devices";
+            hint: "Off closes the pairing ports. Paired devices keep working.";
+            on: SettingsState.remote-allow-pairing;
+            enabled: SettingsState.remote-can-change;
+            toggled => { SettingsState.remote-set-bool("allow_pairing", !SettingsState.remote-allow-pairing); }
+        }
+        SwitchLine {
+            label: "Announce this coordinator on the network";
+            hint: "Paired devices reconnect after an address change.";
+            on: SettingsState.remote-discovery;
+            enabled: SettingsState.remote-can-change;
+            toggled => { SettingsState.remote-set-bool("discovery", !SettingsState.remote-discovery); }
+        }
+    }
+    Panel {
+        Head { title: "Restart"; hint: "Stops and starts " + SettingsState.remote-name + " again. Its devices are disconnected for a moment."; }
+        HorizontalLayout {
+            alignment: start;
+            KitButton {
+                kind: 2;
+                text: "Restart " + SettingsState.remote-name;
+                enabled: SettingsState.remote-can-restart;
+                hint: SettingsState.remote-can-restart ? "" : ShellState.denied-reason;
+                clicked => { SettingsState.restart-now(); }
+            }
+        }
+    }
+}
+
+export component GeneralSection inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    Panel {
+        Head { title: "Name"; hint: "How this coordinator appears on your devices and in pairing codes"; }
+        TextSetting {
+            text: SettingsState.name;
+            placeholder: "Name of this coordinator";
+            label: "Coordinator name";
+            committed(value) => { SettingsState.set-text("name", value); }
+        }
+    }
+    Panel {
+        Head { title: "This computer"; }
+        SwitchLine {
+            label: SettingsState.autostart-label;
+            hint: "Runs only while you are logged in.";
+            on: SettingsState.start-at-login;
+            toggled => { SettingsState.set-bool("start_at_login", !SettingsState.start-at-login); }
+        }
+        SwitchLine {
+            label: "Closing the window keeps the coordinator running in the tray";
+            on: SettingsState.close-to-tray;
+            toggled => { SettingsState.set-bool("close_to_tray", !SettingsState.close-to-tray); }
+        }
+        SwitchLine {
+            label: "Keep this computer awake while devices are connected or jobs run";
+            on: SettingsState.keep-awake;
+            toggled => { SettingsState.set-bool("keep_awake", !SettingsState.keep-awake); }
+        }
+        SwitchLine {
+            label: "Check for a newer version in the background";
+            on: SettingsState.update-check;
+            toggled => { SettingsState.set-bool("update_check", !SettingsState.update-check); }
+        }
+    }
+    Panel {
+        Head { title: "Appearance"; }
+        SwitchLine {
+            label: "High contrast";
+            hint: "Near-black surfaces, white text and brighter colors.";
+            on: SettingsState.high-contrast;
+            toggled => { SettingsState.set-bool("high_contrast", !SettingsState.high-contrast); }
+        }
+    }
+}
+
+export component NetworkSection inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    Panel {
+        Head { title: "Who can connect"; hint: "Phones and other computers need this to pair"; }
+        KitFillSegments {
+            labels: ["This computer only", "Devices on my network", "Specific address"];
+            picked: SettingsState.listen;
+            selected(index) => { SettingsState.set-int("listen", index); }
+        }
+        if SettingsState.listen == 2: FormRow {
+            label: "Address";
+            TextSetting {
+                horizontal-stretch: 1;
+                text: SettingsState.bind-address;
+                placeholder: "192.168.1.20";
+                label: "Address to listen on";
+                committed(value) => { SettingsState.set-text("bind_address", value); }
+            }
+        }
+    }
+    Panel {
+        Head { title: "Port"; hint: "Three more ports follow it"; }
+        FormRow {
+            label: "Port";
+            TextSetting {
+                width: 120px;
+                text: SettingsState.port;
+                placeholder: "7878";
+                label: "Port";
+                committed(value) => { SettingsState.set-text("port", value); }
+            }
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 6px;
+                alignment: start;
+                VerticalLayout { alignment: center; PortChip { text: SettingsState.port-viewer-enroll; } }
+                VerticalLayout { alignment: center; PortChip { text: SettingsState.port-worker; } }
+                VerticalLayout { alignment: center; PortChip { text: SettingsState.port-worker-enroll; } }
+            }
+        }
+    }
+    Panel {
+        Head { title: "Limits"; hint: "Connections beyond these are refused"; }
+        FormRow {
+            label: "Connections";
+            NumStep { label: "Connections"; value: SettingsState.max-connections; lo: 1; hi: 1024; step: 8; stepped(v) => { SettingsState.set-int("max_connections", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        FormRow {
+            label: "Per address";
+            NumStep { label: "Connections per address"; value: SettingsState.max-per-address; lo: 1; hi: 256; step: 1; stepped(v) => { SettingsState.set-int("max_per_address", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+    Panel {
+        Head { title: "Can phones reach this computer?"; }
+        StatusRow { label: "Network profile"; value: SettingsState.net-profile; level: SettingsState.net-profile-level; }
+        StatusRow { label: "Firewall"; value: SettingsState.net-firewall; level: SettingsState.net-firewall-level; }
+        StatusRow { label: "Last contact from a device"; value: SettingsState.net-contact; level: SettingsState.net-contact-level; last: true; }
+        Note { text: "A test from this computer to itself cannot pass through the firewall, so only a real device proves the connection."; }
+        if SettingsState.net-advice != "": Note { text: SettingsState.net-advice; color: Theme.accent-amber; }
+        HorizontalLayout {
+            alignment: start;
+            KitButton { kind: 2; icon: CIcons.refresh; text: "Check again"; clicked => { SettingsState.recheck-network(); } }
+        }
+    }
+    Panel {
+        Head { title: "Discovery"; }
+        SwitchLine {
+            label: "Announce this coordinator on the network";
+            hint: "Paired devices find it again after an address change.";
+            on: SettingsState.discovery;
+            toggled => { SettingsState.set-bool("discovery", !SettingsState.discovery); }
+        }
+    }
+}
+
+export component SecuritySection inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    RemoteAdminCards { }
+    Panel {
+        Head { title: "Pairing"; }
+        SwitchLine {
+            label: "Allow pairing new devices";
+            hint: "Off closes the pairing ports. Paired devices keep working.";
+            on: SettingsState.allow-pairing;
+            toggled => { SettingsState.set-bool("allow_pairing", !SettingsState.allow-pairing); }
+        }
+    }
+    Panel {
+        Head { title: "Extra names for the certificate"; hint: "Names or addresses a device may use to reach this computer, such as a VPN address or a DNS name. Separate them with commas."; }
+        TextSetting {
+            text: SettingsState.cert-names;
+            placeholder: "studio.example.com, 10.8.0.5";
+            label: "Extra certificate names";
+            committed(value) => { SettingsState.set-text("cert_names", value); }
+        }
+    }
+}
+
+export component PerformanceSection inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    Panel {
+        Head { title: "Jobs"; }
+        FormRow {
+            label: "Memory per job";
+            NumStep { label: "Memory per job"; w: 160px; value: SettingsState.job-memory; lo: 256; hi: 65536; step: 256; unit: " MiB"; stepped(v) => { SettingsState.set-int("job_memory", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        FormRow {
+            label: "Jobs per device";
+            NumStep { label: "Jobs per device"; value: SettingsState.jobs-per-device; lo: 1; hi: 64; stepped(v) => { SettingsState.set-int("jobs_per_device", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        FormRow {
+            label: "Small picture time";
+            NumStep { label: "Small picture time"; value: SettingsState.whole-seconds; lo: 1; hi: 60; unit: " s"; stepped(v) => { SettingsState.set-int("whole_seconds", v); } }
+            Note { horizontal-stretch: 1; text: "A picture that renders faster than this stays on one computer."; }
+        }
+        FormRow {
+            label: "Small picture size";
+            NumStep { label: "Small picture size"; w: 160px; value: SettingsState.whole-megapixels; lo: 1; hi: 4096; step: 16; unit: " million"; stepped(v) => { SettingsState.set-int("whole_megapixels", v); } }
+            Note { horizontal-stretch: 1; text: "Pixels times samples, used until a render computer has a measured speed."; }
+        }
+    }
+    Panel {
+        Head { title: "Render computers"; }
+        SwitchLine {
+            label: "Accept render computers";
+            on: SettingsState.accept-workers;
+            toggled => { SettingsState.set-bool("accept_workers", !SettingsState.accept-workers); }
+        }
+        FormRow {
+            label: "Live preview uses";
+            NumStep { label: "Render computers for live preview"; w: 160px; value: SettingsState.interactive-workers; lo: 0; hi: 17; zero-text: "This computer only"; max-text: "All"; stepped(v) => { SettingsState.set-int("interactive", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        FormRow {
+            label: "Preferred computer";
+            TextSetting {
+                horizontal-stretch: 1;
+                text: SettingsState.pinned-worker;
+                placeholder: "Name of a render computer (none)";
+                label: "Preferred render computer";
+                committed(value) => { SettingsState.set-text("pinned_worker", value); }
+            }
+        }
+        FormRow {
+            label: "Network traffic";
+            KitFillSegments {
+                horizontal-stretch: 1;
+                labels: ["Automatic", "Faster", "Off"];
+                picked: SettingsState.compression;
+                selected(index) => { SettingsState.set-int("compression", index); }
+            }
+        }
+        Note { text: "Faster uses less processor time and more bandwidth, for gigabit networks. Off sends pictures as they are."; }
+    }
+    Panel {
+        Head { title: "Processor"; }
+        FormRow {
+            label: "CPU threads";
+            NumStep { label: "CPU threads"; value: SettingsState.cpu-threads; lo: 0; hi: 256; zero-text: "Automatic"; stepped(v) => { SettingsState.set-int("cpu_threads", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+}
+
+export component StorageSection inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    Panel {
+        Head { title: "Kept results"; }
+        FormRow {
+            label: "Keep finished jobs";
+            NumStep { label: "Days to keep finished jobs"; w: 160px; value: SettingsState.retention-days; lo: 1; hi: 365; unit: " days"; stepped(v) => { SettingsState.set-int("retention_days", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        FormRow {
+            label: "Environment maps cache";
+            NumStep { label: "Asset cache size"; w: 160px; value: SettingsState.cache-mib; lo: 256; hi: 262144; step: 256; unit: " MiB"; stepped(v) => { SettingsState.set-int("cache_mib", v); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Note { text: "These replace the PLEOCHROMA_* environment variables. A coordinator started without the window still reads those first."; }
+    }
+    Panel {
+        Head { title: "Data folder"; hint: "Certificates, jobs, cache and logs"; }
+        Text { text: SettingsState.data-folder; font-size: 12px; font-family: "Consolas"; color: Theme.text-primary; wrap: word-wrap; }
+        Note { text: "Jobs: " + SettingsState.jobs-folder; }
+        Note { text: "Cache: " + SettingsState.cache-folder; }
+        Note { text: "Log: " + SettingsState.log-folder; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            KitButton { icon: CIcons.folder; text: "Open data folder"; clicked => { SettingsState.open-data-folder(); } }
+            KitButton { text: "Use an existing coordinator folder…"; clicked => { SettingsState.choose-existing-folder(); } }
+            if SettingsState.data-folder-custom: KitButton { kind: 2; text: "Back to the default folder"; clicked => { SettingsState.reset-data-folder(); } }
+        }
+    }
+}
+
+export component AdvancedSection inherits VerticalLayout {
+    spacing: 16px;
+    alignment: start;
+    Panel {
+        Head { title: "Port overrides"; hint: "Leave empty to use the base port and the ports that follow it."; }
+        FormRow {
+            label: "Viewers";
+            TextSetting { horizontal-stretch: 1; text: SettingsState.override-viewer; placeholder: "Base port"; label: "Viewer port override"; committed(value) => { SettingsState.set-text("ov_viewer", value); } }
+        }
+        FormRow {
+            label: "Viewer pairing";
+            TextSetting { horizontal-stretch: 1; text: SettingsState.override-viewer-enroll; placeholder: "Viewer port + 1"; label: "Viewer pairing port override"; committed(value) => { SettingsState.set-text("ov_viewer_enroll", value); } }
+        }
+        FormRow {
+            label: "Render computers";
+            TextSetting { horizontal-stretch: 1; text: SettingsState.override-worker; placeholder: "Viewer port + 2"; label: "Render computer port override"; committed(value) => { SettingsState.set-text("ov_worker", value); } }
+        }
+        FormRow {
+            label: "Render computer pairing";
+            TextSetting { horizontal-stretch: 1; text: SettingsState.override-worker-enroll; placeholder: "Render computer port + 1"; label: "Render computer pairing port override"; committed(value) => { SettingsState.set-text("ov_worker_enroll", value); } }
+        }
+    }
+    Panel {
+        Head { title: "Backup and restore"; hint: "One file with the keys, the paired devices and the settings, sealed with a password you choose. Keep it safe: it can pair devices."; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            KitButton { text: "Back up…"; clicked => { SettingsState.dialog-error = ""; SettingsState.dialog-done = ""; SettingsState.dialog = 1; } }
+            KitButton { text: "Restore…"; clicked => { SettingsState.dialog-error = ""; SettingsState.dialog-done = ""; SettingsState.dialog = 2; } }
+        }
+    }
+    Panel {
+        danger: true;
+        Head {
+            danger: true;
+            title: "Accept any client certificate";
+            hint: "Skips the list of paired devices. Anything with a certificate from this coordinator's authority can connect, and Remove access stops working. Turn this on only to recover.";
+        }
+        SwitchLine {
+            danger: true;
+            label: "Accept any client certificate";
+            on: SettingsState.accept-any-cert;
+            toggled => {
+                if SettingsState.accept-any-cert {
+                    SettingsState.set-bool("accept_any_cert", false);
+                } else {
+                    SettingsState.dialog = 3;
+                }
+            }
+        }
+    }
+}

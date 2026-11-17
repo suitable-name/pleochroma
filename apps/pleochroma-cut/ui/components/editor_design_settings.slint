@@ -13,6 +13,7 @@ import { ViewportModel } from "../models/viewport.slint";
 import { GuideLockTip } from "guide_lock.slint";
 import { HelpButton } from "help_button.slint";
 import { TipButton } from "compact_controls.slint";
+import { ActionButton } from "chip_toggle.slint";
 import { AdvancedNote } from "advanced_note.slint";
 import { SettingLabel } from "settings_dialog/setting_label.slint";
 import { KitIcon, KitIcons } from "kit/icons.slint";
@@ -756,11 +757,18 @@ export component EditorDesignSettings inherits Rectangle {
 // `EditorState::generation` against the value captured when the dialog opened).
 // The Rounding selector lets a cutter keep indices deliberately placed on a
 // half-tooth from being silently moved by Nearest; the Rust side recomputes the
-// red/black preview rows on change, so the preview stays honest. The Simple interface
+// preview rows (and the count of rounded ones) on change, so the preview stays honest. The Simple interface
 // leaves the Rounding selector out and keeps Nearest.
 export component GearRemapDialog inherits Rectangle {
     visible: EditorModel.gear_remap_open;
     background: Theme.overlay-backdrop;
+    // The Rounding selector's pick (0 Nearest, 1 Floor, 2 Ceil). The dialog is mounted afresh on
+    // every opening and Rust starts each remap at Nearest, so it starts at 0 too.
+    property <int> rounding_index: 0;
+    // Whether the Rounding selector shows: latched true once the open dialog has had a rounded
+    // row, so changing the rounding (which can bring the count to 0) never removes the selector
+    // under the pointer. Reset when the dialog closes.
+    property <bool> rounding_selector_latched: false;
 
     TouchArea {
         // Backdrop click cancels, matching `NewDesignDialog`'s own convention.
@@ -773,9 +781,18 @@ export component GearRemapDialog inherits Rectangle {
     // only ever fire once.
     key_scope := FocusScope {
         property <bool> open_mirror: EditorModel.gear_remap_open;
+        property <int> rounded_mirror: EditorModel.gear_remap_rounded_count;
         changed open_mirror => {
             if self.open_mirror {
                 self.focus();
+                root.rounding_selector_latched = self.rounded_mirror > 0;
+            } else {
+                root.rounding_selector_latched = false;
+            }
+        }
+        changed rounded_mirror => {
+            if self.open_mirror && self.rounded_mirror > 0 {
+                root.rounding_selector_latched = true;
             }
         }
         key-pressed(event) => {
@@ -795,7 +812,7 @@ export component GearRemapDialog inherits Rectangle {
     }
 
     Rectangle {
-        width: 460px;
+        width: min(560px, root.width - 40px);
         height: min(card.preferred-height, root.height - 40px);
         background: Theme.surface-dialog;
         border-radius: Theme.radius-md;
@@ -827,58 +844,134 @@ export component GearRemapDialog inherits Rectangle {
                 }
             }
             Text {
-                text: "Every tier's indices are recomputed for the new gear:";
+                text: "Index gear " + EditorModel.gear_remap_from_gear + " → " + EditorModel.gear_remap_to_gear + " teeth";
                 font-size: 11px;
-                font-weight: 700;
-                color: Theme.accent-amber;
+                color: Theme.text-muted;
+                accessible-role: AccessibleRole.text;
+            }
+            Text {
+                text: "Every tier's indices are renumbered for the new gear. It is one step you can undo.";
+                font-size: 11px;
+                color: Theme.text-secondary;
                 wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
             }
 
-            if GuideModel.shows_advanced(): VerticalLayout {
-                spacing: 8px;
-                SettingLabel {
-                    text: "Rounding";
-                    hint: "How an index that does not land on a whole tooth of the\nnew gear is rounded: to the nearest tooth (the usual),\ndown, or up. Pick Floor or Ceil to keep a position you\nplaced on a half tooth from moving the other way.";
+            // The table header and the rows share one geometry: a 64px Tier column, then the Now and
+            // After columns split what is left. Children are placed by hand (not by a layout) so
+            // every row's columns sit on the same x and a wrapped list's height is exact.
+            HorizontalLayout {
+                padding-right: 12px;
+                Rectangle {
+                    height: 14px;
+                    Text { x: 0px; width: 64px; text: "Tier"; font-size: 10px; font-weight: 700; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                    Text { x: 74px; width: (parent.width - 94px) / 2; text: "Now (" + EditorModel.gear_remap_from_gear + ")"; font-size: 10px; font-weight: 700; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                    Text { x: 84px + (parent.width - 94px) / 2; width: (parent.width - 94px) / 2; text: "After (" + EditorModel.gear_remap_to_gear + ")"; font-size: 10px; font-weight: 700; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
                 }
-                ComboBox {
-                    model: ["Nearest", "Floor", "Ceil"];
-                    accessible-label: "Rounding";
-                    accessible-description: "How an index between two teeth is rounded in the new gear.";
-                    selected(val) => {
-                        EditorModel.gear_remap_set_rounding(val == "Nearest" ? 0 : (val == "Floor" ? 1 : 2));
+            }
+            Rectangle { height: 1px; background: Theme.border-subtle; }
+
+            ScrollView {
+                vertical-stretch: 1;
+                content-width: self.visible-width;
+                min-height: 60px;
+                preferred-height: min(rows.preferred-height, 260px);
+                rows := VerticalLayout {
+                    padding-right: 12px;
+                    spacing: 0px;
+                    for row in EditorModel.gear_remap_rows: VerticalLayout {
+                        spacing: 0px;
+                        accessible-role: AccessibleRole.text;
+                        accessible-label: "Tier " + row.name + ": " + row.old_indices + " becomes " + row.new_indices + (row.non_integral ? ", rounded to a whole tooth" : "");
+                        Rectangle {
+                            height: max(tier_col.preferred-height, max(old_text.preferred-height, new_text.preferred-height)) + 10px;
+                            tier_col := VerticalLayout {
+                                x: 0px;
+                                y: 5px;
+                                width: 64px;
+                                spacing: 3px;
+                                alignment: start;
+                                Text { text: row.name; font-size: 11px; font-weight: 700; color: Theme.text-primary; overflow: elide; }
+                                if row.non_integral: Rectangle {
+                                    height: badge_text.preferred-height + 2px;
+                                    width: badge_text.preferred-width + 10px;
+                                    background: Theme.accent-amber.with-alpha(0.16);
+                                    border-radius: Theme.radius-sm;
+                                    border-width: 1px;
+                                    border-color: Theme.accent-amber;
+                                    badge_text := Text { text: "Rounded"; font-size: 9px; font-weight: 600; color: Theme.text-primary; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                            old_text := Text { x: 74px; y: 5px; width: (parent.width - 94px) / 2; text: row.old_indices; font-size: 10px; color: Theme.text-secondary; wrap: word-wrap; }
+                            new_text := Text { x: 84px + (parent.width - 94px) / 2; y: 5px; width: (parent.width - 94px) / 2; text: row.new_indices; font-size: 10px; color: Theme.text-primary; wrap: word-wrap; }
+                        }
+                        Rectangle { height: 1px; background: Theme.border-subtle; }
                     }
                 }
             }
 
-            ScrollView {
-                height: min(rows.preferred-height, 240px);
-                rows := VerticalLayout {
-                    spacing: 2px;
-                    for row in EditorModel.gear_remap_rows: Rectangle {
-                        height: remap_line.preferred-height;
-                        accessible-role: AccessibleRole.text;
-                        accessible-label: row.name + ": " + row.old_indices + " becomes " + row.new_indices + (row.non_integral ? ", not a whole tooth" : "");
-                        remap_line := HorizontalLayout {
-                            spacing: 6px;
-                            Text { width: 60px; text: row.name; font-size: 10px; color: Theme.text-secondary; overflow: elide; }
-                            Text { horizontal-stretch: 1; text: row.old_indices + "  ->  " + row.new_indices; font-size: 10px; font-weight: row.non_integral ? 700 : 400; color: row.non_integral ? Theme.accent-ruby : Theme.text-secondary; overflow: elide; }
+            // The legend and the Rounding selector: rounding only matters when a row is rounded.
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                if EditorModel.gear_remap_rounded_count > 0: Text {
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                    text: (EditorModel.gear_remap_rounded_count == 1 ? "1 tier falls" : EditorModel.gear_remap_rounded_count + " tiers fall")
+                        + " between two teeth of the new gear; "
+                        + (EditorModel.gear_remap_rounded_count == 1 ? "its indices are" : "their indices are")
+                        + " rounded to the "
+                        + (root.rounding_index == 1 ? "tooth below." : (root.rounding_index == 2 ? "tooth above." : "nearest tooth."));
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                    accessible-role: AccessibleRole.text;
+                }
+                if GuideModel.shows_advanced() && (root.rounding_selector_latched || EditorModel.gear_remap_rounded_count > 0): HorizontalLayout {
+                    spacing: 6px;
+                    SettingLabel {
+                        horizontal-stretch: 0;
+                        width: 56px;
+                        text: "Rounding";
+                        hint: "How an index that does not land on a whole tooth of the\nnew gear is rounded: to the nearest tooth (the usual),\ndown, or up. Pick Floor or Ceil to keep a position you\nplaced on a half tooth from moving the other way.";
+                    }
+                    ComboBox {
+                        width: 110px;
+                        model: ["Nearest", "Floor", "Ceil"];
+                        current-index: root.rounding_index;
+                        accessible-label: "Rounding";
+                        accessible-description: "How an index between two teeth is rounded in the new gear.";
+                        selected(val) => {
+                            root.rounding_index = val == "Nearest" ? 0 : (val == "Floor" ? 1 : 2);
+                            EditorModel.gear_remap_set_rounding(root.rounding_index);
                         }
                     }
                 }
             }
 
             HorizontalLayout {
-                spacing: 6px;
-                TipButton {
-                    text: "Confirm Remap";
-                    hint: "Renumber every tier's indices for the new gear. It is one step you can undo.";
-                    primary: true;
-                    clicked => { EditorModel.gear_remap_confirm(); }
-                }
-                TipButton {
+                spacing: 8px;
+                alignment: end;
+                ActionButton {
+                    width: 84px;
                     text: "Cancel";
                     hint: "Keep the old gear and change nothing.";
+                    fill: Theme.surface-raised;
+                    hover_fill: Theme.border-dialog;
+                    ink: Theme.text-secondary;
+                    edge: Theme.surface-raised;
                     clicked => { EditorModel.gear_remap_cancel(); }
+                }
+                ActionButton {
+                    width: 120px;
+                    text: "Confirm Remap";
+                    hint: "Renumber every tier's indices for the new gear. It is one step you can undo.";
+                    weight: 700;
+                    fill: Theme.accent-cyan;
+                    hover_fill: Theme.accent-cyan-hover;
+                    ink: Theme.text-on-accent;
+                    edge: Theme.accent-cyan;
+                    clicked => { EditorModel.gear_remap_confirm(); }
                 }
             }
         }

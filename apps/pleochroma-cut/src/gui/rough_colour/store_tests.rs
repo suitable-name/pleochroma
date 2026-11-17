@@ -430,6 +430,7 @@ fn material_resolution_puts_the_stored_zones_back_on_the_custom_materials() {
         c_axis_second_azimuth_deg: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     })
     .unwrap();
 

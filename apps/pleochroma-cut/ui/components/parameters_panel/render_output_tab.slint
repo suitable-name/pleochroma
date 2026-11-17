@@ -37,6 +37,9 @@ export component RenderOutputTab inherits VerticalLayout {
     property <string> preset_name: ["Draft", "Balanced", "High", "Custom"][SettingsModel.quality_preset_index];
     property <string> resolution_name: ["640 × 480", "800 × 600", "1280 × 720", "1920 × 1080"][SettingsModel.resolution_index];
     property <bool> remote_in_use: RemoteWorkerModel.availability.configured && SettingsModel.live_compute_target_index != 0;
+    // Remote Only with a remote set up: this computer does not trace the live view, so the Compute
+    // card leaves out its own engine settings.
+    property <bool> local_in_use: !(RemoteWorkerModel.availability.configured && SettingsModel.live_compute_target_index == 1);
     property <string> engine_name: SettingsModel.gpu_build
         ? ["CPU", "CPU + GPU", "GPU"][SettingsModel.local_compute_target_index]
         : "CPU";
@@ -186,22 +189,25 @@ export component RenderOutputTab inherits VerticalLayout {
     }
 
     // --- Compute -----------------------------------------------------------------------------
-    // Which engine(s) trace the live image: this computer's (Local Compute, only on a GPU-capable
-    // build) and the remote worker's (Live Compute). Advanced.
+    // Where the live image is traced: first the remote worker and the Live Compute choice, then
+    // this computer's engines (Local Compute, only on a GPU-capable build), shown only while this
+    // computer takes part. Advanced.
     if GuideModel.shows_advanced(): KitFoldCard {
         icon: KitIcons.cpu;
         label: "Compute";
-        summary: "This PC · " + root.engine_name + (root.remote_in_use ? " + remote" : "");
+        summary: root.local_in_use
+            ? "This PC · " + root.engine_name + (root.remote_in_use ? " + remote" : "")
+            : "Remote only";
 
-        KitSummaryRow {
+        LiveComputePicker { }
+        if root.local_in_use: Rectangle { height: 1px; background: Theme.border-subtle; }
+        if root.local_in_use: KitSummaryRow {
             icon: KitIcons.cpu;
             label: "This PC";
             dot: Theme.accent-emerald;
             detail: "Tracing with " + root.engine_name;
         }
-        if SettingsModel.gpu_build: LocalComputePicker { }
-        Rectangle { height: 1px; background: Theme.border-subtle; }
-        LiveComputePicker { }
+        if root.local_in_use && SettingsModel.gpu_build: LocalComputePicker { }
     }
 
     // --- Ray-Traced view ---------------------------------------------------------------------

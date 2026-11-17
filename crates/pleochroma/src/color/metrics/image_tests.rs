@@ -314,7 +314,7 @@ fn perspective_rays_use_their_own_eye_direction_for_the_observer_cone() {
         want_fire: false,
     };
     let bucket = |class: &Option<RayClassification>| match class {
-        Some(RayClassification::Extinct) => 1,
+        Some(RayClassification::Extinct { .. }) => 1,
         Some(RayClassification::Returned(_)) => 2,
         _ => 0,
     };

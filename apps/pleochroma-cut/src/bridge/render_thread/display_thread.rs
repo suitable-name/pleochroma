@@ -153,6 +153,7 @@ impl DisplayWork {
                     windowing_pct: 0.0,
                     extinction_pct: 0.0,
                     doubling_arcmin: 0.0,
+                    aset: None,
                 },
                 graph_brilliance: [0.0; 19],
                 graph_extinction: [0.0; 19],
@@ -171,7 +172,7 @@ impl DisplayWork {
         scene_generation: u64,
         denoise_enabled: bool,
         frame: FirstHitSnapshot<'_>,
-        metrics_snapshot: FrameMetricsSnapshot,
+        metrics_snapshot: &FrameMetricsSnapshot,
         activity_flags: FrameActivityFlags,
     ) {
         self.generation = generation;
@@ -193,7 +194,7 @@ impl DisplayWork {
             self.facet_id.extend_from_slice(frame.first_hit_facet_id);
             self.path_sig.extend_from_slice(frame.first_hit_path_sig);
         }
-        self.metrics_snapshot = metrics_snapshot;
+        self.metrics_snapshot = *metrics_snapshot;
     }
 
     /// Adds a remote contribution into this cycle's accumulator copy and counts its samples,
@@ -340,10 +341,7 @@ where
     // staying generic over `T`.
     T: TraceActivitySink + 'static,
     F: Fn(&T, slint::SharedPixelBuffer<slint::Rgba8Pixel>, u64) + Send + 'static + Clone,
-    M: Fn(&T, f32, f32, f32, f32, f32, f32, [f32; 19], [f32; 19], [f32; 19], f32)
-        + Send
-        + 'static
-        + Clone,
+    M: Fn(&T, GemOpticalMetrics, [f32; 19], [f32; 19], [f32; 19], f32) + Send + 'static + Clone,
 {
     let (work_tx, work_rx) = channel::<DisplayWork>();
     let (pool_tx, pool_rx) = channel::<DisplayWork>();

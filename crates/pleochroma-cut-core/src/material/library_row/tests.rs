@@ -35,6 +35,7 @@ fn plain(name: &str) -> LibraryMaterial<'_> {
         per_axis_dispersion_json: None,
         inclusion_families_json: None,
         structure_json: None,
+        gem_data_json: None,
     }
 }
 
@@ -875,4 +876,57 @@ fn absorption_bands_from_json_rejects_non_positive_centres() {
         absorption_bands_from_json("[[460.0,45.0,0.25]]"),
         Some(vec![[460.0, 45.0, 0.25]])
     );
+}
+
+const GEM_DATA_JSON: &str = r#"{"mohs":[7.5,8.0],"toughness":["good","very_poor"],"cleavage":"Imperfect basal","source":"My notes"}"#;
+
+/// T-C1: the library row's gem data text reaches the snapshot, and a row without it writes none.
+#[test]
+fn a_rows_gem_data_travels_in_the_snapshot() {
+    let row = LibraryMaterial {
+        gem_data_json: Some(GEM_DATA_JSON),
+        ..plain("Gemmy")
+    };
+    let table = row.snapshot().gem_data.expect("gem data in the snapshot");
+    assert_eq!(table.mohs_range(), Some((7.5, 8.0)));
+    assert_eq!(table.toughness_ranks(), Some((3, 0)));
+    assert_eq!(table.cleavage.as_deref(), Some("Imperfect basal"));
+    assert_eq!(table.source.as_deref(), Some("My notes"));
+    assert_eq!(table.fracture, None);
+    assert_eq!(plain("Bare").snapshot().gem_data, None);
+}
+
+/// Text that is not a gem-data table, and a table with no value, are "not recorded".
+#[test]
+fn unusable_stored_gem_data_reads_as_not_recorded() {
+    for text in ["", "not json", "[1, 2]", "{}", r#"{"mohs":"hard"}"#] {
+        let row = LibraryMaterial {
+            gem_data_json: Some(text),
+            ..plain("Gemmy")
+        };
+        assert_eq!(row.gem_data(), None, "{text:?}");
+        assert_eq!(row.snapshot().gem_data, None, "{text:?}");
+    }
+}
+
+/// The text the editor writes reads back unchanged, and an emptied table writes `NULL`.
+#[test]
+fn gem_data_text_round_trips_and_an_empty_table_is_not_written() {
+    let table = LibraryMaterial::decode_gem_data(GEM_DATA_JSON).expect("table");
+    let text = LibraryMaterial::encode_gem_data(&table).expect("text");
+    assert_eq!(LibraryMaterial::decode_gem_data(&text), Some(table));
+    assert_eq!(
+        LibraryMaterial::encode_gem_data(&CustomGemDataTable::default()),
+        None
+    );
+}
+
+/// The toughness ranks of the file map onto the Material Reference's scale, one for one.
+#[test]
+fn toughness_ranks_map_onto_the_gem_data_scale() {
+    for rank in 0..=5_u8 {
+        let toughness = LibraryMaterial::toughness_from_rank(rank).expect("on the scale");
+        assert_eq!(toughness.rank(), rank);
+    }
+    assert_eq!(LibraryMaterial::toughness_from_rank(6), None);
 }

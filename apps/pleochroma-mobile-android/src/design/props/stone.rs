@@ -7,16 +7,20 @@ use pleochroma_cut_core::MaterialSelection;
 use pleochroma_mobile_core::{
     app_state::AppState,
     design_props::{
-        ColorRow, CustomMaterialInput, MaterialRow, add_custom_material, apply_axis_preset,
-        axis_preset_rows, body_color_names, body_color_swatch, color_rows, material_rows,
-        select_material, set_color_entry, set_crystal_axis, set_edge_rounding, set_frosted_girdle,
+        ColorRow, CustomMaterialInput, DetailColor, DetailCurve, DetailLine, DetailTick,
+        MaterialRow, add_custom_material, apply_axis_preset, axis_preset_rows, body_color_names,
+        body_color_swatch, color_rows, material_details, material_rows, select_material,
+        set_color_entry, set_crystal_axis, set_edge_rounding, set_frosted_girdle,
         set_inclusion_haze, set_second_axis, stone_view, use_material_axis,
     },
 };
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::{Pushed, bind0, bind1, finish, string_model, with_pushed};
-use crate::{AppWindow, MaterialItem, PropsModel, Shell, design::Shared, push::toast};
+use crate::{
+    AppWindow, ColorPairItem, CurveItem, LineItem, MaterialItem, PropsModel, Shell, TickItem,
+    design::Shared, push::toast,
+};
 
 /// How far a slider must have moved from the design's value to count as a change. Anything
 /// closer is the float round trip of an untouched control and must not write the design.
@@ -55,8 +59,151 @@ fn color_item(row: &ColorRow) -> MaterialItem {
     }
 }
 
-/// Builds the rows of the page the tab shows (the material or the color picker), when
-/// they are out of date.
+/// What the Material Details page was last built for: the design's material name, the number of
+/// custom materials, the stone width (as bits, since the colors and the transmission depend on
+/// it) and the design's generation with whether a solve matches it (the weight estimate of the
+/// specific-gravity row needs the solved stone).
+type DetailsKey = (Option<String>, usize, Option<u64>, u64, bool);
+
+thread_local! {
+    /// The key of the page last pushed. The page works out spectra and curves, so it is rebuilt
+    /// only when the key moves or the page opens.
+    static DETAILS_KEY: RefCell<Option<DetailsKey>> = const { RefCell::new(None) };
+}
+
+/// The Slint color of sRGB bytes.
+const fn rgb(bytes: [u8; 3]) -> Color {
+    Color::from_rgb_u8(bytes[0], bytes[1], bytes[2])
+}
+
+/// The Slint row of a curve of the details page.
+fn curve_item(curve: &DetailCurve) -> CurveItem {
+    CurveItem {
+        label: curve.label.as_str().into(),
+        ink: curve.ink,
+        path: curve.path.as_str().into(),
+        swatch: curve.swatch.map_or(Color::from_argb_u8(0, 0, 0, 0), rgb),
+        has_swatch: curve.swatch.is_some(),
+    }
+}
+
+/// The Slint row of a gridline of the details page.
+fn tick_item(tick: &DetailTick) -> TickItem {
+    TickItem {
+        text: tick.text.as_str().into(),
+        position: tick.position,
+    }
+}
+
+/// The Slint row of a color pair of the details page.
+fn color_pair_item(row: &DetailColor) -> ColorPairItem {
+    ColorPairItem {
+        label: row.label.as_str().into(),
+        daylight: rgb(row.daylight),
+        incandescent: rgb(row.incandescent),
+        face_up: row.face_up,
+    }
+}
+
+/// The Slint row of a gem-data line of the details page.
+fn line_item(line: &DetailLine) -> LineItem {
+    LineItem {
+        label: line.label.as_str().into(),
+        value: line.value.as_str().into(),
+        note: line.note.as_str().into(),
+    }
+}
+
+/// A Slint model of `items`.
+fn model<T: Clone + 'static>(items: Vec<T>) -> ModelRc<T> {
+    ModelRc::new(VecModel::from(items))
+}
+
+/// Pushes the Material Details page when the material, the custom materials or the stone width
+/// differ from what was pushed last. A design with no known material gets an empty page.
+fn push_details(props: &PropsModel, state: &AppState) {
+    let design = &state.session.design;
+    let generation = state.session.current_generation();
+    let key: DetailsKey = (
+        design.material.name.clone(),
+        state.props.custom_materials.len(),
+        design.girdle_diameter_mm.map(f64::to_bits),
+        generation,
+        state.solve.is_current(generation),
+    );
+    if DETAILS_KEY.with(|cell| cell.borrow().as_ref() == Some(&key)) {
+        return;
+    }
+    let view = material_details(state);
+    props.set_details_title(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.title.as_str().into()),
+    );
+    props.set_details_subtitle(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.subtitle.as_str().into()),
+    );
+    props.set_details_chips(string_model(
+        view.as_ref()
+            .map_or_else(Vec::new, |view| view.chips.clone()),
+    ));
+    props.set_details_rays(model(
+        view.as_ref()
+            .map_or_else(Vec::new, |view| view.rays.iter().map(curve_item).collect()),
+    ));
+    props.set_details_ticks(model(view.as_ref().map_or_else(Vec::new, |view| {
+        view.spectrum_ticks.iter().map(tick_item).collect()
+    })));
+    props.set_details_summary(view.as_ref().map_or_else(SharedString::new, |view| {
+        view.spectrum_summary.as_str().into()
+    }));
+    props.set_details_colors(model(view.as_ref().map_or_else(Vec::new, |view| {
+        view.colors.iter().map(color_pair_item).collect()
+    })));
+    props.set_details_color_note(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.color_note.as_str().into()),
+    );
+    props.set_details_rows(model(view.as_ref().map_or_else(Vec::new, |view| {
+        view.gem_rows.iter().map(line_item).collect()
+    })));
+    props.set_details_optics(model(view.as_ref().map_or_else(Vec::new, |view| {
+        view.optics_rows.iter().map(line_item).collect()
+    })));
+    props.set_details_variants(model(view.as_ref().map_or_else(Vec::new, |view| {
+        view.variants.iter().map(line_item).collect()
+    })));
+    props.set_details_source_groups(model(view.as_ref().map_or_else(Vec::new, |view| {
+        view.source_groups.iter().map(line_item).collect()
+    })));
+    props.set_details_care(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.care.as_str().into()),
+    );
+    props.set_details_sources(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.sources.as_str().into()),
+    );
+    props.set_details_ri_curves(model(view.as_ref().map_or_else(Vec::new, |view| {
+        view.ri_curves.iter().map(curve_item).collect()
+    })));
+    props.set_details_ri_readout(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.ri_readout.as_str().into()),
+    );
+    props.set_details_ri_top(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.ri_top.as_str().into()),
+    );
+    props.set_details_ri_bottom(
+        view.as_ref()
+            .map_or_else(SharedString::new, |view| view.ri_bottom.as_str().into()),
+    );
+    DETAILS_KEY.with(|cell| *cell.borrow_mut() = Some(key));
+}
+
+/// Builds the rows of the page the tab shows (the material or the color picker, the Material
+/// Details), when they are out of date.
 pub(super) fn push_pickers(props: &PropsModel, state: &AppState, pushed: &mut Pushed) {
     match props.get_stone_page() {
         1 => {
@@ -88,6 +235,7 @@ pub(super) fn push_pickers(props: &PropsModel, state: &AppState, pushed: &mut Pu
                 pushed.colors_key = Some(key);
             }
         }
+        4 => push_details(props, state),
         _ => {}
     }
 }
@@ -120,17 +268,25 @@ pub(super) fn push(props: &PropsModel, state: &AppState, pushed: &mut Pushed) {
     props.set_material_title(view.material_title.as_str().into());
     props.set_material_detail(view.material_detail.as_str().into());
     props.set_material_family(view.identity.family.as_str().into());
+    props.set_material_builtin(view.identity.builtin);
+    // The grid chips in card order; the toughness chip is separate (it may take a row of its
+    // own, see the card).
     props.set_material_chips(string_model(
         [
             &view.identity.ri,
             &view.identity.critical,
             &view.identity.dispersion,
             &view.identity.specific_gravity,
+            &view.identity.mohs,
         ]
         .into_iter()
         .filter(|chip| !chip.is_empty())
         .cloned(),
     ));
+    props.set_material_toughness(view.identity.toughness.as_str().into());
+    props.set_material_toughness_range(view.identity.toughness_is_range);
+    props.set_material_facts(view.identity.cleavage_line.as_str().into());
+    props.set_material_cleavage_warn(view.identity.cleavage_warns);
     push_body_swatch(props, state);
     props.set_effective_ri(view.effective_ri_text.as_str().into());
     props.set_color_label(view.color_label.as_str().into());
@@ -231,11 +387,14 @@ fn push_axis_presets(props: &PropsModel, state: &AppState, pushed: &mut Pushed) 
     pushed.axis_presets_key = Some(key);
 }
 
-/// Shows page `page` of the tab (0 settings, 1 materials, 2 colors, 3 custom form). The
-/// sub-pages ask the sheet for its full height.
+/// Shows page `page` of the tab (0 settings, 1 materials, 2 colors, 3 custom form, 4 Material
+/// Details). The sub-pages ask the sheet for its full height.
 fn open_page(window: &AppWindow, state: &Shared, page: i32) {
     let props = window.global::<PropsModel>();
-    let page = page.clamp(0, 3);
+    let page = page.clamp(0, 4);
+    if page == 4 {
+        DETAILS_KEY.with(|cell| *cell.borrow_mut() = None);
+    }
     if page == 1 {
         props.set_material_query(SharedString::new());
     }

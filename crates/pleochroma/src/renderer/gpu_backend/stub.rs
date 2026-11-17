@@ -292,6 +292,18 @@ impl GpuBackend {
         false
     }
 
+    /// Always `0`: a build without GPU support compiles no pipelines.
+    #[must_use]
+    pub const fn fresh_pipeline_compiles() -> u64 {
+        0
+    }
+
+    /// Always `0`: a build without GPU support compiles no pipelines.
+    #[must_use]
+    pub const fn fresh_pipeline_compiles_on_this_thread() -> u64 {
+        0
+    }
+
     /// Empty: a build without GPU support compiles no pipelines.
     #[must_use]
     pub const fn warm_up_materials(_first: Option<&GemMaterial>) -> Vec<GemMaterial> {

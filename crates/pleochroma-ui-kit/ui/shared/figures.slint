@@ -1,0 +1,378 @@
+import { PleoPalette } from "palette.slint";
+import { PleoGlass } from "glass.slint";
+
+// One figure of the card. `trend`: 1 better, -1 worse, 0 same. `delta` is the text of the change
+// ("" for none); `part` is the bar fill 0..1 on the figure's own scale; `flag` marks a value outside
+// the usual range. `short` is the name the folded line shows ("Bril"); empty uses `name`.
+export struct PleoFigure {
+    name: string,
+    short: string,
+    value: string,
+    delta: string,
+    part: float,
+    ink: color,
+    trend: int,
+    flag: bool,
+}
+
+// A 24 x 24 stroked path icon.
+component FigIcon inherits Rectangle {
+    in property <string> d;
+    in property <color> ink: PleoPalette.text-secondary;
+    in property <length> size: 16px;
+    in property <length> stroke: 1.7px;
+    width: root.size;
+    height: root.size;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.d;
+        stroke: root.ink;
+        stroke-width: root.stroke;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        fill: transparent;
+    }
+}
+
+// A small triangle: up for better, down for worse. Shape and color both carry the trend.
+component TrendMark inherits Rectangle {
+    in property <int> trend;
+    in property <float> k: 1;
+    width: 10px * root.k;
+    height: 10px * root.k;
+    if root.trend == 1: FigIcon { d: "M12 5 L20 19 H4 Z"; size: 10px * root.k; stroke: 2.6px; ink: PleoPalette.accent-emerald; }
+    if root.trend == -1: FigIcon { d: "M12 19 L20 5 H4 Z"; size: 10px * root.k; stroke: 2.6px; ink: PleoPalette.danger; }
+    if root.trend == 0: FigIcon { d: "M5 12 H19"; size: 10px * root.k; stroke: 2.6px; ink: PleoPalette.text-muted; }
+}
+
+// One row: name, a short bar, the value (an amber dot when flagged), the delta.
+component FigureRow inherits Rectangle {
+    in property <PleoFigure> figure;
+    in property <bool> show_bars;
+    in property <bool> show_deltas;
+    // The ratio of `font-base` to the desktop's 11 px; every size scales with it.
+    in property <float> k: 1;
+    in property <length> font-base: 11px;
+    height: 20px * root.k;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.figure.name + " " + root.figure.value + (root.figure.delta != "" && root.show_deltas ? ", change " + root.figure.delta : "");
+    accessible-description: root.figure.flag ? "outside the usual range" : "";
+    HorizontalLayout {
+        spacing: 8px * root.k;
+        Text { width: 82px * root.k; text: root.figure.name; font-size: root.font-base; color: PleoPalette.text-secondary; vertical-alignment: center; overflow: elide; }
+        if root.show_bars: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 60px * root.k;
+                height: 4px * root.k;
+                border-radius: 2px * root.k;
+                background: PleoPalette.border-subtle;
+                Rectangle { x: 0px; width: parent.width * Math.min(Math.max(root.figure.part, 0), 1); height: 100%; border-radius: 2px * root.k; background: root.figure.ink; }
+            }
+        }
+        if root.figure.flag: VerticalLayout {
+            alignment: center;
+            Rectangle { width: 6px * root.k; height: 6px * root.k; border-radius: 3px * root.k; background: PleoPalette.accent-amber; }
+        }
+        Text { min-width: 38px * root.k; text: root.figure.value; font-size: root.font-base * 12 / 11; font-weight: 700; color: root.figure.flag ? PleoPalette.accent-amber : PleoPalette.text-primary; horizontal-alignment: right; vertical-alignment: center; }
+        if root.show_deltas: HorizontalLayout {
+            spacing: 3px * root.k;
+            VerticalLayout { alignment: center; TrendMark { trend: root.figure.trend; k: root.k; } }
+            Text {
+                min-width: 34px * root.k;
+                text: root.figure.delta;
+                font-size: root.font-base;
+                color: root.figure.trend == 1 ? PleoPalette.accent-emerald : (root.figure.trend == -1 ? PleoPalette.danger : PleoPalette.text-muted);
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// The four-part stacked bar of the Zones (ASET-style) block. The shares are percentages of the
+// stone's face in the order red, green, blue, dark.
+component AsetBar inherits Rectangle {
+    in property <[float]> shares;
+    in property <float> k: 1;
+    property <length> w: self.width;
+    height: 8px * root.k;
+    border-radius: 4px * root.k;
+    clip: true;
+    background: PleoPalette.border-subtle;
+    if root.shares.length >= 4: Rectangle { x: 0px; width: root.w * root.shares[0] / 100; height: 100%; background: PleoPalette.aset-red; }
+    if root.shares.length >= 4: Rectangle { x: root.w * root.shares[0] / 100; width: root.w * root.shares[1] / 100; height: 100%; background: PleoPalette.aset-green; }
+    if root.shares.length >= 4: Rectangle { x: root.w * (root.shares[0] + root.shares[1]) / 100; width: root.w * root.shares[2] / 100; height: 100%; background: PleoPalette.aset-blue; }
+    if root.shares.length >= 4: Rectangle { x: root.w * (root.shares[0] + root.shares[1] + root.shares[2]) / 100; width: root.w * root.shares[3] / 100; height: 100%; background: PleoPalette.aset-dark; }
+    // The bar's own 1 px edge, so the Dark segment reads against the card.
+    Rectangle { border-width: 1px; border-color: PleoPalette.chip-edge; border-radius: 4px * root.k; }
+}
+
+// One legend cell of the zones block: a dot in the zone's color, its name and its share as a bare
+// number (the block's header says "% of the face"). Four cells share the row equally; the
+// accessible label keeps the full reading ("Red 44 %").
+component AsetKey inherits Rectangle {
+    in property <color> ink;
+    in property <string> name;
+    in property <string> value;
+    in property <float> k: 1;
+    in property <length> font-base: 11px;
+    horizontal-stretch: 1;
+    height: 18px * root.k;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.name + " " + root.value + " %";
+    HorizontalLayout {
+        spacing: 3px * root.k;
+        VerticalLayout {
+            alignment: center;
+            Rectangle { width: 6px * root.k; height: 6px * root.k; border-radius: 3px * root.k; background: root.ink; border-width: 1px; border-color: PleoPalette.chip-edge; }
+        }
+        Text { text: root.name; font-size: root.font-base * 10 / 11; color: PleoPalette.text-secondary; vertical-alignment: center; }
+        Text { text: root.value; font-size: root.font-base; font-weight: 700; color: PleoPalette.text-primary; vertical-alignment: center; }
+    }
+}
+
+// The gemological numbers on glass. The whole card is one button that copies them. Folded, it is
+// one line ("Bril 55.7 · Wind 12.1 · Ext 32.2 …") and a chevron. `font-base` is the size of the
+// small text (11 px on the desktop); every other text size and the row sizes scale with it.
+//
+// An optional Zones (ASET-style) block follows the rows when `aset` holds four shares (red, green,
+// blue, dark, in percent): a stacked bar with a 1 px edge, a legend of four equal cells with bare
+// numbers (`aset_note`, "% of the face", says what they are) and the `aset_split` line under it. An
+// optional "?" button in the header (`show_help`) asks for an explanation through `help()`. Both
+// are absent by default.
+//
+// Two more options keep today's layout until they are turned on. `divider_a` and `divider_b` draw a
+// thin divider after the rows with those indexes. `grid` makes the open card a 2 x 3 grid at
+// `grid-width`, for a phone.
+export component PleoFigures inherits PleoGlass {
+    in property <[PleoFigure]> figures;
+    in property <string> title;
+    in-out property <bool> folded: false;
+    in property <bool> show_deltas: false;
+    in property <bool> show_bars: true;
+    in property <string> action_text;
+    in property <length> font-base: 11px;
+    // The side of the fold button (22 px on the desktop; a phone passes a 48 px target).
+    in property <length> fold-button-size: 22px;
+    // The header row's height; 0 keeps the desktop's (20 px open, 28 px folded, scaled).
+    in property <length> header-height: 0px;
+    // The Zones (ASET-style) shares in percent: red, green, blue, dark. Empty hides the block.
+    in property <[float]> aset: [];
+    // The block's right-hand note beside its title ("% of the face").
+    in property <string> aset_note: "";
+    // The line under the legend that splits the Dark share ("Dark = Leak 9 % + Lost 12 %").
+    in property <string> aset_split: "";
+    // Shows the "?" button in the header of the open card.
+    in property <bool> show_help: false;
+    // A thin divider after the rows with these indexes (-1: none). The edit card groups its eleven
+    // cells into figures, checks and tilt this way.
+    in property <int> divider_a: -1;
+    in property <int> divider_b: -1;
+    // A phone: the open card is a 2 x 3 grid (full name left, value right) at the width of the
+    // folded card (`grid-width`) instead of a tall single column. Off by default.
+    in property <bool> grid: false;
+    in property <length> grid-width: 330px;
+    callback fold_toggled(bool);
+    callback copy();
+    callback action();
+    callback help();
+
+    property <float> k: root.font-base / 11px;
+
+    width: root.grid && !root.folded ? root.grid-width : lay.preferred-width;
+    height: lay.preferred-height;
+    accessible-role: AccessibleRole.button;
+    accessible-enabled: true;
+    accessible-label: "Copy the Face-Up Figures";
+    accessible-description: "Copies the figures to the clipboard";
+    accessible-action-default => { root.copy(); }
+
+    // Under the other controls: a click anywhere else on the card copies.
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.copy();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.copy(); }
+    }
+    lay := VerticalLayout {
+        padding: 10px * root.k;
+        padding-top: (root.folded ? 4px : (root.grid ? 4px : 8px)) * root.k;
+        padding-bottom: (root.folded ? 4px : (root.grid ? 6px : 10px)) * root.k;
+        spacing: 3px * root.k;
+        HorizontalLayout {
+            height: root.header-height > 0px ? root.header-height : (root.folded ? 28px : 20px) * root.k;
+            spacing: 8px * root.k;
+            if !root.folded: Text {
+                horizontal-stretch: 1;
+                text: root.title;
+                font-size: root.font-base * 10 / 11;
+                font-weight: 700;
+                letter-spacing: 0.8px * root.k;
+                color: PleoPalette.text-muted;
+                vertical-alignment: center;
+            }
+            if root.folded: HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 6px * root.k;
+                for f[i] in root.figures: HorizontalLayout {
+                    spacing: 4px * root.k;
+                    if i < 3: Text { max-width: 38px * root.k; text: f.short != "" ? f.short : f.name; font-size: root.font-base; color: PleoPalette.text-muted; vertical-alignment: center; overflow: elide; }
+                    if i < 3: Text { text: f.value; font-size: root.font-base * 12 / 11; font-weight: 700; color: f.flag ? PleoPalette.accent-amber : PleoPalette.text-primary; vertical-alignment: center; }
+                    if i < 2 && i < root.figures.length - 1: Text { text: "·"; font-size: root.font-base * 12 / 11; color: PleoPalette.text-muted; vertical-alignment: center; }
+                }
+                if root.figures.length > 3: Text { text: "…"; font-size: root.font-base * 12 / 11; color: PleoPalette.text-muted; vertical-alignment: center; }
+            }
+            if !root.folded && root.action_text != "": Rectangle {
+                width: act_text.preferred-width + 8px * root.k;
+                border-radius: 6px * root.k;
+                background: act_touch.has-hover ? PleoPalette.bg-card-hover : transparent;
+                accessible-role: AccessibleRole.button;
+                accessible-enabled: true;
+                accessible-label: root.action_text;
+                accessible-action-default => { root.action(); }
+                act_text := Text { x: 4px * root.k; height: parent.height; text: root.action_text; font-size: root.font-base; color: PleoPalette.accent-cyan; vertical-alignment: center; }
+                act_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.action(); }
+                }
+            }
+            if !root.folded && root.show_help: Rectangle {
+                width: 20px * root.k;
+                border-radius: 6px * root.k;
+                background: help_touch.has-hover ? PleoPalette.bg-card-hover : transparent;
+                accessible-role: AccessibleRole.button;
+                accessible-enabled: true;
+                accessible-label: "How these figures are measured";
+                accessible-action-default => { root.help(); }
+                Tooltip { text: @markdown("How these figures are measured"); }
+                FigIcon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    d: "M12 3 A9 9 0 1 1 11.99 3 Z M9.6 9.4 A2.5 2.5 0 1 1 12.6 11.9 C12 12.2 12 12.8 12 13.6 M12 16.9 V17";
+                    size: 13px * root.k;
+                    ink: PleoPalette.text-muted;
+                }
+                help_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.help(); }
+                }
+            }
+            if !root.folded: VerticalLayout { alignment: center; FigIcon { d: "M8 8 H19 V19 H8 Z M5 16 V5 H16"; size: 13px * root.k; ink: PleoPalette.text-muted; } }
+            Rectangle {
+                width: root.fold-button-size;
+                height: root.fold-button-size;
+                border-radius: 8px * root.k;
+                background: fold_touch.has-hover ? PleoPalette.bg-card-hover : transparent;
+                border-width: fold_fs.has-focus ? 2px : 0px;
+                border-color: PleoPalette.accent-cyan-hover;
+                accessible-role: AccessibleRole.button;
+                accessible-enabled: true;
+                accessible-label: root.folded ? "Show Figures" : "Fold Figures";
+                accessible-action-default => { root.toggle-fold(); }
+                fold_fs := FocusScope {
+                    key-pressed(event) => {
+                        if event.text == Key.Space || event.text == Key.Return {
+                            root.toggle-fold();
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+                FigIcon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    d: root.folded ? "M9 6 L15 12 L9 18" : "M6 9 L12 15 L18 9";
+                    size: 13px * root.k;
+                    ink: PleoPalette.text-muted;
+                }
+                fold_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.toggle-fold(); }
+                }
+            }
+        }
+        if !root.folded && root.grid: GridLayout {
+            spacing-horizontal: 16px * root.k;
+            spacing-vertical: 2px * root.k;
+            padding-bottom: 2px * root.k;
+            for f[i] in root.figures: Rectangle {
+                row: Math.floor(i / 2);
+                col: Math.mod(i, 2);
+                height: 20px * root.k;
+                accessible-role: AccessibleRole.text;
+                accessible-label: f.name + " " + f.value;
+                accessible-description: f.flag ? "outside the usual range" : "";
+                HorizontalLayout {
+                    spacing: 6px * root.k;
+                    Text { horizontal-stretch: 1; min-width: 0px; text: f.name; font-size: root.font-base; color: PleoPalette.text-secondary; vertical-alignment: center; overflow: elide; }
+                    Text { text: f.value; font-size: root.font-base * 12 / 11; font-weight: 700; color: f.flag ? PleoPalette.accent-amber : PleoPalette.text-primary; horizontal-alignment: right; vertical-alignment: center; }
+                }
+            }
+        }
+        if !root.folded && !root.grid: VerticalLayout {
+            spacing: 3px * root.k;
+            for f[i] in root.figures: VerticalLayout {
+                spacing: 0px;
+                FigureRow {
+                    figure: f;
+                    show_bars: root.show_bars;
+                    show_deltas: root.show_deltas;
+                    k: root.k;
+                    font-base: root.font-base;
+                }
+                if (i == root.divider_a || i == root.divider_b) && i < root.figures.length - 1: Rectangle {
+                    height: 7px * root.k;
+                    Rectangle { y: 3px * root.k; height: 1px; background: PleoPalette.border-subtle; }
+                }
+            }
+        }
+        if !root.folded && root.aset.length >= 4: Rectangle {
+            height: 7px * root.k;
+            Rectangle { y: 3px * root.k; height: 1px; background: PleoPalette.border-subtle; }
+        }
+        if !root.folded && root.aset.length >= 4: HorizontalLayout {
+            height: 16px * root.k;
+            spacing: 8px * root.k;
+            Text { horizontal-stretch: 1; text: "ZONES (ASET-STYLE)"; font-size: root.font-base * 10 / 11; font-weight: 700; letter-spacing: 0.8px * root.k; color: PleoPalette.text-muted; vertical-alignment: center; }
+            Text { text: root.aset_note; font-size: root.font-base * 10 / 11; color: PleoPalette.text-muted; vertical-alignment: center; }
+        }
+        if !root.folded && root.aset.length >= 4: VerticalLayout {
+            padding-top: 2px * root.k;
+            padding-bottom: 3px * root.k;
+            AsetBar { shares: root.aset; k: root.k; }
+        }
+        if !root.folded && root.aset.length >= 4: HorizontalLayout {
+            height: 18px * root.k;
+            spacing: 10px * root.k;
+            AsetKey { ink: PleoPalette.aset-red; name: "Red"; value: Math.round(root.aset[0]) + ""; k: root.k; font-base: root.font-base; }
+            AsetKey { ink: PleoPalette.aset-green; name: "Green"; value: Math.round(root.aset[1]) + ""; k: root.k; font-base: root.font-base; }
+            AsetKey { ink: PleoPalette.aset-blue; name: "Blue"; value: Math.round(root.aset[2]) + ""; k: root.k; font-base: root.font-base; }
+            AsetKey { ink: PleoPalette.aset-dark; name: "Dark"; value: Math.round(root.aset[3]) + ""; k: root.k; font-base: root.font-base; }
+        }
+        if !root.folded && root.aset.length >= 4 && root.aset_split != "": Text {
+            height: 15px * root.k;
+            text: root.aset_split;
+            font-size: root.font-base * 10 / 11;
+            color: PleoPalette.text-muted;
+            horizontal-alignment: left;
+            vertical-alignment: center;
+        }
+    }
+
+    function toggle-fold() {
+        root.folded = !root.folded;
+        root.fold_toggled(root.folded);
+    }
+}

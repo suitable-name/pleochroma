@@ -26,7 +26,7 @@ export struct LightingItem {
     description: string,
     // The name under the rig's picture.
     short-name: string,
-    // The `PleoRigThumb` picture (0 to 12; see `pleochroma-cut/ui/shared/rig_thumb.slint`).
+    // The `PleoRigThumb` picture (0 to 12; see `crates/pleochroma-ui-kit/ui/shared/rig_thumb.slint`).
     kind: int,
     selected: bool,
 }
@@ -49,6 +49,37 @@ export struct ProportionItem {
     value: string,
     level: int,
     reason: string,
+}
+
+// One curve of the Material Details page: the path in a 0..100 square, the palette position of
+// its line (0 cyan, 1 amber, 2 purple) and, for a ray of the spectrum, its daylight color.
+export struct CurveItem {
+    label: string,
+    ink: int,
+    path: string,
+    swatch: color,
+    has-swatch: bool,
+}
+
+// A wavelength gridline of a chart: its label and its position in the 0..100 square.
+export struct TickItem {
+    text: string,
+    position: float,
+}
+
+// One row of the Color by Light card: a direction (or the face-up color) in both lights.
+export struct ColorPairItem {
+    label: string,
+    daylight: color,
+    incandescent: color,
+    face-up: bool,
+}
+
+// One labelled value of the Gem Data card; `note` is empty unless sources differ.
+export struct LineItem {
+    label: string,
+    value: string,
+    note: string,
 }
 
 export global PropsModel {
@@ -130,14 +161,45 @@ export global PropsModel {
 
     // --- Stone tab ---------------------------------------------------------------------
     // Which page the tab shows: 0 the settings, 1 the material picker, 2 the color
-    // picker, 3 the custom-material form. Rust owns it (`open-page`).
+    // picker, 3 the custom-material form, 4 the Material Details. Rust owns it (`open-page`).
     in property <int> stone-page: 0;
     in property <string> material-title: "";
     in property <string> material-detail: "";
-    // The material card: the crystal family line and the chips (RI, Critical, Disp., SG; a
-    // chip with no value is left out).
+    // The material card: the crystal family line (empty when the design's material is not
+    // known; "Orthorhombic · biaxial (+)", with the built-in origin as the small `material-builtin`
+    // tag after the name), the grid chips (RI, Critical, Dispersion, SG and Mohs; a chip with
+    // no value is left out), the toughness chip ("Toughness Poor", "Toughness Fair–good"; empty
+    // when the material has none; a range takes a row of its own) and the line about cleavage
+    // and fracture, shown as a cutting risk while `material-cleavage-warn`.
     in property <string> material-family: "";
+    in property <bool> material-builtin: false;
     in property <[string]> material-chips;
+    in property <string> material-toughness: "";
+    in property <bool> material-toughness-range: false;
+    in property <string> material-facts: "";
+    in property <bool> material-cleavage-warn: false;
+
+    // The Material Details page (page 4). Rust fills them when the page opens and when the
+    // material, the custom materials or the stone width change.
+    in property <string> details-title: "";
+    in property <string> details-subtitle: "";
+    in property <[string]> details-chips;
+    in property <[CurveItem]> details-rays;
+    in property <[TickItem]> details-ticks;
+    in property <string> details-summary: "";
+    in property <[ColorPairItem]> details-colors;
+    in property <string> details-color-note: "";
+    // Durability and Cutting, Optics, the color variants and the citations, one line each.
+    in property <[LineItem]> details-rows;
+    in property <[LineItem]> details-optics;
+    in property <[LineItem]> details-variants;
+    in property <[LineItem]> details-source-groups;
+    in property <string> details-care: "";
+    in property <string> details-sources: "";
+    in property <[CurveItem]> details-ri-curves;
+    in property <string> details-ri-readout: "";
+    in property <string> details-ri-top: "";
+    in property <string> details-ri-bottom: "";
     // The face-up color of the body color (a transparent one when it has none, as a Custom
     // Color), for the card's swatch and the Body Color row's.
     in property <color> body-swatch: transparent;

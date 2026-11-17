@@ -243,6 +243,22 @@ pub(in crate::gui) fn setup_material_changed_callback(
             // The view colour is a separate view-only choice and stays.
             if trace_named_material(&ui, &render_ctx_lib, &material) {
                 remember_library_material(&material);
+                // The Stone tab's material facts follow the material the library view shows.
+                let (custom, custom_gem, custom_sg) = {
+                    let ctx = RenderContext::lock(&render_ctx_lib);
+                    (
+                        ctx.custom_materials.clone(),
+                        ctx.custom_material_gem_data.clone(),
+                        ctx.custom_material_specific_gravity.clone(),
+                    )
+                };
+                crate::gui::editor::push_gem_card(
+                    &ui,
+                    Some(material.as_str()),
+                    &custom,
+                    &custom_gem,
+                    &custom_sg,
+                );
                 show_toast(
                     &ui,
                     &format!(

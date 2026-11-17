@@ -82,12 +82,121 @@ fn series_of(metric: SweepMetric) -> i32 {
     i32::try_from(metric.index()).unwrap_or(0)
 }
 
-/// The chart lines for `lines`; a figure with no value anywhere draws nothing.
-pub(super) fn path_items(rows: &[SweepRow], lines: &[SweepMetric]) -> Vec<SweepPathItem> {
+/// The length of one dash of a dashed line, in screen pixels.
+const DASH_PX: f64 = 6.0;
+
+/// The length of the gap between two dashes of a dashed line, in screen pixels.
+const GAP_PX: f64 = 4.0;
+
+/// The plot's size in pixels when the dialog has not told it yet; only the dash length
+/// depends on it.
+pub(super) const DEFAULT_PLOT_PX: (f64, f64) = (900.0, 150.0);
+
+/// Whether a figure's line is drawn dashed. Contrast is: its line would otherwise sit among
+/// ten thin solid lines, and as a lone cool blue it was too close to Fire's purple, so it
+/// takes the neutral light color and a dash that survives color-blindness.
+const fn is_dashed(metric: SweepMetric) -> bool {
+    matches!(metric, SweepMetric::Contrast)
+}
+
+/// Cuts a chart path (SVG `M x y L x y ...` in the 0..100 viewbox) into dashes of `dash_px`
+/// with gaps of `gap_px` screen pixels, for a plot of `width_px` by `height_px`.
+///
+/// Slint 1.18.1 has no dash attribute on `Path`, so each dash is its own `M ... L ...`
+/// sub-path. Lengths are measured in pixels (the viewbox is stretched unevenly), the dash
+/// phase carries across the data points of a sub-path so a corner does not restart the
+/// pattern, and a new `M` starts the pattern afresh. A sub-path of fewer than two points has
+/// no length and draws nothing. A size, dash or gap that is not positive returns `commands`
+/// unchanged.
+pub(super) fn dash_path(
+    commands: &str,
+    (width_px, height_px): (f64, f64),
+    dash_px: f64,
+    gap_px: f64,
+) -> String {
+    if !(width_px > 0.0 && height_px > 0.0 && dash_px > 0.0 && gap_px > 0.0) {
+        return commands.to_owned();
+    }
+    let mut subpaths: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut tokens = commands.split_whitespace();
+    while let Some(token) = tokens.next() {
+        let mut number = || tokens.next().and_then(|text| text.parse::<f64>().ok());
+        let (Some(x), Some(y)) = (number(), number()) else {
+            break;
+        };
+        match token {
+            "M" => subpaths.push(vec![(x, y)]),
+            _ => {
+                if let Some(points) = subpaths.last_mut() {
+                    points.push((x, y));
+                }
+            }
+        }
+    }
+    let (kx, ky) = (width_px / 100.0, height_px / 100.0);
+    let cycle = dash_px + gap_px;
+    let mut out = String::new();
+    let mut put = |command: char, x: f64, y: f64| {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        let _ = write!(out, "{command} {x:.2} {y:.2}");
+    };
+    for points in &subpaths {
+        // `phase` is the distance into the dash-and-gap cycle; the pattern starts on a dash.
+        let mut phase = 0.0_f64;
+        let mut open = false;
+        for pair in points.windows(2) {
+            let ((ax, ay), (bx, by)) = (pair[0], pair[1]);
+            let length = ((bx - ax) * kx).hypot((by - ay) * ky);
+            let mut done = 0.0_f64;
+            loop {
+                if done >= length {
+                    break;
+                }
+                let on = phase < dash_px;
+                let edge = if on { dash_px } else { cycle };
+                let remaining = edge - phase;
+                let step = remaining.min(length - done);
+                if on && !open {
+                    let t = done / length;
+                    put('M', (bx - ax).mul_add(t, ax), (by - ay).mul_add(t, ay));
+                    open = true;
+                }
+                done += step;
+                if on {
+                    let t = done / length;
+                    put('L', (bx - ax).mul_add(t, ax), (by - ay).mul_add(t, ay));
+                }
+                if step >= remaining {
+                    // The step ended exactly on a dash or a cycle edge.
+                    phase = if on { dash_px } else { 0.0 };
+                    if on {
+                        open = false;
+                    }
+                } else {
+                    phase += step;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The chart lines for `lines`; a figure with no value anywhere draws nothing. Dashed
+/// figures come as dash segments for a plot of `plot_px` (width, height) pixels.
+pub(super) fn path_items(
+    rows: &[SweepRow],
+    lines: &[SweepMetric],
+    plot_px: (f64, f64),
+) -> Vec<SweepPathItem> {
     lines
         .iter()
         .filter_map(|&metric| {
-            let commands = chart_path(rows, metric);
+            let mut commands = chart_path(rows, metric);
+            if is_dashed(metric) {
+                commands = dash_path(&commands, plot_px, DASH_PX, GAP_PX);
+            }
             (!commands.is_empty()).then(|| SweepPathItem {
                 commands: commands.into(),
                 series: series_of(metric),
@@ -238,12 +347,22 @@ pub(super) fn push_results(ui: &MainWindow, dialog: &Dialog) {
     push_lines(ui, dialog);
 }
 
+/// The plot's size in pixels as the chart last reported it, or the default before it has.
+fn plot_px(model: &SweepModel<'_>) -> (f64, f64) {
+    let (width, height) = (model.get_plot_width(), model.get_plot_height());
+    if width > 0.0 && height > 0.0 {
+        (f64::from(width), f64::from(height))
+    } else {
+        DEFAULT_PLOT_PX
+    }
+}
+
 /// Copies the chart lines, their legend and the column toggles (after a pill was clicked).
 pub(super) fn push_lines(ui: &MainWindow, dialog: &Dialog) {
     let model = ui.global::<SweepModel>();
     let lines = dialog.lines();
     model.set_columns(model_of(column_items(&dialog.columns(), &dialog.shown)));
-    model.set_paths(model_of(path_items(dialog.rows(), &lines)));
+    model.set_paths(model_of(path_items(dialog.rows(), &lines, plot_px(&model))));
     model.set_legend(model_of(legend_items(dialog.rows(), &lines)));
     model.set_readout_text(readout(dialog).into());
 }
@@ -289,6 +408,7 @@ mod tests {
             yield_pct: Some(30.0),
             warning_count: 0,
             has_girdle: true,
+            aset: None,
             tilt: None::<TiltAverages>,
         }
     }
@@ -384,12 +504,74 @@ mod tests {
         let paths = path_items(
             &outcome.rows,
             &[SweepMetric::Brilliance, SweepMetric::TiltBrilliance],
+            DEFAULT_PLOT_PX,
         );
         assert_eq!(paths.len(), 1, "the sweep has no tilt figures");
         assert_eq!(paths[0].series, 0);
         assert!(paths[0].commands.as_str().starts_with("M "));
         let legend = legend_items(&outcome.rows, &[SweepMetric::Brilliance]);
         assert_eq!(legend[0].text.as_str(), "Brilliance 78.00 to 80.00 %");
+    }
+
+    fn count_of(text: &str, command: &str) -> usize {
+        text.split_whitespace()
+            .filter(|token| *token == command)
+            .count()
+    }
+
+    #[test]
+    fn a_dashed_line_has_one_segment_per_dash_of_its_pixel_length() {
+        // 100 px long on a 100 by 100 px plot; 8 px dashes with 4 px gaps start every 12 px
+        // (0, 12, ... 96), the last one cut short by the end of the line.
+        let dashed = dash_path("M 0 0 L 100 0", (100.0, 100.0), 8.0, 4.0);
+        assert_eq!(count_of(&dashed, "M"), 9);
+        assert!(dashed.starts_with("M 0.00 0.00 L 8.00 0.00 M 12.00 0.00"));
+        assert!(dashed.ends_with("M 96.00 0.00 L 100.00 0.00"), "{dashed}");
+        // The length is in pixels: on a plot twice as wide the same line has twice the dashes.
+        let wide = dash_path("M 0 0 L 100 0", (200.0, 100.0), 8.0, 4.0);
+        assert_eq!(count_of(&wide, "M"), 17);
+    }
+
+    #[test]
+    fn the_dash_pattern_carries_across_data_points() {
+        // The point at 50 px falls inside the dash from 48 to 56: it continues round the
+        // point instead of starting afresh.
+        let dashed = dash_path("M 0 0 L 50 0 L 100 0", (100.0, 100.0), 8.0, 4.0);
+        assert_eq!(count_of(&dashed, "M"), 9);
+        assert!(
+            dashed.contains("M 48.00 0.00 L 50.00 0.00 L 56.00 0.00"),
+            "{dashed}"
+        );
+        // A corner of a bent line keeps the phase too: 30 px along each leg of a right angle.
+        let bent = dash_path("M 0 0 L 30 0 L 30 30", (100.0, 100.0), 8.0, 4.0);
+        assert!(
+            bent.contains("M 24.00 0.00 L 30.00 0.00 L 30.00 2.00"),
+            "{bent}"
+        );
+        // A new `M` starts a new pattern.
+        let two = dash_path("M 0 0 L 10 0 M 0 50 L 10 50", (100.0, 100.0), 8.0, 4.0);
+        assert!(two.contains("M 0.00 50.00 L 8.00 50.00"), "{two}");
+    }
+
+    #[test]
+    fn an_empty_or_one_point_line_draws_no_dashes() {
+        assert_eq!(dash_path("", (100.0, 100.0), 8.0, 4.0), "");
+        assert_eq!(dash_path("M 5 5", (100.0, 100.0), 8.0, 4.0), "");
+        // A size that is not known leaves the path as it is.
+        assert_eq!(
+            dash_path("M 0 0 L 9 9", (0.0, 100.0), 8.0, 4.0),
+            "M 0 0 L 9 9"
+        );
+    }
+
+    #[test]
+    fn only_contrast_is_dashed() {
+        let outcome = sample();
+        assert!(is_dashed(SweepMetric::Contrast));
+        assert!(!is_dashed(SweepMetric::Fire) && !is_dashed(SweepMetric::Brilliance));
+        let solid = chart_path(&outcome.rows, SweepMetric::Brilliance);
+        let items = path_items(&outcome.rows, &[SweepMetric::Brilliance], DEFAULT_PLOT_PX);
+        assert_eq!(items[0].commands.as_str(), solid);
     }
 
     #[test]

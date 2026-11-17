@@ -30,7 +30,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 131 rhodolite).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 131 rhodolite (Mg1.82 Fe0.99 Ca0.16 Mn0.04 Al2.00, 2.007 mm), http://minerals.gps.caltech.edu/FILES/Visible/garnet/grr131, crates/pleochroma/data/reference_spectra/variant_pyrope_rhodolite_iso.csv; GRR 83 (Umba) agrees per almandine fraction",
-  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.1.1 (Fe2+ 504 / 527 / 576 nm over a UV edge, Fe2+-Fe3+ IVCT continuum; Fe2+-Fe3+ IVCT band near 21 700 cm^-1 in Fe-rich garnets: Taran, Dyar and Matsyuk 2007, Am. Mineral. 92, 753-760 (the DOI formerly cited here could not be verified and is dropped))",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.1.1 (Fe2+ 504 / 527 / 576 nm over an absorption edge below 400 nm, Fe2+-Fe3+ IVCT continuum; Fe2+-Fe3+ IVCT band near 21 700 cm^-1 in Fe-rich garnets: Taran, Dyar and Matsyuk 2007, Am. Mineral. 92, 753-760 (the DOI formerly cited here could not be verified and is dropped))",
 ]
 fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-01-pyrope-garnet-rhodolite"
 
@@ -106,7 +106,7 @@ estimated = true
 sources = [
   "Strength chosen for a typical face-up color; spectrum measured (GRR 1776 almandine).",
   "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1776 almandine ([Fe2.5 Mg0.3 Mn0.2 Ca0.1]Al2.0(SiO4)3, 0.213 mm, merged file), crates/pleochroma/data/reference_spectra/variant_almandine_purplish_iso.csv",
-  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.2.1 (Fe2+ 504 / 527 / 576 nm over a strong blue-ultraviolet edge, Fe2+-Fe3+ IVCT)",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.2.1 (Fe2+ 504 / 527 / 576 nm over a strong absorption edge rising through the blue, Fe2+-Fe3+ IVCT)",
 ]
 fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-03-almandine-garnet-purplish"
 

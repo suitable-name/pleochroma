@@ -8,8 +8,8 @@ use crate::{
     support::app::pump,
 };
 use pleochroma_cut::{
-    BuildDesignModel, ExportModel, GuideModel, LibraryModel, ParametersModel, SolidPreviewModel,
-    TiltModel, ViewportModel,
+    BuildDesignModel, ExportModel, GuideModel, LibraryModel, ParametersModel, RemoteWorkerModel,
+    SolidPreviewModel, TiltModel, ViewportModel,
 };
 use slint::{ComponentHandle, Model};
 use uiprobe::{AccessibleRole, screenshot::Shot};
@@ -186,6 +186,16 @@ pub fn emerald_export_settings_4k(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     export.set_selected_color_space_index(2);
     export.set_compute_target_index(0);
     export.set_directory(NEUTRAL_FOLDER.into());
+    // The dialog probes the remote when it opens; until the answer lands it says "Checking for
+    // the remote...". The probe of an unreachable host can take several seconds.
+    let remote = ui.global::<RemoteWorkerModel>();
+    let answered = Sc::wait(30, || {
+        !export.get_remote_unavailable_reason().is_empty()
+            || remote.get_availability().reachable_render_capable
+    });
+    if !answered {
+        sc.note("emerald export settings: the remote probe did not answer in 30 s");
+    }
     pump(1000);
     let shot = sc.snap_main()?;
     Ok(card_rect(&sc.view(), "ExportDialog")?.crop(&shot))

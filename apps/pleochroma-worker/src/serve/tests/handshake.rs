@@ -10,10 +10,38 @@ use crate::serve::{
 use pleochroma_net::{
     handshake,
     messages::{
-        Backend, ClientMessage, Done, ErrorMsg, Hello, RenderRequest, StreamEvent, Welcome,
+        Backend, ClientMessage, Done, ErrorMsg, Hello, PeerRole, RenderRequest, StreamEvent,
+        Welcome, error_codes,
     },
 };
 use std::io::Cursor;
+
+/// A Monitor or Admin `HELLO` is answered with `ROLE_REFUSED` ("remote administration is
+/// not available") in place of `WELCOME`, and the connection ends.
+#[test]
+fn handle_connection_refuses_a_monitor_or_admin_hello() {
+    for role in [PeerRole::Monitor, PeerRole::Admin] {
+        let mut input = Vec::new();
+        let hello = Hello {
+            role,
+            ..handshake::local_hello()
+        };
+        pleochroma_net::messages::write_message(&mut input, &hello).unwrap();
+
+        let mut duplex = DuplexHalf::new(input);
+        handle_connection(&mut duplex, 1, &test_db()).unwrap();
+
+        let mut out_cursor = Cursor::new(duplex.out);
+        let err: ErrorMsg = pleochroma_net::messages::read_message(&mut out_cursor).unwrap();
+        assert_eq!(err.code, error_codes::ROLE_REFUSED, "{role:?}");
+        assert!(
+            err.message
+                .contains("remote administration is not available"),
+            "{}",
+            err.message
+        );
+    }
+}
 
 #[test]
 fn handle_connection_refuses_a_mismatched_build_hash() {

@@ -34,6 +34,12 @@ const LINE_D_NM: f32 = 589.3;
 const LINE_F_NM: f32 = 486.1;
 /// The Fraunhofer C line (hydrogen red).
 const LINE_C_NM: f32 = 656.3;
+/// The Fraunhofer B line (oxygen, red), the long-wavelength end of the gemological dispersion
+/// interval.
+pub const LINE_B_NM: f32 = 686.7;
+/// The Fraunhofer G line (iron, violet), the short-wavelength end of the gemological
+/// dispersion interval.
+pub const LINE_G_NM: f32 = 430.8;
 /// Spacing of the wavelength samples [`DispersionModel::validate`] and
 /// [`DispersionModel::warnings`] walk across the visible band.
 const BAND_STEP_NM: f32 = 5.0;
@@ -273,6 +279,17 @@ impl DispersionModel {
     #[must_use]
     pub fn delta_f_c(&self) -> f32 {
         self.n_f() - self.n_c()
+    }
+
+    /// The gemological dispersion `n_G - n_B`: the index at the Fraunhofer G line (430.8 nm)
+    /// minus the index at the B line (686.7 nm). Gem references print this figure as a stone's
+    /// "dispersion" (diamond 0.044), about 1.73 times the F-C figure of [`Self::delta_f_c`].
+    ///
+    /// It is read off this one curve, so for a birefringent material it is the base curve's
+    /// value: `n_o` for a uniaxial material, `n_beta` for a biaxial one.
+    #[must_use]
+    pub fn delta_b_g(&self) -> f32 {
+        self.evaluate(LINE_G_NM) - self.evaluate(LINE_B_NM)
     }
 
     /// The Abbe number `V_d = (n_d - 1) / (n_F - n_C)`; lower means more dispersive.

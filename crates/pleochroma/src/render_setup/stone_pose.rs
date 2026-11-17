@@ -134,6 +134,37 @@ impl StonePose {
         }
         .clamped()
     }
+
+    /// The pose whose [`Self::rotation`] is `r`, for a gesture that turns the posed stone in the
+    /// world (about the camera's axes) rather than moving one slider.
+    ///
+    /// The tilt is the angle between the stone's table normal (`r * +Y`) and the world vertical,
+    /// the turn the azimuth that normal faces, and the spin what is left about the stone's own
+    /// axis. With the table straight up or down the turn is undefined: `previous`'s turn is kept
+    /// and the spin takes the rest, so a gesture never jumps there. `r` must be a rotation.
+    #[must_use]
+    pub fn from_rotation(r: Mat3, previous: Self) -> Self {
+        /// Below this horizontal length of the table normal the turn is read as undefined.
+        const POLE: f32 = 1e-5;
+        let normal = r * Vec3::Y;
+        let tilt = normal.y.clamp(-1.0, 1.0).acos();
+        let horizontal = normal.x.hypot(normal.z);
+        let turn = if horizontal > POLE {
+            normal.x.atan2(normal.z)
+        } else {
+            previous.clamped().turn_deg.to_radians()
+        };
+        // `r = Ry(turn) * Rx(tilt) * Ry(spin)`, so what is left after the first two is
+        // `Ry(spin)`, whose z column is `(sin spin, 0, cos spin)`.
+        let rest = (Mat3::from_rotation_y(turn) * Mat3::from_rotation_x(tilt)).transpose() * r;
+        let spin = rest.z_axis.x.atan2(rest.z_axis.z);
+        Self {
+            tilt_deg: tilt.to_degrees(),
+            turn_deg: turn.to_degrees(),
+            spin_deg: spin.to_degrees(),
+        }
+        .clamped()
+    }
 }
 
 /// A stone with a pose applied: the planes, tools and stone-frame material quantities rotated.

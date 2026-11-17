@@ -39,6 +39,7 @@ pub(super) const fn figure_label(metric: SweepMetric) -> &'static str {
         SweepMetric::TiltBrilliance => "Tilt Brilliance",
         SweepMetric::TiltWindowing => "Tilt Windowing",
         SweepMetric::TiltExtinction => "Tilt Extinction",
+        SweepMetric::Contrast => "Contrast",
     }
 }
 
@@ -185,7 +186,7 @@ pub(super) fn running_status(done: usize, total: usize) -> String {
 
 /// The readout of one pair: its angles, its figures with the change against the design's
 /// own pair, and notes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Readout {
     /// `Crown Main 34.75°, Pavilion Main 41.25°`.
     pub head: String,
@@ -428,6 +429,7 @@ mod tests {
             yield_pct: None,
             warning_count: 0,
             has_girdle: true,
+            aset: None,
             tilt: None,
         }
     }

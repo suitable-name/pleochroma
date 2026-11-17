@@ -1,5 +1,7 @@
 //! Shared result type and elevation-sampling grid for the metrics module.
 
+use super::aset::AsetAreaShares;
+
 /// GIA/AGSL-style optical gemological metrics for one camera/light pose.
 #[derive(Debug, Clone, Copy)]
 pub struct GemOpticalMetrics {
@@ -21,6 +23,12 @@ pub struct GemOpticalMetrics {
     /// stone, when no pair qualifies, and for the neutral placeholders. Uses the d-line traces
     /// only, so the Fire-less passes report it too.
     pub doubling_arcmin: f32,
+    /// The ASET-style zone shares and the Contrast figure of the pose ([`AsetAreaShares`]),
+    /// from the same d-line rays as brilliance, windowing and extinction.
+    ///
+    /// `None` for the neutral "no geometry" placeholders and for results that did not trace
+    /// the zones (the GPU optics reducer).
+    pub aset: Option<AsetAreaShares>,
 }
 
 /// 19 tilt ELEVATION sample points (camera pitch, not tilt-from-table-up) in exact 5°

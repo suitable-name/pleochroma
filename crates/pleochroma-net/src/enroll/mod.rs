@@ -13,19 +13,21 @@
 
 use crate::token;
 use rustls::{
-    DigitallySignedStruct, Error as RustlsError, RootCertStore, SignatureScheme,
+    CertificateError, DigitallySignedStruct, Error as RustlsError, RootCertStore, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     pki_types::{CertificateDer, ServerName, UnixTime},
 };
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
-    net::{TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     },
+    thread,
     time::Duration,
 };
 use zeroize::{Zeroize, Zeroizing};
@@ -98,7 +100,10 @@ pub fn write_operator_secret(
 /// Deliberately a *different* message schema than [`crate::messages::ClientMessage`]
 /// (the render protocol), not a variant of it, so bytes can never accidentally decode as
 /// the wrong protocol if a wire got crossed.
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// `Debug` is written by hand: the claim secret and the operator secret print as
+/// `<redacted>`.
+#[derive(Serialize, Deserialize)]
 pub enum EnrollRequest {
     /// Unauthenticated issue request, kept only to answer older clients. A listener refuses
     /// it with a reply that points at `cert issue-token`: loopback alone does not authorise
@@ -121,8 +126,27 @@ pub enum EnrollRequest {
     },
 }
 
+impl fmt::Debug for EnrollRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Issue { name } => f.debug_struct("Issue").field("name", name).finish(),
+            Self::Claim { .. } => f
+                .debug_struct("Claim")
+                .field("secret", &format_args!("<redacted>"))
+                .finish(),
+            Self::IssueAuthorized { name, .. } => f
+                .debug_struct("IssueAuthorized")
+                .field("name", name)
+                .field("operator_secret", &format_args!("<redacted>"))
+                .finish(),
+        }
+    }
+}
+
 /// The reply to one [`EnrollRequest`] on the enrollment wire protocol.
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// `Debug` is written by hand: the token and the private key print as `<redacted>`.
+#[derive(Serialize, Deserialize)]
 pub enum EnrollResponse {
     Issued {
         /// The full `GW1-...` token string -- see [`crate::token`].
@@ -143,6 +167,29 @@ pub enum EnrollResponse {
     /// enumeration oracle. The real reason is still logged server-side
     /// (`RUST_LOG=debug`). [`ClaimError::Refused`] preserves this same ambiguity.
     ClaimFailed,
+}
+
+impl fmt::Debug for EnrollResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Issued {
+                expires_in_secs, ..
+            } => f
+                .debug_struct("Issued")
+                .field("token", &format_args!("<redacted>"))
+                .field("expires_in_secs", expires_in_secs)
+                .finish(),
+            Self::IssueRefused { reason } => f
+                .debug_struct("IssueRefused")
+                .field("reason", reason)
+                .finish(),
+            Self::Claimed { .. } => f
+                .debug_struct("Claimed")
+                .field("client_key_pem", &format_args!("<redacted>"))
+                .finish_non_exhaustive(),
+            Self::ClaimFailed => f.write_str("ClaimFailed"),
+        }
+    }
 }
 
 /// Verifies the enrollment listener's presented certificate chain against a CA whose
@@ -220,7 +267,24 @@ impl ServerCertVerifier for PinnedCaVerifier {
                 RustlsError::General(format!("failed to build a verifier for the pinned CA: {e}"))
             })?;
 
-        verifier.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+        // The coordinator's fixed name first: a certificate issued since 0.12.0 carries it,
+        // so an address change never breaks pairing. A certificate without it (not migrated
+        // yet) is checked against the dialed name, as before.
+        let fixed = ServerName::try_from(crate::tls::COORDINATOR_TLS_NAME)
+            .map_err(|e| RustlsError::General(format!("invalid coordinator TLS name: {e}")))?
+            .to_owned();
+        match verifier.verify_server_cert(end_entity, intermediates, &fixed, ocsp_response, now) {
+            Err(RustlsError::InvalidCertificate(
+                CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
+            )) => verifier.verify_server_cert(
+                end_entity,
+                intermediates,
+                server_name,
+                ocsp_response,
+                now,
+            ),
+            other => other,
+        }
     }
 
     fn verify_tls12_signature(
@@ -261,7 +325,6 @@ impl ServerCertVerifier for PinnedCaVerifier {
 /// `ca.pem`/`client.pem`/`client.key`. Writing to disk (with the private key's
 /// permissions restricted -- see [`crate::tls::write_private_key_pem`]) is the caller's
 /// job, since where the bundle belongs is caller-specific.
-#[derive(Debug)]
 pub struct ClaimedBundle {
     /// PEM-encoded certificate authority that signs the server.
     pub ca_pem: String,
@@ -273,12 +336,24 @@ pub struct ClaimedBundle {
     pub client_key_pem: Zeroizing<String>,
 }
 
+impl fmt::Debug for ClaimedBundle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClaimedBundle")
+            .field("ca_pem_len", &self.ca_pem.len())
+            .field("client_cert_pem_len", &self.client_cert_pem.len())
+            .field("client_key_pem", &format_args!("<redacted>"))
+            .finish_non_exhaustive()
+    }
+}
+
 /// Everything that can go wrong redeeming an enrollment token.
 ///
 /// One type so a caller (a CLI's error formatting, or a GUI's toast) has a single match
 /// to render instead of parsing a generic string. Every variant maps to genuinely
 /// different advice for the user -- see [`fmt::Display`]'s impl below.
-#[derive(Debug)]
+///
+/// `Debug` is written by hand: a malformed token's error can name a character of the token,
+/// so the token error is not printed.
 pub enum ClaimError {
     /// `token` isn't a well-formed `GW1-...` string -- see [`token::TokenError`].
     InvalidToken(token::TokenError),
@@ -318,9 +393,40 @@ pub enum ClaimError {
     UnexpectedResponse,
 }
 
+impl fmt::Debug for ClaimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidToken(_) => f.write_str("InvalidToken(<redacted>)"),
+            Self::InvalidAddr(msg) => f.debug_tuple("InvalidAddr").field(msg).finish(),
+            Self::Connect { addr, source } => f
+                .debug_struct("Connect")
+                .field("addr", addr)
+                .field("source", source)
+                .finish(),
+            Self::Handshake { addr, source } => f
+                .debug_struct("Handshake")
+                .field("addr", addr)
+                .field("source", source)
+                .finish(),
+            Self::CaFingerprintMismatch { addr } => f
+                .debug_struct("CaFingerprintMismatch")
+                .field("addr", addr)
+                .finish(),
+            Self::Protocol(msg) => f.debug_tuple("Protocol").field(msg).finish(),
+            Self::Refused => f.write_str("Refused"),
+            Self::UnexpectedResponse => f.write_str("UnexpectedResponse"),
+        }
+    }
+}
+
 impl fmt::Display for ClaimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            // The error is not printed for a bad character: that would echo part of the token.
+            Self::InvalidToken(token::TokenError::InvalidCharacter(_)) => write!(
+                f,
+                "not a valid enrollment token: it contains a character that is not allowed"
+            ),
             Self::InvalidToken(e) => write!(f, "not a valid enrollment token: {e}"),
             // Already complete, self-describing messages -- pass through verbatim.
             Self::InvalidAddr(msg) | Self::Protocol(msg) => write!(f, "{msg}"),
@@ -381,6 +487,39 @@ pub fn claim(token: &str, addr: &str) -> Result<ClaimedBundle, ClaimError> {
         ClaimError::InvalidAddr(format!("{addr:?}: invalid host for TLS verification: {e}"))
     })?;
 
+    let tcp = connect_with_timeout(addr).map_err(|e| ClaimError::Connect {
+        addr: addr.to_string(),
+        source: e,
+    })?;
+    claim_on_socket(tcp, server_name, &decoded, addr, None).map_err(|attempt| match attempt {
+        Attempt::Failed(e) => e,
+        // Only reachable with a gate, and `claim` passes none.
+        Attempt::Superseded => ClaimError::UnexpectedResponse,
+    })
+}
+
+/// Why one [`claim_on_socket`] attempt did not produce a bundle.
+enum Attempt {
+    /// A real failure, see [`ClaimError`].
+    Failed(ClaimError),
+    /// Another address passed the CA pin first ([`claim_any`]); this connection was dropped
+    /// before the secret was sent.
+    Superseded,
+}
+
+/// The pinned-CA handshake and the claim exchange over an already connected `tcp`.
+///
+/// `label` is the address text used in errors. With a `gate` (used by [`claim_any`]), the
+/// first attempt to finish the pinned handshake flips it and goes on to send the secret;
+/// every later one returns [`Attempt::Superseded`] without sending anything, so a token is
+/// never spent on a connection that lost the race.
+fn claim_on_socket(
+    tcp: TcpStream,
+    server_name: ServerName<'static>,
+    decoded: &token::EnrollToken,
+    label: &str,
+    gate: Option<&AtomicBool>,
+) -> Result<ClaimedBundle, Attempt> {
     let ca_mismatch = Arc::new(AtomicBool::new(false));
     let verifier = Arc::new(PinnedCaVerifier::new(
         decoded.ca_fingerprint,
@@ -392,33 +531,32 @@ pub fn claim(token: &str, addr: &str) -> Result<ClaimedBundle, ClaimError> {
             .with_custom_certificate_verifier(verifier)
             .with_no_client_auth();
 
-    let tcp = connect_with_timeout(addr).map_err(|e| ClaimError::Connect {
-        addr: addr.to_string(),
-        source: e,
-    })?;
     let conn =
         rustls::ClientConnection::new(Arc::new(client_config), server_name).map_err(|e| {
-            ClaimError::Handshake {
-                addr: addr.to_string(),
+            Attempt::Failed(ClaimError::Handshake {
+                addr: label.to_string(),
                 source: std::io::Error::other(e),
-            }
+            })
         })?;
     let mut stream = rustls::StreamOwned::new(conn, tcp);
     if let Err(e) = stream.conn.complete_io(&mut stream.sock) {
-        return Err(if ca_mismatch.load(Ordering::SeqCst) {
+        return Err(Attempt::Failed(if ca_mismatch.load(Ordering::SeqCst) {
             ClaimError::CaFingerprintMismatch {
-                addr: addr.to_string(),
+                addr: label.to_string(),
             }
         } else {
             ClaimError::Handshake {
-                addr: addr.to_string(),
+                addr: label.to_string(),
                 source: e,
             }
-        });
+        }));
+    }
+    if gate.is_some_and(|g| g.swap(true, Ordering::SeqCst)) {
+        return Err(Attempt::Superseded);
     }
 
-    // Send the secret, then immediately zeroize both the request's own copy and the
-    // token's -- it shouldn't linger in memory longer than necessary on either side.
+    // Send the secret, then immediately zeroize the request's own copy -- it shouldn't
+    // linger in memory longer than necessary. The caller's `decoded` wipes itself on drop.
     let mut request = EnrollRequest::Claim {
         secret: *decoded.secret,
     };
@@ -426,12 +564,11 @@ pub fn claim(token: &str, addr: &str) -> Result<ClaimedBundle, ClaimError> {
     if let EnrollRequest::Claim { secret } = &mut request {
         secret.zeroize();
     }
-    drop(decoded); // zeroizes its own `Zeroizing<[u8; 32]>` secret on drop
-    write_result.map_err(|e| ClaimError::Protocol(e.to_string()))?;
+    write_result.map_err(|e| Attempt::Failed(ClaimError::Protocol(e.to_string())))?;
 
     let response: EnrollResponse =
         crate::messages::read_message_bounded(&mut stream, MAX_CLAIM_REPLY_LEN)
-            .map_err(|e| ClaimError::Protocol(e.to_string()))?;
+            .map_err(|e| Attempt::Failed(ClaimError::Protocol(e.to_string())))?;
 
     match response {
         EnrollResponse::Claimed {
@@ -443,11 +580,201 @@ pub fn claim(token: &str, addr: &str) -> Result<ClaimedBundle, ClaimError> {
             client_cert_pem,
             client_key_pem: Zeroizing::new(client_key_pem),
         }),
-        EnrollResponse::ClaimFailed => Err(ClaimError::Refused),
+        EnrollResponse::ClaimFailed => Err(Attempt::Failed(ClaimError::Refused)),
         EnrollResponse::Issued { .. } | EnrollResponse::IssueRefused { .. } => {
-            Err(ClaimError::UnexpectedResponse)
+            Err(Attempt::Failed(ClaimError::UnexpectedResponse))
         }
     }
+}
+
+/// Connect timeout of each address [`claim_any`] tries.
+pub const CLAIM_ANY_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// A successful [`claim_any`]: the bundle, and which address answered.
+pub struct ClaimAnyOutcome {
+    /// The claimed bundle.
+    pub bundle: ClaimedBundle,
+    /// The address whose handshake passed the CA pin first.
+    pub addr: SocketAddr,
+}
+
+impl fmt::Debug for ClaimAnyOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClaimAnyOutcome")
+            .field("bundle", &self.bundle)
+            .field("addr", &self.addr)
+            .finish()
+    }
+}
+
+/// Why [`claim_any`] failed, in plain words for a phone or desktop screen.
+///
+/// When several addresses fail differently the most informative reason wins: a refused
+/// code, then a wrong coordinator, then refused, unreachable and timed-out connections.
+/// No variant carries the token or any part of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaimAnyError {
+    /// The address list was empty.
+    NoAddresses,
+    /// The code is not a well-formed enrollment code.
+    InvalidCode,
+    /// Every address timed out.
+    AllTimedOut,
+    /// Every address actively refused the connection (nothing listens there).
+    Refused,
+    /// No address could be reached for another reason (no route, network down).
+    Unreachable,
+    /// A coordinator answered, but not the one this code was issued by (the CA pin
+    /// failed).
+    WrongCoordinator,
+    /// The coordinator refused the code. The server deliberately does not say whether it
+    /// expired or was already used, so this says both.
+    CodeExpiredOrUsed,
+    /// A secure connection could not be set up or the exchange broke; the text is a
+    /// plain description without secrets.
+    Failed(String),
+}
+
+impl fmt::Display for ClaimAnyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoAddresses => write!(f, "There is no address to connect to."),
+            Self::InvalidCode => write!(f, "That is not a valid pairing code."),
+            Self::AllTimedOut => write!(
+                f,
+                "The computer did not answer in time. Check that both are on the same Wi-Fi."
+            ),
+            Self::Refused => write!(
+                f,
+                "The computer refused the connection. Is Pleochroma running there with pairing open?"
+            ),
+            Self::Unreachable => write!(
+                f,
+                "The computer cannot be reached. Check that both are on the same network."
+            ),
+            Self::WrongCoordinator => write!(
+                f,
+                "A different computer answered than the one this code belongs to. Pairing was stopped."
+            ),
+            Self::CodeExpiredOrUsed => write!(
+                f,
+                "This code has expired or was already used. If you have not paired yet, someone \
+                 else may have used it: ask on the computer."
+            ),
+            Self::Failed(msg) => write!(f, "Pairing failed: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for ClaimAnyError {}
+
+impl ClaimAnyError {
+    /// Higher wins when several addresses fail differently.
+    const fn rank(&self) -> u8 {
+        match self {
+            Self::CodeExpiredOrUsed => 7,
+            Self::WrongCoordinator => 6,
+            Self::Failed(_) => 5,
+            Self::Refused => 4,
+            Self::Unreachable => 3,
+            Self::AllTimedOut => 2,
+            Self::InvalidCode | Self::NoAddresses => 1,
+        }
+    }
+
+    /// The plain reason one failed attempt stands for.
+    fn from_claim_error(err: &ClaimError) -> Self {
+        use std::io::ErrorKind;
+        match err {
+            ClaimError::InvalidToken(_) => Self::InvalidCode,
+            ClaimError::InvalidAddr(_) => Self::NoAddresses,
+            ClaimError::Connect { source, .. } => match source.kind() {
+                ErrorKind::TimedOut | ErrorKind::WouldBlock => Self::AllTimedOut,
+                ErrorKind::ConnectionRefused => Self::Refused,
+                _ => Self::Unreachable,
+            },
+            ClaimError::CaFingerprintMismatch { .. } => Self::WrongCoordinator,
+            ClaimError::Refused => Self::CodeExpiredOrUsed,
+            ClaimError::Handshake { .. }
+            | ClaimError::Protocol(_)
+            | ClaimError::UnexpectedResponse => Self::Failed(err.to_string()),
+        }
+    }
+}
+
+/// Redeems `token` against every address in `addrs` at once and keeps the first answer
+/// whose TLS handshake passes the CA pin the token carries.
+///
+/// Each address gets [`CLAIM_ANY_CONNECT_TIMEOUT`] to connect. The first pinned handshake
+/// wins and is the only connection that sends the secret; the others are dropped without
+/// sending anything (a later address that finishes its handshake is dropped as well), so
+/// the one-time code is never spent on a losing connection. Once the winner has the secret
+/// out its outcome is final: a refusal from it is reported even if another address might
+/// have answered differently.
+///
+/// Never logs or returns the token, the secret or the claimed key.
+///
+/// # Errors
+///
+/// See [`ClaimAnyError`]: one plain reason, the most informative among the addresses.
+pub fn claim_any(token: &str, addrs: &[SocketAddr]) -> Result<ClaimAnyOutcome, ClaimAnyError> {
+    if addrs.is_empty() {
+        return Err(ClaimAnyError::NoAddresses);
+    }
+    let decoded = Arc::new(token::decode(token).map_err(|_| ClaimAnyError::InvalidCode)?);
+    let gate = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = mpsc::channel::<Result<ClaimAnyOutcome, ClaimAnyError>>();
+
+    for &addr in addrs {
+        let decoded = Arc::clone(&decoded);
+        let gate = Arc::clone(&gate);
+        let tx = tx.clone();
+        thread::spawn(move || {
+            let label = addr.to_string();
+            let result = TcpStream::connect_timeout(&addr, CLAIM_ANY_CONNECT_TIMEOUT)
+                .map_err(|source| {
+                    Attempt::Failed(ClaimError::Connect {
+                        addr: label.clone(),
+                        source,
+                    })
+                })
+                .and_then(|tcp| {
+                    tcp.set_read_timeout(Some(CLAIM_IO_TIMEOUT))
+                        .and_then(|()| tcp.set_write_timeout(Some(CLAIM_IO_TIMEOUT)))
+                        .map_err(|source| {
+                            Attempt::Failed(ClaimError::Connect {
+                                addr: label.clone(),
+                                source,
+                            })
+                        })?;
+                    let server_name = ServerName::IpAddress(addr.ip().into());
+                    claim_on_socket(tcp, server_name, &decoded, &label, Some(&gate))
+                });
+            let message = match result {
+                Ok(bundle) => Ok(ClaimAnyOutcome { bundle, addr }),
+                // Dropped before the secret was sent: not a result.
+                Err(Attempt::Superseded) => return,
+                Err(Attempt::Failed(e)) => Err(ClaimAnyError::from_claim_error(&e)),
+            };
+            // The receiver is gone once a winner was returned.
+            tx.send(message).ok();
+        });
+    }
+    drop(tx);
+
+    let mut worst: Option<ClaimAnyError> = None;
+    // The channel closes when every attempt thread has finished, so this ends by itself.
+    for message in rx {
+        match message {
+            Ok(outcome) => return Ok(outcome),
+            Err(e) => {
+                if worst.as_ref().is_none_or(|w| e.rank() > w.rank()) {
+                    worst = Some(e);
+                }
+            }
+        }
+    }
+    Err(worst.unwrap_or(ClaimAnyError::Unreachable))
 }
 
 /// Connects to `addr`, trying each resolved address with [`CLAIM_IO_TIMEOUT`], and arms
@@ -511,6 +838,86 @@ mod tests {
         let token = token::encode(&secret, &fp);
         let err = claim(&token, "worker-with-no-port").unwrap_err();
         assert!(matches!(err, ClaimError::InvalidAddr(_)), "{err}");
+    }
+
+    /// A loopback address nothing listens on: bound, noted, closed again.
+    fn dead_addr() -> SocketAddr {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap()
+    }
+
+    fn sample_token() -> String {
+        let secret = [3u8; token::SECRET_LEN];
+        let fp: crate::tls::Fingerprint = std::array::from_fn(|i| u8::try_from(i).unwrap());
+        token::encode(&secret, &fp)
+    }
+
+    #[test]
+    fn claim_any_with_no_addresses_or_a_bad_code_fails_before_connecting() {
+        assert_eq!(
+            claim_any(&sample_token(), &[]).unwrap_err(),
+            ClaimAnyError::NoAddresses
+        );
+        assert_eq!(
+            claim_any("not-a-token", &[dead_addr()]).unwrap_err(),
+            ClaimAnyError::InvalidCode
+        );
+    }
+
+    #[test]
+    fn claim_any_with_only_dead_addresses_reports_refused_quickly() {
+        let started = std::time::Instant::now();
+        let err = claim_any(&sample_token(), &[dead_addr(), dead_addr()]).unwrap_err();
+        assert_eq!(err, ClaimAnyError::Refused, "{err}");
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    fn claim_any_errors_have_plain_words_and_the_most_informative_one_wins() {
+        assert!(ClaimAnyError::CodeExpiredOrUsed.rank() > ClaimAnyError::WrongCoordinator.rank());
+        assert!(ClaimAnyError::WrongCoordinator.rank() > ClaimAnyError::Refused.rank());
+        assert!(ClaimAnyError::Refused.rank() > ClaimAnyError::AllTimedOut.rank());
+        let used = ClaimAnyError::CodeExpiredOrUsed.to_string();
+        assert!(used.contains("already used"), "{used}");
+        assert!(used.contains("someone else"), "{used}");
+        let timed_out = ClaimAnyError::AllTimedOut.to_string();
+        assert!(timed_out.contains("did not answer"), "{timed_out}");
+    }
+
+    #[test]
+    fn debug_output_never_shows_a_secret_or_the_key() {
+        let request = EnrollRequest::Claim { secret: [0x5a; 32] };
+        let text = format!("{request:?}");
+        assert!(text.contains("<redacted>"), "{text}");
+        assert!(!text.contains("90"), "{text}"); // 0x5a printed as a decimal byte
+        let operator = format!(
+            "{:?}",
+            EnrollRequest::IssueAuthorized {
+                name: "n".to_string(),
+                operator_secret: [0x5a; 32],
+            }
+        );
+        assert!(!operator.contains("90"), "{operator}");
+        let issued = format!(
+            "{:?}",
+            EnrollResponse::Issued {
+                token: "GW1-SECRET".to_string(),
+                expires_in_secs: 180,
+            }
+        );
+        assert!(!issued.contains("SECRET"), "{issued}");
+        let claimed = format!(
+            "{:?}",
+            ClaimedBundle {
+                ca_pem: "ca".to_string(),
+                client_cert_pem: "cert".to_string(),
+                client_key_pem: Zeroizing::new("PRIVATE-KEY".to_string()),
+            }
+        );
+        assert!(!claimed.contains("PRIVATE-KEY"), "{claimed}");
+        let bad = ClaimError::InvalidToken(token::TokenError::InvalidCharacter('Q'));
+        assert!(!format!("{bad:?}").contains('Q'));
+        assert!(!bad.to_string().contains('Q'));
     }
 
     #[test]

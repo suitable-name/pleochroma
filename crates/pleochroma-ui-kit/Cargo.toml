@@ -1,0 +1,19 @@
+[package]
+name = "pleochroma-ui-kit"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+description = "The shared Slint UI kit of the Pleochroma apps: the dark theme tokens, the palette, the figures and the Kit* widgets, shipped as .slint sources that the app build scripts import as the @pleochroma-kit library."
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-ui-kit"
+keywords = ["gemstone", "slint", "ui", "theme"]
+categories = ["gui"]
+publish = { workspace = true }
+readme = "README.md"
+include = ["ui/**", "src/**", "README.md"]
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
 //!
 //! They are the Files &
 //! Downloads tab pill, the editor's File menu, the Path-Traced Live Render view with its Optical
-//! Diagnostics button, metrics strip and panel, the tier table's orbit column, the Tune tab's Jump
+//! Diagnostics button, metrics strip and panel, the Edit figures card's Contrast cell, the tier table's orbit column, the Tune tab's Jump
 //! to Best and Revert This Tier, the trial's Compare to Current, the Export dialog's Ray-Traced
 //! Fire box, the Optimize comparison pane, the Material Editor's Crystal Axis, Inclusion Families
 //! and Play-of-Color Size controls, and the Stone tab's Silk Turn.
@@ -43,9 +43,9 @@ use crate::support::{
     query::is_clickable_role,
 };
 use pleochroma_cut::{
-    CompareModel, CrystalAxisEditorModel, EditorModel, EditorTierItem, ExportModel,
-    InclusionFamiliesModel, OpticalModel, RenderEffectsModel, StructureParamsModel, TrialsModel,
-    TuneModel, VariantsModel, ViewportModel, harness_support,
+    BaselineCell, BaselineModel, CompareModel, CrystalAxisEditorModel, EditorModel, EditorTierItem,
+    ExportModel, InclusionFamiliesModel, OpticalModel, RenderEffectsModel, StructureParamsModel,
+    TrialsModel, TuneModel, VariantsModel, ViewportModel, harness_support,
 };
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::time::Duration;
@@ -333,6 +333,41 @@ fn path_traced(a: &HarnessApp) {
 /// (panel closed, so the button opens it), then the panel's own controls.
 fn viewport_states() -> Vec<State> {
     vec![
+        State {
+            // The Edit viewport's figures card with Baseline cells: Contrast sits after
+            // Extinction and carries its change; the card's click copies the figures.
+            name: "Edit view, figures card with a Contrast cell",
+            base: Base::Design,
+            scope: Some("EditFigures"),
+            deny: NONE,
+            open: |a| {
+                edit_tab(a);
+                wait_settled(a);
+                let cell = |name: &str, short: &str, value: &str, delta: &str| BaselineCell {
+                    short_label: short.into(),
+                    text: format!("{value} {delta}").into(),
+                    tone: 0,
+                    tooltip: "".into(),
+                    name: name.into(),
+                    value: value.into(),
+                    delta: delta.into(),
+                    flag: false,
+                };
+                let baseline = a.ui().global::<BaselineModel>();
+                baseline.set_has_baseline(true);
+                baseline.set_cells(ModelRc::new(VecModel::from(vec![
+                    cell("Brilliance", "Bril.", "62.1 %", "+1.8"),
+                    cell("Fire", "Fire", "0.42", "+0.01"),
+                    cell("Scintillation", "Scint.", "61.2 %", "-0.4"),
+                    cell("Windowing", "Wind.", "9.0 %", "-0.7"),
+                    cell("Extinction", "Ext.", "28.9 %", "-1.1"),
+                    cell("Contrast", "Contr.", "27.3", "+9"),
+                    cell("Yield", "Yield", "41 %", "0"),
+                    cell("Warnings", "Warn.", "0", "0"),
+                ])));
+                pump(300);
+            },
+        },
         State {
             name: "Live Render, Path-Traced, toolbar and metrics",
             base: Base::Design,

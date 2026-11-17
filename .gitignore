@@ -7,6 +7,8 @@ target
 *.exe
 /bin
 certs
+# The coordinator's certificate module is source, not a certificate folder.
+!apps/pleochroma-worker/src/certs/
 exports
 pleochroma*.log
 dist
@@ -16,3 +18,4 @@ benchmarks/render_accel/out
 *.rar
 .VSCodeCounter
 work
+*.msix

@@ -14,7 +14,7 @@
 //! `--page library|design|cut|more` opens that destination, `--template N` starts on that
 //! template card, `--tab tiers|stone|light|checks` and `--sheet peek|half|full` pick the
 //! Design page's tab and sheet height, and `--view solid|diagram|render` sets the viewport
-//! mode (a render screenshot waits longer so the picture can converge). `--engine path|ray`
+//! mode (a render screenshot is taken once the picture is finished). `--engine path|ray`
 //! chooses the renderer. `--theme dark|high-contrast` starts with that theme (`dark` is the
 //! default; the choice is not saved). `--cutting` opens Cutting Mode at its first step (it
 //! needs a design, so pair it with `--template N`; it also opens the Cut page unless `--page`

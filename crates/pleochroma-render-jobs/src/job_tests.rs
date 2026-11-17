@@ -697,8 +697,9 @@ fn a_shadowed_job_requires_format_three_and_a_supported_scene() {
     assert_eq!(job.validate(), Ok(()));
     job.scene.backdrop = 0.0;
     assert!(message(&job).contains("Stone shadow needs a studio light with a backdrop."));
-    // `video_job` is lit by an HDR map, which the studio-light rule would refuse first; give the
-    // video the studio scene so the tilt-video rule is the one that speaks.
+    // A tilt video may draw the shadow too (its own switch): it takes format 3 like a still, and
+    // the studio-light rule applies to it. `video_job` is lit by an HDR map, so it gets the studio
+    // scene.
     let mut video = video_job();
     video.scene = still_job().scene;
     video.hdr = None;
@@ -706,7 +707,12 @@ fn a_shadowed_job_requires_format_three_and_a_supported_scene() {
     video.scene.backdrop = 1.0;
     video.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
     video.format = format_for(&video);
-    assert!(message(&video).contains("Tilt videos do not show the stone shadow yet."));
+    assert_eq!(video.format, 3);
+    assert_eq!(video.validate(), Ok(()));
+    let text = crate::codec::to_text(&video).unwrap();
+    assert_eq!(crate::codec::from_text(&text).unwrap(), video);
+    video.scene.backdrop = 0.0;
+    assert!(message(&video).contains("Stone shadow needs a studio light with a backdrop."));
 }
 
 /// The HDR and ASET lights have no tray to shadow, so a shadowed job on either is refused.
@@ -752,8 +758,7 @@ fn a_reflective_job_requires_format_four_and_a_supported_scene() {
     job.scene.tray_reflection = f32::NAN;
     job.format = format_for(&job);
     assert!(message(&job).contains("Tray reflection must be between 0 and 100 %."));
-    // As for the shadow, the video gets the studio scene so the tilt-video rule is the one that
-    // speaks.
+    // As for the shadow, a tilt video may carry the reflection (its own switch) in format 4.
     let mut video = video_job();
     video.scene = still_job().scene;
     video.hdr = None;
@@ -761,7 +766,10 @@ fn a_reflective_job_requires_format_four_and_a_supported_scene() {
     video.scene.backdrop = 1.0;
     video.scene.lighting_preset = pleochroma::optics::raytracer::LightingPreset::LightTent;
     video.format = format_for(&video);
-    assert!(message(&video).contains("Tilt videos do not show the tray reflection yet."));
+    assert_eq!(video.format, 4);
+    assert_eq!(video.validate(), Ok(()));
+    let text = crate::codec::to_text(&video).unwrap();
+    assert_eq!(crate::codec::from_text(&text).unwrap(), video);
 }
 
 /// A hand-edited format 4 file with a negative reflectance is told its reflectance is out of

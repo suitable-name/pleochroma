@@ -1,0 +1,512 @@
+import { LineEdit, ListView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { KitButton, KitIcon, KitIcons, KitSegment, KitSegmentBar, KitSortHeader, KitTableRow } from "../kit/kit.slint";
+import { HelpButton } from "../help_button.slint";
+import { ChipToggle } from "../chip_toggle.slint";
+import { MaterialReferenceModel, RefRow } from "../../models/material_reference.slint";
+import { RefStyle, WrapText } from "common.slint";
+
+// The Material Reference table page: every material in one sortable, filterable table. A column
+// heading sorts (a second click reverses); the chips filter by origin with counts; the search box
+// matches name, system and cleavage. Narrow windows drop the less important columns: under 1000 px
+// Optic Character and Biref. go, under 760 px also Crystal System and SG, so Material, RI, Disp.,
+// Hardness, Toughness and Cleavage stay.
+
+// The widths the heading and every row share, so the columns line up.
+global RefCols {
+    out property <length> swatch: 22px;
+    out property <length> system: 92px;
+    out property <length> optic: 100px;
+    out property <length> number: 50px;
+    out property <length> sg: 44px;
+    out property <length> hardness: 114px;
+    out property <length> toughness: 84px;
+}
+
+// A mini chip after a material's name: "Synthetic", "Glass" or "Mine".
+component TagChip inherits Rectangle {
+    in property <string> text;
+    height: 18px;
+    width: tag_text.preferred-width + 14px;
+    border-radius: 9px;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    tag_text := Text {
+        x: 7px;
+        height: parent.height;
+        text: root.text;
+        font-size: 9px;
+        font-weight: 600;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+    }
+}
+
+// A table cell of text: muted and dashed when the value is not recorded.
+component RefCell inherits Text {
+    in property <bool> numeric: false;
+    font-size: 12px;
+    color: RefStyle.is_missing(self.text) ? Theme.text-disabled : Theme.text-secondary;
+    horizontal-alignment: root.numeric ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+// The heading row, a `KitSortHeader` per column.
+component RefHeadRow inherits HorizontalLayout {
+    in property <bool> wide;
+    in property <bool> mid;
+    height: 32px;
+    padding-left: 8px;
+    padding-right: 12px;
+    spacing: 6px;
+
+    function head(column: int) {
+        MaterialReferenceModel.sort_clicked(column);
+    }
+    pure function is_sorted(column: int) -> bool {
+        return MaterialReferenceModel.sort_column == column;
+    }
+    pure function hint(name: string, column: int) -> string {
+        return "Sort by " + name + (root.is_sorted(column) && !MaterialReferenceModel.sort_descending ? ", descending" : ", ascending");
+    }
+
+    Rectangle { min-width: RefCols.swatch; max-width: RefCols.swatch; }
+    KitSortHeader {
+        horizontal-stretch: 5;
+        min-width: 130px;
+        text: "Material";
+        hint: root.hint("Material", 0);
+        sorted: root.is_sorted(0);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(0); }
+    }
+    if root.mid: KitSortHeader {
+        min-width: RefCols.system; max-width: RefCols.system;
+        text: "Crystal System";
+        hint: root.hint("Crystal System", 1);
+        sorted: root.is_sorted(1);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(1); }
+    }
+    if root.wide: KitSortHeader {
+        min-width: RefCols.optic; max-width: RefCols.optic;
+        text: "Optic Character";
+        hint: root.hint("Optic Character", 2);
+        sorted: root.is_sorted(2);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(2); }
+    }
+    KitSortHeader {
+        min-width: RefCols.number; max-width: RefCols.number;
+        align: 1;
+        text: "RI";
+        hint: root.hint("refractive index", 3);
+        sorted: root.is_sorted(3);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(3); }
+    }
+    if root.wide: KitSortHeader {
+        min-width: RefCols.number; max-width: RefCols.number;
+        align: 1;
+        text: "Biref.";
+        hint: root.hint("birefringence", 4);
+        sorted: root.is_sorted(4);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(4); }
+    }
+    KitSortHeader {
+        min-width: RefCols.number; max-width: RefCols.number;
+        align: 1;
+        text: "Disp.";
+        hint: root.hint("dispersion", 5);
+        sorted: root.is_sorted(5);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(5); }
+    }
+    if root.mid: KitSortHeader {
+        min-width: RefCols.sg; max-width: RefCols.sg;
+        align: 1;
+        text: "SG";
+        hint: root.hint("specific gravity", 6);
+        sorted: root.is_sorted(6);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(6); }
+    }
+    KitSortHeader {
+        min-width: RefCols.hardness; max-width: RefCols.hardness;
+        text: "Hardness";
+        hint: root.hint("hardness", 7);
+        sorted: root.is_sorted(7);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(7); }
+    }
+    KitSortHeader {
+        min-width: RefCols.toughness; max-width: RefCols.toughness;
+        text: "Toughness";
+        hint: root.hint("toughness", 8);
+        sorted: root.is_sorted(8);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(8); }
+    }
+    KitSortHeader {
+        horizontal-stretch: 3;
+        min-width: 70px;
+        text: "Cleavage";
+        hint: root.hint("cleavage", 9);
+        sorted: root.is_sorted(9);
+        descending: MaterialReferenceModel.sort_descending;
+        clicked => { root.head(9); }
+    }
+}
+
+// One material's row.
+component RefMaterialRow inherits KitTableRow {
+    in property <RefRow> item;
+    in property <bool> wide;
+    in property <bool> mid;
+
+    label: root.item.summary;
+    hint: "Click to select; double click or press Enter to open the details.";
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 12px;
+        spacing: 6px;
+        VerticalLayout {
+            min-width: RefCols.swatch; max-width: RefCols.swatch;
+            alignment: center;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                background: root.item.swatch;
+                border-width: 1px;
+                border-color: Theme.chip-edge;
+            }
+        }
+        HorizontalLayout {
+            horizontal-stretch: 5;
+            min-width: 130px;
+            preferred-width: 0px;
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 0;
+                text: root.item.name;
+                font-size: 12px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.item.tag != "": VerticalLayout {
+                alignment: center;
+                TagChip { text: root.item.tag; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if root.mid: RefCell { min-width: RefCols.system; max-width: RefCols.system; text: root.item.crystal_system; }
+        if root.wide: RefCell { min-width: RefCols.optic; max-width: RefCols.optic; text: root.item.optic_character; }
+        RefCell { min-width: RefCols.number; max-width: RefCols.number; numeric: true; text: root.item.ri; color: Theme.text-primary; }
+        if root.wide: RefCell { min-width: RefCols.number; max-width: RefCols.number; numeric: true; text: root.item.birefringence; }
+        RefCell { min-width: RefCols.number; max-width: RefCols.number; numeric: true; text: root.item.dispersion; }
+        if root.mid: RefCell { min-width: RefCols.sg; max-width: RefCols.sg; numeric: true; text: root.item.sg; }
+        // Hardness: the Mohs bar and the value.
+        HorizontalLayout {
+            min-width: RefCols.hardness; max-width: RefCols.hardness;
+            // Lines the bar up under the heading and keeps a missing SG apart from a missing hardness.
+            padding-left: 4px;
+            spacing: 8px;
+            if root.item.hardness_hi > 0: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 50px;
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Theme.bg-input;
+                    Rectangle {
+                        x: 0px;
+                        width: parent.width * Math.min(1.0, root.item.hardness_hi / 10.0);
+                        border-radius: 3px;
+                        background: Theme.accent-cyan;
+                    }
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.item.hardness;
+                font-size: 12px;
+                font-weight: RefStyle.is_missing(root.item.hardness) ? 400 : 700;
+                color: RefStyle.is_missing(root.item.hardness) ? Theme.text-disabled : Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        RefCell { min-width: RefCols.toughness; max-width: RefCols.toughness; text: root.item.toughness; }
+        Rectangle {
+            horizontal-stretch: 3;
+            min-width: 70px;
+            preferred-width: 0px;
+            Tooltip { text: @markdown("\{root.item.cleavage}"); }
+            RefCell {
+                width: parent.width;
+                height: parent.height;
+                text: root.item.cleavage;
+            }
+        }
+    }
+}
+
+// The filter chips: All, Natural, Synthetic, Glass, My Materials, each with its count.
+component FilterChips inherits HorizontalLayout {
+    spacing: 6px;
+    for name[i] in ["All", "Natural", "Synthetic", "Glass", "My Materials"]: ChipToggle {
+        text: name + "  " + (i < MaterialReferenceModel.filter_counts.length ? MaterialReferenceModel.filter_counts[i] : 0);
+        hint: i == 0 ? "Show every material." : "Show only the " + name + " materials.";
+        active: MaterialReferenceModel.filter == i;
+        font_size: 11px;
+        height: 28px;
+        toggled => {
+            MaterialReferenceModel.filter = i;
+            MaterialReferenceModel.filter_chosen(i);
+        }
+    }
+}
+
+// The Dispersion convention: B-G (the figure gem references print) or F-C (the Material Editor's).
+component ScaleToggle inherits HorizontalLayout {
+    horizontal-stretch: 0;
+    alignment: end;
+    spacing: 8px;
+    Text {
+        horizontal-stretch: 0;
+        text: "Dispersion";
+        font-size: 12px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+    }
+    KitSegmentBar {
+        horizontal-stretch: 0;
+        width: 112px;
+        HorizontalLayout {
+            padding: 2px;
+            spacing: 2px;
+            for name[i] in ["B\u{2013}G", "F\u{2013}C"]: Rectangle {
+                horizontal-stretch: 1;
+                KitSegment {
+                    x: 0px;
+                    width: parent.width;
+                    text: name;
+                    hint: "B\u{2013}G: the figure gem references print, n at 430.8 nm minus n at 686.7 nm. F\u{2013}C: the optical figure, 486.1 to 656.3 nm, which the Material Editor uses. Both come from this material's index curve.";
+                    on: (i == 0) == MaterialReferenceModel.dispersion_bg;
+                    picked => {
+                        MaterialReferenceModel.dispersion_bg = i == 0;
+                        MaterialReferenceModel.scale_chosen(i == 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ReferencePage inherits Rectangle {
+    property <bool> wide: root.width >= 1000px;
+    // The fold below which Crystal System and SG go. The web editor folds at the same width
+    // (apps/pleochroma-web/ui/editor/material_reference.slint, `narrow`); the test
+    // tests/narrow_breakpoints.rs keeps both at 760 px.
+    property <bool> mid: root.width >= 760px;
+    property <int> selected: MaterialReferenceModel.selected;
+    property <length> row_h: 30px;
+
+    // Keeps the chosen row inside the visible part of the list.
+    function reveal_selected() {
+        if root.selected < 0 {
+            return;
+        }
+        let top = root.row_h * root.selected;
+        let bottom = top + root.row_h;
+        if -list.content-y > top {
+            list.content-y = -top;
+        } else if -list.content-y + list.visible-height < bottom {
+            list.content-y = -(bottom - list.visible-height);
+        }
+    }
+    changed selected => { root.reveal_selected(); }
+
+    function select(i: int) {
+        MaterialReferenceModel.selected = Math.max(0, Math.min(MaterialReferenceModel.rows.length - 1, i));
+    }
+
+    page_keys := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.modifiers.control || event.modifiers.meta) && event.text == "f" {
+                search.focus();
+                return accept;
+            }
+            if (event.modifiers.control || event.modifiers.meta) && event.text == "c" {
+                MaterialReferenceModel.copy_table();
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.select(MaterialReferenceModel.selected + 1);
+                return accept;
+            } else if event.text == Key.UpArrow {
+                root.select(MaterialReferenceModel.selected < 0 ? 0 : MaterialReferenceModel.selected - 1);
+                return accept;
+            } else if event.text == Key.Home {
+                root.select(0);
+                return accept;
+            } else if event.text == Key.End {
+                root.select(MaterialReferenceModel.rows.length - 1);
+                return accept;
+            } else if event.text == Key.Return {
+                if MaterialReferenceModel.selected >= 0 {
+                    MaterialReferenceModel.row_opened(MaterialReferenceModel.selected);
+                }
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            padding-top: 14px;
+            spacing: 10px;
+
+            // Title.
+            HorizontalLayout {
+                height: 28px;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    KitIcon { d: KitIcons.grid; size: 18px; ink: Theme.accent-cyan; }
+                }
+                Text {
+                    text: "Material Reference";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    HelpButton {
+                        topic: "06-materials-and-refractive-index";
+                        hint: "Open the manual page on materials and the Material Reference";
+                    }
+                }
+            }
+            Text {
+                text: MaterialReferenceModel.subtitle;
+                font-size: 12px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+            }
+            Rectangle { height: 1px; background: Theme.border-subtle; }
+
+            // Toolbar: search, filters and the dispersion toggle; two rows when the window is narrow.
+            HorizontalLayout {
+                spacing: 12px;
+                search_box := Rectangle {
+                    min-width: root.wide ? 280px : 150px;
+                    max-width: root.wide ? 280px : 100000px;
+                    horizontal-stretch: root.wide ? 0 : 1;
+                    height: 32px;
+                    search := LineEdit {
+                        width: parent.width;
+                        height: parent.height;
+                        text <=> MaterialReferenceModel.query;
+                        placeholder-text: "Search by name, system or cleavage";
+                        accessible-label: "Search materials";
+                        accessible-description: "Matches name, crystal system and cleavage. Ctrl+F focuses this field; Enter returns to the table.";
+                        font-size: 12px;
+                        edited(text) => { MaterialReferenceModel.query_edited(text); }
+                        accepted => { page_keys.focus(); }
+                    }
+                }
+                if root.wide: FilterChips { }
+                if root.wide: Rectangle { horizontal-stretch: 1; }
+                if !root.wide: Rectangle { width: 0px; }
+                ScaleToggle { }
+            }
+            if !root.wide: HorizontalLayout {
+                FilterChips { }
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            // The table.
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.surface-sunken;
+                border-radius: Theme.radius-md;
+                border-width: 1px;
+                border-color: Theme.chart-border;
+                clip: true;
+                accessible-role: AccessibleRole.list;
+                accessible-label: "Materials";
+                accessible-description: "Up and Down choose a material, Enter opens its details.";
+
+                VerticalLayout {
+                    spacing: 2px;
+                    RefHeadRow { wide: root.wide; mid: root.mid; }
+                    list := ListView {
+                        vertical-stretch: 1;
+                        for entry[i] in MaterialReferenceModel.rows: RefMaterialRow {
+                            item: entry;
+                            wide: root.wide;
+                            mid: root.mid;
+                            striped: Math.mod(i, 2) == 1;
+                            selected: MaterialReferenceModel.selected == i;
+                            ringed: page_keys.has-focus && MaterialReferenceModel.selected == i;
+                            clicked => {
+                                page_keys.focus();
+                                MaterialReferenceModel.selected = i;
+                            }
+                            opened => {
+                                MaterialReferenceModel.selected = i;
+                                MaterialReferenceModel.row_opened(i);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Footer: the status line and the three actions.
+            HorizontalLayout {
+                height: 40px;
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    // Wraps instead of being cut at 640 px.
+                    WrapText {
+                        text: MaterialReferenceModel.footer;
+                        font-size: 11px;
+                        ink: Theme.text-muted;
+                    }
+                }
+                KitButton {
+                    text: "Copy Table";
+                    icon: KitIcons.copy;
+                    hint: "Copy the visible rows as tab-separated text, with a heading row.";
+                    clicked => { MaterialReferenceModel.copy_table(); }
+                }
+                KitButton {
+                    text: "Preview As";
+                    enabled: MaterialReferenceModel.selected >= 0 && MaterialReferenceModel.selected < MaterialReferenceModel.rows.length;
+                    hint: "Show the open design in the chosen material, for viewing only. The design is not changed.";
+                    clicked => { MaterialReferenceModel.preview_as(MaterialReferenceModel.rows[MaterialReferenceModel.selected].name); }
+                }
+                KitButton {
+                    text: "Open Details";
+                    kind: 1;
+                    enabled: MaterialReferenceModel.selected >= 0 && MaterialReferenceModel.selected < MaterialReferenceModel.rows.length;
+                    hint: "Open the chosen material's curves, spectra, colors and gem data.";
+                    clicked => { MaterialReferenceModel.row_opened(MaterialReferenceModel.selected); }
+                }
+            }
+        }
+    }
+}

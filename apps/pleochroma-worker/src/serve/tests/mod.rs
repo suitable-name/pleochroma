@@ -27,6 +27,7 @@ pub mod fixtures;
 mod handshake;
 mod hdr_assets;
 mod lazy_library;
+mod lifecycle;
 #[cfg(feature = "adaptive-sampling")]
 mod live_pass;
 #[cfg(all(feature = "worker", not(feature = "adaptive-sampling")))]

@@ -5,23 +5,52 @@ use super::*;
 use crate::optics_hints::critical_angle_deg;
 use pleochroma::optics::materials::GemMaterial;
 
+/// Every built-in material name, in the order of the SG table: the 14 earlier rows first.
+const ALL_SG_NAMES: [&str; 39] = [
+    "Diamond",
+    "Sapphire",
+    "Ruby",
+    "Emerald",
+    "Zircon",
+    "Alexandrite",
+    "Topaz",
+    "Spinel",
+    "Quartz",
+    "Tourmaline",
+    "Tanzanite",
+    "Synthetic Moissanite",
+    "Cubic Zirconia",
+    "Rutile",
+    "Chrysoberyl (Yellow)",
+    "Amethyst",
+    "Citrine",
+    "Ametrine",
+    "Andradite Garnet (Demantoid)",
+    "YAG",
+    "GGG",
+    "Benitoite",
+    "Andalusite",
+    "Titanite (Sphene)",
+    "Opal",
+    "Precious Opal (White)",
+    "Precious Opal (Black)",
+    "Labradorite",
+    "Glass (N-BK7)",
+    "Glass (F2)",
+    "Moonstone",
+    "Pyrope Garnet",
+    "Almandine Garnet",
+    "Spessartine Garnet",
+    "Grossular Garnet (Tsavorite)",
+    "Aquamarine",
+    "Morganite",
+    "Peridot",
+    "Color-Change Garnet (Pyrope-Spessartine)",
+];
+
 #[test]
 fn known_preset_names_resolve() {
-    for name in [
-        "Diamond",
-        "Sapphire",
-        "Ruby",
-        "Emerald",
-        "Zircon",
-        "Alexandrite",
-        "Topaz",
-        "Spinel",
-        "Quartz",
-        "Tourmaline",
-        "Tanzanite",
-        "Synthetic Moissanite",
-        "Cubic Zirconia",
-    ] {
+    for name in ALL_SG_NAMES {
         let sg = built_in_specific_gravity(name)
             .unwrap_or_else(|| panic!("{name} must have a built-in SG"));
         assert!(sg.representative > 0.0, "{name}: {sg:?}");
@@ -31,6 +60,132 @@ fn known_preset_names_resolve() {
             sg.representative,
             sg.range
         );
+    }
+}
+
+/// Every name the table covers is a real optical preset, and every optical preset has a row.
+#[test]
+fn sg_table_covers_exactly_the_built_in_materials() {
+    let optical: Vec<String> = GemMaterial::all_materials()
+        .into_iter()
+        .map(|m| m.name)
+        .collect();
+    for name in ALL_SG_NAMES {
+        assert!(
+            optical.iter().any(|n| n == name),
+            "{name} has an SG row but no optical entry"
+        );
+    }
+    for name in &optical {
+        assert!(
+            ALL_SG_NAMES.contains(&name.as_str()),
+            "{name} has an optical entry but no SG row"
+        );
+    }
+}
+
+/// T-D7: the 14 rows that predate the full table keep their exact figures.
+#[test]
+fn the_fourteen_earlier_sg_rows_keep_their_values() {
+    let expected: [(&str, f64, (f64, f64)); 14] = [
+        ("Diamond", 3.52, (3.50, 3.53)),
+        ("Sapphire", 4.00, (3.99, 4.10)),
+        ("Ruby", 4.00, (3.99, 4.10)),
+        ("Emerald", 2.76, (2.67, 2.78)),
+        ("Zircon", 4.65, (3.90, 4.73)),
+        ("Alexandrite", 3.73, (3.68, 3.78)),
+        ("Topaz", 3.53, (3.49, 3.57)),
+        ("Spinel", 3.60, (3.58, 3.61)),
+        ("Quartz", 2.65, (2.65, 2.66)),
+        ("Tourmaline", 3.06, (2.82, 3.32)),
+        ("Tanzanite", 3.35, (3.15, 3.36)),
+        ("Synthetic Moissanite", 3.22, (3.21, 3.22)),
+        ("Cubic Zirconia", 5.80, (5.60, 6.00)),
+        ("Rutile", 4.25, (4.25, 4.25)),
+    ];
+    for (name, representative, range) in expected {
+        let sg = built_in_specific_gravity(name).expect(name);
+        assert_eq!(sg.representative, representative, "{name}");
+        assert_eq!(sg.range, range, "{name}");
+    }
+}
+
+/// T-D7: the garnet rows hold gem values, not the pure end-members.
+#[test]
+fn garnet_rows_hold_gem_values() {
+    let pyrope = built_in_specific_gravity("Pyrope Garnet").expect("Pyrope Garnet");
+    assert_eq!(pyrope.representative, 3.74);
+    assert_eq!(pyrope.range, (3.65, 3.87));
+    let almandine = built_in_specific_gravity("Almandine Garnet").expect("Almandine Garnet");
+    assert_eq!(almandine.representative, 4.19);
+    assert_eq!(almandine.range, (3.95, 4.30));
+}
+
+/// T-D7: Peridot has a single cited value, stored as both ends of its range.
+#[test]
+fn peridot_stores_its_single_value_as_both_range_ends() {
+    let peridot = built_in_specific_gravity("Peridot").expect("Peridot");
+    assert_eq!(peridot.representative, 3.34);
+    assert_eq!(peridot.range, (3.34, 3.34));
+}
+
+/// T-D7: only Morganite and the Color-Change Garnet are derived, and they carry their basis
+/// note; every other row is cited.
+#[test]
+fn only_morganite_and_color_change_garnet_are_derived() {
+    use super::specific_gravity::SgBasis;
+    for name in ALL_SG_NAMES {
+        let sg = built_in_specific_gravity(name).expect(name);
+        match (name, sg.basis) {
+            ("Morganite", SgBasis::Derived(note)) => {
+                assert_eq!(note, "Derived: midpoint of the cited range 2.80-2.91.");
+            }
+            ("Color-Change Garnet (Pyrope-Spessartine)", SgBasis::Derived(note)) => {
+                assert!(note.starts_with("Derived: range merged from two Gems & Gemology studies"));
+            }
+            ("Morganite" | "Color-Change Garnet (Pyrope-Spessartine)", SgBasis::Cited) => {
+                panic!("{name} must be derived");
+            }
+            (_, SgBasis::Cited) => {}
+            (_, SgBasis::Derived(_)) => panic!("{name} must be cited"),
+        }
+    }
+}
+
+/// T-D7: each representative is within 0.05 of the density the app already holds for the
+/// material's physics-color host, unless the difference is listed here with its reason.
+#[test]
+fn sg_rows_agree_with_the_physics_host_density_or_are_explained() {
+    use pleochroma::optics::chromophore::ChromophoreCatalogue;
+    // Materials whose host is shared with a material of a different density.
+    const EXPLAINED: [(&str, &str); 8] = [
+        ("Glass (F2)", "shared glass host"),
+        ("Moonstone", "shared Feldspar host with Labradorite"),
+        ("Emerald", "shared beryl host with Aquamarine"),
+        ("Morganite", "shared beryl host with Aquamarine"),
+        ("Pyrope Garnet", "shared pyralspite host"),
+        ("Almandine Garnet", "shared pyralspite host"),
+        ("Spessartine Garnet", "shared pyralspite host"),
+        (
+            "Color-Change Garnet (Pyrope-Spessartine)",
+            "shared pyralspite host",
+        ),
+    ];
+    let catalogue = ChromophoreCatalogue::global();
+    for name in ALL_SG_NAMES {
+        let sg = built_in_specific_gravity(name).expect(name);
+        let Some(host) = catalogue.host_for_material(name) else {
+            continue;
+        };
+        let difference = (sg.representative - host.density_g_cm3).abs();
+        if difference > 0.05 {
+            assert!(
+                EXPLAINED.iter().any(|(explained, _)| *explained == name),
+                "{name}: SG {} differs from host density {} by {difference:.3} and is not explained",
+                sg.representative,
+                host.density_g_cm3
+            );
+        }
     }
 }
 

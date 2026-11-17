@@ -72,9 +72,9 @@ never end up hidden behind something less important.
 
 | Message | Meaning | What to do |
 |---|---|---|
-| `Closed solid -- volume X.XXXX.` | Success. A finite, watertight stone. The volume figure (in the app's internal model units, cubed) is shown alongside. | Nothing — proceed to check the Cutting Instructions, run Deep Solve/Optimize, or export. |
+| `Closed solid · volume X.XXXX (model units³)` | Success. A finite, watertight stone. The volume figure (in the app's internal model units, cubed) is shown alongside, followed by the stone's proportions (L/W, H/W and so on). | Nothing — proceed to check the Cutting Instructions, run Deep Solve/Optimize, or export. |
 | `<Block> has no anchor: add a tier with an exact scale value.` (one such sentence per missing block, e.g. two sentences if both crown and pavilion are missing one) | One or more of Crown/Pavilion/Girdle has no anchor tier at all (Chapter 3). | Add at least one tier of kind **Exact Scale Value** to that block, then Solve again — or use the **Add Anchor** button the tier table shows on that block's own rows (Chapter 3). |
-| `Degenerate: only N distinct vertex(es), volume <value or "non-finite"> -- check tier 5 (Girdle), tier 8.` | The facets you have described do bound a region, but it isn't a valid solid — too few real corners, or a volume that comes out zero, negative, or not a finite number. The trailing "check ..." clause, when the app can tell, names the tier(s) most likely responsible. | Check the named tier(s) first; otherwise, two or more facets meeting somewhere they shouldn't, or a wrong angle/constraint, is the usual cause. |
+| `Degenerate: only N distinct vertex(es), volume <value> (model units³) -- check tier 5 (Girdle), tier 8.` | The facets you have described do bound a region, but it isn't a valid solid — too few real corners, or a volume that comes out zero, negative, or not a finite number. The trailing "check ..." clause, when the app can tell, names the tier(s) most likely responsible. | Check the named tier(s) first; otherwise, two or more facets meeting somewhere they shouldn't, or a wrong angle/constraint, is the usual cause. |
 | `Unbounded: tier 3 (P1) never close the solid.` (one tier, or several by name, separated by commas) | One or more facet planes never actually meet enough others to close the stone off in some direction — geometrically, the shape "leaks" to infinity along that plane. In practice this should be rare once every block has an anchor. | Check the named tier(s) — a missing meet partner, or an angle so shallow/steep it fails to intersect its neighbours, is the usual cause. |
 
 A message naming a missing anchor, or reading "Degenerate..." or
@@ -423,8 +423,11 @@ Bril. 21.0 % +1.8   Wind. 58.0 % -3.0   Ext. 19.0 % +0.3   Fire 4.1 +0.2   Yield
   after Optimize 2 min ago". Press **Set as Baseline** to keep the design as it is
   now. Before any Baseline exists the label reads "No Baseline yet". The Baseline
   lives only in this session (Chapter 14).
-- **The figures** are Brilliance, Windowing, Extinction, Fire, Scintillation, Yield
-  and the number of manufacturability warnings. They are measured **face-up** (looking
+- **The figures** are Brilliance, Windowing, Extinction, Fire, Scintillation, Contrast, Yield
+  and the number of manufacturability warnings. **Contrast** (0 to 100) is Pleochroma's
+  own measure of how finely the viewer's shadow is broken up across the face; a higher
+  one counts as better. Chapter 2 ("How the Face-Up Figures Are Measured") defines it, and
+  the zone shares behind it. The strip shows Contrast but not the zone shares. They are measured **face-up** (looking
   straight down at the table) and scored under the **Grading tray** lighting, the same
   way Optimize, Retarget and the Angle Sweep score, so the strip agrees with them
   whatever lighting the viewport shows. Hover a figure for the Baseline and current
@@ -433,7 +436,7 @@ Bril. 21.0 % +1.8   Wind. 58.0 % -3.0   Ext. 19.0 % +0.3   Fire 4.1 +0.2   Yield
   noise threshold, **red** when it is worse by more than that, and **grey** when it is
   within the threshold, which the hover note calls "within the noise threshold, about
   the same". The thresholds are the ones listed in Chapter 14: 2 points for
-  Brilliance, Windowing and Extinction, 3 for Scintillation, 5 % (at least half an
+  Brilliance, Windowing and Extinction, 3 for Scintillation, 4 for Contrast, 5 % (at least half an
   index point) for Fire. **Most small nudges therefore show grey; that is intended**,
   because a figure that moves less than the measurement itself can resolve is not a
   real change. A manufacturability warning that appears or disappears is always

@@ -201,6 +201,7 @@ fn score_inner(
             .girdle_thickness
             .is_some_and(|thickness| thickness > 0.0),
         tilt,
+        aset: fast.aset,
     }))
 }
 

@@ -92,7 +92,8 @@ enum DialogOwner {
 
 /// The owner of dialog `id`: ids below 2000 belong to the document (1001-1003), 2000-2999
 /// to the Cut destination (2001-2002), 3000-3099 to the Library, 4000-4099 to the
-/// Remote page (4001) and 5000-5099 to the Checks tab (5001). Other ids from 2000 up go to
+/// Remote page (4001 forget, 4002 render on the computer, 4003 copy its designs) and
+/// 5000-5099 to the Checks tab (5001). Other ids from 2000 up go to
 /// the Cut destination, which does not claim them, so the shell logs them. A new page's
 /// range must be added here before its dialogs can be answered.
 const fn dialog_owner(id: i32) -> DialogOwner {
@@ -177,10 +178,13 @@ mod tests {
         for id in [3001, 3002] {
             assert_eq!(dialog_owner(id), DialogOwner::Library, "dialog {id}");
         }
-        assert_eq!(
-            dialog_owner(crate::remote::DIALOG_FORGET),
-            DialogOwner::Remote
-        );
+        for id in [
+            crate::remote::DIALOG_FORGET,
+            crate::remote::DIALOG_RENDER_REMOTE,
+            crate::remote::DIALOG_LIBRARY_SYNC,
+        ] {
+            assert_eq!(dialog_owner(id), DialogOwner::Remote, "dialog {id}");
+        }
         // 5001: the Checks tab's question before a planned fix (the snap to meet points).
         assert_eq!(dialog_owner(5001), DialogOwner::Checks);
     }

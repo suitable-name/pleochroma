@@ -201,10 +201,11 @@ pub enum LaneKey {
 }
 
 impl LaneKey {
-    /// The lane key for a joined worker: its certificate label when it has one (the
-    /// identity that survives reconnects, see [`WorkerInfo::label`]), else its ephemeral
-    /// per-registration id, which lets one connection's rate converge but starts over on
-    /// reconnect.
+    /// The lane key for a joined worker.
+    ///
+    /// Its certificate label when it has one (the identity that survives reconnects, see
+    /// [`WorkerInfo::label`]), else its ephemeral per-registration id, which lets one connection's
+    /// rate converge but starts over on reconnect.
     #[must_use]
     pub fn for_worker(info: &WorkerInfo) -> Self {
         Self::Worker(
@@ -285,8 +286,9 @@ pub struct Coordinator {
 }
 
 impl Coordinator {
-    /// A coordinator over `registry` (the worker port's, if open) and `own` (with
-    /// `--render`), taking at most `interactive_workers` workers per `Interactive`
+    /// A coordinator over `registry` (the worker port's, if open) and `own` (with `--render`).
+    ///
+    /// It takes at most `interactive_workers` workers per `Interactive`
     /// request (`0`: none besides the own lane, `u32::MAX`: every idle eligible one) and
     /// holding at most `max_job_bytes` in in-flight jobs.
     #[must_use]
@@ -309,9 +311,10 @@ impl Coordinator {
         }
     }
 
-    /// Gives the coordinator its HDR asset cache: HDR jobs hold their map
-    /// through it and forward it to joined workers. Without one, HDR scenes are refused
-    /// (see `crate::assets::policy`).
+    /// Gives the coordinator its HDR asset cache: HDR jobs hold their map through it and forward it
+    /// to joined workers.
+    ///
+    /// Without one, HDR scenes are refused (see `crate::assets::policy`).
     #[must_use]
     pub fn with_assets(mut self, assets: Option<Arc<AssetCache>>) -> Self {
         self.assets = assets;
@@ -319,8 +322,9 @@ impl Coordinator {
     }
 
     /// Sets the small-picture knobs of the job config (`serve --whole-image-secs`,
-    /// `--whole-image-pixel-samples`, `--jobs-per-viewer`; see [`JobConfig`]): a
-    /// `jobs_per_viewer` of 0 becomes 1.
+    /// `--whole-image-pixel-samples`, `--jobs-per-viewer`; see [`JobConfig`]).
+    ///
+    /// A `jobs_per_viewer` of 0 becomes 1.
     #[must_use]
     pub fn with_small_pictures(
         self,
@@ -344,8 +348,9 @@ impl Coordinator {
     }
 
     /// Pins `label`'s worker for `Interactive` requests that take workers (`serve
-    /// --pin-interactive-worker`, see [`InteractivePin`]); `None` keeps the plain
-    /// fastest-first pick.
+    /// --pin-interactive-worker`, see [`InteractivePin`]).
+    ///
+    /// `None` keeps the plain fastest-first pick.
     #[must_use]
     pub fn with_interactive_pin(mut self, label: Option<String>) -> Self {
         self.interactive_pin = label.map(InteractivePin::new);
@@ -387,8 +392,9 @@ impl Coordinator {
         &self.budget
     }
 
-    /// The process-wide lane rate book, shared by every viewer connection this
-    /// coordinator serves, so a live view's chunk sizing converges across requests and a
+    /// The process-wide lane rate book, shared by every viewer connection this coordinator serves.
+    ///
+    /// Sharing it means a live view's chunk sizing converges across requests and a
     /// GUI export's one-shot connections reuse calibration. Callers clone the `Arc` into
     /// their own `ViewerSession`/`Job`. Nothing here is persisted to disk.
     #[must_use]
@@ -617,6 +623,28 @@ fn final_image_preview_config(width: u32, height: u32) -> PreviewConfig {
     }
 }
 
+/// The route as the status words it: "This computer", "2 render computers", "This computer + 1
+/// render computer". The count of joined computers is the number joined now, capped by what the
+/// plan takes.
+fn route_text(coordinator: &Coordinator, route: &Route) -> String {
+    let joined = coordinator
+        .registry()
+        .map_or(0, |registry| registry.workers().len());
+    match route {
+        Route::Direct => crate::control::renders::route_text(true, 0),
+        Route::Job(plan) => {
+            let workers = match plan.workers {
+                WorkerPick::None => 0,
+                WorkerPick::All => joined,
+                WorkerPick::Fastest(most) => {
+                    joined.min(usize::try_from(most).unwrap_or(usize::MAX))
+                }
+            };
+            crate::control::renders::route_text(plan.own, workers)
+        }
+    }
+}
+
 /// Plans and streams one validated request (direct or as a job).
 ///
 /// `slot`, when `Some` (a `FinalImageRequest` that reserved a viewer share), always
@@ -667,6 +695,8 @@ fn stream_request<S: Read + Write + TimeoutRead + TimeoutWrite>(
             pool: coordinator.job_config().batch,
         });
     }
+    // Who traces it, for the coordinator status's "rendering now" list.
+    crate::control::renders::note_route(&route_text(coordinator, &route));
     // Only the direct route is a plain tracer whose silence means "wedged": a job
     // legitimately waits in its viewer's FIFO or for a joined worker with no sample
     // landing, and its lanes carry their own liveness deadlines.

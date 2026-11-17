@@ -709,7 +709,7 @@ export component CompareView inherits Rectangle {
         // The optical figures of both sides, once there is
         // something to say: figures, or the reason there are none.
         if root.show_metrics && !CompareModel.after_waiting && !CompareModel.before_unavailable && (CompareModel.metric_rows.length > 0 || CompareModel.metric_note != ""): CompareMetricsStrip {
-            height_budget: max(48px, min(220px, root.height * 0.32));
+            height_budget: max(48px, root.height * 0.38);
         }
 
         // The dimmed status line (nothing is mounted while it has nothing to say, so an empty line

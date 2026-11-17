@@ -1,0 +1,238 @@
+// The Material Reference window's state: the table page (every material in one sortable,
+// filterable table) and the Material Details page (everything the app knows about one material).
+//
+// Rust (`gui::material_reference`) owns the data: it sorts, filters and searches the rows
+// (`pleochroma_editor::material_reference`), builds every chart path in a 0..100 viewbox, and pushes
+// the results here. The window only draws them and reports clicks through the callbacks. A missing
+// number is the text "\u{2014}" (or an empty string); the table draws it in the disabled color.
+//
+// Series use a palette index (`ink`): 0 cyan, 1 amber, 2 purple.
+
+// One row of the table, already formatted for display. `dispersion` is in the convention the
+// toggle picked.
+export struct RefRow {
+    name: string,
+    // "", "Synthetic", "Glass" or "Mine".
+    tag: string,
+    // The material's face-up daylight color.
+    swatch: color,
+    crystal_system: string,
+    optic_character: string,
+    ri: string,
+    birefringence: string,
+    dispersion: string,
+    sg: string,
+    // "7.5\u{2013}8", or "\u{2014}" when not recorded.
+    hardness: string,
+    // The Mohs range; -1 when not recorded. The bar fills to `hardness_hi` of 10.
+    hardness_lo: float,
+    hardness_hi: float,
+    toughness: string,
+    cleavage: string,
+    // The whole row as one sentence, for the screen reader.
+    summary: string,
+}
+
+// A chip of the details header ("RI 1.741\u{2013}1.748"). `highlight` draws it in the accent color
+// ("Color change").
+export struct RefChip {
+    text: string,
+    tooltip: string,
+    highlight: bool,
+}
+
+// The details header: names, the split swatch (daylight / incandescent) and the chips.
+export struct RefHeader {
+    name: string,
+    family: string,
+    swatch_day: color,
+    swatch_night: color,
+    chips: [RefChip],
+    color_change: bool,
+    // The user's own material.
+    custom: bool,
+}
+
+// A labelled gridline of a chart. `position` is the 0..100 viewbox position: y for a vertical axis
+// (index values), x for a horizontal one (wavelengths).
+export struct RefTick {
+    text: string,
+    position: float,
+}
+
+// A Fraunhofer line: its letter and its x position in the 0..100 viewbox.
+export struct RefGuide {
+    label: string,
+    x: float,
+}
+
+// The hover card of the index chart at one sampled wavelength: its x position in the 0..100 viewbox
+// and the text ("\u{03BB} 589 nm \u{00B7} n\u{03B1} 1.7408 ...").
+export struct RefHover {
+    x: float,
+    text: string,
+}
+
+// One curve. `label` is the direction or ray, `value` its n at the D line (empty for a ray), `path`
+// the curve in the 0..100 viewbox.
+export struct CurveSeries {
+    label: string,
+    value: string,
+    path: string,
+    ink: int,
+}
+
+// One absorption band of the band list.
+export struct BandRow {
+    ray: string,
+    center: string,
+    width: string,
+    peak: string,
+    shape: string,
+}
+
+// One row of the Color by Direction and Light card. A clipped color fell outside sRGB before it was
+// mapped into it.
+export struct ColorRow {
+    label: string,
+    daylight: color,
+    incandescent: color,
+    daylight_clipped: bool,
+    incandescent_clipped: bool,
+    face_up: bool,
+}
+
+// One entry of the Color Variants card.
+export struct VariantRow {
+    label: string,
+    swatch: color,
+    source: string,
+    estimated: bool,
+    selected: bool,
+    // The user's own variant.
+    user: bool,
+}
+
+// A labelled value of a card. `note` is a source disagreement (empty when there is none);
+// `missing` marks a "Not recorded" / "Not graded" placeholder, drawn muted, with `tooltip`
+// explaining it. A Sources group uses `label` for its title and `value` for its lines.
+export struct DataRow {
+    label: string,
+    value: string,
+    note: string,
+    tooltip: string,
+    missing: bool,
+}
+
+export global MaterialReferenceModel {
+    // ---- table page ----
+
+    // The visible rows: filtered, searched and sorted by Rust.
+    in-out property <[RefRow]> rows;
+    // "39 built-in materials and 2 of your own. Click a column heading ..."
+    in-out property <string> subtitle;
+    // "41 materials, hardest first. Values are typical ..." (and a copy confirmation).
+    in-out property <string> footer;
+    // The sorted column: 0 Material, 1 Crystal System, 2 Optic Character, 3 RI, 4 Biref., 5 Disp.,
+    // 6 SG, 7 Hardness, 8 Toughness, 9 Cleavage.
+    in-out property <int> sort_column: 0;
+    in-out property <bool> sort_descending: false;
+    // 0 All, 1 Natural, 2 Synthetic, 3 Glass, 4 My Materials.
+    in-out property <int> filter: 0;
+    // The count shown on each filter chip, in the order above.
+    in-out property <[int]> filter_counts;
+    in-out property <string> query;
+    // The Dispersion toggle: B\u{2013}G (true) or F\u{2013}C (false).
+    in-out property <bool> dispersion_bg: true;
+    // The chosen row of `rows`; -1 when there is none. A single click sets it.
+    in-out property <int> selected: -1;
+    // 0 the table, 1 the details page.
+    in-out property <int> page: 0;
+
+    // ---- details page ----
+
+    in-out property <RefHeader> header;
+
+    // Refractive Index card.
+    in-out property <[CurveSeries]> ri_series;
+    in-out property <[RefTick]> ri_y_ticks;
+    in-out property <[RefTick]> ri_x_ticks;
+    in-out property <[RefGuide]> ri_guides;
+    // One hover card per sampled wavelength, evenly spaced across the plot.
+    in-out property <[RefHover]> ri_hover;
+    in-out property <string> ri_readout;
+    in-out property <string> ri_model_line;
+
+    // Optics card.
+    in-out property <[DataRow]> optics_rows;
+
+    // Absorption Spectrum card: the curves of the chosen mode, one daylight swatch per ray, and the
+    // band list of every ray.
+    in-out property <[CurveSeries]> spectrum_series;
+    in-out property <[color]> spectrum_swatches;
+    in-out property <[BandRow]> spectrum_bands;
+    in-out property <[RefTick]> spectrum_x_ticks;
+    in-out property <string> spectrum_summary;
+    in-out property <string> spectrum_provenance;
+    // The chosen variant's name when it replaces the default spectrum; empty otherwise.
+    in-out property <string> spectrum_variant;
+    // The spectrum comes from estimated data.
+    in-out property <bool> spectrum_estimated;
+    in-out property <string> spectrum_tooltip;
+    // false Absorption, true Transmission.
+    in-out property <bool> spectrum_transmission: false;
+
+    // Color by Direction and Light card.
+    in-out property <[ColorRow]> color_rows;
+    in-out property <string> color_note;
+    in-out property <bool> color_change;
+
+    // Color Variants card.
+    in-out property <[VariantRow]> variant_rows;
+    in-out property <int> selected_variant: 0;
+
+    // Effects card: a one-line summary.
+    in-out property <string> effects_summary;
+
+    // Durability and Cutting card. The Mohs range is -1 when none is recorded.
+    in-out property <[DataRow]> durability_rows;
+    in-out property <float> mohs_lo: -1;
+    in-out property <float> mohs_hi: -1;
+    // Source notes that belong to no single row, one per line.
+    in-out property <string> durability_notes;
+    in-out property <string> care;
+    // "Sources: GIA ... Values are typical for the species."
+    in-out property <string> sources;
+    in-out property <string> weight_line;
+    in-out property <string> weight_basis;
+    in-out property <string> weight_design;
+    // Sources by group (title in `label`, citations in `value`, one per line).
+    in-out property <[DataRow]> source_groups;
+    // A design is open: "Use for Design" is offered.
+    in-out property <bool> can_use_for_design: false;
+
+    // ---- callbacks ----
+
+    // A column heading was clicked (the column number of `sort_column`).
+    callback sort_clicked(int);
+    callback filter_chosen(int);
+    callback query_edited(string);
+    // The dispersion toggle: true for B\u{2013}G.
+    callback scale_chosen(bool);
+    // A row was opened (double click, Enter, Open Details).
+    callback row_opened(int);
+    // The details page's "All Materials" button.
+    callback back();
+    callback copy_table();
+    // Preview As: the material's name.
+    callback preview_as(string);
+    // Duplicate as Custom...: the material's name.
+    callback duplicate_as_custom(string);
+    // A variant row was clicked.
+    callback variant_selected(int);
+    callback use_variant(int);
+    // The Absorption / Transmission segment (0 or 1).
+    callback spectrum_mode(int);
+    // Escape: hide the window.
+    callback close();
+}

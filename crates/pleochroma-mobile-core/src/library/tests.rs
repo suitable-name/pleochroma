@@ -81,7 +81,7 @@ pub(super) fn picked(name: &str, bytes: &[u8]) -> PickedFile {
 }
 
 /// The native design file and the `.asc` of template `index`, as the app saves them.
-fn template_files(index: usize) -> (PickedFile, PickedFile) {
+pub(super) fn template_files(index: usize) -> (PickedFile, PickedFile) {
     let mock = Arc::new(MockPlatform::default());
     let platform: Arc<dyn Platform> = mock;
     let mut state = AppState::new(platform);

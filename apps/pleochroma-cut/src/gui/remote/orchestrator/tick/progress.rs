@@ -99,6 +99,71 @@ pub(super) fn samples(
     );
 }
 
+/// The Live Render stage text while a remote computer builds its shader cache:
+/// "Preparing <name>'s graphics card… 12 of 40", without the counts when `total == 0`.
+#[must_use]
+pub(super) fn preparing_stage_text(remote_name: &str, done: u32, total: u32) -> String {
+    let owner = if remote_name.is_empty() {
+        "the remote computer's".to_owned()
+    } else {
+        format!("{remote_name}'s")
+    };
+    if total == 0 {
+        format!("Preparing {owner} graphics card\u{2026}")
+    } else {
+        format!(
+            "Preparing {owner} graphics card\u{2026} {} of {total}",
+            done.min(total)
+        )
+    }
+}
+
+/// Shows [`preparing_stage_text`] as the Live Render stage while the remote has traced
+/// nothing yet. The bar stays indeterminate (no samples). Stale or foreign epochs are ignored
+/// exactly as in [`samples`].
+pub(super) fn remote_preparing(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    state: &Arc<Mutex<Orchestrator>>,
+    done: u32,
+    total: u32,
+) {
+    let (epoch, name) = {
+        let s = lock(state);
+        let Some(lane) = s.live_lane.as_ref() else {
+            return;
+        };
+        (
+            Arc::clone(lane.epoch()),
+            s.remote_connection
+                .as_ref()
+                .map(|h| h.worker().name.clone())
+                .unwrap_or_default(),
+        )
+    };
+    let valid = {
+        let mut ctx = RenderContext::lock(render_ctx);
+        ctx.effective_live_target() == LiveComputeTarget::RemoteOnly
+            && ctx.scene_generation() == epoch.scene_generation()
+            && ctx
+                .live_epoch
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &epoch))
+    };
+    // Samples that already arrived mean the remote is tracing: the normal stage applies.
+    if !valid || epoch.remote_done() > 0 {
+        return;
+    }
+    progress::update_progress(
+        ui,
+        &preparing_stage_text(&name, done, total),
+        epoch.scene_generation(),
+        0,
+        epoch.target_samples(),
+        Duration::ZERO,
+    );
+}
+
 /// Read the actual last frame at DONE, since its `DisplayFrame` callback may have
 /// been coalesced away. A completion without an image never fabricates samples.
 pub(super) fn finished(
@@ -116,4 +181,29 @@ pub(super) fn finished(
             .map_or_else(|| accumulator.samples_done(), |frame| frame.samples_done)
     };
     samples(ui, render_ctx, state, samples_done);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preparing_stage_text;
+
+    #[test]
+    fn preparing_text_names_the_computer_and_counts() {
+        assert_eq!(
+            preparing_stage_text("Studio PC", 12, 40),
+            "Preparing Studio PC's graphics card\u{2026} 12 of 40"
+        );
+    }
+
+    #[test]
+    fn preparing_text_drops_unknown_counts_and_empty_names() {
+        assert_eq!(
+            preparing_stage_text("Studio PC", 3, 0),
+            "Preparing Studio PC's graphics card\u{2026}"
+        );
+        assert_eq!(
+            preparing_stage_text("", 0, 0),
+            "Preparing the remote computer's graphics card\u{2026}"
+        );
+    }
 }

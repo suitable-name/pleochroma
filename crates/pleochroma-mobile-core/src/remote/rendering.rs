@@ -317,7 +317,7 @@ pub(super) fn open_session<'a>(
         owned
     };
     let scene = scene_state(spec, &owned, asset.as_ref().map(HdrAsset::environment));
-    let (stream, welcome) = super::connect(platform, &settings.address, cancelled)?;
+    let (stream, welcome) = super::connect(platform, &settings.endpoint_addresses(), cancelled)?;
     let capability = welcome
         .render
         .ok_or("The authenticated endpoint has no render capacity.")?;
@@ -421,7 +421,7 @@ pub fn run(
         },
         intent,
     };
-    ready(format!(
+    let label = format!(
         "Remote · {} · {:?} · {}",
         owned.engine().engine.label(),
         capability.backend,
@@ -430,10 +430,13 @@ pub fn run(
         } else {
             "FullData"
         }
-    ));
+    );
+    ready(label.clone());
     let mut accumulator = Accumulator::new(spec.scene.width, spec.scene.height);
     accumulator.begin_request_for_range(REQUEST_ID, 0, samples);
     client::send_render_request(&mut stream, &request).map_err(|error| client_error(&error))?;
+    // Until the first samples arrive the status says what the computer is doing.
+    ready(waiting_report(&settings.name));
     let outcome = receive(
         &mut stream,
         &mut accumulator,
@@ -445,6 +448,11 @@ pub fn run(
         policy,
         cancelled,
         frame,
+        &Notices {
+            report: ready,
+            label: &label,
+            name: &settings.name,
+        },
     );
     if outcome.is_err() {
         // The same worker owns TLS writes and reads, including the best-effort Cancel.
@@ -460,6 +468,47 @@ pub fn run(
         },
         samples,
     })
+}
+
+/// What a computer is called in a status sentence: its name, or a plain stand-in.
+fn computer_name(name: &str) -> &str {
+    let name = name.trim();
+    if name.is_empty() {
+        "the remote computer"
+    } else {
+        name
+    }
+}
+
+/// The report while the computer has not sent samples yet. The `Remote · ` prefix keeps the
+/// report reading as a remote one; [`crate::viewport::render_view::status_line`] shows the
+/// rest.
+pub(crate) fn waiting_report(name: &str) -> String {
+    format!("Remote · Waiting for {}…", computer_name(name))
+}
+
+/// The report while the computer's graphics card builds its shader cache. No counts when
+/// `total` is 0 (unknown).
+pub(crate) fn preparing_report(name: &str, done: u32, total: u32) -> String {
+    let name = computer_name(name);
+    if total == 0 {
+        format!("Remote · Preparing {name}'s graphics card…")
+    } else {
+        format!(
+            "Remote · Preparing {name}'s graphics card… {} of {total}",
+            done.min(total)
+        )
+    }
+}
+
+/// The status hooks of one receive loop.
+struct Notices<'a> {
+    /// Replaces the status report.
+    report: &'a dyn Fn(String),
+    /// The report to return to once samples arrive.
+    label: &'a str,
+    /// The computer's name, as the user gave it.
+    name: &'a str,
 }
 
 /// The longest raw payload the phone reads for one event: a full radiance frame at the
@@ -484,10 +533,13 @@ fn receive(
     policy: &ComputePolicy,
     cancelled: &dyn Fn() -> bool,
     frame: &dyn Fn(FrameUpdate),
+    notices: &Notices<'_>,
 ) -> Result<(), RunError> {
     let mut last_picture = None;
     let mut last_samples = 0;
     let mut uploaded = false;
+    // Whether the status still shows a waiting or preparing sentence.
+    let mut notice = true;
     loop {
         stream.deadline = Instant::now() + Duration::from_secs(12);
         let event: StreamEvent =
@@ -519,6 +571,18 @@ fn receive(
         let applied = accumulator
             .apply(&event, payload.as_deref())
             .map_err(|error| error.to_string())?;
+        if notice
+            && (matches!(
+                applied,
+                ApplyOutcome::FrameSummed { .. }
+                    | ApplyOutcome::DisplayFrameReplaced
+                    | ApplyOutcome::Done { .. }
+            ) || matches!(applied, ApplyOutcome::Progress { samples_done } if samples_done > 0))
+        {
+            // The first samples arrived: the normal status returns.
+            (notices.report)(notices.label.to_owned());
+            notice = false;
+        }
         match applied {
             ApplyOutcome::FrameSummed { samples_done } => {
                 let rgba = tonemap_to_rgba_with_threads(
@@ -620,6 +684,14 @@ fn receive(
             ApplyOutcome::CapabilityChanged => {
                 if matches!(event, StreamEvent::CapabilityChanged { render: None }) {
                     return Err("Remote render capacity was withdrawn.".into());
+                }
+            }
+            ApplyOutcome::Preparing { done, total } => {
+                // Liveness: the deadline was renewed at the top of the loop. The accumulator
+                // already dropped other epochs' notices.
+                if last_samples == 0 {
+                    (notices.report)(preparing_report(notices.name, done, total));
+                    notice = true;
                 }
             }
             ApplyOutcome::PreviewReplaced

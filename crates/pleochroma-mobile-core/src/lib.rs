@@ -31,6 +31,7 @@ pub mod platform;
 pub mod platform_mock;
 pub mod recipe_steps;
 pub mod remote;
+pub mod remote_discovery;
 pub mod render;
 pub mod retarget;
 pub mod settings;

@@ -5,7 +5,14 @@ import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Icon } from "../shell/icon.slint";
 import { StateLayer } from "../shell/state_layer.slint";
-import { LibraryCardData } from "library_model.slint";
+import { LibraryCardData, LibraryModel } from "library_model.slint";
+
+// What a card's `synced` flag reads, and what a screen reader adds to the label: on the
+// computer view the design is also on this phone, on This Phone it is a synced copy.
+global SyncedText {
+    out property <string> pill: LibraryModel.source-index == 1 ? "On This Phone" : "Synced";
+    out property <string> spoken: LibraryModel.source-index == 1 ? ", also on this phone" : ", synced copy";
+}
 
 // Sizes shared by the card and the grid that places them.
 export global CardMetrics {
@@ -104,7 +111,7 @@ export component GridCard inherits Rectangle {
     border-color: root.data.selected ? Theme.accent : Theme.outline-variant;
     clip: true;
     accessible-role: AccessibleRole.button;
-    accessible-label: root.data.title + ", " + root.data.subtitle;
+    accessible-label: root.data.title + ", " + root.data.subtitle + (root.data.synced ? SyncedText.spoken : "");
     accessible-checkable: root.selecting;
     accessible-checked: root.data.selected;
 
@@ -154,6 +161,27 @@ export component GridCard inherits Rectangle {
             font-size: Theme.text-label;
             horizontal-alignment: center;
             vertical-alignment: center;
+        }
+    }
+
+    // The "Synced" / "On This Phone" pill at the picture's bottom-left.
+    if root.data.synced: Rectangle {
+        x: 8px;
+        y: root.thumb-h - self.height - 8px;
+        width: min(synced-label.preferred-width + 16px, root.width - 16px);
+        height: 22px;
+        border-radius: 11px;
+        background: #0b0e15d9;
+
+        synced-label := Text {
+            x: 8px;
+            width: parent.width - 16px;
+            text: SyncedText.pill;
+            color: Theme.accent;
+            font-size: Theme.text-label;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
         }
     }
 
@@ -230,7 +258,7 @@ export component ListCard inherits Rectangle {
 
     background: root.data.selected ? Theme.accent-surface.with-alpha(0.6) : transparent;
     accessible-role: AccessibleRole.button;
-    accessible-label: root.data.title + ", " + root.data.subtitle;
+    accessible-label: root.data.title + ", " + root.data.subtitle + (root.data.synced ? SyncedText.spoken : "");
     accessible-checkable: root.selecting;
     accessible-checked: root.data.selected;
 
@@ -291,6 +319,14 @@ export component ListCard inherits Rectangle {
                     overflow: elide;
                 }
             }
+        }
+
+        if root.data.synced: Text {
+            text: SyncedText.pill;
+            color: Theme.accent;
+            font-size: Theme.text-label;
+            font-weight: 500;
+            vertical-alignment: center;
         }
 
         if root.data.ignored: Text {

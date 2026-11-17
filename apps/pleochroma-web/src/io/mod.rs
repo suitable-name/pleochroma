@@ -165,8 +165,15 @@ fn commit_opened(ctx: &Ctx, opened: Opened, label: &str, ignored: &[String]) {
     let Opened {
         design,
         mut notes,
-        needs_attention,
+        mut needs_attention,
     } = opened;
+    // A color pattern this build cannot apply renders as the plain material; the message says so.
+    if let Some(problem) =
+        pleochroma_editor::material_lookup::design_pattern_problem(&design.session.design)
+    {
+        notes.push(problem);
+        needs_attention = true;
+    }
     ctx.state.borrow_mut().replace_design(design);
     if let Some(ui) = ctx.ui.upgrade() {
         push_all(&ui, &ctx.state.borrow());

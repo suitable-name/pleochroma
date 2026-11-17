@@ -259,7 +259,7 @@ fn connect<'a>(
     settings: &RemoteSettings,
     cancelled: &'a dyn Fn() -> bool,
 ) -> Result<DeadlineStream<'a>, RunError> {
-    let (stream, _welcome) = super::connect(platform, &settings.address, cancelled)?;
+    let (stream, _welcome) = super::connect(platform, &settings.endpoint_addresses(), cancelled)?;
     Ok(stream)
 }
 

@@ -100,3 +100,126 @@ fn transfer_choices_default_to_full_data_and_their_indices_round_trip() {
     assert_eq!(ExportTransfer::from_index(-1), ExportTransfer::FullData);
     assert_eq!(LiveTransfer::from_index(7), LiveTransfer::FullData);
 }
+
+/// A settings file written by 0.11.1: one `host:port`, no address list.
+const FILE_FROM_0_11_1: &str = r#"
+[settings.remote.connection]
+name = "Studio PC"
+address = "192.168.1.20:7878"
+cert_dir = "C:/certs/studio"
+"#;
+
+/// The 0.11.1 single address loads as a one-element list. Nothing is rewritten on load: the
+/// stored fields stay empty, and saving the file again adds no new key.
+#[test]
+fn a_single_address_from_0_11_1_loads_as_a_one_element_list() {
+    let file: SettingsFile = toml::from_str(FILE_FROM_0_11_1).expect("parse");
+    let remote = file.settings.remote.as_ref().expect("remote parsed");
+    assert!(remote.addresses.is_empty());
+    assert_eq!(remote.enroll_port, 0);
+    assert!(
+        !remote.fixed_name,
+        "an old endpoint keeps verifying the dialed name"
+    );
+    assert_eq!(
+        remote.endpoint_addresses(),
+        vec!["192.168.1.20:7878".to_string()]
+    );
+
+    let rewritten = toml::to_string_pretty(&file).expect("serialize");
+    assert!(!rewritten.contains("addresses"), "{rewritten}");
+    assert!(!rewritten.contains("enroll_port"), "{rewritten}");
+    assert!(!rewritten.contains("fixed_name"), "{rewritten}");
+    let reparsed: SettingsFile = toml::from_str(&rewritten).expect("reparse");
+    assert_eq!(reparsed, file);
+}
+
+/// An endpoint with nothing saved has no address, and blank list entries are skipped.
+#[test]
+fn the_address_list_skips_blanks_and_prefers_the_saved_list() {
+    assert!(RemoteEndpoint::default().endpoint_addresses().is_empty());
+    let endpoint = RemoteEndpoint {
+        connection: WorkerSettings {
+            address: "old:7878".to_string(),
+            ..WorkerSettings::default()
+        },
+        addresses: vec![
+            " 10.0.0.5:7878 ".to_string(),
+            String::new(),
+            "192.168.1.20:7878".to_string(),
+        ],
+        ..RemoteEndpoint::default()
+    };
+    assert_eq!(
+        endpoint.endpoint_addresses(),
+        vec!["10.0.0.5:7878".to_string(), "192.168.1.20:7878".to_string()]
+    );
+}
+
+/// A paired endpoint keeps its address order, marks itself fixed-name, and survives a
+/// settings round trip; the stream preferences it had before stay.
+#[test]
+fn a_paired_endpoint_round_trips_with_its_address_list() {
+    let before = RemoteEndpoint {
+        export_transfer: ExportTransfer::FinalPicture,
+        ..RemoteEndpoint::new(WorkerSettings {
+            name: "Garage".to_string(),
+            address: "172.16.0.9:7878".to_string(),
+            cert_dir: "C:/certs/garage".to_string(),
+            cadence_ms: 250,
+            ..WorkerSettings::default()
+        })
+    };
+    let paired = before.paired(
+        "Studio PC",
+        vec!["192.168.1.20:7878".to_string(), "10.0.0.5:7878".to_string()],
+        7879,
+        "C:/certs/studio-pc",
+    );
+    assert_eq!(paired.connection.name, "Studio PC");
+    assert_eq!(paired.connection.address, "192.168.1.20:7878");
+    assert_eq!(paired.connection.cert_dir, "C:/certs/studio-pc");
+    assert_eq!(paired.connection.cadence_ms, 250);
+    assert_eq!(paired.export_transfer, ExportTransfer::FinalPicture);
+    assert_eq!(paired.enroll_port, 7879);
+    assert!(paired.fixed_name);
+    assert_eq!(
+        paired.endpoint_addresses(),
+        vec!["192.168.1.20:7878".to_string(), "10.0.0.5:7878".to_string()]
+    );
+
+    let mut file = SettingsFile::default();
+    file.settings.remote = Some(paired);
+    let text = toml::to_string_pretty(&file).expect("serialize");
+    let reparsed: SettingsFile = toml::from_str(&text).expect("reparse");
+    assert_eq!(reparsed, file);
+}
+
+/// Rediscovery replaces only the addresses: the certificates, the name and the verification
+/// mode stay.
+#[test]
+fn rediscovery_replaces_the_addresses_and_nothing_else() {
+    let paired = RemoteEndpoint::default().paired(
+        "Studio PC",
+        vec!["192.168.1.20:7878".to_string()],
+        7879,
+        "C:/certs/studio-pc",
+    );
+    let moved = paired.moved_to(vec!["192.168.1.40:7878".to_string()]);
+    assert_eq!(moved.connection.address, "192.168.1.40:7878");
+    assert_eq!(
+        moved.endpoint_addresses(),
+        vec!["192.168.1.40:7878".to_string()]
+    );
+    assert_eq!(moved.connection.name, "Studio PC");
+    assert_eq!(moved.connection.cert_dir, "C:/certs/studio-pc");
+    assert_eq!(moved.enroll_port, 7879);
+    assert!(moved.fixed_name);
+    assert_eq!(moved.display_name(), "Studio PC");
+    assert_eq!(
+        RemoteEndpoint::default()
+            .moved_to(vec!["a:1".to_string()])
+            .display_name(),
+        "a:1"
+    );
+}

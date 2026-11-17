@@ -104,7 +104,7 @@ pub use app_settings::{
     unused_imports,
     reason = "used only via model:: from #[cfg(test)] code"
 )]
-pub use lighting_preset::built_in_presets;
+pub use lighting_preset::{PRESENTATION_TRAY_REFLECTION, built_in_presets};
 #[allow(
     unused_imports,
     reason = "used only via model:: from #[cfg(test)] code"
@@ -166,6 +166,7 @@ mod tests {
                 tray_reflection: 0.0,
                 env_map_yaw_deg: 0.0,
                 env_map_follows_camera: false,
+                product_shot: false,
             }],
             rig_profiles: Vec::new(),
         };
@@ -199,6 +200,7 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
         file.upsert_user_preset(preset.clone()).unwrap();
         assert_eq!(file.find_preset("Evening Glow"), Some(&preset));
@@ -242,6 +244,7 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
         let result = file.upsert_user_preset(clash);
         assert!(result.is_err());
@@ -277,6 +280,7 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
         assert!(file.upsert_user_preset(preset).is_err());
     }
@@ -306,6 +310,7 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         })
         .unwrap();
         file.rename_preset("Draft", "Final Cut").unwrap();
@@ -340,6 +345,7 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         })
         .unwrap();
         assert!(file.rename_preset("Second", "Studio Softbox").is_err());
@@ -370,6 +376,7 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         })
         .unwrap();
         file.delete_preset("Temp").unwrap();
@@ -406,6 +413,7 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         })
         .unwrap();
 
@@ -526,6 +534,7 @@ mod tests {
             },
             export_transfer: ExportTransfer::FinalPicture,
             live_transfer: LiveTransfer::FinalPicture,
+            ..RemoteEndpoint::default()
         });
 
         let toml_str = toml::to_string_pretty(&file).expect("serialize");

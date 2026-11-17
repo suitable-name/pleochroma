@@ -32,10 +32,12 @@ pub use job::{
     job_bytes, serve_final_image, serve_render,
 };
 pub use lanes::{JobLanes, JoinedWorkerLane, LaneNeed, LaneTimeouts, OwnLane};
-pub use listener::{WorkerListenerConfig, spawn_worker_listener};
+pub use listener::{WorkerListener, WorkerListenerConfig, spawn_worker_listener};
 #[cfg(feature = "adaptive-sampling")]
 pub use live_pass::serve_live_pass;
-pub use registry::{Capacity, LivenessConfig, Registry, WorkerConn, WorkerHandle, WorkerInfo};
+pub use registry::{
+    Capacity, LivenessConfig, Registry, WorkerConn, WorkerEvent, WorkerHandle, WorkerInfo,
+};
 pub use tilt::serve_tilt;
 pub use viewer::{CapabilityWatch, read_message_watching};
 

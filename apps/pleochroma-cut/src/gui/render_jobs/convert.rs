@@ -444,7 +444,10 @@ pub fn build_still_job(inputs: &StillJobInputs<'_>, now: i64) -> Result<RenderJo
 /// Freezes one tilt video as a job. The output is the frame folder, which is not created.
 ///
 /// The metric curves are stored only when an overlay is selected. The stone shadow and the tray
-/// reflection are cleared from the frozen scene (tilt videos do not show them yet).
+/// reflection are whatever the request's scene draws (the video's own switches decided them,
+/// `video_export::frames::apply_tray_effects`), so the frozen scene carries them like a still's
+/// and the job format follows (3 with the shadow, 4 with the reflection). A job without them is
+/// the file it always was.
 ///
 /// # Errors
 ///
@@ -459,12 +462,7 @@ pub fn build_video_job(
 ) -> Result<RenderJobFile, String> {
     let color_space = job_color_space(request.color_space)?;
     let hdr = hdr_source(&request.scene)?;
-    let mut scene = scene_from_snapshot(&request.scene, request.width, request.height);
-    // The frame loop renders without the stone shadow, so the job is frozen without it. The
-    // job rules refuse a hand-edited tilt video that asks for one.
-    scene.stone_shadow = false;
-    // Likewise the tray reflection: a tilt video job carries none.
-    scene.tray_reflection = 0.0;
+    let scene = scene_from_snapshot(&request.scene, request.width, request.height);
     let total_frames = u32::try_from(request.total_frames)
         .map_err(|_| "The tilt video has too many frames.".to_string())?;
     let overlay = OverlaySelection {

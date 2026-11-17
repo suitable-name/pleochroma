@@ -238,6 +238,8 @@ struct TiltControls {
     metric_tilt_brilliance: bool,
     metric_angle: bool,
     keep_frames: bool,
+    stone_shadow: bool,
+    tray_reflection: bool,
     adaptive_sampling: bool,
     target_noise_index: i32,
     path_cache: bool,
@@ -332,6 +334,8 @@ fn tilt_controls(settings: &AppSettings) -> TiltControls {
         metric_tilt_brilliance: video.metric_tilt_brilliance,
         metric_angle: video.metric_angle,
         keep_frames: video.keep_frames,
+        stone_shadow: video.stone_shadow,
+        tray_reflection: video.tray_reflection,
         adaptive_sampling: video.adaptive_sampling,
         target_noise_index: video.target_noise_index,
         path_cache: video.path_cache,
@@ -373,6 +377,8 @@ fn tilt_from_controls(
         metric_tilt_brilliance: controls.metric_tilt_brilliance,
         metric_angle: controls.metric_angle,
         keep_frames: controls.keep_frames,
+        stone_shadow: controls.stone_shadow,
+        tray_reflection: controls.tray_reflection,
         adaptive_sampling: controls.adaptive_sampling,
         target_noise_index: clamp_target_noise_index(controls.target_noise_index),
         path_cache: controls.path_cache,
@@ -439,6 +445,8 @@ pub(in crate::gui) fn seed_tilt_dialog(ui: &MainWindow, settings: &AppSettings) 
     model.set_metric_tilt_brilliance(controls.metric_tilt_brilliance);
     model.set_metric_angle(controls.metric_angle);
     model.set_keep_frames(controls.keep_frames);
+    model.set_stone_shadow(controls.stone_shadow);
+    model.set_tray_reflection(controls.tray_reflection);
     model.set_adaptive_sampling(controls.adaptive_sampling);
     model.set_target_noise_index(controls.target_noise_index);
     model.set_path_cache(controls.path_cache);
@@ -524,6 +532,8 @@ pub(in crate::gui) fn remember_tilt(
         metric_tilt_brilliance: model.get_metric_tilt_brilliance(),
         metric_angle: model.get_metric_angle(),
         keep_frames: model.get_keep_frames(),
+        stone_shadow: model.get_stone_shadow(),
+        tray_reflection: model.get_tray_reflection(),
         adaptive_sampling: model.get_adaptive_sampling(),
         target_noise_index: model.get_target_noise_index(),
         path_cache: model.get_path_cache(),
@@ -861,6 +871,8 @@ mod tests {
             metric_tilt_brilliance: true,
             metric_angle: false,
             keep_frames: true,
+            stone_shadow: true,
+            tray_reflection: true,
             adaptive_sampling: true,
             target_noise_index: 0,
             path_cache: true,
@@ -1138,6 +1150,7 @@ mod tests {
         assert_eq!(tilt.fps_index, 2);
         assert_eq!(tilt.video_axes, vec![1, 3]);
         assert!(tilt.quarter_turn && tilt.show_values && tilt.keep_frames);
+        assert!(tilt.stone_shadow && tilt.tray_reflection);
         assert!(!tilt.metric_brilliance && tilt.metric_tilt_brilliance);
     }
 

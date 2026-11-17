@@ -31,6 +31,8 @@ pub(in crate::gui::editor) use design_label::design_label;
 pub(in crate::gui::editor) use inspector::{
     push_selected_tier_chips, sync_viewport_material_link, traced_c_axis_available,
 };
+// The Stone tab's Gem Data card, also pushed for the material a library design is shown in.
+pub(in crate::gui) use inspector::push_gem_card;
 pub(in crate::gui::editor) use optimize_apply::{
     optimize_result_rows, result_row, submit_design_ghost_preview,
     try_build_optimize_preview_design,

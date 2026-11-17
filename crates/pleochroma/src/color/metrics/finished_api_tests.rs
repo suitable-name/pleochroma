@@ -588,3 +588,66 @@ fn the_profile_is_reused_across_the_orbit_while_the_finishes_are_equal() {
         profile_bits(&direct_profile)
     );
 }
+
+/// A stone with a groove: the zone shares are finite and differ from the flat stone's; an empty
+/// tool list is the flat stone, bit for bit.
+#[test]
+fn a_concave_stones_zone_shares_differ_from_the_flat_stones() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let tools = grooved_tools();
+    let material = GemMaterial::diamond();
+    let zones = |geom: StoneGeometry<'_>| {
+        evaluate_gem_optical_metrics_geom(geom, &material, 0.0, FRAC_PI_2, studio())
+            .aset
+            .expect("zone shares")
+    };
+    let flat = zones(StoneGeometry::planes_only(&planes));
+    let grooved = zones(StoneGeometry {
+        planes: &planes,
+        tools: &tools,
+    });
+    let no_tools = zones(StoneGeometry {
+        planes: &planes,
+        tools: &[],
+    });
+    assert_eq!(flat, no_tools);
+    assert_ne!(flat, grooved);
+    for v in [
+        grooved.red_pct,
+        grooved.green_pct,
+        grooved.blue_pct,
+        grooved.leak_pct,
+        grooved.lost_pct,
+        grooved.contrast,
+    ] {
+        assert!(v.is_finite() && (0.0..=100.0).contains(&v), "{grooved:?}");
+    }
+}
+
+/// The finished twin of the evaluation with no frosted facet carries the plain entry point's
+/// zone shares, and the placeholders (no geometry) carry none.
+#[test]
+fn the_finished_twins_carry_the_same_zone_shares_and_placeholders_carry_none() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let geom = StoneGeometry::planes_only(&planes);
+    let plain = evaluate_gem_optical_metrics_geom(geom, &material, 0.0, FRAC_PI_2, studio());
+    let finished = evaluate_gem_optical_metrics_finished(
+        FinishedStone::polished(geom),
+        &material,
+        0.0,
+        FRAC_PI_2,
+        studio(),
+    );
+    assert_eq!(plain.aset, finished.aset);
+    assert!(plain.aset.is_some());
+    assert!(placeholder_metrics().aset.is_none());
+    let empty = evaluate_gem_optical_metrics_geom(
+        StoneGeometry::planes_only(&[]),
+        &material,
+        0.0,
+        FRAC_PI_2,
+        studio(),
+    );
+    assert!(empty.aset.is_none());
+}

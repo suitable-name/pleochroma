@@ -1,0 +1,439 @@
+// The Tools page of the coordinator window: render a scene file to a PNG on this computer
+// (no phone needed), and the exact command that runs this coordinator without the window.
+//
+// Page contract: one `ToolsPage` with no required properties and one `ToolsState` global.
+// `src/gui/pages/tools.rs` answers the callbacks, runs the render on a background thread and
+// fills the state. Built from the coordinator kit (`../frame.slint`).
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme, KitButton, KitCard, KitSegment, KitSegmentBar, CIcons, H2, Sub, Muted } from "../frame.slint";
+
+export global ToolsState {
+    in property <bool> loaded: false;
+
+    /// The scene file (a .json scene); the field can be typed in or filled by Browse.
+    in-out property <string> scene-path;
+    /// The picture to write (.png).
+    in-out property <string> out-path;
+    /// Width, height and samples as typed; the Rust side checks them when Render is pressed.
+    in-out property <string> width-text: "1024";
+    in-out property <string> height-text: "1024";
+    in-out property <string> samples-text: "256";
+    /// 0 Path-Traced, 1 Ray-Traced.
+    in-out property <int> engine: 0;
+    /// 0 GPU (the CPU takes over when the GPU cannot), 1 CPU only.
+    in-out property <int> device: 0;
+
+    /// True while a render runs.
+    in property <bool> rendering: false;
+    /// What the render is doing ("Rendering... 12 s"); empty when idle.
+    in property <string> status;
+    /// The last failure in plain words; empty when the last render worked.
+    in property <string> error;
+    /// The finished picture; empty until a render has worked.
+    in property <string> result-path;
+
+    /// The headless command for this coordinator's settings, one line.
+    in property <string> command;
+    /// Why there is no command (the settings are invalid); empty when there is one.
+    in property <string> command-problem;
+    /// "Copied" or why copying failed; empty when nothing was copied lately.
+    in property <string> copy-notice;
+
+    /// Pick the scene file with a file dialog.
+    callback browse-scene();
+    /// Pick the picture file with a save dialog.
+    callback browse-out();
+    /// The engine changed (0 or 1): the Rust side adjusts the samples to what the engine takes.
+    callback engine-picked(int);
+    /// Render now.
+    callback start-render();
+    /// Stop the running render.
+    callback cancel-render();
+    /// Open the finished picture.
+    callback open-picture();
+    /// Show the finished picture's folder.
+    callback show-folder();
+    /// Copy the headless command.
+    callback copy-command();
+}
+
+// One labelled row: the label sits left of the controls in a wide page and above them in a narrow
+// one.
+component ToolRow inherits Rectangle {
+    in property <string> label;
+    in property <bool> wide: true;
+
+    height: lay.preferred-height;
+    lay := HorizontalLayout {
+        spacing: 12px;
+        if root.wide: Rectangle {
+            width: 110px;
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.label;
+                font-size: 13px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+        VerticalLayout {
+            spacing: 6px;
+            if !root.wide: Text {
+                text: root.label;
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+            @children
+        }
+    }
+}
+
+// A read-only path box (the file's name end stays visible) beside its Browse button.
+component PathRow inherits HorizontalLayout {
+    in-out property <string> value;
+    in property <string> placeholder;
+    in property <string> field-label;
+    callback browse();
+
+    spacing: 10px;
+    LineEdit {
+        horizontal-stretch: 1;
+        text <=> root.value;
+        placeholder-text: root.placeholder;
+        font-size: 13px;
+        accessible-label: root.field-label;
+    }
+    KitButton {
+        icon: CIcons.folder;
+        text: "Browse…";
+        h: 36px;
+        clicked => {
+            root.browse();
+        }
+    }
+}
+
+// A small number box.
+component NumberBox inherits LineEdit {
+    in property <string> field-label;
+    width: 96px;
+    input-type: number;
+    font-size: 13px;
+    accessible-label: root.field-label;
+}
+
+export component ToolsPage inherits Rectangle {
+    property <bool> wide: root.width >= 640px;
+
+    background: transparent;
+
+    ScrollView {
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            // Render a scene file.
+            KitCard {
+                height: render-body.preferred-height + 48px;
+                render-body := VerticalLayout {
+                    padding: 24px;
+                    spacing: 14px;
+                    VerticalLayout {
+                        spacing: 2px;
+                        H2 { text: "Render a scene file"; }
+                        Sub { text: "Renders on this computer, without a phone."; wrap: word-wrap; }
+                    }
+                    ToolRow {
+                        label: "Scene file";
+                        wide: root.wide;
+                        PathRow {
+                            value <=> ToolsState.scene-path;
+                            placeholder: "A scene file (.json)";
+                            field-label: "Scene file";
+                            browse => {
+                                ToolsState.browse-scene();
+                            }
+                        }
+                    }
+                    ToolRow {
+                        label: "Size";
+                        wide: root.wide;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: start;
+                            NumberBox {
+                                text <=> ToolsState.width-text;
+                                field-label: "Picture width in pixels";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Sub { text: "×"; }
+                            }
+                            NumberBox {
+                                text <=> ToolsState.height-text;
+                                field-label: "Picture height in pixels";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Sub { text: "pixels"; }
+                            }
+                        }
+                    }
+                    ToolRow {
+                        label: "Samples";
+                        wide: root.wide;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: start;
+                            NumberBox {
+                                text <=> ToolsState.samples-text;
+                                field-label: "Samples per pixel";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Sub {
+                                    text: ToolsState.engine == 1 ? "Ray-Traced takes 1, 4, 8 or 16" : "more samples, less noise";
+                                }
+                            }
+                        }
+                    }
+                    ToolRow {
+                        label: "Engine";
+                        wide: root.wide;
+                        HorizontalLayout {
+                            alignment: start;
+                            KitSegmentBar {
+                                height: 34px;
+                                width: engine-row.preferred-width;
+                                engine-row := HorizontalLayout {
+                                    padding: 3px;
+                                    spacing: 3px;
+                                    KitSegment {
+                                        text: "Path-Traced";
+                                        hint: "The physically complete render";
+                                        on: ToolsState.engine == 0;
+                                        picked => {
+                                            ToolsState.engine = 0;
+                                            ToolsState.engine-picked(0);
+                                        }
+                                    }
+                                    KitSegment {
+                                        text: "Ray-Traced";
+                                        hint: "The fast, clean render with anti-aliasing taps";
+                                        on: ToolsState.engine == 1;
+                                        picked => {
+                                            ToolsState.engine = 1;
+                                            ToolsState.engine-picked(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ToolRow {
+                        label: "Device";
+                        wide: root.wide;
+                        HorizontalLayout {
+                            alignment: start;
+                            KitSegmentBar {
+                                height: 34px;
+                                width: device-row.preferred-width;
+                                device-row := HorizontalLayout {
+                                    padding: 3px;
+                                    spacing: 3px;
+                                    KitSegment {
+                                        text: "GPU";
+                                        hint: "The graphics card; the processor takes over if it cannot";
+                                        on: ToolsState.device == 0;
+                                        picked => {
+                                            ToolsState.device = 0;
+                                        }
+                                    }
+                                    KitSegment {
+                                        text: "CPU";
+                                        hint: "The processor only";
+                                        on: ToolsState.device == 1;
+                                        picked => {
+                                            ToolsState.device = 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ToolRow {
+                        label: "Output file";
+                        wide: root.wide;
+                        PathRow {
+                            value <=> ToolsState.out-path;
+                            placeholder: "The picture to write (.png)";
+                            field-label: "Output file";
+                            browse => {
+                                ToolsState.browse-out();
+                            }
+                        }
+                    }
+
+                    // Render, and what it is doing.
+                    HorizontalLayout {
+                        spacing: 14px;
+                        VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                kind: 1;
+                                text: ToolsState.rendering ? "Rendering…" : "Render";
+                                h: 36px;
+                                enabled: !ToolsState.rendering;
+                                clicked => {
+                                    ToolsState.start-render();
+                                }
+                            }
+                        }
+                        if ToolsState.rendering: VerticalLayout {
+                            alignment: center;
+                            KitButton {
+                                text: "Cancel";
+                                h: 36px;
+                                clicked => {
+                                    ToolsState.cancel-render();
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 6px;
+                            if ToolsState.rendering: Rectangle {
+                                // An unmeasured wait: a bar sweeps back and forth.
+                                height: 6px;
+                                border-radius: 3px;
+                                background: Theme.bg-input;
+                                clip: true;
+                                accessible-role: AccessibleRole.text;
+                                accessible-label: "Rendering";
+                                Rectangle {
+                                    property <float> phase: mod(animation-tick() / 1.6s, 1.0);
+                                    property <float> sweep: phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+                                    width: parent.width * 0.3;
+                                    height: parent.height;
+                                    x: (parent.width - self.width) * sweep;
+                                    border-radius: 3px;
+                                    background: Theme.accent-cyan;
+                                }
+                            }
+                            if ToolsState.status != "": Sub {
+                                text: ToolsState.status;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                    if ToolsState.error != "": Text {
+                        text: ToolsState.error;
+                        font-size: 12px;
+                        color: Theme.danger;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                        accessible-label: "Render problem: " + ToolsState.error;
+                    }
+                    if ToolsState.result-path != "": VerticalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Saved " + ToolsState.result-path;
+                            font-size: 12px;
+                            color: Theme.success;
+                            wrap: word-wrap;
+                            accessible-role: AccessibleRole.text;
+                            accessible-label: "Picture saved to " + ToolsState.result-path;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: start;
+                            KitButton {
+                                icon: CIcons.folder;
+                                text: "Open the picture";
+                                h: 34px;
+                                clicked => {
+                                    ToolsState.open-picture();
+                                }
+                            }
+                            KitButton {
+                                text: "Show in folder";
+                                h: 34px;
+                                clicked => {
+                                    ToolsState.show-folder();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Run without the window.
+            KitCard {
+                height: headless-body.preferred-height + 48px;
+                headless-body := VerticalLayout {
+                    padding: 24px;
+                    spacing: 14px;
+                    VerticalLayout {
+                        spacing: 2px;
+                        H2 { text: "Run without the window"; }
+                        Sub { text: "Starts the coordinator in the background with the same settings."; wrap: word-wrap; }
+                    }
+                    if ToolsState.command-problem != "": Text {
+                        text: ToolsState.command-problem;
+                        font-size: 12px;
+                        color: Theme.danger;
+                        wrap: word-wrap;
+                    }
+                    if ToolsState.command != "": Rectangle {
+                        height: cmd-text.preferred-height + 28px;
+                        border-radius: 8px;
+                        background: Theme.bg-input;
+                        accessible-role: AccessibleRole.text;
+                        accessible-label: "Command to run without the window: " + ToolsState.command;
+                        cmd-text := Text {
+                            x: 14px;
+                            y: 14px;
+                            width: parent.width - 28px;
+                            text: ToolsState.command;
+                            font-size: 12px;
+                            font-family: "Consolas";
+                            color: Theme.text-primary;
+                            wrap: word-wrap;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: start;
+                        KitButton {
+                            icon: CIcons.copy;
+                            text: "Copy";
+                            h: 34px;
+                            enabled: ToolsState.command != "";
+                            clicked => {
+                                ToolsState.copy-command();
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Sub { text: ToolsState.copy-notice; }
+                        }
+                    }
+                    Muted {
+                        text: "The command holds file paths and no secrets. Choices with no command-line option, such as where jobs are stored, stay with the window.";
+                        wrap: word-wrap;
+                    }
+                    Muted {
+                        text: "For a Linux service, see the packaging folder and chapter 10 of the manual.";
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}

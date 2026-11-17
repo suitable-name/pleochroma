@@ -90,4 +90,9 @@ pub struct CustomMaterialRow {
     /// writes; opaque to this crate. `None` is "no structure", as for
     /// [`Self::inclusion_families_json`].
     pub structure_json: Option<String>,
+    /// The gem data the author entered (Mohs, toughness, cleavage, fracture, care, source), as
+    /// the JSON text of `pleochroma_formats::native::CustomGemDataTable`; opaque to this crate.
+    /// `None` is "not recorded": a row saved before this field existed or one whose author
+    /// entered none.
+    pub gem_data_json: Option<String>,
 }

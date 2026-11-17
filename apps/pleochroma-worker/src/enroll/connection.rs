@@ -5,7 +5,7 @@
 //! [`pleochroma_net::enroll::EnrollResponse`] exchange. See the `crate::enroll` module doc for
 //! why this listener cannot reach `RenderRequest` handling.
 
-use super::registry::{EnrollRegistry, ZeroizeLocal};
+use super::registry::{ClaimEvent, EnrollRegistry, ZeroizeLocal};
 use pleochroma_net::{
     enroll::{EnrollRequest, EnrollResponse},
     messages::PeerRole,
@@ -13,7 +13,7 @@ use pleochroma_net::{
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -74,28 +74,60 @@ pub(super) fn accept_enroll_tls(
     Some(tls_stream)
 }
 
-/// The certificate label an `Issue { name }` asks for, checked against the listener's
-/// role (see `super`'s module doc comment): a worker listener needs the
+/// The refusal for a monitor or admin `Issue` while remote administration is off.
+const REMOTE_ADMIN_OFF: &str = "monitor and admin codes need remote administration to be switched on: \
+     start the coordinator with `serve --allow-remote-admin` (in the window: Settings, \
+     Remote administration)";
+
+/// The role and certificate label an `Issue { name }` asks for, checked against the
+/// listener's role (see `super`'s module doc comment): a worker listener needs the
 /// `worker:<label>` form `cert issue-token --role worker` sends and returns the bare
-/// label; a viewer listener refuses that form.
+/// label; a viewer listener refuses that form. A viewer listener also honors
+/// `monitor:<label>` and `admin:<label>`, but only when remote administration registered the
+/// role's allowlist with the registry ([`EnrollRegistry::register_allowlist`]).
 ///
 /// # Errors
 ///
 /// The refusal reason for an `Issue` of the other role.
-fn issue_label_for_role(name: &str, role: PeerRole) -> Result<&str, String> {
-    match (role, name.strip_prefix(crate::pki::WORKER_CN_PREFIX)) {
-        (PeerRole::Viewer, None) => Ok(name),
-        (PeerRole::Worker, Some(label)) => Ok(label),
-        (PeerRole::Viewer, Some(_)) => Err(
-            "this is the VIEWER enrollment listener -- a worker token must be issued on the coordinator's \
-             WORKER enrollment listener (default port 7881)"
+fn issue_target<'a>(
+    name: &'a str,
+    registry: &EnrollRegistry,
+) -> Result<(PeerRole, &'a str), String> {
+    let remote_admin = [
+        (crate::pki::MONITOR_CN_PREFIX, PeerRole::Monitor),
+        (crate::pki::ADMIN_CN_PREFIX, PeerRole::Admin),
+    ]
+    .into_iter()
+    .find_map(|(prefix, role)| name.strip_prefix(prefix).map(|label| (role, label)));
+    match (registry.role(), remote_admin) {
+        (PeerRole::Viewer, Some((role, label))) => {
+            if registry.allowlist_for(role).is_some() {
+                Ok((role, label))
+            } else {
+                Err(REMOTE_ADMIN_OFF.to_string())
+            }
+        }
+        (PeerRole::Worker, Some(_)) => Err(
+            "this is the WORKER enrollment listener -- monitor and admin codes are issued on the \
+             coordinator's VIEWER enrollment listener (default port 7879)"
                 .to_string(),
         ),
-        (PeerRole::Worker, None) => Err(
-            "this is the WORKER enrollment listener -- pass `cert issue-token --role worker` for a worker \
-             token, or use the viewer enrollment listener (default port 7879) for a viewer"
-                .to_string(),
-        ),
+        (PeerRole::Monitor | PeerRole::Admin, _) => Err(REMOTE_ADMIN_OFF.to_string()),
+        (role, None) => match (role, name.strip_prefix(crate::pki::WORKER_CN_PREFIX)) {
+            (PeerRole::Viewer, None) => Ok((PeerRole::Viewer, name)),
+            (PeerRole::Worker, Some(label)) => Ok((PeerRole::Worker, label)),
+            (PeerRole::Viewer, Some(_)) => Err(
+                "this is the VIEWER enrollment listener -- a worker token must be issued on the coordinator's \
+                 WORKER enrollment listener (default port 7881)"
+                    .to_string(),
+            ),
+            (PeerRole::Worker, None) => Err(
+                "this is the WORKER enrollment listener -- pass `cert issue-token --role worker` for a worker \
+                 token, or use the viewer enrollment listener (default port 7879) for a viewer"
+                    .to_string(),
+            ),
+            (PeerRole::Monitor | PeerRole::Admin, _) => Err(REMOTE_ADMIN_OFF.to_string()),
+        },
     }
 }
 
@@ -127,11 +159,11 @@ fn issue_response(
             ),
         };
     }
-    match issue_label_for_role(name, registry.role()) {
-        Ok(label) => match registry.issue(pki_dir, label) {
-            Ok((token, expires_in_secs)) => EnrollResponse::Issued {
-                token,
-                expires_in_secs,
+    match issue_target(name, registry) {
+        Ok((role, label)) => match registry.issue_for_role(pki_dir, label, role) {
+            Ok(issued) => EnrollResponse::Issued {
+                token: issued.token,
+                expires_in_secs: issued.expires_in_secs,
             },
             // EnrollIssueError -> String at the wire boundary: `reason` travels to the
             // peer as plain text, never matched on.
@@ -209,20 +241,43 @@ pub(super) fn handle_enroll_connection<S: Read + Write>(
             secret.zeroize_local();
 
             let response = if let Some(claimed) = claimed {
-                let allowlisted = allowlist_path.map_or(Ok(()), |path| {
-                    pleochroma_net::tls::append_to_allowlist(
-                        path,
-                        &claimed.bundle.client_fingerprint,
-                        &claimed.name,
-                    )
-                    .map_err(|e| e.to_string())
+                // The registry's own role uses the listener's allowlist; a token of another
+                // role needs the path registered for that role, else it is refused.
+                let target: Result<Option<PathBuf>, String> = if claimed.role == registry.role() {
+                    Ok(allowlist_path.map(Path::to_path_buf))
+                } else {
+                    registry
+                        .allowlist_for(claimed.role)
+                        .map(Some)
+                        .ok_or_else(|| {
+                            "no allowlist is registered for this token's role".to_string()
+                        })
+                };
+                let allowlisted = target.and_then(|path| {
+                    path.map_or(Ok(()), |path| {
+                        pleochroma_net::tls::append_to_allowlist(
+                            &path,
+                            &claimed.bundle.client_fingerprint,
+                            &claimed.name,
+                        )
+                        .map_err(|e| e.to_string())
+                    })
                 });
                 match allowlisted {
-                    Ok(()) => EnrollResponse::Claimed {
-                        ca_pem: claimed.bundle.ca_pem,
-                        client_cert_pem: claimed.bundle.client_cert_pem,
-                        client_key_pem: claimed.bundle.client_key_pem.to_string(),
-                    },
+                    Ok(()) => {
+                        registry.notify_claimed(&ClaimEvent {
+                            id: claimed.id,
+                            role: claimed.role,
+                            name: claimed.name.clone(),
+                            fingerprint: claimed.bundle.client_fingerprint,
+                            peer: peer.unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0))),
+                        });
+                        EnrollResponse::Claimed {
+                            ca_pem: claimed.bundle.ca_pem,
+                            client_cert_pem: claimed.bundle.client_cert_pem,
+                            client_key_pem: claimed.bundle.client_key_pem.to_string(),
+                        }
+                    }
                     Err(e) => {
                         // The certificate must not be handed out without also being
                         // allowlisted -- an unlisted cert would just fail the render

@@ -5,7 +5,8 @@ import { Theme } from "../../theme.slint";
 export global SweepStyle {
     // The colour of figure `series` (numbered like `pleochroma_editor::sweep::SweepMetric`:
     // 0 brilliance, 1 windowing, 2 extinction, 3 fire, 4 scintillation, 5 yield, 6..8 the
-    // tilt averages). Brilliance, windowing and extinction match the tilt graph.
+    // tilt averages, 9 Contrast, last so the older numbers keep their meaning). Brilliance, windowing and extinction
+    // match the tilt graph.
     public pure function series_color(series: int) -> color {
         return series == 0 ? Theme.accent-cyan
             : series == 1 ? Theme.accent-amber
@@ -15,6 +16,15 @@ export global SweepStyle {
             : series == 5 ? Theme.text-primary
             : series == 6 ? Theme.accent-cyan-hover
             : series == 7 ? Theme.notice-accent
-            : Theme.accent-ruby;
+            : series == 8 ? Theme.accent-ruby
+            : Theme.text-secondary;
+    }
+
+    // Whether figure `series` is drawn dashed (Contrast, 9). It is the neutral light color,
+    // not the old blue, because the blue sat too close to Fire's purple among ten thin lines;
+    // the dash also keeps it apart from Yield's solid light line, and it survives
+    // color-blindness. `present.rs` cuts the line into dashes; the legend chip shows one.
+    public pure function series_dashed(series: int) -> bool {
+        return series == 9;
     }
 }

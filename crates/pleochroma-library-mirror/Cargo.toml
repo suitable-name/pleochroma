@@ -1,0 +1,34 @@
+[package]
+name = "pleochroma-library-mirror"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+description = "Pleochroma's design-library mirror sync and remote browsing over the read-only library protocol, shared by the desktop and Android apps; the caller supplies the transport."
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-library-mirror"
+keywords = ["gemstone", "faceting", "library", "sync"]
+categories = ["database"]
+publish = { workspace = true }
+
+[dependencies]
+pleochroma-net = { workspace = true }
+pleochroma-vault = { workspace = true }
+tracing = { workspace = true }
+# Only for `testing` (behind `test-support`): the scripted transport builds the same content
+# hashes the worker's library server computes.
+sha2 = { workspace = true, optional = true }
+
+[features]
+default = []
+# The scripted `testing::FakeTransport` and fixtures, for the tests of the crates that use this one.
+test-support = ["dep:sha2"]
+
+[dev-dependencies]
+pleochroma-formats = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

@@ -41,6 +41,7 @@ fn form(name: &str, physics: Option<PhysicsForm>) -> CustomMaterialForm {
         body_rays: None,
         default_axis: DefaultAxisForm::default(),
         physics,
+        gem_data: None,
     }
 }
 

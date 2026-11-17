@@ -69,9 +69,10 @@ pub use deep::{
     deep_progress_status, run_deep_solve,
 };
 pub use optical::{
-    MetricsJob, MetricsParams, MetricsResultData, ScoredUnder, TiltAxisData, TiltJob, TiltParams,
-    TiltResultData, run_metrics, run_metrics_with_geometry, run_metrics_with_map, run_tilt,
-    run_tilt_with_geometry, sweep_fraction, sweep_status, tilt_lighting_note,
+    AsetSharesData, MetricsJob, MetricsParams, MetricsResultData, ScoredUnder, TiltAxisData,
+    TiltJob, TiltParams, TiltResultData, run_metrics, run_metrics_with_geometry,
+    run_metrics_with_map, run_tilt, run_tilt_with_geometry, sweep_fraction, sweep_status,
+    tilt_lighting_note,
 };
 
 /// What the solve Worker is asked to do.

@@ -180,7 +180,7 @@ impl PixelSampler<'_> {
             for class in traces {
                 let bucket = match class {
                     RayClassification::Windowed => 0,
-                    RayClassification::Extinct => 1,
+                    RayClassification::Extinct { .. } => 1,
                     RayClassification::Returned(returned) => {
                         if self.want_fire {
                             if let Some((angle, weight)) = returned.fire {

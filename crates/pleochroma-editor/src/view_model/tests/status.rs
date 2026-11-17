@@ -75,6 +75,27 @@ fn status_text_reports_degenerate_once_pinched_flat() {
     let (text, is_problem) = status_text_and_is_problem(&state.design);
     assert!(text.starts_with("Degenerate"), "{text}");
     assert!(is_problem);
+    assert!(!text.contains("^3"), "the cube is a superscript: {text}");
+    assert!(
+        !text.contains("(model units") || text.contains("(model units\u{b3})"),
+        "{text}"
+    );
+}
+
+/// U13: the closed-solid line reads "Closed solid · volume 2.1879 (model units³)", with the
+/// middle dot and the superscript cube, never "--" or "^3".
+#[test]
+fn closed_solid_status_uses_the_middle_dot_and_superscript_cube() {
+    let design = pleochroma_cut_core::Design::concave_fixture();
+    let solved = design.solve().expect("the fixture pins every mast");
+    for text in [
+        status_text_and_is_problem(&design).0,
+        status_text_and_is_problem_from_solved(&design, &solved).0,
+    ] {
+        assert!(text.starts_with("Closed solid \u{b7} volume "), "{text}");
+        assert!(text.contains(" (model units\u{b3})"), "{text}");
+        assert!(!text.contains("--") && !text.contains("^3"), "{text}");
+    }
 }
 
 #[test]

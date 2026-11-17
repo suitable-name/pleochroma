@@ -14,6 +14,10 @@
 //! design file has exactly these bytes. The same name with different bytes replaces the
 //! entry (the desktop's rule; hand-entered metadata is carried over, the cached previews
 //! are dropped) and counts as added.
+//!
+//! The one exception is a name a synced design already has (the paired computer's own
+//! `local://` imports): that design is written only by the sync, so the file is stored under
+//! the next free `name (2)` instead, and importing it again is then a duplicate of that copy.
 
 use std::{
     collections::HashSet,
@@ -33,6 +37,8 @@ use super::{
     ImportReport, LibraryHandle,
     handle::db_error,
     measure::{apply_measured_metadata, fill_designer_info},
+    search::is_live_mirror,
+    store::numbered_name,
 };
 use crate::platform::PickedFile;
 
@@ -56,11 +62,20 @@ impl LibraryHandle {
         let mut report = ImportReport::default();
         let jobs = plan(files, &mut report.failed);
         let mut seen: HashSet<String> = HashSet::new();
-        for job in jobs {
+        for mut job in jobs {
             let name = job.file.display_name.clone();
             if !seen.insert(sha256_hex(&job.file.bytes)) {
                 report.duplicates += 1;
                 continue;
+            }
+            // A synced design is written only by the sync: a file named like one is stored
+            // under the next name that no synced design uses.
+            match self.name_clear_of_synced(&name) {
+                Ok(free) => job.file.display_name = free,
+                Err(message) => {
+                    report.failed.push((name, message));
+                    continue;
+                }
             }
             let parsed = match catch_unwind(AssertUnwindSafe(|| parse_job(&job))) {
                 Ok(Ok(parsed)) => parsed,
@@ -87,6 +102,22 @@ impl LibraryHandle {
             self.bump();
         }
         report
+    }
+
+    /// `file_name`, or `<stem> (2).<ext>` and so on, whichever no synced design has for its
+    /// `local://` url: the computer's own imports are `local://` designs here too, and an
+    /// import must never replace one. A name only a design of the user's own has stays, so a
+    /// re-import of the same file still finds its row (a duplicate when the bytes match).
+    fn name_clear_of_synced(&self, file_name: &str) -> Result<String, String> {
+        let database = self.lock();
+        for number in 1..=999_u32 {
+            let candidate = numbered_name(file_name, number);
+            if !is_live_mirror(&database, &format!("local://{candidate}")) {
+                return Ok(candidate);
+            }
+        }
+        drop(database);
+        Err("Too many designs in the library share this name.".to_owned())
     }
 
     /// Writes one parsed design: a new row, or a replacement of the row with the same

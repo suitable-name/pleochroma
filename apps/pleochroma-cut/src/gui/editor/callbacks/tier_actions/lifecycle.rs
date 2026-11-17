@@ -158,6 +158,9 @@ fn apply_loaded_design(
         )
     };
     let design_names_material = loaded.design.material.name.is_some();
+    // A color pattern this build cannot apply renders as the plain material; the load toast says so.
+    let (pattern_note, pattern_problem) =
+        pleochroma_editor::material_lookup::with_pattern_notice("", &loaded.design);
     let mut st = state.borrow_mut();
     // `replace_wholesale` keeps the state's `generation` counter (and bumps it), so a
     // background solve started against the replaced design still sees the change.
@@ -222,9 +225,11 @@ fn apply_loaded_design(
     if loaded.used_placeholder {
         show_toast(
             ui,
-            "Loaded a reconstructed schedule -- mast distances are \
-             placeholders (no attached .asc file was found); adjust \
-             masts before exporting.",
+            &format!(
+                "Loaded a reconstructed schedule -- mast distances are \
+                 placeholders (no attached .asc file was found); adjust \
+                 masts before exporting.{pattern_note}"
+            ),
             // Every mast on this design is a fabricated 0.0. A cutter who
             // misses that can export a file that looks like a real cut
             // instruction and is not, so this must not auto-dismiss the way an
@@ -234,8 +239,12 @@ fn apply_loaded_design(
     } else {
         show_toast(
             ui,
-            &format!("Loaded '{loaded_label}' into the editor."),
-            "success",
+            &format!("Loaded '{loaded_label}' into the editor.{pattern_note}"),
+            if pattern_problem {
+                "warning"
+            } else {
+                "success"
+            },
         );
     }
     // Suggests the built-in material whose n_D is nearest the schedule RI (within

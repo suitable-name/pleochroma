@@ -9,6 +9,7 @@ mod census;
 mod export;
 mod image_compare;
 mod info;
+mod materials;
 mod metrics;
 mod optimize;
 mod render_job;
@@ -41,6 +42,7 @@ pub fn dispatch(command: &Command) -> CommandResult {
         ))),
         Command::Batch(batch) => batch::run(batch),
         Command::Info(args) => info::run(args),
+        Command::Materials(args) => materials::run(args),
         Command::Solve(args) => solve::run(args),
         Command::Metrics(args) => metrics::run(args),
         Command::Validate(args) => validate::run(args),

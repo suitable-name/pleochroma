@@ -267,9 +267,10 @@ pub fn rank_fastest(candidates: &mut [WorkerInfo], rates: &RateBook, pixels: u32
     });
 }
 
-/// `serve --pin-interactive-worker <label>` (advanced): the joined worker whose
-/// certificate label (`WorkerInfo::label`) an `Interactive` request that takes workers
-/// uses first.
+/// `serve --pin-interactive-worker <label>` (advanced).
+///
+/// The joined worker whose certificate label (`WorkerInfo::label`) an `Interactive` request that
+/// takes workers uses first.
 ///
 /// Applies only where [`plan`] picks [`WorkerPick::Fastest`] for an `Interactive` request
 /// -- a coordinator without `--render`, or `--interactive-workers` above 0 (including
@@ -300,8 +301,9 @@ impl InteractivePin {
         &self.label
     }
 
-    /// Moves the best-ranked candidate carrying the pinned label to the front of
-    /// `ranked` (already in [`rank_fastest`] order), keeping everyone else's order.
+    /// Moves the best-ranked candidate carrying the pinned label to the front of `ranked` (already
+    /// in [`rank_fastest`] order), keeping everyone else's order.
+    ///
     /// Returns whether it was there; logs when that changes.
     pub fn apply(&self, ranked: &mut [WorkerInfo]) -> bool {
         let found = ranked

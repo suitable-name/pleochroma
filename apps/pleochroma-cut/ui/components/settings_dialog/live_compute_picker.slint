@@ -5,7 +5,8 @@ import { KitIcons, KitSegment, KitSegmentBar } from "../kit/kit.slint";
 import { KitRowName, KitSummaryRow } from "../kit/r2r.slint";
 import { ToggleRow } from "../toggle_switch.slint";
 
-// The remote half of the Compute card: the Remote Render status row, Live Compute (which
+// The remote half of the Compute card, shown above this computer's engines: the Remote Render
+// status row, Live Compute (which
 // engine(s) trace the settled viewport image), the live transfer read-out and the final-picture
 // share switch. The same disabled-with-a-reason treatment as the "Compute" section of
 // `export_dialog/compute_and_bounces.slint`. Advanced: Simple mode hides it
@@ -39,7 +40,7 @@ export component LiveComputePicker inherits VerticalLayout {
             : (RemoteWorkerModel.availability_reason == "" ? "None set up: add a machine" : RemoteWorkerModel.availability_reason);
         action: root.configured ? "Settings…" : "Set Up…";
         action_label: "Open Remote Settings...";
-        action_hint: "Open the Remote Coordinator dialog (the Remote button in the header), where the remote machine is set up and the live transfer is chosen.";
+        action_hint: "Open the Remote Coordinator dialog (File > Remote Rendering...), where the remote machine is set up and the live transfer is chosen.";
         action_clicked => { RemoteWorkerModel.open_dialog(); }
     }
 
@@ -111,7 +112,7 @@ export component LiveComputePicker inherits VerticalLayout {
         spacing: 10px;
         KitRowName {
             text: "Live Transfer";
-            hint: "Live Transfer: how the remote worker sends its share back while you look at the stone. Progressive shows the picture improving;\nFull Data When Finished waits for the result; Final Picture sends only finished, denoised frames, so your own\ntracing pauses after the handoff. Change it in the Remote Coordinator dialog (header, Remote).";
+            hint: "Live Transfer: how the remote worker sends its share back while you look at the stone. Progressive shows the picture improving;\nFull Data When Finished waits for the result; Final Picture sends only finished, denoised frames, so your own\ntracing pauses after the handoff. Change it in the Remote Coordinator dialog (File > Remote Rendering...).";
         }
         Text {
             horizontal-stretch: 1;

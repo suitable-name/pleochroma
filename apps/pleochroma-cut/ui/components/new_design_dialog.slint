@@ -251,6 +251,8 @@ export component NewDesignDialog inherits Rectangle {
                             VerticalLayout {
                                 horizontal-stretch: 2;
                                 spacing: 2px;
+                                // Each field keeps its own height; the row's spare height goes below.
+                                alignment: start;
                                 FieldCaption {
                                     text: "Material";
                                     hint: "The material the stone is cut from. Its refractive index decides the facet angles: a material unlike the one the shape was designed for gets adapted angles. See the glossary.";
@@ -269,13 +271,15 @@ export component NewDesignDialog inherits Rectangle {
                             VerticalLayout {
                                 horizontal-stretch: 1;
                                 spacing: 2px;
+                                // Each field keeps its own height; the row's spare height goes below.
+                                alignment: start;
                                 FieldCaption {
                                     text: "Index Gear";
                                     hint: "The index-gear tooth count. Only the gears this shape's facets still land on, symmetrically and on whole teeth, are offered. See the glossary.";
                                 }
                                 TipBox {
                                     hint: "The number of teeth on the index gear that will cut this stone.";
-                                    ComboBox {
+                                    gear-box := ComboBox {
                                         min-width: 0px;
                                         accessible-label: "Index Gear";
                                         model: TemplateGalleryModel.gear_options;
@@ -286,6 +290,8 @@ export component NewDesignDialog inherits Rectangle {
                             VerticalLayout {
                                 horizontal-stretch: 1;
                                 spacing: 2px;
+                                // Each field keeps its own height; the row's spare height goes below.
+                                alignment: start;
                                 FieldCaption {
                                     text: "Stone Width (mm)";
                                     hint: "The finished stone's width across the girdle, in millimetres. It scales weights and the cutting instructions; leave it empty to set it later in the Edit tab.";
@@ -294,6 +300,8 @@ export component NewDesignDialog inherits Rectangle {
                                     hint: "The finished stone's width in millimetres. Leave empty to set it later.";
                                     LineEdit {
                                         min-width: 0px;
+                                        // As tall as the Material and Index Gear boxes beside it.
+                                        height: max(gear-box.min-height, gear-box.preferred-height);
                                         accessible-label: "Stone Width in Millimetres";
                                         text <=> TemplateGalleryModel.width_text;
                                         changed has-focus => { EditorModel.text_focus = self.has-focus; }

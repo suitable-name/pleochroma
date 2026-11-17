@@ -449,14 +449,17 @@ impl Session {
         let Some(front) = self.unfinished.first() else {
             return Ok(());
         };
+        let samples_done = self.pipeline.traced_total.load(Ordering::Relaxed);
         pleochroma_net::messages::write_stream_event(
             stream,
             &StreamEvent::Progress(Progress {
                 request_id: front.request_id,
-                samples_done: self.pipeline.traced_total.load(Ordering::Relaxed),
+                samples_done,
             }),
             None,
         )?;
+        // The registry entry of this batch (this is the connection thread that owns it).
+        crate::control::renders::note_progress(samples_done);
         self.last_write = Instant::now();
         Ok(())
     }

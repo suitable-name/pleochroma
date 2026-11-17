@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use pleochroma::{
     color::metrics::{
-        GemOpticalMetrics, PROFILE_AZIMUTHS_DEG, evaluate_full_axis_profile_at_azimuth,
+        AsetAreaShares, GemOpticalMetrics, PROFILE_AZIMUTHS_DEG,
+        evaluate_full_axis_profile_at_azimuth,
         evaluate_full_axis_profile_at_azimuth_finished_threaded, evaluate_gem_optical_metrics,
         evaluate_gem_optical_metrics_finished,
     },
@@ -797,4 +798,56 @@ fn the_status_line_names_the_axis_and_the_points() {
         total: 724,
     });
     assert!((half - 0.5).abs() < 1e-6);
+}
+
+/// The Zones (ASET-style) shares and Contrast the Worker sends are the desktop call's
+/// `GemOpticalMetrics::aset`, bit for bit, and Leak is the Windowing figure.
+#[test]
+fn the_zone_shares_equal_the_desktop_call_bit_for_bit() {
+    let design = template_design(1);
+    let (mut spec, planes) = scene_of(&design, MaterialSpec::catalogue("Diamond"));
+    spec.finishes = FinishSpec::AllPolished;
+    let direct = evaluate_gem_optical_metrics(
+        &planes,
+        &GemMaterial::diamond(),
+        0.61,
+        0.47,
+        LightingPreset::LightTent.studio(1.0, 0.84, 0.93),
+    );
+    let want = direct.aset.expect("a stone with geometry has zone shares");
+    let got = metrics_of(run_metrics(&mut None, &MetricsParams::from_scene(&spec)));
+    let sent = got.aset.expect("the Worker forwards the shares");
+    assert_eq!(AsetAreaShares::from(sent), want);
+    assert_eq!(sent.leak_pct.to_bits(), got.windowing_pct.to_bits());
+    assert!((0.0..=100.0).contains(&sent.contrast));
+}
+
+/// `AsetSharesData` round-trips through postcard and through the core's type, with and
+/// without shares in a `MetricsResultData`.
+#[test]
+fn zone_shares_round_trip_through_postcard() {
+    let shares = AsetAreaShares {
+        red_pct: 44.0,
+        green_pct: 19.0,
+        blue_pct: 16.0,
+        leak_pct: 9.0,
+        lost_pct: 12.0,
+        contrast: 27.3,
+    };
+    assert_eq!(AsetAreaShares::from(AsetSharesData::from(shares)), shares);
+    for aset in [Some(AsetSharesData::from(shares)), None] {
+        let data = MetricsResultData {
+            brilliance_pct: 60.0,
+            fire_index: 1.0,
+            scintillation_pct: 40.0,
+            windowing_pct: 9.0,
+            extinction_pct: 30.0,
+            scored_under: ScoredUnder::Preset(1),
+            doubling_arcmin: 0.0,
+            aset,
+        };
+        let bytes = postcard::to_allocvec(&data).expect("encodes");
+        let back: MetricsResultData = postcard::from_bytes(&bytes).expect("decodes");
+        assert_eq!(back, data);
+    }
 }

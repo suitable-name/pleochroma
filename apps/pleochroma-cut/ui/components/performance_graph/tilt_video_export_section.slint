@@ -604,6 +604,30 @@ export component TiltVideoExportSection inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.surface-raised; }
 
+            // Surroundings -- the two tray effects a tilt video leaves out unless asked. The
+            // stone itself stays as designed (no Stone Pose); only the shadow and the mirror image
+            // on the tray are added, from the Live Render's own settings.
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "Stone on the Tray"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                ToggleRow {
+                    text: "Stone Shadow";
+                    hint: "Let the stone cast its shadow and colored light onto the tray in every frame, as in the Live Render. Needs a studio light with a backdrop.";
+                    label_color: Theme.text-secondary;
+                    checked: TiltVideoExportModel.stone_shadow;
+                    toggled => { TiltVideoExportModel.stone_shadow = !TiltVideoExportModel.stone_shadow; }
+                }
+                ToggleRow {
+                    text: "Tray Reflection";
+                    hint: "Show the stone mirrored in the glossy tray in every frame, at the Live Render's strength (4 % if it is Off there). Needs a studio light with a backdrop.";
+                    label_color: Theme.text-secondary;
+                    checked: TiltVideoExportModel.tray_reflection;
+                    toggled => { TiltVideoExportModel.tray_reflection = !TiltVideoExportModel.tray_reflection; }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
             // Overlay -- which tilt-performance values (if any) get drawn
             // into every frame; the display type (numbers-only / short
             // labels / full labels) is chosen automatically from how many

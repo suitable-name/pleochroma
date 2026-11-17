@@ -88,6 +88,38 @@ fn preview_reflects_the_real_open_design_and_material_not_the_hard_coded_sample(
     );
     assert_eq!(ctx.design, "40.014 Eleets");
     assert_eq!(ctx.material, "Spinel");
+    // `{distance}` is the distance the video renders with, whatever the viewport's zoom.
+    let zoomed = SceneSnapshot::capture(&Mutex::new(RenderContext {
+        distance: 9.0,
+        ..RenderContext::default()
+    }))
+    .expect("Diamond resolves");
+    let (zoomed_ctx, _) = build_video_template_context(
+        "d",
+        "d",
+        "Round",
+        "1.71",
+        "Spinel",
+        &zoomed,
+        VideoTemplateSettings {
+            axis_label: axes_label(&[0]),
+            fps: 30,
+            width: 1920,
+            height: 1080,
+            spp: 64,
+            bounces: 12,
+            color_space: ColorSpace::Srgb,
+            step_deg: 1.0,
+            start_deg: -90.0,
+            end_deg: 90.0,
+            total_frames: 181,
+        },
+    );
+    assert_eq!(
+        zoomed_ctx.distance.to_bits(),
+        super::frames::video_distance(&scene.active_planes, 1920, 1080).to_bits()
+    );
+    assert_eq!(ctx.distance.to_bits(), zoomed_ctx.distance.to_bits());
 
     let name = template::resolve_folder_name(template::DEFAULT_VIDEO_TEMPLATE, &ctx, &extras);
     assert!(

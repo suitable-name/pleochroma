@@ -112,7 +112,8 @@ fn axis_picked(window: &AppWindow, state: &Shared, _index: i32) {
     super::push(window, &state.borrow());
 }
 
-/// The figures card was tapped: the five numbers as "name<TAB>value" lines.
+/// The figures card was tapped: the numbers the card shows (the five light-return figures and
+/// Contrast, not Doubling) as "name<TAB>value" lines.
 fn copy_figures(window: &AppWindow, state: &Shared) {
     let app = state.borrow();
     let view = metrics_view(&app);
@@ -123,17 +124,17 @@ fn copy_figures(window: &AppWindow, state: &Shared) {
     let text = view
         .rows
         .iter()
-        .take(5)
+        .filter(|row| row.label != "Doubling")
         .map(|row| format!("{}	{}", row.label, row.value))
         .collect::<Vec<_>>()
         .join(
             "
 ",
         );
-    match app.platform().set_clipboard_text(&text) {
-        Ok(()) => toast::show(window, "Numbers copied."),
-        Err(error) => toast::show(window, &error.message),
-    }
+    app.platform().set_clipboard_text(&text).map_or_else(
+        |error| toast::show(window, &error.message),
+        |()| toast::show(window, "Numbers copied."),
+    );
 }
 
 /// "Copy Data": the whole sweep as a tab-separated table.
@@ -143,10 +144,12 @@ fn copy_data(window: &AppWindow, state: &Shared) {
         toast::show(window, "Run the sweep first.");
         return;
     };
-    match app.platform().set_clipboard_text(&curves.to_tsv()) {
-        Ok(()) => toast::show(window, "Tilt data copied."),
-        Err(error) => toast::show(window, &error.message),
-    }
+    app.platform()
+        .set_clipboard_text(&curves.to_tsv())
+        .map_or_else(
+            |error| toast::show(window, &error.message),
+            |()| toast::show(window, "Tilt data copied."),
+        );
 }
 
 /// Pushes the Metrics section and the Tilt sheet. Also stops a job whose inputs changed

@@ -1,0 +1,109 @@
+// The coordinator window. Compiled by `build.rs` with the `fluent-dark` style, only in a
+// build with the `gui` feature.
+//
+// Page contract: every page file `ui/pages/<page>.slint` exports one `<Page>Page` component
+// and one `<Page>State` global. This file imports every page, places it by
+// `ShellState.page`, and re-exports every global below (a global is a Rust type only if this
+// file exports it). A page lane replaces its own file; it never edits this one.
+import { Theme, ShellState, Shell } from "frame.slint";
+import { OverviewPage, OverviewState, OvLiveRow, OvActivityRow } from "pages/overview.slint";
+import { DevicesPage, DevicesState, DeviceRowData } from "pages/devices.slint";
+import { RenderPage, RenderState, RcConnectedRow, RcAllowedRow } from "pages/render.slint";
+import { JobsPage, JobsState, JobRowData } from "pages/jobs.slint";
+import { LibraryPage, LibraryState } from "pages/library.slint";
+import { LogPage, LogState } from "pages/log.slint";
+import { SettingsPage, SettingsState, AccessRowData } from "pages/settings.slint";
+import { WorkerModePage, WorkerModeState } from "pages/worker_mode.slint";
+import { ToolsPage, ToolsState } from "pages/tools.slint";
+import { ShaderCardState } from "shader_card.slint";
+import { WizardPage, WizardState } from "wizard.slint";
+import { PairDialog, PairState } from "pair_dialog.slint";
+import { SwitcherState, SwitcherRow, ForgetDialog } from "switcher.slint";
+import { AddCoordinatorDialog, AddState } from "add_coordinator.slint";
+
+export {
+    Theme,
+    ShellState,
+    OverviewState,
+    OvLiveRow,
+    OvActivityRow,
+    ShaderCardState,
+    DevicesState,
+    DeviceRowData,
+    RenderState,
+    RcConnectedRow,
+    RcAllowedRow,
+    JobsState,
+    JobRowData,
+    LibraryState,
+    LogState,
+    SettingsState,
+    AccessRowData,
+    WorkerModeState,
+    ToolsState,
+    WizardState,
+    PairState,
+    SwitcherState,
+    SwitcherRow,
+    AddState,
+}
+
+export component AppWindow inherits Window {
+    title: "Pleochroma Coordinator";
+    icon: @image-url("../assets/icon.png");
+    preferred-width: 1180px;
+    preferred-height: 760px;
+    min-width: 640px;
+    min-height: 480px;
+    background: Theme.bg-darkest;
+    default-font-size: 13px;
+
+    Shell {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        if ShellState.page == 0: OverviewPage { }
+        if ShellState.page == 1: DevicesPage { }
+        if ShellState.page == 2: RenderPage { }
+        if ShellState.page == 3: JobsPage { }
+        if ShellState.page == 4: LibraryPage { }
+        if ShellState.page == 5: SettingsPage { }
+        if ShellState.page == 6: LogPage { }
+        if ShellState.page == 7: WorkerModePage { }
+        if ShellState.page == 8: ToolsPage { }
+    }
+
+    // The pairing dialog and the first-run wizard are whole-window overlays that draw nothing
+    // while `PairState.open` / `WizardState.open` is false. The shell opens the wizard on the
+    // first run; "Connect a phone" calls `PairState.open-requested(0)`.
+    PairDialog {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+
+    // "Add a coordinator" and the confirm for forgetting a remote coordinator, both opened from
+    // the sidebar's coordinator switcher.
+    AddCoordinatorDialog {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+
+    ForgetDialog {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+
+    WizardPage {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+}

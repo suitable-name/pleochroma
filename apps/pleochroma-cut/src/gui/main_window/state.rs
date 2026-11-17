@@ -25,9 +25,12 @@ use crate::{
     },
     settings::{self, SettingsPersister},
 };
-use pleochroma::geometry::plane::GpuFacetPlane;
+use pleochroma::{
+    color::metrics::{AsetAreaShares, GemOpticalMetrics},
+    geometry::plane::GpuFacetPlane,
+};
 use pleochroma_vault::db::sqlite::Database;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::sync::{Arc, Mutex};
 
 /// The path tracer's or the solid worker's last-published plane arrangement, compared by
@@ -262,6 +265,9 @@ pub(super) fn apply_custom_materials(
         let mut ctx = RenderContext::lock(render_ctx);
         ctx.custom_materials = Arc::new(initial_custom_mats.clone());
         ctx.custom_material_specific_gravity = Arc::new(initial_custom_sg);
+        ctx.custom_material_gem_data = Arc::new(
+            crate::gui::custom_material_startup::initial_custom_gem_data(&custom_material_rows),
+        );
         ctx.custom_material_physics = Arc::new(
             crate::gui::optics::crystal_optics::custom_material_physics_from_rows(
                 &custom_material_rows,
@@ -323,6 +329,74 @@ pub(super) fn load_settings(
     // See `SettingsPersister::install_for_this_thread`.
     SettingsPersister::install_for_this_thread(&settings_store);
     settings_store
+}
+
+/// The Zones (ASET-style) bar parts of `shares` in percent: red, green, blue and dark (Leak plus
+/// Lost), the order `ViewportModel.aset_shares` carries.
+fn zone_parts(shares: &AsetAreaShares) -> [f32; 4] {
+    [
+        shares.red_pct,
+        shares.green_pct,
+        shares.blue_pct,
+        shares.dark_pct(),
+    ]
+}
+
+/// The line under the zones legend that splits the Dark share, as the card prints it:
+/// `Dark = Leak 9 % + Lost 12 %`.
+fn zone_split_text(shares: &AsetAreaShares) -> String {
+    format!(
+        "Dark = Leak {:.0} % + Lost {:.0} %",
+        shares.leak_pct, shares.lost_pct
+    )
+}
+
+/// The Zones (ASET-style) line of the copied figures text:
+/// `Zones (ASET-style): Red 44.0% · Green 19.0% · Blue 16.1% · Dark 20.9% (Leak 9.0%, Lost 11.9%)`.
+fn zone_copy_line(shares: &AsetAreaShares) -> String {
+    format!(
+        "Zones (ASET-style): Red {:.1}% \u{b7} Green {:.1}% \u{b7} Blue {:.1}% \u{b7} Dark {:.1}% (Leak {:.1}%, Lost {:.1}%)",
+        shares.red_pct,
+        shares.green_pct,
+        shares.blue_pct,
+        shares.dark_pct(),
+        shares.leak_pct,
+        shares.lost_pct
+    )
+}
+
+/// Pushes the Contrast figure and the Zones (ASET-style) shares to `ViewportModel`; `None` (not
+/// measured) hides the Contrast row and the zones block. The shares model is replaced only when a
+/// value changed, because every displayed frame carries the same figures again.
+fn push_zone_figures(ui: &MainWindow, shares: Option<&AsetAreaShares>) {
+    let viewport = ui.global::<ViewportModel>();
+    let Some(shares) = shares else {
+        viewport.set_contrast(-1.0);
+        if viewport.get_aset_shares().row_count() != 0 {
+            viewport.set_aset_shares(ModelRc::default());
+            viewport.set_aset_split_text(slint::SharedString::new());
+            viewport.set_aset_copy_text(slint::SharedString::new());
+        }
+        return;
+    };
+    viewport.set_contrast(shares.contrast);
+    let parts = zone_parts(shares);
+    let split = slint::SharedString::from(zone_split_text(shares));
+    let copy = slint::SharedString::from(zone_copy_line(shares));
+    let current = viewport.get_aset_shares();
+    let unchanged = current.row_count() == parts.len()
+        && viewport.get_aset_split_text() == split
+        && viewport.get_aset_copy_text() == copy
+        && parts.iter().enumerate().all(|(index, part)| {
+            current
+                .row_data(index)
+                .is_some_and(|shown| shown.to_bits() == part.to_bits())
+        });
+    if !unchanged {
+        viewport.set_aset_shares(ModelRc::new(VecModel::from(parts.to_vec())));
+        viewport.set_aset_split_text(split);
+        viewport.set_aset_copy_text(copy);
+    }
 }
 
 /// The three 19-point tilt graphs (brilliance, extinction, windowing) one metrics push carries.
@@ -444,23 +518,23 @@ pub(super) fn spawn_viewport_render_thread(
             );
         },
         move |ui: &MainWindow,
-              brilliance: f32,
-              fire: f32,
-              scintillation: f32,
-              windowing: f32,
-              extinction: f32,
-              doubling_arcmin: f32,
+              metrics: GemOpticalMetrics,
               graph_brilliance: [f32; 19],
               graph_extinction: [f32; 19],
               graph_windowing: [f32; 19],
               cam_pitch_deg: f32| {
-            ui.global::<ViewportModel>().set_brilliance_pct(brilliance);
-            ui.global::<ViewportModel>().set_fire_index(fire);
             ui.global::<ViewportModel>()
-                .set_scintillation_pct(scintillation);
-            ui.global::<ViewportModel>().set_windowing_pct(windowing);
-            ui.global::<ViewportModel>().set_extinction_pct(extinction);
-            crate::gui::render::crystal_axis_ui::push_doubling(ui, doubling_arcmin);
+                .set_brilliance_pct(metrics.brilliance_pct);
+            ui.global::<ViewportModel>()
+                .set_fire_index(metrics.fire_index);
+            ui.global::<ViewportModel>()
+                .set_scintillation_pct(metrics.scintillation_pct);
+            ui.global::<ViewportModel>()
+                .set_windowing_pct(metrics.windowing_pct);
+            ui.global::<ViewportModel>()
+                .set_extinction_pct(metrics.extinction_pct);
+            push_zone_figures(ui, metrics.aset.as_ref());
+            crate::gui::render::crystal_axis_ui::push_doubling(ui, metrics.doubling_arcmin);
             push_tilt_graphs(
                 ui,
                 &last_graphs,
@@ -497,6 +571,39 @@ pub(super) fn spawn_viewport_render_thread(
 #[cfg(test)]
 mod graph_tests {
     use super::*;
+
+    fn shares(leak: f32, lost: f32) -> AsetAreaShares {
+        AsetAreaShares {
+            red_pct: 44.0,
+            green_pct: 19.0,
+            blue_pct: 16.0,
+            leak_pct: leak,
+            lost_pct: lost,
+            contrast: 27.0,
+        }
+    }
+
+    #[test]
+    fn the_zone_bar_parts_end_with_the_dark_share() {
+        let parts = zone_parts(&shares(9.0, 12.0));
+        assert_eq!(parts, [44.0, 19.0, 16.0, 21.0]);
+    }
+
+    #[test]
+    fn the_copy_line_carries_every_zone_with_one_decimal() {
+        assert_eq!(
+            zone_copy_line(&shares(9.04, 11.86)),
+            "Zones (ASET-style): Red 44.0% \u{b7} Green 19.0% \u{b7} Blue 16.0% \u{b7} Dark 20.9% (Leak 9.0%, Lost 11.9%)"
+        );
+    }
+
+    #[test]
+    fn the_dark_split_line_reads_as_the_card_prints_it() {
+        assert_eq!(
+            zone_split_text(&shares(9.04, 11.86)),
+            "Dark = Leak 9 % + Lost 12 %"
+        );
+    }
 
     #[test]
     fn graph_triples_compare_bitwise() {

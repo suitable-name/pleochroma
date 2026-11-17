@@ -257,6 +257,15 @@ impl RenderDriver {
         self.active
     }
 
+    /// Forgets the run, the last start attempt and the failed tries, so the next
+    /// [`maintain`] starts a new trace even when the scene did not change.
+    fn forget_run(&mut self) {
+        self.running = None;
+        self.last_probe = None;
+        self.blocked = None;
+        self.retry = FailureRetry::default();
+    }
+
     /// Why the last start attempt failed, while that still holds.
     #[must_use]
     pub fn blocked_message(&self) -> Option<&str> {
@@ -458,6 +467,21 @@ pub fn maintain(state: &mut AppState, now: Duration) -> Maintain {
     outcome
 }
 
+/// Starts a trace that stopped with a failure over again, with its tries renewed. Returns
+/// whether there was a failure to start over from; a trace that runs, or finished, is left
+/// alone.
+///
+/// The Android app calls it after a remote computer was found at a new address: the failed
+/// trace had given up on the old one, and the next [`maintain`] starts at the new one.
+pub fn restart_failed(state: &mut AppState) -> bool {
+    if !matches!(state.render.status(), RenderStatus::Failed(_)) {
+        return false;
+    }
+    state.render.stop();
+    state.viewport.driver.forget_run();
+    true
+}
+
 /// The overlay's status line.
 #[must_use]
 pub fn status_line(state: &AppState) -> String {
@@ -475,7 +499,11 @@ pub fn status_line(state: &AppState) -> String {
     if state.viewport.render_live.owes_restart() && state.viewport.touch.is_down() {
         return "Release to render this view".to_owned();
     }
-    match state.render.status() {
+    let status = state.render.status();
+    if let Some(waiting) = waiting_notice(&status, &state.render.backend_report()) {
+        return waiting;
+    }
+    match status {
         RenderStatus::Idle => state
             .viewport
             .driver
@@ -484,7 +512,7 @@ pub fn status_line(state: &AppState) -> String {
         RenderStatus::Tracing { samples, target }
             if state.settings.render.engine_spec().is_ray() =>
         {
-            format!("Ray-Traced · Tap {samples} Of {target}")
+            format!("Ray-Traced · Tap {samples} of {target}")
         }
         RenderStatus::Done { .. } if state.settings.render.engine_spec().is_ray() => {
             "Ray-Traced · Done".to_owned()
@@ -492,10 +520,28 @@ pub fn status_line(state: &AppState) -> String {
         RenderStatus::Tracing { samples, target } => format!("Rendering {samples} / {target}"),
         RenderStatus::Done { samples } => format!("Done, {samples} samples"),
         RenderStatus::Paused(PauseReason::User) => "Paused".to_owned(),
-        RenderStatus::Paused(PauseReason::Background) => "Paused: App In Background".to_owned(),
-        RenderStatus::Paused(PauseReason::Hot) => "Paused: Device Is Hot".to_owned(),
+        RenderStatus::Paused(PauseReason::Background) => "Paused: app in background".to_owned(),
+        RenderStatus::Paused(PauseReason::Hot) => "Paused: device is hot".to_owned(),
         RenderStatus::Failed(message) => message,
     }
+}
+
+/// What a remote computer is doing, while it has sent no samples yet: the waiting or
+/// preparing sentence of the report, only for a trace with 0 samples.
+fn waiting_notice(status: &RenderStatus, report: &str) -> Option<String> {
+    if matches!(status, RenderStatus::Tracing { samples: 0, .. }) {
+        remote_waiting_sentence(report)
+    } else {
+        None
+    }
+}
+
+/// The sentence a remote report carries while its computer has sent no samples yet
+/// ("Waiting for ...", "Preparing ...'s graphics card... 12 of 40"); `None` for any other
+/// report.
+fn remote_waiting_sentence(report: &str) -> Option<String> {
+    let rest = report.strip_prefix("Remote · ")?;
+    (rest.starts_with("Waiting for ") || rest.starts_with("Preparing ")).then(|| rest.to_owned())
 }
 
 /// Where the trace runs, in plain words, from the backend report.

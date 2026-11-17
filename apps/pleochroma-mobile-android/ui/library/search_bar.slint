@@ -7,7 +7,7 @@
 //
 // The chips wrap onto further lines (two on a phone unless every filter is set) instead
 // of scrolling sideways, so a set filter is always visible.
-import { PleoPalette } from "../../../pleochroma-cut/ui/shared/palette.slint";
+import { PleoPalette } from "@pleochroma-kit/shared/palette.slint";
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Icon } from "../shell/icon.slint";
@@ -229,7 +229,9 @@ export component FilterChips inherits Rectangle {
     // Mine.
     property <length> x0: 0px;
     property <int> l0: 0;
-    property <length> e0: m.w + root.gap;
+    // The computer's library has no "mine": the chip is hidden and takes no width.
+    property <bool> show-mine: LibraryModel.source-index != 1;
+    property <length> e0: root.show-mine ? m.w + root.gap : 0px;
     // Show Ignored.
     property <bool> wrap1: root.e0 + ign.w > root.avail;
     property <length> x1: root.wrap1 ? 0px : root.e0;
@@ -258,6 +260,7 @@ export component FilterChips inherits Rectangle {
     height: (root.l5 + 1) * Theme.touch + Theme.space-xs;
 
     m := FlowChip {
+        visible: root.show-mine;
         x: Theme.space-lg + root.x0;
         y: root.l0 * Theme.touch;
         text: "Mine";

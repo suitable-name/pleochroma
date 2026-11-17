@@ -130,6 +130,34 @@ fn stream_event_discriminants_are_append_only() {
         }),
         9
     );
+    assert_eq!(
+        first_byte(&StreamEvent::Preparing(Preparing {
+            request_id: 1,
+            done: 0,
+            total: 0
+        })),
+        16
+    );
+}
+
+/// `Preparing` carries no payload, names its request, and round-trips through the stream
+/// writer and reader, including the unknown-total form (`total == 0`).
+#[test]
+fn preparing_round_trips_without_payload() {
+    for (done, total) in [(0, 0), (12, 40), (40, 40)] {
+        let event = StreamEvent::Preparing(Preparing {
+            request_id: 9,
+            done,
+            total,
+        });
+        assert_eq!(event.payload_len(), None);
+        assert_eq!(event.request_id(), Some(9));
+        let mut buf = Vec::new();
+        write_stream_event(&mut buf, &event, None).unwrap();
+        let (decoded, decoded_payload) = read_stream_event(&mut std::io::Cursor::new(buf)).unwrap();
+        assert_eq!(decoded, event);
+        assert_eq!(decoded_payload, None);
+    }
 }
 
 /// `Asset` (HDR maps) is appended after `FinalImageRequest` (index 5), at index 6, and the

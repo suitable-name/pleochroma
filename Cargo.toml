@@ -14,10 +14,12 @@ members = [
     "crates/pleochroma-dispatch",
     "crates/pleochroma-editor",
     "crates/pleochroma-formats",
+    "crates/pleochroma-library-mirror",
     "crates/pleochroma-mobile-core",
     "crates/pleochroma-net",
     "crates/pleochroma-render-jobs",
     "crates/pleochroma-solid",
+    "crates/pleochroma-ui-kit",
     "crates/pleochroma-update",
     "crates/pleochroma-vault",
     "crates/pleochroma-web-core",
@@ -34,11 +36,15 @@ exclude = ["vendor"]
 # rasterizer and 2D faceting diagram, shared by the desktop and the wasm web app;
 # `pleochroma-editor` is the GUI-free editor session, forms and view models both
 # editors share; `pleochroma-update` is the apps' new-version check against the GitHub releases;
+# `pleochroma-library-mirror` is the transport-agnostic design-library sync and browse logic
+# the desktop app and the Android app share (no sockets of its own);
 # `pleochroma-dispatch` is the coordinator's job-execution
 # core (lane pool, sample cursor, rate models, deterministic merge); `apps/pleochroma-cut`
-# is the desktop faceting-design editor and `apps/pleochroma-worker` the headless
-# coordinator (`serve`), joining render worker (`join`) and render CLI, connected by
-# `pleochroma-net`'s wire protocol. `apps/pleochroma-web` is the browser app;
+# is the desktop faceting-design editor and `apps/pleochroma-worker` the coordinator (its
+# window, or `--headless serve`), joining render worker (`join`) and render CLI, connected by
+# `pleochroma-net`'s wire protocol. `pleochroma-ui-kit` ships the shared Slint theme, palette
+# and Kit widgets that the desktop app, the coordinator window and the Android app import as
+# `@pleochroma-kit`. `apps/pleochroma-web` is the browser app;
 # `apps/pleochroma-web-core` is its DOM-free compute side (Worker protocol, scene,
 # CPU chunk tracing, solve, host-side Worker pool) and `apps/pleochroma-web-compute`
 # its Web Worker entry point. `apps/pleochroma-mobile-android` is the Android phone and
@@ -46,7 +52,7 @@ exclude = ["vendor"]
 # `crates/pleochroma-mobile-core`, its UI-free core (app state, compute threads, platform trait).
 
 [workspace.package]
-version = "0.11.1"
+version = "0.12.0"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Suitable-Name"]
@@ -169,19 +175,21 @@ log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
 
 # Workspace members
-pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.11.1" }
-pleochroma = { path = "crates/pleochroma", version = "0.11.1" }
-pleochroma-net = { path = "crates/pleochroma-net", version = "0.11.1" }
-pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.11.1" }
-pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.11.1" }
-pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.11.1" }
-pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.11.1" }
-pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.11.1" }
-pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.11.1" }
-pleochroma-update = { path = "crates/pleochroma-update", version = "0.11.1" }
-pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.11.1" }
-pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.11.1" }
-pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.11.1" }
+pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.12.0" }
+pleochroma = { path = "crates/pleochroma", version = "0.12.0" }
+pleochroma-net = { path = "crates/pleochroma-net", version = "0.12.0" }
+pleochroma-ui-kit = { path = "crates/pleochroma-ui-kit", version = "0.12.0" }
+pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.12.0" }
+pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.12.0" }
+pleochroma-library-mirror = { path = "crates/pleochroma-library-mirror", version = "0.12.0" }
+pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.12.0" }
+pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.12.0" }
+pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.12.0" }
+pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.12.0" }
+pleochroma-update = { path = "crates/pleochroma-update", version = "0.12.0" }
+pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.12.0" }
+pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.12.0" }
+pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.12.0" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

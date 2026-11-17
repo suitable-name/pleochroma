@@ -40,7 +40,9 @@ export component RoughPlannerWindow inherits Window {
 
     // Below 1180 px the columns shrink so that the window fits its 1040 px minimum. Read from the
     // window's own width, not from a timer, so a resize never shows a frame of the wide layout.
-    changed width => { RoughPlanModel.narrow = root.width > 0px && root.width < 1180px; }
+    // (Observed through a mirror property: no `changed` handler on a built-in Window property.)
+    property <length> window_width: root.width;
+    changed window_width => { RoughPlanModel.narrow = root.width > 0px && root.width < 1180px; }
 
     // Opens a step, or closes it when it is the open one.
     function toggle_step(step: int) {

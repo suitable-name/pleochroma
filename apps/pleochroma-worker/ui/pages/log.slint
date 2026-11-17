@@ -1,0 +1,293 @@
+// Log page: a level filter (Problems, Info, Details), a search field, a live tail that follows the
+// newest line until the user scrolls up, Copy visible lines and Open log folder.
+//
+// Page contract: one `LogPage` component with no required properties and one `LogState` global;
+// `app.slint` imports and re-exports both. The rows are three models of the same length (no
+// struct, so `app.slint` needs no extra export): the time of day, the level (0 error, 1 warning,
+// 2 info, 3 debug, 4 trace) and the text.
+import { ListView } from "std-widgets.slint";
+import { Theme, ShellState, KitIcon, KitIconButton, KitButton, KitSegment, KitSegmentBar, KitCard, KitIcons, CIcons, Sub } from "../frame.slint";
+
+export global LogState {
+    in property <bool> loaded: false;
+    /// The rows shown, oldest first.
+    in property <[string]> times;
+    in property <[int]> levels;
+    in property <[string]> messages;
+    /// 0 Problems (errors and warnings), 1 Info and above, 2 Details (everything logged).
+    in-out property <int> level-filter: 1;
+    /// True while the list follows the newest line; scrolling up clears it, Follow sets it.
+    in-out property <bool> following: true;
+    /// "showing 24 of 1,284 lines · Info and above".
+    in property <string> count-text;
+    /// A short result ("Copied 24 lines"); empty when there is none.
+    in property <string> notice;
+    /// "Times in UTC · Kept for 14 days · 3.4 MB".
+    in property <string> kept-text;
+    callback filter-changed(int);
+    callback search-changed(string);
+    callback copy-visible();
+    callback open-folder();
+}
+
+// The level name in a small tinted tag.
+component LevelTag inherits Rectangle {
+    in property <int> level;
+    property <color> c: root.level == 0 ? Theme.danger : (root.level == 1 ? Theme.accent-amber : (root.level == 2 ? Theme.accent-cyan : Theme.text-muted));
+    width: 56px;
+    height: 20px;
+    border-radius: 5px;
+    background: root.c.with-alpha(0.16);
+    Text {
+        text: root.level == 0 ? "ERROR" : (root.level == 1 ? "WARN" : (root.level == 2 ? "INFO" : (root.level == 3 ? "DEBUG" : "TRACE")));
+        color: root.c;
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component LogPage inherits Rectangle {
+    // Under 900 px the Pause, Copy and Open buttons shrink to icons.
+    property <bool> compact: root.width < 900px;
+    property <string> level-name: LogState.level-filter == 0 ? "Problems" : (LogState.level-filter == 1 ? "Info" : "Details");
+
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 20px;
+        padding-bottom: 20px;
+        spacing: 14px;
+
+        // Toolbar.
+        HorizontalLayout {
+            height: 34px;
+            spacing: 10px;
+            KitSegmentBar {
+                height: 34px;
+                width: seg-row.preferred-width;
+                seg-row := HorizontalLayout {
+                    padding: 3px;
+                    spacing: 3px;
+                    KitSegment { text: "Problems"; hint: "Errors and warnings only"; on: LogState.level-filter == 0; picked => { LogState.level-filter = 0; LogState.filter-changed(0); } }
+                    KitSegment { text: "Info"; hint: "Normal operation and problems"; on: LogState.level-filter == 1; picked => { LogState.level-filter = 1; LogState.filter-changed(1); } }
+                    KitSegment { text: "Details"; hint: "Everything that is logged, for diagnosing"; on: LogState.level-filter == 2; picked => { LogState.level-filter = 2; LogState.filter-changed(2); } }
+                }
+            }
+            // The search field.
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: 110px;
+                height: 34px;
+                border-radius: 8px;
+                background: Theme.bg-input;
+                border-width: 1px;
+                border-color: box.has-focus ? Theme.accent-cyan : Theme.border-subtle;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 4px;
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        KitIcon { d: "M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 Z M15.5 15.5 L20 20"; size: 16px; ink: Theme.text-muted; }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        if box.text == "": Text {
+                            text: "Search the log";
+                            width: parent.width;
+                            horizontal-alignment: left;
+                            color: Theme.text-muted;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+                        box := TextInput {
+                            width: parent.width;
+                            height: parent.height;
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            single-line: true;
+                            accessible-label: "Search the log";
+                            edited => { LogState.search-changed(self.text); }
+                        }
+                    }
+                    if box.text != "": VerticalLayout {
+                        alignment: center;
+                        KitIconButton {
+                            d: CIcons.close;
+                            label: "Clear the search";
+                            size: 26px;
+                            icon_size: 14px;
+                            clicked => { box.text = ""; LogState.search-changed(""); }
+                        }
+                    }
+                }
+            }
+            // Pause or follow.
+            if !root.compact: KitButton {
+                icon: LogState.following ? KitIcons.pause : KitIcons.play;
+                text: LogState.following ? "Pause" : "Follow";
+                hint: LogState.following ? "Stop following the newest line" : "Jump to the newest line and follow it";
+                h: 34px;
+                clicked => { LogState.following = !LogState.following; }
+            }
+            if root.compact: KitIconButton {
+                d: LogState.following ? KitIcons.pause : KitIcons.play;
+                label: LogState.following ? "Pause" : "Follow";
+                hint: LogState.following ? "Stop following the newest line" : "Jump to the newest line and follow it";
+                size: 34px;
+                icon_size: 18px;
+                clicked => { LogState.following = !LogState.following; }
+            }
+            if !root.compact: KitButton {
+                icon: CIcons.copy;
+                text: "Copy visible lines";
+                h: 34px;
+                enabled: LogState.messages.length > 0;
+                clicked => { LogState.copy-visible(); }
+            }
+            if root.compact: KitIconButton {
+                d: CIcons.copy;
+                label: "Copy visible lines";
+                hint: "Copy visible lines";
+                size: 34px;
+                icon_size: 18px;
+                enabled: LogState.messages.length > 0;
+                clicked => { LogState.copy-visible(); }
+            }
+            // The log files are on the coordinator's own computer: not offered for a remote one.
+            if !root.compact && !ShellState.remote: KitButton {
+                icon: CIcons.folder;
+                text: "Open log folder";
+                h: 34px;
+                clicked => { LogState.open-folder(); }
+            }
+            if root.compact && !ShellState.remote: KitIconButton {
+                d: CIcons.folder;
+                label: "Open log folder";
+                hint: "Open log folder";
+                size: 34px;
+                icon_size: 18px;
+                clicked => { LogState.open-folder(); }
+            }
+        }
+
+        // The lines.
+        KitCard {
+            vertical-stretch: 1;
+            clip: true;
+            VerticalLayout {
+                Rectangle {
+                    vertical-stretch: 1;
+                    // Follow: keep the newest line in view while `following`. A user scroll
+                    // that leaves the bottom pauses it, one that returns to the bottom resumes
+                    // it, and Follow scrolls down at once.
+                    property <bool> follow: LogState.following;
+                    changed follow => {
+                        if self.follow {
+                            lv.content-y = min(0px, -(lv.content-height - lv.visible-height));
+                        }
+                    }
+                    lv := ListView {
+                        width: parent.width;
+                        height: parent.height;
+                        changed content-height => {
+                            if LogState.following {
+                                self.content-y = min(0px, -(self.content-height - self.visible-height));
+                            }
+                        }
+                        changed visible-height => {
+                            if LogState.following {
+                                self.content-y = min(0px, -(self.content-height - self.visible-height));
+                            }
+                        }
+                        // A little slack (one row) so a layout that settles late does not read
+                        // as a scroll up.
+                        changed content-y => {
+                            LogState.following = self.content-y <= -(self.content-height - self.visible-height) + 30px;
+                        }
+                        for message[i] in LogState.messages: Rectangle {
+                            height: 28px;
+                            background: LogState.levels[i] == 0 ? Theme.danger.with-alpha(0.12) : (LogState.levels[i] == 1 ? Theme.accent-amber.with-alpha(0.10) : transparent);
+                            accessible-role: AccessibleRole.text;
+                            accessible-label: LogState.times[i] + " " + (LogState.levels[i] == 0 ? "error" : (LogState.levels[i] == 1 ? "warning" : (LogState.levels[i] == 2 ? "info" : "detail"))) + " " + message;
+                            HorizontalLayout {
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                spacing: 12px;
+                                Text {
+                                    width: 64px;
+                                    text: LogState.times[i];
+                                    color: Theme.text-muted;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    LevelTag { level: LogState.levels[i]; }
+                                }
+                                Text {
+                                    text: message;
+                                    color: LogState.levels[i] >= 3 ? Theme.text-secondary : Theme.text-primary;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                    if LogState.messages.length == 0: Sub {
+                        text: LogState.loaded ? "No lines to show with this filter." : "Nothing has been logged yet.";
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        width: parent.width;
+                        height: parent.height;
+                    }
+                }
+                Rectangle { height: 1px; background: Theme.border-subtle; }
+                // Status line.
+                Rectangle {
+                    height: 40px;
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: LogState.following ? Theme.success : Theme.accent-amber;
+                            }
+                        }
+                        Text {
+                            text: (LogState.following ? "Live" : "Paused") + " · " + LogState.count-text;
+                            color: Theme.text-secondary;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            accessible-role: AccessibleRole.text;
+                        }
+                        if LogState.notice != "": Text {
+                            text: LogState.notice;
+                            color: Theme.accent-cyan;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        if !root.compact: Text {
+                            text: LogState.kept-text;
+                            color: Theme.text-muted;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -11,11 +11,14 @@
 //! or without the tray), and only the kernel families of the viewport's own routes. The live view
 //! finds them built, or waits at most one step behind the job.
 //!
-//! Every other kernel compiles on a second device of the job's own, so it never holds the live
-//! render: every material type of the catalogue (`GpuBackend::warm_up_materials`), with and
-//! without the tray, with every kernel family. These only fill the disk cache, from which the
-//! viewport's device loads them when it needs them. A device without a disk cache (anything but
-//! Vulkan with the folder `main` sets) skips them, because that work is lost at exit.
+//! Every other kernel compiles off the viewport's device, so it never holds the live render:
+//! every material type of the catalogue (`catalogue_steps`), with and without the tray, with
+//! every kernel family. The job's own second device is the lane of
+//! `fill_disk_cache_in_parallel`, which adds helper devices on their own threads
+//! (`compile_threads`) to compile several steps at once.
+//! These only fill the disk cache, from which the viewport's device loads them when it needs
+//! them. A device without a disk cache (anything but Vulkan with the folder `main` sets) skips
+//! them, because that work is lost at exit.
 //!
 //! Nothing runs while the processor alone renders (Local Compute set to the CPU).
 //!
@@ -30,14 +33,14 @@ use crate::{
     settings::model::LocalComputeTarget,
 };
 use pleochroma::{
-    geometry::{cuts::StandardGemCuts, tool::StoneGeometry},
-    optics::{
-        materials::GemMaterial,
-        raytracer::{Camera, DEFAULT_FOV_DEG, DEFAULT_POSE, LightingPreset, surface::SurfaceScene},
-    },
-    render_setup::tray_mirror_for,
+    optics::{materials::GemMaterial, raytracer::LightingPreset},
     renderer::gpu_backend::{
-        GpuAccumulate, GpuBackend, GpuSceneRef, GpuWarmFamilies, whitted::WhittedGpuBackend,
+        GpuAccumulate, GpuBackend, GpuWarmFamilies,
+        warm_plan::{
+            StandInScene, StepDone, WarmStep, catalogue_steps, compile_threads,
+            fill_disk_cache_in_parallel,
+        },
+        whitted::WhittedGpuBackend,
     },
 };
 use slint::ComponentHandle;
@@ -57,12 +60,9 @@ const ALL_FAMILIES: GpuWarmFamilies = GpuWarmFamilies {
     live: cfg!(feature = "adaptive-sampling"),
     path_cache: true,
 };
-/// Pixels per side of a stand-in scene; the kernels do not depend on the size.
-const STAND_IN_SIZE: u32 = 16;
-/// Head-on reflectance of the stand-in tray.
-const STAND_IN_REFLECTION: f32 = 0.5;
-/// How long the job runs before the card appears, so a start that only loads a finished cache
-/// shows nothing.
+/// How long the job runs before the card appears (and the status-strip activity starts). The card
+/// also needs a step that compiles fresh ([`Progress::fresh`]): a start that only loads a
+/// finished cache shows no card at all, however long it takes.
 const SHOW_AFTER: Duration = Duration::from_millis(600);
 /// How long the card stays up, saying how the build ended, after the job.
 const LINGER: Duration = Duration::from_secs(4);
@@ -167,9 +167,27 @@ pub struct Progress {
     /// Whether the Path-Traced device keeps compiled kernels between starts; `None` until known,
     /// and without a usable device.
     pub persistent: Option<bool>,
+    /// Some step compiled a kernel from source instead of loading it from the disk cache, or the
+    /// device keeps no cache at all. Only a build with this set puts the card up.
+    pub fresh: bool,
 }
 
 impl Progress {
+    /// Whether the card shows while the job runs: a step is known to compile fresh, and the job
+    /// has run [`SHOW_AFTER`]. A start that only loads a finished cache never gets here; a start
+    /// that turns fresh partway shows the card from that step on.
+    #[must_use]
+    pub fn card_due(&self, elapsed: Duration) -> bool {
+        self.running && self.fresh && elapsed >= SHOW_AFTER
+    }
+
+    /// Whether the card shows after the job, though it never came up: a fresh step ran, and the
+    /// build stopped before its last step, which the user should hear about.
+    #[must_use]
+    pub fn stopped_fresh(&self) -> bool {
+        !self.running && self.fresh && self.path.state == BarState::Stopped
+    }
+
     /// The Live Render stage while the job builds: the renderer and the step it is on.
     #[must_use]
     pub fn stage_text(&self) -> Option<String> {
@@ -303,12 +321,6 @@ pub fn cancel() {
 struct Plan {
     /// The open stone's material, when it resolves.
     open: Option<GemMaterial>,
-    /// The studio lighting of the stand-in scenes. Only the tray changes the kernels; the rest
-    /// keeps the stand-in close to the live view.
-    preset: LightingPreset,
-    light_yaw: f32,
-    light_pitch: f32,
-    backdrop: f32,
     /// The lighting puts the stone on a tray (Stone Shadow or Tray Reflection), whose kernels
     /// are a variant of their own.
     tray: bool,
@@ -318,7 +330,6 @@ struct Plan {
     /// The kernel families of the viewport's own routes: the path cache's and the live ones
     /// only while their viewport switches are on.
     viewport: GpuWarmFamilies,
-    max_bounces: u32,
 }
 
 impl Plan {
@@ -343,17 +354,12 @@ impl Plan {
         let mirror = tray_lit && ctx.tray_reflection > 0.0;
         Self {
             open,
-            preset,
-            light_yaw: ctx.light_yaw,
-            light_pitch: ctx.light_pitch,
-            backdrop,
             tray: mirror || (tray_lit && ctx.stone_shadow),
             tray_first: mirror,
             viewport: GpuWarmFamilies {
                 live: cfg!(feature = "adaptive-sampling") && ctx.adaptive_viewport,
                 path_cache: ctx.path_cache_viewport,
             },
-            max_bounces: ctx.max_bounces,
         }
     }
 
@@ -417,61 +423,95 @@ fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// Builds the kernels of `step` on `gpu` with a stand-in scene: the round brilliant at the
-/// default pose, the step's material and the plan's lighting.
-fn warm_step(
-    gpu: &GpuBackend,
+/// The catalogue's step for `step`: the `step.material`-th type, plain or on the tray.
+fn warm_step_of(catalogue: &[WarmStep], step: Step) -> Option<WarmStep> {
+    catalogue
+        .iter()
+        .filter(|candidate| candidate.tray == step.tray)
+        .nth(step.material)
+        .cloned()
+}
+
+/// Notes one finished step of the disk-cache-only pass in the job's progress. Called from
+/// whichever thread ran the step, so it only touches the locked state.
+fn record_background(handoff: &Handoff, background: &[WarmStep], done: StepDone) {
+    tracing::info!(
+        material = background
+            .get(done.index)
+            .map_or("", |step| step.material.name.as_str()),
+        tray = background.get(done.index).is_some_and(|step| step.tray),
+        shared = false,
+        fresh = done.fresh,
+        on_lane = done.on_lane,
+        outcome = ?done.outcome,
+        "shader cache step"
+    );
+    // A cancelled step is unbuilt; a decline is final (a tray the device cannot bind, say).
+    if done.outcome == GpuAccumulate::Cancelled {
+        return;
+    }
+    handoff.update(|state| {
+        state.progress.fresh |= done.fresh;
+        state.progress.path.done += 1;
+    });
+}
+
+/// Warms one shared step on the viewport's device. Returns `false` when the walk must stop (a
+/// cancel or a lost device leaves the step unbuilt).
+fn warm_shared_step(
+    handoff: &Handoff,
     plan: &Plan,
-    materials: &[GemMaterial],
+    catalogue: &[WarmStep],
+    gpu: &Arc<GpuBackend>,
     step: Step,
     cancel: &AtomicBool,
-) -> GpuAccumulate {
-    let Some(material) = materials.get(step.material) else {
-        return GpuAccumulate::Declined;
-    };
-    let camera = Camera::new(
-        DEFAULT_POSE.yaw,
-        DEFAULT_POSE.pitch,
-        DEFAULT_POSE.distance,
-        DEFAULT_FOV_DEG,
+) -> bool {
+    let warm = warm_step_of(catalogue, step);
+    let started = Instant::now();
+    let compiled = GpuBackend::fresh_pipeline_compiles();
+    let outcome = warm.as_ref().map_or(GpuAccumulate::Declined, |warm| {
+        StandInScene::new(warm).warm(gpu, plan.families(step), cancel)
+    });
+    let fresh = GpuBackend::fresh_pipeline_compiles() > compiled;
+    if fresh {
+        handoff.update(|state| state.progress.fresh = true);
+    }
+    tracing::info!(
+        material = warm.as_ref().map_or("", |warm| warm.material.name.as_str()),
+        tray = step.tray,
+        shared = step.shared,
+        fresh,
+        ?outcome,
+        elapsed_ms = started.elapsed().as_millis(),
+        "shader cache step"
     );
-    let planes = StandardGemCuts::standard_round_brilliant();
-    let studio = plan
-        .preset
-        .studio(1.0, plan.light_yaw, plan.light_pitch)
-        .with_backdrop(plan.backdrop);
-    let environment = if step.tray {
-        // A Tray Reflection stands in for every tray: with the Stone Shadow the kernels have the
-        // same sources and constants (`material_class::pipeline_key` folds the two).
-        let stone = StoneGeometry {
-            planes: &planes,
-            tools: &[],
-        };
-        match tray_mirror_for(STAND_IN_REFLECTION, studio, stone) {
-            Ok(Some(mirror)) => studio.with_tray_mirror(Some(mirror)),
-            _ => return GpuAccumulate::Declined,
-        }
-    } else {
-        studio
-    };
-    let scene = GpuSceneRef {
-        camera: &camera,
-        width: STAND_IN_SIZE,
-        height: STAND_IN_SIZE,
-        planes: &planes,
-        facet_finishes: &[],
-        material,
-        max_bounces: plan.max_bounces,
-        environment,
-        estimator: None,
-    };
-    gpu.warm_pipelines_cancellable(
-        &scene,
-        &[],
-        &SurfaceScene::IDEAL,
-        plan.families(step),
-        cancel,
-    )
+    // A decline is final: this device has nothing to build for the step (a tray it cannot
+    // bind, say). A cancel or a lost device leaves the step unbuilt.
+    if outcome == GpuAccumulate::Cancelled || gpu.is_lost() {
+        return false;
+    }
+    handoff.update(|state| state.progress.path.done += 1);
+    true
+}
+
+/// Fills the disk cache with the background steps on a second device.
+fn fill_background(handoff: &Handoff, background: &[WarmStep], cancel: &AtomicBool) {
+    let lane = GpuBackend::acquire();
+    if lane.adapter_label().is_none() {
+        tracing::warn!(
+            "the shader cache build has no usable device; the rest compiles on first use"
+        );
+        return;
+    }
+    let threads = compile_threads();
+    tracing::info!(
+        threads,
+        steps = background.len(),
+        "shader cache: filling the disk cache"
+    );
+    fill_disk_cache_in_parallel(&lane, background, ALL_FAMILIES, threads, cancel, |done| {
+        record_background(handoff, background, done);
+    });
 }
 
 /// Builds the cache: the Ray-Traced kernel, then the Path-Traced steps of `plan`. Stops between
@@ -479,11 +519,16 @@ fn warm_step(
 fn run(handoff: &Handoff, plan: &Plan, cancel: &AtomicBool) {
     let _finish = Finish(handoff);
     handoff.update(|state| state.progress.ray = Bar::running(0, 1));
+    // The disk cache counts every kernel it did not have (`fresh_pipeline_compiles`): a rise over
+    // a stretch of work means that work compiled from source.
+    let compiled = GpuBackend::fresh_pipeline_compiles();
     let ray = WhittedGpuBackend::acquire();
     let ray_ready = ray.adapter_label().is_some();
+    let ray_fresh = ray_ready && GpuBackend::fresh_pipeline_compiles() > compiled;
     handoff.update(|state| {
         state.ray_pending = false;
         state.ray = ray_ready.then_some(ray);
+        state.progress.fresh |= ray_fresh;
         state.progress.ray = if ray_ready {
             Bar::ready(1)
         } else {
@@ -495,12 +540,13 @@ fn run(handoff: &Handoff, plan: &Plan, cancel: &AtomicBool) {
     }
 
     handoff.update(|state| state.progress.path = Bar::running(0, 0));
-    let materials = GpuBackend::warm_up_materials(plan.open.as_ref());
+    let catalogue = catalogue_steps(plan.open.as_ref());
+    let materials = catalogue.iter().filter(|step| !step.tray).count();
     let gpu = Arc::new(GpuBackend::acquire());
     let usable = gpu.adapter_label().is_some();
     let persistent = gpu.persists_pipelines();
     let order = if usable {
-        steps(materials.len(), plan.tray, plan.tray_first, persistent)
+        steps(materials, plan.tray, plan.tray_first, persistent)
     } else {
         Vec::new()
     };
@@ -509,47 +555,33 @@ fn run(handoff: &Handoff, plan: &Plan, cancel: &AtomicBool) {
         state.path_pending = false;
         state.path = usable.then(|| Arc::clone(&gpu));
         state.progress.persistent = usable.then_some(persistent);
+        // A device that keeps no cache compiles every kernel at every start: always fresh.
+        state.progress.fresh |= usable && !persistent;
         state.progress.path = if usable {
             Bar::running(0, total)
         } else {
             Bar::UNAVAILABLE
         };
     });
-    let mut own: Option<GpuBackend> = None;
-    let mut done = 0;
-    for &step in &order {
+    for &step in order.iter().take_while(|step| step.shared) {
         if cancel.load(Ordering::Acquire) || gpu.is_lost() {
             break;
         }
-        let device: &GpuBackend = if step.shared {
-            &gpu
-        } else {
-            own.get_or_insert_with(GpuBackend::acquire)
-        };
-        if device.adapter_label().is_none() {
-            tracing::warn!(
-                "the shader cache build has no usable device; the rest compiles on first use"
-            );
+        if !warm_shared_step(handoff, plan, &catalogue, &gpu, step, cancel) {
             break;
         }
-        let started = Instant::now();
-        let outcome = warm_step(device, plan, &materials, step, cancel);
-        tracing::info!(
-            material = materials.get(step.material).map_or("", |m| m.name.as_str()),
-            tray = step.tray,
-            shared = step.shared,
-            ?outcome,
-            elapsed_ms = started.elapsed().as_millis(),
-            "shader cache step"
-        );
-        // A decline is final: this device has nothing to build for the step (a tray it cannot
-        // bind, say). A cancel or a lost device leaves the step unbuilt.
-        if outcome == GpuAccumulate::Cancelled || device.is_lost() {
-            break;
-        }
-        done += 1;
-        handoff.update(|state| state.progress.path.done = done);
     }
+    // Every other kernel only fills the disk cache. The job's own second device is the lane of
+    // the parallel warm-up, so the viewport's device never waits behind these compiles.
+    let background: Vec<WarmStep> = order
+        .iter()
+        .filter(|step| !step.shared)
+        .filter_map(|&step| warm_step_of(&catalogue, step))
+        .collect();
+    if !background.is_empty() && !cancel.load(Ordering::Acquire) && !gpu.is_lost() {
+        fill_background(handoff, &background, cancel);
+    }
+    let done = handoff.progress().path.done;
     let lost = gpu.is_lost();
     handoff.update(|state| {
         state.progress.path = if !usable || lost {
@@ -597,6 +629,7 @@ pub fn start(ui: &MainWindow, ctx: &Arc<Mutex<RenderContext>>) {
         state.ray_pending = true;
         state.path_pending = true;
     });
+    let baseline = GpuBackend::fresh_pipeline_compiles();
     let spawned = std::thread::Builder::new()
         .name("pleochroma-shader-cache".to_owned())
         .spawn(move || run(&HANDOFF, &plan, &CANCEL));
@@ -608,14 +641,18 @@ pub fn start(ui: &MainWindow, ctx: &Arc<Mutex<RenderContext>>) {
         drop(Finish(&HANDOFF));
         return;
     }
-    watch(ui);
+    watch(ui, baseline);
 }
 
 /// The card's own state between ticks.
 struct Card {
     started: Instant,
-    /// The card was put up: the job ran past [`SHOW_AFTER`].
+    /// The disk cache's fresh-compile count when the job started.
+    baseline: u64,
+    /// The card was put up: a step compiled fresh (see [`Progress::card_due`]).
     shown: bool,
+    /// The status-strip activity was started: the job ran past [`SHOW_AFTER`], fresh or not.
+    strip: bool,
     /// The user pressed Hide.
     dismissed: bool,
     /// When the job ended.
@@ -629,10 +666,12 @@ thread_local! {
 }
 
 /// Installs the UI-thread timer that reports the job, and the card's Hide.
-fn watch(ui: &MainWindow) {
+fn watch(ui: &MainWindow, baseline: u64) {
     let card = Rc::new(RefCell::new(Card {
         started: Instant::now(),
+        baseline,
         shown: false,
+        strip: false,
         dismissed: false,
         finished: None,
         activity: None,
@@ -669,12 +708,24 @@ fn watch(ui: &MainWindow) {
 /// One look at the job: the card, the activity and the Live Render stage. Returns whether to
 /// look again.
 fn tick(ui: &MainWindow, card: &mut Card, now: Instant) -> bool {
-    let progress = HANDOFF.progress();
+    let mut progress = HANDOFF.progress();
+    // The disk cache counts a missing kernel before it compiles, so a rise over the job's baseline
+    // means a compile is running now: the card need not wait for the step to finish.
+    if GpuBackend::fresh_pipeline_compiles() > card.baseline {
+        progress.fresh = true;
+    }
     if !progress.running && card.finished.is_none() {
         card.finished = Some(now);
     }
-    if progress.running && !card.shown && now.duration_since(card.started) >= SHOW_AFTER {
+    let elapsed = now.duration_since(card.started);
+    // The card comes up only for a fresh build, never for a start that loads the finished cache;
+    // the status-strip activity keeps its own rule (the job ran past SHOW_AFTER).
+    if !card.shown && (progress.card_due(elapsed) || progress.stopped_fresh()) {
         card.shown = true;
+    }
+    let strip_due = progress.running && elapsed >= SHOW_AFTER;
+    if strip_due && !card.strip {
+        card.strip = true;
         card.activity = Some(ui.global::<ActivityModel>().invoke_start_external(
             "shader_cache".into(),
             "Building shader cache".into(),
@@ -853,17 +904,12 @@ mod tests {
     fn the_viewport_device_builds_only_the_viewport_routes_families() {
         let plan = Plan {
             open: None,
-            preset: LightingPreset::default(),
-            light_yaw: 0.0,
-            light_pitch: 0.0,
-            backdrop: 1.0,
             tray: true,
             tray_first: false,
             viewport: GpuWarmFamilies {
                 live: false,
                 path_cache: true,
             },
-            max_bounces: 8,
         };
         assert_eq!(
             plan.families(shared(false)),
@@ -875,6 +921,25 @@ mod tests {
         // The cached route never takes a scene on the tray.
         assert!(!plan.families(shared(true)).path_cache);
         assert_eq!(plan.families(own(1, true)), ALL_FAMILIES);
+    }
+
+    #[test]
+    fn a_job_step_maps_to_the_catalogue_step_of_its_type_and_variant() {
+        let catalogue = catalogue_steps(None);
+        let types = catalogue.iter().filter(|step| !step.tray).count();
+        for material in 0..types {
+            for tray in [false, true] {
+                let warm = warm_step_of(&catalogue, own(material, tray))
+                    .expect("every type has both variants");
+                assert_eq!(warm.tray, tray);
+            }
+        }
+        assert!(warm_step_of(&catalogue, own(types, false)).is_none());
+        // The open stone's type comes first, in whichever variant the job asks for.
+        assert_eq!(
+            warm_step_of(&catalogue, shared(false)).map(|step| step.material.name),
+            Some(catalogue[0].material.name.clone())
+        );
     }
 
     #[test]
@@ -968,6 +1033,7 @@ mod tests {
             ray: Bar::ready(1),
             path: Bar::running(0, 0),
             persistent: None,
+            fresh: false,
         };
         let before = progress.fraction();
         assert!((before - RAY_SHARE).abs() < 1e-6, "Ray-Traced is done");
@@ -983,6 +1049,64 @@ mod tests {
         );
     }
 
+    /// The job at `done` of 9 Path-Traced steps, `fresh` once a step compiled from source.
+    fn job(fresh: bool, done: u32) -> Progress {
+        Progress {
+            running: true,
+            ray: Bar::ready(1),
+            path: Bar::running(done, 9),
+            persistent: Some(true),
+            fresh,
+        }
+    }
+
+    #[test]
+    fn a_start_that_loads_the_cache_never_shows_the_card() {
+        let late = SHOW_AFTER * 10;
+        for done in 0..9 {
+            assert!(!job(false, done).card_due(late));
+        }
+        let finished = Progress {
+            running: false,
+            path: Bar::ready(9),
+            ..job(false, 9)
+        };
+        assert!(!finished.card_due(late));
+        assert!(!finished.stopped_fresh());
+    }
+
+    #[test]
+    fn a_fresh_build_shows_the_card_after_the_delay() {
+        assert!(!job(true, 0).card_due(SHOW_AFTER / 2), "not before 600 ms");
+        assert!(job(true, 0).card_due(SHOW_AFTER));
+        assert!(job(true, 4).card_due(SHOW_AFTER * 5));
+    }
+
+    #[test]
+    fn a_cached_start_that_turns_fresh_shows_the_card_from_that_step_on() {
+        let late = SHOW_AFTER * 20;
+        assert!(!job(false, 3).card_due(late), "three cached steps: hidden");
+        // The fourth step compiled a kernel the cache did not have.
+        let turned = job(true, 3);
+        assert!(turned.card_due(late), "shown at once, delay long past");
+        assert_eq!(card_text(&turned).path, "3 of 9", "with the true progress");
+    }
+
+    #[test]
+    fn a_stopped_build_shows_the_card_only_if_a_fresh_step_ran() {
+        let stopped = |fresh| Progress {
+            running: false,
+            path: Bar::stopped(4, 9),
+            ..job(fresh, 4)
+        };
+        assert!(stopped(true).stopped_fresh());
+        assert!(
+            !stopped(false).stopped_fresh(),
+            "an all-cached stop is silent"
+        );
+        assert!(!job(true, 4).stopped_fresh(), "not while it still runs");
+    }
+
     #[test]
     fn the_card_counts_the_steps_and_says_how_the_build_ended() {
         let progress = Progress {
@@ -990,6 +1114,7 @@ mod tests {
             ray: Bar::ready(1),
             path: Bar::running(3, 9),
             persistent: Some(true),
+            fresh: true,
         };
         let text = card_text(&progress);
         assert_eq!(text.title, "Building the Shader Cache");
@@ -1023,6 +1148,7 @@ mod tests {
             ray: Bar::UNAVAILABLE,
             path: Bar::UNAVAILABLE,
             persistent: None,
+            fresh: false,
         };
         assert_eq!(card_text(&none).title, "Shader Cache Not Built");
         assert_eq!(card_text(&none).path, "Not Available");

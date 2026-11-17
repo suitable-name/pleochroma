@@ -9,6 +9,8 @@
 //! the trials table agree on what "about the same" means:
 //!
 //! - the five table-up figures use their own noise thresholds; fire uses a relative one;
+//! - Contrast (when both sides carry zone figures) uses [`crate::metric_deltas::CONTRAST_NOISE_POINTS`]
+//!   (higher is better);
 //! - the yield uses [`YIELD_NOISE_POINTS`] (higher is better);
 //! - the manufacturability count has no threshold: a facet that appears or vanishes is
 //!   always reported (fewer is better);
@@ -48,6 +50,8 @@ pub enum DeltaFigure {
     TiltWindowing,
     /// Tilt-averaged extinction.
     TiltExtinction,
+    /// Contrast (the pattern figure of the zones, 0 to 100).
+    Contrast,
 }
 
 impl DeltaFigure {
@@ -65,6 +69,7 @@ impl DeltaFigure {
             Self::TiltBrilliance => "Tilt Brilliance",
             Self::TiltWindowing => "Tilt Windowing",
             Self::TiltExtinction => "Tilt Extinction",
+            Self::Contrast => "Contrast",
         }
     }
 
@@ -82,13 +87,15 @@ impl DeltaFigure {
             Self::TiltBrilliance => "Tilt Bril.",
             Self::TiltWindowing => "Tilt Wind.",
             Self::TiltExtinction => "Tilt Ext.",
+            Self::Contrast => "Contr.",
         }
     }
 
-    /// Whether the figure is a percentage (the fire index and the warning count are not).
+    /// Whether the figure is a percentage (the fire index, the warning count and Contrast
+    /// are not).
     #[must_use]
     pub const fn is_percent(self) -> bool {
-        !matches!(self, Self::Fire | Self::Warnings)
+        !matches!(self, Self::Fire | Self::Warnings | Self::Contrast)
     }
 
     /// Whether the figure is one of the tilt averages.
@@ -101,7 +108,7 @@ impl DeltaFigure {
     }
 
     /// Every figure, in the order of the strip and the trials table.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Brilliance,
         Self::Windowing,
         Self::Extinction,
@@ -112,6 +119,7 @@ impl DeltaFigure {
         Self::TiltBrilliance,
         Self::TiltWindowing,
         Self::TiltExtinction,
+        Self::Contrast,
     ];
 
     /// The position of the figure in [`Self::ALL`].
@@ -128,6 +136,7 @@ impl DeltaFigure {
             Self::TiltBrilliance => 7,
             Self::TiltWindowing => 8,
             Self::TiltExtinction => 9,
+            Self::Contrast => 10,
         }
     }
 
@@ -141,10 +150,12 @@ impl DeltaFigure {
                 | Self::Scintillation
                 | Self::Yield
                 | Self::TiltBrilliance
+                | Self::Contrast
         )
     }
 
-    /// The figure of `metrics`; `None` for a yield or a tilt average it does not carry.
+    /// The figure of `metrics`; `None` for a yield, a tilt average or Contrast it does not
+    /// carry.
     #[must_use]
     pub fn value(self, metrics: &RowMetrics) -> Option<f64> {
         Some(match self {
@@ -158,6 +169,7 @@ impl DeltaFigure {
             Self::TiltBrilliance => f64::from(metrics.tilt?.brilliance_pct),
             Self::TiltWindowing => f64::from(metrics.tilt?.windowing_pct),
             Self::TiltExtinction => f64::from(metrics.tilt?.extinction_pct),
+            Self::Contrast => f64::from(metrics.aset?.contrast),
         })
     }
 
@@ -243,12 +255,13 @@ pub struct FigureDelta {
 /// The change of every figure from `baseline` to `current`.
 ///
 /// One row per figure, in the order of [`DeltaFigure`]: the five table-up figures, the
-/// yield (when both sides have one), the warning count (always), then the three tilt
-/// averages (when both sides have them). A figure that is not a finite number is left out.
+/// yield (when both sides have one), the warning count (always), the three tilt
+/// averages (when both sides have them), then Contrast (when both sides have zone
+/// figures). A figure that is not a finite number is left out.
 #[must_use]
 pub fn figure_deltas(baseline: &RowMetrics, current: &RowMetrics) -> Vec<FigureDelta> {
     let (before, after) = (optical(baseline), optical(current));
-    let mut rows = Vec::with_capacity(10);
+    let mut rows = Vec::with_capacity(DeltaFigure::ALL.len());
     for metric in DeltaMetric::ALL {
         let figure = match metric {
             DeltaMetric::Brilliance => DeltaFigure::Brilliance,
@@ -256,6 +269,8 @@ pub fn figure_deltas(baseline: &RowMetrics, current: &RowMetrics) -> Vec<FigureD
             DeltaMetric::Extinction => DeltaFigure::Extinction,
             DeltaMetric::Fire => DeltaFigure::Fire,
             DeltaMetric::Scintillation => DeltaFigure::Scintillation,
+            // Contrast follows the tilt averages, the order of `DeltaFigure::ALL`.
+            DeltaMetric::Contrast => continue,
         };
         rows.extend(judged_delta(
             figure,
@@ -306,10 +321,16 @@ pub fn figure_deltas(baseline: &RowMetrics, current: &RowMetrics) -> Vec<FigureD
             rows.extend(judged_delta_tilt(figure, metric, was, now));
         }
     }
+    rows.extend(judged_delta(
+        DeltaFigure::Contrast,
+        DeltaMetric::Contrast,
+        DeltaMetric::Contrast.value(&before),
+        DeltaMetric::Contrast.value(&after),
+    ));
     rows
 }
 
-/// The five table-up figures of a row.
+/// The table-up figures of a row.
 const fn optical(metrics: &RowMetrics) -> OpticalFigures {
     OpticalFigures {
         brilliance_pct: metrics.brilliance_pct,
@@ -317,6 +338,7 @@ const fn optical(metrics: &RowMetrics) -> OpticalFigures {
         extinction_pct: metrics.extinction_pct,
         fire_index: metrics.fire_index,
         scintillation_pct: metrics.scintillation_pct,
+        aset: metrics.aset,
     }
 }
 

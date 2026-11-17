@@ -61,8 +61,14 @@
 //!   for a certificate bundle. Shared by `pleochroma-worker`'s `cert claim` and
 //!   `pleochroma-cut`'s token-redeem UI.
 
+/// The coordinator's status, events, settings patch and permissions, shared by its window
+/// and remote administration.
+pub mod admin;
 /// Viewer-side protocol driver.
 pub mod client;
+/// Coordinator discovery on the LAN over mDNS (`pairing` feature).
+#[cfg(feature = "pairing")]
+pub mod discovery;
 /// The 8-bit picture payloads (`DISPLAY_FRAME`, `FINAL_IMAGE`).
 pub mod display;
 /// Enrollment wire messages and the claiming client.
@@ -74,6 +80,12 @@ pub mod handshake;
 /// Read-only design-library sync protocol, always available.
 pub mod library;
 pub mod messages;
+/// The machine's LAN IPv4 addresses, default route first (`pairing` feature).
+#[cfg(feature = "pairing")]
+pub mod netinfo;
+/// The `pleochroma://pair` pairing link (`pairing` feature).
+#[cfg(feature = "pairing")]
+pub mod pairing;
 /// Per-pixel radiance-buffer codec and lossless payload encodings.
 pub mod radiance;
 /// Scene types a worker needs to trace a frame (`render` feature only).

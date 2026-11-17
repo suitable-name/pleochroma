@@ -5,7 +5,8 @@
 //! touched, without a panic, an unexpected file dialog or an error toast. The Rough Planner
 //! states are a finished plan, saved plans, the question rows, the excluded list, a mesh-like
 //! rough and a block with typed inclusions; the Rig and Locate states a stored rig (the Rig and
-//! Calibrate tabs); the Compare state the split view; the wizard states its eight steps.
+//! Calibrate tabs); the Compare state the split view with the Zones (ASET-style) row; the wizard
+//! states its eight steps.
 //!
 //! The engine is the overlay one with `OVERLAY_DENY`, so the destructive pills (Delete, Remove,
 //! Replace, Discard) are pressed too: the profile is rebuilt after every visible change. A press
@@ -719,6 +720,12 @@ fn compare_split(ctx: &mut Ctx<'_>) {
                     tone: 0,
                 }])));
             }
+            // The Zones (ASET-style) row sits under the figure rows; it holds two bars and the
+            // change, no control, and a lighting footnote joins the table with it.
+            compare.set_has_aset(true);
+            compare.set_aset_before(ModelRc::new(VecModel::from(vec![44.0, 19.0, 33.0, 4.0])));
+            compare.set_aset_after(ModelRc::new(VecModel::from(vec![44.0, 19.0, 16.0, 21.0])));
+            compare.set_aset_change("Blue -17, Dark +17".into());
             // A snapshot comparison offers only Close; Retarget and Optimize also offer Discard
             // and Keep After, which these two properties show and enable.
             compare.set_show_keep_discard(true);

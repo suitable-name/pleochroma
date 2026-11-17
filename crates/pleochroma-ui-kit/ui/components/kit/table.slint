@@ -1,0 +1,101 @@
+import { Theme } from "../../theme.slint";
+import { KitIcon } from "icons.slint";
+
+// Table parts: a sortable column heading and a table row. Both draw from `Theme`, take the
+// keyboard focus ring of the other kit controls and carry their accessible names.
+
+// A column heading that sorts. `sorted` marks the column the table is ordered by: the heading turns
+// cyan and shows a chevron (down for `descending`). `align` is 0 for left and 1 for right.
+export component KitSortHeader inherits Rectangle {
+    in property <string> text;
+    // The sentence the tooltip and the screen reader get ("Sort by Hardness").
+    in property <string> hint;
+    in property <bool> sorted: false;
+    in property <bool> descending: false;
+    in property <int> align: 0;
+    callback clicked();
+
+    height: 30px;
+    border-radius: Theme.radius-sm;
+    background: touch.has-hover ? Theme.bg-card-hover : transparent;
+    border-width: fs.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Sort by " + root.text;
+    accessible-description: root.hint + (root.sorted ? (root.descending ? " Currently sorted descending." : " Currently sorted ascending.") : "");
+    accessible-action-default => { root.clicked(); }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    fs := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        // A right-aligned heading ends flush with the column, like the numbers under it.
+        padding-left: root.align == 1 ? 0px : 4px;
+        padding-right: root.align == 1 ? 0px : 4px;
+        spacing: 3px;
+        alignment: root.align == 1 ? end : start;
+        Text {
+            text: root.text;
+            font-size: 12px;
+            font-weight: 600;
+            color: root.sorted ? Theme.accent-cyan : Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.sorted: VerticalLayout {
+            alignment: center;
+            KitIcon {
+                d: root.descending ? "M6 9 L12 15 L18 9" : "M6 15 L12 9 L18 15";
+                size: 12px;
+                stroke: 2px;
+                ink: Theme.accent-cyan;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A table row, 30 px tall. Even rows are sunken and odd rows one step lighter; the selected row is
+// `surface-selected`; `ringed` draws the focus ring when the table owns the keyboard. The cells go
+// in as children (a layout). A click selects, a double click opens.
+export component KitTableRow inherits Rectangle {
+    in property <bool> striped: false;
+    in property <bool> selected: false;
+    in property <bool> ringed: false;
+    // The whole row as one sentence, for the screen reader.
+    in property <string> label;
+    in property <string> hint;
+    callback clicked();
+    callback opened();
+
+    height: 30px;
+    border-radius: 6px;
+    border-width: root.ringed ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    background: root.selected
+        ? Theme.surface-selected
+        : (touch.has-hover ? Theme.bg-card-hover : (root.striped ? Theme.surface-raised : Theme.surface-sunken));
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.selected;
+    accessible-action-default => { root.opened(); }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+        double-clicked => { root.opened(); }
+    }
+    @children
+}

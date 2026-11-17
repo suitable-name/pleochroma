@@ -1,0 +1,1089 @@
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { AppModel } from "../models/app_model.slint";
+
+// One row of the reference table (`pleochroma_web_core::material_reference::TableRowView`).
+export struct RefTableRow {
+    name: string,
+    tag: string,
+    swatch: color,
+    ri: string,
+    biref: string,
+    disp: string,
+    sg: string,
+    hardness: string,
+    hardness-fill: float,
+    toughness: string,
+    cleavage: string,
+}
+
+// A filter chip: its id (0 All, 1 Natural, 2 Synthetic, 3 Glass, 4 My Materials) and label.
+export struct RefFilterChip {
+    id: int,
+    label: string,
+}
+
+// A labelled chart position: an axis tick (`position` 0..100 down or across the plot) or a
+// Fraunhofer guide (`text` the line's letter, `position` across the plot).
+export struct RefTick {
+    text: string,
+    position: float,
+}
+
+// One line of a chart: a direction's index curve or absorption curve. `path` is a 0..100
+// viewbox path; `path-alt` is the transmission curve of a spectrum series. `ink` picks the
+// line color (0 cyan, 1 amber, 2 purple).
+export struct RefSeries {
+    label: string,
+    value: string,
+    path: string,
+    path-alt: string,
+    swatch: color,
+    ink: int,
+}
+
+// A labelled value of a card; `note` is a line under it, `missing` dims a "Not recorded".
+export struct RefLine {
+    label: string,
+    value: string,
+    note: string,
+    missing: bool,
+}
+
+// One absorption band of a ray.
+export struct RefBand {
+    ray: string,
+    center: string,
+    width: string,
+    peak: string,
+    shape: string,
+}
+
+// One direction's color in daylight and under a 3200 K lamp; the face-up row is bold.
+export struct RefColorRow {
+    label: string,
+    daylight: color,
+    incandescent: color,
+    face-up: bool,
+}
+
+// One color variant of the material.
+export struct RefVariant {
+    label: string,
+    swatch: color,
+    source: string,
+    estimated: bool,
+    selected: bool,
+}
+
+// One line of the sources card; a heading names a group.
+export struct RefSourceLine {
+    text: string,
+    heading: bool,
+}
+
+// The Material Reference dialog: a compact table of every material and, behind a row, one
+// column of curves, spectra, colors and gem data. Pushed by `src/editor/material_reference.rs`.
+export global MaterialReferenceModel {
+    in-out property <bool> is-open: false;
+    // 0 the table, 1 the details of `detail-name`.
+    in-out property <int> page: 0;
+
+    // -- The table ------------------------------------------------------------------------
+    in property <string> subtitle: "";
+    in property <[RefTableRow]> rows: [];
+    in property <[RefFilterChip]> chips: [];
+    in property <int> filter: 0;
+    in-out property <string> query: "";
+    // The sorted column (0 Material, 1 RI, 2 Biref., 3 Disp., 4 SG, 5 Hardness, 6 Toughness, 7 Cleavage).
+    in property <int> sort-column: 0;
+    in property <bool> sort-descending: false;
+    // The selected row's index in `rows`, -1 for none.
+    in property <int> selected: -1;
+    in property <string> footer: "";
+
+    // -- The details page -----------------------------------------------------------------
+    in property <string> detail-name: "";
+    in property <string> detail-family: "";
+    in property <string> detail-chips: "";
+    in property <bool> detail-color-change: false;
+    in property <color> detail-swatch-daylight: #000000;
+    in property <color> detail-swatch-incandescent: #000000;
+    in property <[RefSeries]> ri-series: [];
+    in property <[RefTick]> ri-y-ticks: [];
+    in property <[RefTick]> ri-x-ticks: [];
+    in property <[RefTick]> ri-guides: [];
+    in property <string> ri-readout: "";
+    in property <string> ri-model: "";
+    in property <[RefLine]> optics-rows: [];
+    in property <[RefSeries]> spectrum-series: [];
+    in property <[RefTick]> spectrum-x-ticks: [];
+    in property <string> spectrum-summary: "";
+    in property <string> spectrum-provenance: "";
+    in property <string> spectrum-variant: "";
+    in property <string> transmission-note: "";
+    in property <[RefBand]> spectrum-bands: [];
+    in property <[RefColorRow]> color-rows: [];
+    in property <string> color-note: "";
+    in property <[RefVariant]> variants: [];
+    in property <string> effects-summary: "";
+    in property <[RefLine]> durability-rows: [];
+    in property <string> weight-line: "";
+    in property <string> care: "";
+    in property <[RefSourceLine]> source-lines: [];
+
+    // The facts line under the Material combo of Design Settings: the summary of the material
+    // called `name` in the combo ("No gem data yet" for a custom one), "" for an entry that is
+    // no material.
+    pure callback gem-summary-for(string) -> string;
+    // Whether that material's strongest cleavage is perfect, good or distinct (the line is tinted).
+    pure callback gem-warns-for(string) -> bool;
+
+    // Design > Material Reference...: the table, with the design's material selected.
+    callback open();
+    // The Design settings' Details...: the details page of this material.
+    callback open-for(string);
+    callback close();
+    // A column heading was clicked (the index of `sort-column`).
+    callback sort-clicked(int);
+    callback filter-chosen(int);
+    callback query-edited(string);
+    callback row-selected(int);
+    // A row was opened (double click, Enter, Open Details).
+    callback row-opened(int);
+    // Up and Down move the selection by one row.
+    callback move-selection(int);
+    callback variant-selected(int);
+}
+
+// The line colors of the charts and their legend.
+global RefInk {
+    pure public function color(ink: int) -> color {
+        if ink == 1 {
+            return Theme.accent-amber;
+        }
+        if ink == 2 {
+            return Theme.accent-purple;
+        }
+        return Theme.accent-cyan;
+    }
+}
+
+component FilterPill inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked();
+
+    height: 24px;
+    width: label.preferred-width + 20px;
+    border-radius: 12px;
+    background: root.on ? Theme.accent-cyan-surface : Theme.bg-input;
+    border-width: 1px;
+    border-color: root.on ? Theme.accent-cyan : Theme.border-medium;
+    accessible-role: button;
+    accessible-label: root.text;
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+    label := Text {
+        x: 10px;
+        text: root.text;
+        font-size: 10px;
+        font-weight: 600;
+        color: root.on ? Theme.accent-cyan : Theme.text-secondary;
+        vertical-alignment: center;
+    }
+}
+
+// A column heading: a button that sorts by its column.
+component HeaderCell inherits Rectangle {
+    in property <string> text;
+    in property <int> column;
+    in property <bool> align-right: false;
+    property <bool> active: MaterialReferenceModel.sort-column == root.column;
+
+    accessible-role: button;
+    accessible-label: "Sort by " + root.text;
+    TouchArea {
+        clicked => { MaterialReferenceModel.sort-clicked(root.column); }
+    }
+    HorizontalLayout {
+        alignment: root.align-right ? LayoutAlignment.end : LayoutAlignment.start;
+        spacing: 3px;
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.active ? Theme.accent-cyan : Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        // The sort direction, drawn in the desktop's chevron shape (`kit/table.slint`): the font
+        // has no arrow glyphs.
+        if root.active: VerticalLayout {
+            alignment: center;
+            Path {
+                width: 12px;
+                height: 12px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: MaterialReferenceModel.sort-descending ? "M6 9 L12 15 L18 9" : "M6 15 L12 9 L18 15";
+                stroke: Theme.accent-cyan;
+                stroke-width: 2px;
+                stroke-line-cap: round;
+                stroke-line-join: round;
+                fill: transparent;
+            }
+        }
+    }
+}
+
+component NumCell inherits Text {
+    font-size: 11px;
+    color: self.text == "\u{2014}" ? Theme.text-disabled : Theme.text-secondary;
+    horizontal-alignment: right;
+    vertical-alignment: center;
+}
+
+component TableRowItem inherits Rectangle {
+    in property <RefTableRow> item;
+    in property <bool> selected;
+    in property <bool> alt;
+    // Under 760 px: Biref. and SG are dropped (the desktop table's rule).
+    in property <bool> narrow;
+    // Under 520 px (a phone): the hardness bar shrinks and Disp. and Cleavage are dropped too.
+    in property <bool> phone;
+    callback clicked();
+    callback opened();
+
+    height: 30px;
+    border-radius: 6px;
+    background: root.selected ? Theme.accent-cyan-surface : (root.alt ? #ffffff08 : transparent);
+    accessible-role: list-item;
+    accessible-label: root.item.name + ", RI " + root.item.ri + ", hardness " + root.item.hardness;
+    TouchArea {
+        clicked => { root.clicked(); }
+        double-clicked => { root.opened(); }
+    }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                background: root.item.swatch;
+                border-width: 1px;
+                border-color: Theme.border-medium;
+            }
+        }
+        HorizontalLayout {
+            horizontal-stretch: 1.3;
+            preferred-width: 0px;
+            min-width: 0px;
+            spacing: 6px;
+            Text {
+                text: root.item.name;
+                font-size: 11px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+                min-width: 0px;
+            }
+            if root.item.tag != "" && !root.narrow: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 16px;
+                    width: tag-text.preferred-width + 14px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Theme.border-medium;
+                    tag-text := Text {
+                        x: 7px;
+                        text: root.item.tag;
+                        font-size: 9px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        NumCell { width: 44px; text: root.item.ri; }
+        if !root.narrow: NumCell { width: 44px; text: root.item.biref; }
+        if !root.phone: NumCell { width: 44px; text: root.item.disp; }
+        if !root.narrow: NumCell { width: 36px; text: root.item.sg; }
+        HorizontalLayout {
+            width: root.phone ? 70px : 92px;
+            spacing: 6px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: root.phone ? 24px : 44px;
+                    height: 5px;
+                    border-radius: 2px;
+                    background: #1e293b;
+                    clip: true;
+                    Rectangle {
+                        x: 0;
+                        width: parent.width * root.item.hardness-fill;
+                        background: Theme.accent-cyan;
+                    }
+                }
+            }
+            Text {
+                text: root.item.hardness;
+                font-size: 11px;
+                font-weight: 700;
+                color: root.item.hardness == "\u{2014}" ? Theme.text-disabled : Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        Text {
+            width: root.phone ? 72px : 84px;
+            text: root.item.toughness;
+            font-size: 11px;
+            color: root.item.toughness == "\u{2014}" ? Theme.text-disabled : Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if !root.phone: Text {
+            horizontal-stretch: 1.4;
+            preferred-width: 0px;
+            min-width: 0px;
+            text: root.item.cleavage;
+            font-size: 11px;
+            color: root.item.cleavage == "\u{2014}" ? Theme.text-disabled : Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// A card of the details page: a small uppercase title over its content.
+component Card inherits Rectangle {
+    in property <string> title;
+    background: Theme.bg-input;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        Text {
+            text: root.title;
+            font-size: 10px;
+            font-weight: 700;
+            color: Theme.text-muted;
+        }
+        @children
+    }
+}
+
+// A labelled value with an optional note line under it.
+component LineRow inherits VerticalLayout {
+    in property <RefLine> line;
+    spacing: 1px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            width: 104px;
+            text: root.line.label;
+            font-size: 11px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.line.value;
+            font-size: 11px;
+            color: root.line.missing ? Theme.text-disabled : Theme.text-primary;
+            wrap: word-wrap;
+        }
+    }
+    if root.line.note != "": Text {
+        text: root.line.note;
+        font-size: 10px;
+        color: Theme.accent-amber;
+        wrap: word-wrap;
+    }
+}
+
+// A chart canvas: gridlines, Fraunhofer guides, the series paths and the axis labels. The
+// paths come from the shared view model in a 0..100 viewbox.
+component Plot inherits Rectangle {
+    in property <[RefSeries]> series;
+    in property <bool> alt: false;
+    in property <[RefTick]> y-ticks;
+    in property <[RefTick]> x-ticks;
+    in property <[RefTick]> guides;
+    in property <string> caption;
+
+    height: 160px;
+    background: #050811;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: #1e293b;
+    clip: true;
+    accessible-role: image;
+    accessible-label: root.caption;
+
+    plot := Rectangle {
+        x: 46px;
+        y: 14px;
+        width: parent.width - 58px;
+        height: parent.height - 38px;
+
+        for tick in root.y-ticks: Rectangle {
+            y: parent.height * (tick.position / 100);
+            width: 100%;
+            height: 1px;
+            background: #1e293b88;
+            Text {
+                x: -40px;
+                y: -6px;
+                width: 36px;
+                text: tick.text;
+                font-size: 9px;
+                color: Theme.text-disabled;
+                horizontal-alignment: right;
+            }
+        }
+        for guide in root.guides: Rectangle {
+            x: parent.width * (guide.position / 100);
+            width: 1px;
+            height: 100%;
+            background: #64748b44;
+            Text {
+                x: -4px;
+                y: -13px;
+                text: guide.text;
+                font-size: 9px;
+                color: Theme.text-muted;
+            }
+        }
+        for tick in root.x-ticks: Text {
+            x: parent.width * (tick.position / 100) - 20px;
+            y: parent.height + 6px;
+            width: 40px;
+            text: tick.text;
+            font-size: 9px;
+            color: Theme.text-disabled;
+            horizontal-alignment: center;
+        }
+        for line in root.series: Path {
+            width: 100%;
+            height: 100%;
+            fit: fill;
+            commands: root.alt ? line.path-alt : line.path;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            stroke: RefInk.color(line.ink);
+            stroke-width: 1.6px;
+            fill: transparent;
+        }
+    }
+}
+
+// A legend entry: a color dot, the direction and an optional value.
+component LegendItem inherits HorizontalLayout {
+    in property <RefSeries> line;
+    in property <bool> swatch: false;
+    spacing: 5px;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: root.swatch ? 12px : 8px;
+            height: root.swatch ? 12px : 8px;
+            border-radius: root.swatch ? 3px : 4px;
+            background: root.swatch ? root.line.swatch : RefInk.color(root.line.ink);
+            border-width: root.swatch ? 1px : 0px;
+            border-color: RefInk.color(root.line.ink);
+        }
+    }
+    Text {
+        text: root.line.label + (root.line.value != "" ? "  " + root.line.value : "");
+        font-size: 11px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+    }
+}
+
+component ModePill inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked();
+    height: 22px;
+    width: label.preferred-width + 18px;
+    border-radius: Theme.radius-sm;
+    background: root.on ? Theme.accent-cyan-surface : Theme.bg-card;
+    border-width: 1px;
+    border-color: root.on ? Theme.accent-cyan : Theme.border-medium;
+    accessible-role: button;
+    accessible-label: root.text;
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+    label := Text {
+        x: 9px;
+        text: root.text;
+        font-size: 10px;
+        font-weight: 600;
+        color: root.on ? Theme.accent-cyan : Theme.text-secondary;
+        vertical-alignment: center;
+    }
+}
+
+// The details page of one material, in one column.
+component DetailPage inherits ScrollView {
+    // Absorption (false) or Transmission (true) of the spectrum chart.
+    property <bool> transmission: false;
+    // The full band table under the spectrum chart.
+    property <bool> bands-open: false;
+
+    content-width: self.visible-width;
+    VerticalLayout {
+        spacing: 8px;
+        padding-right: 12px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                alignment: start;
+                HorizontalLayout {
+                    Rectangle {
+                        width: 20px;
+                        height: 28px;
+                        background: MaterialReferenceModel.detail-swatch-daylight;
+                        border-width: 1px;
+                        border-color: Theme.border-medium;
+                        accessible-role: image;
+                        accessible-label: "Daylight color of " + MaterialReferenceModel.detail-name;
+                    }
+                    Rectangle {
+                        width: 20px;
+                        height: 28px;
+                        background: MaterialReferenceModel.detail-swatch-incandescent;
+                        border-width: 1px;
+                        border-color: Theme.border-medium;
+                        accessible-role: image;
+                        accessible-label: "Incandescent color of " + MaterialReferenceModel.detail-name;
+                    }
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                spacing: 2px;
+                Text {
+                    text: MaterialReferenceModel.detail-name;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: MaterialReferenceModel.detail-family;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        Text {
+            text: MaterialReferenceModel.detail-chips;
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+        if MaterialReferenceModel.detail-color-change: Text {
+            text: "Color change";
+            font-size: 11px;
+            font-weight: 700;
+            color: Theme.accent-cyan;
+        }
+
+
+
+        Card {
+            title: "DURABILITY AND CUTTING";
+            for line in MaterialReferenceModel.durability-rows: LineRow { line: line; }
+            if MaterialReferenceModel.weight-line != "": Text {
+                text: MaterialReferenceModel.weight-line;
+                font-size: 11px;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+            }
+            if MaterialReferenceModel.care != "": Text {
+                text: MaterialReferenceModel.care;
+                font-size: 11px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+            }
+        }
+
+        Card {
+            title: "OPTICS";
+            for line in MaterialReferenceModel.optics-rows: LineRow { line: line; }
+        }
+
+        Card {
+            title: "REFRACTIVE INDEX";
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                for line in MaterialReferenceModel.ri-series: LegendItem { line: line; }
+            }
+            Plot {
+                series: MaterialReferenceModel.ri-series;
+                y-ticks: MaterialReferenceModel.ri-y-ticks;
+                x-ticks: MaterialReferenceModel.ri-x-ticks;
+                guides: MaterialReferenceModel.ri-guides;
+                caption: "Refractive index of " + MaterialReferenceModel.detail-name + " from 380 to 750 nanometers. The readout below gives the values.";
+            }
+            Text {
+                text: MaterialReferenceModel.ri-readout;
+                font-size: 11px;
+                font-weight: 700;
+                color: Theme.accent-cyan;
+                wrap: word-wrap;
+            }
+            Text {
+                text: MaterialReferenceModel.ri-model;
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+
+        Card {
+            title: "ABSORPTION SPECTRUM";
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                for line in MaterialReferenceModel.spectrum-series: LegendItem {
+                    line: line;
+                    swatch: true;
+                }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                ModePill {
+                    text: "Absorption";
+                    on: !root.transmission;
+                    clicked => { root.transmission = false; }
+                }
+                ModePill {
+                    text: "Transmission";
+                    on: root.transmission;
+                    clicked => { root.transmission = true; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if root.transmission && MaterialReferenceModel.transmission-note != "": Text {
+                text: MaterialReferenceModel.transmission-note;
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            Plot {
+                series: MaterialReferenceModel.spectrum-series;
+                alt: root.transmission;
+                x-ticks: MaterialReferenceModel.spectrum-x-ticks;
+                caption: (root.transmission ? "Transmission" : "Absorption") + " spectrum of " + MaterialReferenceModel.detail-name + ". The band list gives every value.";
+            }
+            if MaterialReferenceModel.spectrum-variant != "": Text {
+                text: MaterialReferenceModel.spectrum-variant;
+                font-size: 10px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+            }
+            Text {
+                text: MaterialReferenceModel.spectrum-summary;
+                font-size: 11px;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+            }
+            Text {
+                text: MaterialReferenceModel.spectrum-provenance;
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            if MaterialReferenceModel.spectrum-bands.length > 0: HorizontalLayout {
+                Button {
+                    text: root.bands-open ? "Hide Bands" : "Bands...";
+                    clicked => { root.bands-open = !root.bands-open; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            if root.bands-open: VerticalLayout {
+                spacing: 3px;
+                for band in MaterialReferenceModel.spectrum-bands: Text {
+                    text: band.ray + "  " + band.center + "  " + band.width + "  " + band.peak + "  " + band.shape;
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        Card {
+            title: "COLOR BY DIRECTION AND LIGHT";
+            HorizontalLayout {
+                spacing: 8px;
+                Rectangle { horizontal-stretch: 1; }
+                Text { width: 72px; text: "Daylight"; font-size: 10px; color: Theme.text-muted; }
+                Text { width: 72px; text: "Incandescent"; font-size: 10px; color: Theme.text-muted; }
+            }
+            for row in MaterialReferenceModel.color-rows: HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    text: row.label;
+                    font-size: 11px;
+                    font-weight: row.face-up ? 700 : 400;
+                    color: row.face-up ? Theme.text-primary : Theme.text-secondary;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    width: 72px;
+                    alignment: start;
+                    Rectangle {
+                        width: 28px;
+                        height: 16px;
+                        border-radius: 3px;
+                        background: row.daylight;
+                        border-width: 1px;
+                        border-color: Theme.border-medium;
+                    }
+                }
+                HorizontalLayout {
+                    width: 72px;
+                    alignment: start;
+                    Rectangle {
+                        width: 28px;
+                        height: 16px;
+                        border-radius: 3px;
+                        background: row.incandescent;
+                        border-width: 1px;
+                        border-color: Theme.border-medium;
+                    }
+                }
+            }
+            if MaterialReferenceModel.color-note != "": Text {
+                text: MaterialReferenceModel.color-note;
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+
+        if MaterialReferenceModel.variants.length > 1: Card {
+            title: "COLOR VARIANTS";
+            for variant[idx] in MaterialReferenceModel.variants: Rectangle {
+                height: 40px;
+                border-radius: 6px;
+                background: variant.selected ? Theme.accent-cyan-surface : transparent;
+                accessible-role: button;
+                accessible-label: "Show the " + variant.label + " variant";
+                TouchArea {
+                    clicked => { MaterialReferenceModel.variant-selected(idx); }
+                }
+                HorizontalLayout {
+                    padding: 4px;
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: start;
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 3px;
+                            background: variant.swatch;
+                            border-width: 1px;
+                            border-color: Theme.border-medium;
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        Text {
+                            text: variant.label + (variant.estimated ? "  (estimated)" : "");
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.text-primary;
+                            overflow: elide;
+                        }
+                        if variant.source != "": Text {
+                            text: variant.source;
+                            font-size: 10px;
+                            color: Theme.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: "EFFECTS";
+            Text {
+                text: MaterialReferenceModel.effects-summary;
+                font-size: 11px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+            }
+        }
+
+
+        Card {
+            title: "SOURCES";
+            for line in MaterialReferenceModel.source-lines: Text {
+                text: line.text;
+                font-size: 10px;
+                font-weight: line.heading ? 700 : 400;
+                color: line.heading ? Theme.text-secondary : Theme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// The Material Reference dialog; mounted by `app.slint` while `MaterialReferenceModel.is-open`.
+export component MaterialReferenceDialog inherits Rectangle {
+    background: Theme.overlay-backdrop;
+
+    // The table folds its less important columns under 760 px (the desktop's `ref_table.slint`
+    // folds at the same width, and `apps/pleochroma-cut/tests/narrow_breakpoints.rs` pins both):
+    // Biref. and SG go, so Material, RI, Disp., Hardness, Toughness and Cleavage stay.
+    property <bool> narrow: root.width < 760px;
+    // A phone-width window: there is no room for Disp. and Cleavage either; Toughness stays.
+    property <bool> phone: root.width < 520px;
+
+    TouchArea {
+        clicked => { MaterialReferenceModel.close(); }
+    }
+
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                MaterialReferenceModel.close();
+                return accept;
+            }
+            if MaterialReferenceModel.page == 0 {
+                if event.text == Key.UpArrow {
+                    MaterialReferenceModel.move-selection(-1);
+                    return accept;
+                }
+                if event.text == Key.DownArrow {
+                    MaterialReferenceModel.move-selection(1);
+                    return accept;
+                }
+                if event.text == Key.Return && MaterialReferenceModel.selected >= 0 {
+                    MaterialReferenceModel.row-opened(MaterialReferenceModel.selected);
+                    return accept;
+                }
+            }
+            reject
+        }
+    }
+
+    Rectangle {
+        width: min(920px, root.width - 32px);
+        height: min(680px, root.height - 32px);
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        background: Theme.bg-card;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-medium;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: Theme.toast-shadow;
+        clip: true;
+
+        // Clicks inside the card do not close it.
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                if MaterialReferenceModel.page == 1: Button {
+                    text: "All Materials";
+                    clicked => { MaterialReferenceModel.page = 0; }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    text: MaterialReferenceModel.page == 0 ? "Material Reference" : "Material Details";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Rectangle {
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 13px;
+                    background: close-touch.has-hover ? Theme.bg-elevated : transparent;
+                    accessible-role: button;
+                    accessible-label: "Close the Material Reference";
+                    close-touch := TouchArea {
+                        clicked => { MaterialReferenceModel.close(); }
+                    }
+                    Text {
+                        text: "\u{00d7}";
+                        font-size: 18px;
+                        color: Theme.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if MaterialReferenceModel.page == 0: VerticalLayout {
+                vertical-stretch: 1;
+                spacing: 8px;
+
+                Text {
+                    text: MaterialReferenceModel.subtitle;
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    // A fixed width: the field must not grow or shrink while text is typed.
+                    LineEdit {
+                        min-width: 0px;
+                        horizontal-stretch: 0;
+                        preferred-width: 300px;
+                        max-width: 300px;
+                        text <=> MaterialReferenceModel.query;
+                        placeholder-text: "Search by name, system or cleavage";
+                        edited => { MaterialReferenceModel.query-edited(self.text); }
+                        changed has-focus => { AppModel.text-focus = self.has-focus; }
+                    }
+                    if !root.narrow: HorizontalLayout {
+                        spacing: 6px;
+                        for chip in MaterialReferenceModel.chips: VerticalLayout {
+                            alignment: center;
+                            FilterPill {
+                                text: chip.label;
+                                on: MaterialReferenceModel.filter == chip.id;
+                                clicked => { MaterialReferenceModel.filter-chosen(chip.id); }
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                }
+                if root.narrow: HorizontalLayout {
+                    spacing: 6px;
+                    for chip in MaterialReferenceModel.chips: FilterPill {
+                        text: chip.label;
+                        on: MaterialReferenceModel.filter == chip.id;
+                        clicked => { MaterialReferenceModel.filter-chosen(chip.id); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.bg-input;
+                    border-radius: Theme.radius-md;
+                    border-width: 1px;
+                    border-color: Theme.border-subtle;
+                    clip: true;
+
+                    VerticalLayout {
+                        // The heading row has the same side padding and column widths as a row.
+                        Rectangle {
+                            height: 30px;
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                Rectangle { width: 14px; }
+                                HeaderCell {
+                                    horizontal-stretch: 1.3;
+                                    preferred-width: 0px;
+                                    min-width: 0px;
+                                    text: "Material";
+                                    column: 0;
+                                }
+                                HeaderCell { width: 44px; text: "RI"; column: 1; align-right: true; }
+                                if !root.narrow: HeaderCell { width: 44px; text: "Biref."; column: 2; align-right: true; }
+                                if !root.phone: HeaderCell { width: 44px; text: "Disp."; column: 3; align-right: true; }
+                                if !root.narrow: HeaderCell { width: 36px; text: "SG"; column: 4; align-right: true; }
+                                HeaderCell { width: root.phone ? 70px : 92px; text: "Hardness"; column: 5; }
+                                HeaderCell { width: root.phone ? 72px : 84px; text: "Toughness"; column: 6; }
+                                if !root.phone: HeaderCell {
+                                    horizontal-stretch: 1.4;
+                                    preferred-width: 0px;
+                                    min-width: 0px;
+                                    text: "Cleavage";
+                                    column: 7;
+                                }
+                            }
+                        }
+                        Rectangle { height: 1px; background: Theme.border-subtle; }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            content-width: self.visible-width;
+                            VerticalLayout {
+                                padding: 4px;
+                                for row[idx] in MaterialReferenceModel.rows: TableRowItem {
+                                    item: row;
+                                    narrow: root.narrow;
+                                    phone: root.phone;
+                                    alt: Math.mod(idx, 2) == 1;
+                                    selected: MaterialReferenceModel.selected == idx;
+                                    clicked => { MaterialReferenceModel.row-selected(idx); }
+                                    opened => { MaterialReferenceModel.row-opened(idx); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: MaterialReferenceModel.footer;
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    Button {
+                        text: "Open Details";
+                        primary: true;
+                        enabled: MaterialReferenceModel.selected >= 0;
+                        clicked => { MaterialReferenceModel.row-opened(MaterialReferenceModel.selected); }
+                    }
+                }
+            }
+
+            if MaterialReferenceModel.page == 1: DetailPage {
+                vertical-stretch: 1;
+            }
+        }
+    }
+}

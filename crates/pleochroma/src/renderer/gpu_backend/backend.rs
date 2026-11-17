@@ -72,6 +72,11 @@ pub struct GpuBackend {
     /// recovery. Read by [`Self::last_lost_reason`]. A `Mutex` because the payload is a
     /// `String`; it is only touched on the loss path.
     last_lost_reason: Mutex<Option<String>>,
+    /// The current renderer's adapter label, kept outside the `renderer` mutex so
+    /// [`Self::adapter_label`] never waits for a render (a first-time shader compile holds that
+    /// mutex for minutes, and status pages ask for the label every second). Set at acquisition
+    /// and by [`Self::reacquire`].
+    label: Mutex<Option<String>>,
     /// Cool-down and attempt budget for [`Self::try_recover`]; see [`RecoveryPolicy`].
     /// `pub(super)` so tests can age a loss without sleeping.
     pub(super) recovery: Mutex<RecoveryPolicy>,
@@ -130,6 +135,7 @@ impl GpuBackend {
             turnstile: Turnstile::new(),
             lost: AtomicBool::new(false),
             last_lost_reason: Mutex::new(None),
+            label: Mutex::new(None),
             recovery: Mutex::new(RecoveryPolicy::new()),
             recovering: AtomicBool::new(false),
             scratch_pool: Mutex::new(Vec::new()),
@@ -164,17 +170,27 @@ impl GpuBackend {
     /// `None` when the backend is [`Self::disabled`], acquisition failed, or the device is
     /// lost (see [`Self::lost`]). Read-only: it never attempts recovery, so a caller about to
     /// advertise a GPU calls [`Self::try_recover`] first.
+    ///
+    /// Never waits for a render: the label is kept outside the renderer mutex. A backend built
+    /// without it (tests) fills it on the first call that finds the renderer free.
     #[must_use]
     pub fn adapter_label(&self) -> Option<String> {
         if self.lost.load(Ordering::Relaxed) {
             return None;
         }
-        self.renderer.as_ref().map(|m| {
-            m.lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .adapter_label()
-                .to_string()
-        })
+        let renderer = self.renderer.as_ref()?;
+        let mut label = self.label.lock().unwrap_or_else(PoisonError::into_inner);
+        if label.is_none()
+            && let Ok(guard) = renderer.try_lock()
+        {
+            *label = Some(guard.adapter_label().to_owned());
+        }
+        label.clone()
+    }
+
+    /// Remembers the current renderer's adapter label for [`Self::adapter_label`].
+    pub(super) fn remember_label(&self, label: String) {
+        *self.label.lock().unwrap_or_else(PoisonError::into_inner) = Some(label);
     }
 
     /// Selects the kernel used for every later chunk; see [`GpuPipelineKind`]. A no-op
@@ -673,6 +689,7 @@ impl GpuBackend {
         let _turn = self.turnstile.wait_for_turn(ticket);
         let mut guard = slot.lock().unwrap_or_else(PoisonError::into_inner);
         fresh.set_pipeline_kind(guard.pipeline_kind());
+        self.remember_label(fresh.adapter_label().to_owned());
         *guard = fresh;
         drop(guard);
         slot.clear_poison();

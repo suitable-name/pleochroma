@@ -1,6 +1,7 @@
-//! `cert init` / `cert issue-server` / `cert issue-client`: an in-process private CA
-//! for `pleochroma-worker`'s mutual TLS, with two client roles (viewer and joining
-//! worker -- see [`role`]).
+//! `cert init` / `cert issue-server` / `cert issue-client`.
+//!
+//! An in-process private CA for `pleochroma-worker`'s mutual TLS, with two client roles (viewer and
+//! joining worker -- see [`role`]).
 //!
 //! Certificate generation only: one-shot CLI operations that write PEM files to disk.
 //! Private-key writing (with Windows ACL restriction) and loading a bundle into `rustls`
@@ -71,9 +72,10 @@ pub mod role;
 mod tests;
 
 pub use role::{
-    LEGACY_ALLOWLIST_FILE, VIEWER_ALLOWLIST_FILE, WORKER_ALLOWLIST_FILE, WORKER_CN_PREFIX,
-    allowlist_in, role_of_certificate, viewer_allowlist_in, worker_allowlist_in,
-    worker_label_of_certificate,
+    ADMIN_ALLOWLIST_FILE, ADMIN_CN_PREFIX, LEGACY_ALLOWLIST_FILE, MONITOR_ALLOWLIST_FILE,
+    MONITOR_CN_PREFIX, VIEWER_ALLOWLIST_FILE, WORKER_ALLOWLIST_FILE, WORKER_CN_PREFIX,
+    admin_allowlist_in, allowlist_in, monitor_allowlist_in, role_of_certificate,
+    viewer_allowlist_in, worker_allowlist_in, worker_label_of_certificate,
 };
 
 /// File name of the CA certificate.
@@ -119,7 +121,8 @@ pub enum PkiError {
     /// [`sign_client_leaf`] was given an empty (or all-whitespace) `--name`.
     EmptyClientName,
     /// A VIEWER certificate was requested for a `--name` starting with
-    /// [`WORKER_CN_PREFIX`], which would make it look like a worker certificate.
+    /// [`WORKER_CN_PREFIX`], [`MONITOR_CN_PREFIX`] or [`ADMIN_CN_PREFIX`], which would
+    /// make it look like that role's certificate.
     ReservedRolePrefix { name: String },
     /// An [`rcgen`] operation failed (key generation, building a SAN list, self-signing, or
     /// leaf-signing). `context` names the step.
@@ -179,8 +182,9 @@ impl fmt::Display for PkiError {
             Self::EmptyClientName => write!(f, "--name must not be empty"),
             Self::ReservedRolePrefix { name } => write!(
                 f,
-                "--name {name:?} starts with {WORKER_CN_PREFIX:?}, which marks WORKER certificates -- pick \
-                 another name for a viewer, or pass --role worker for a worker certificate"
+                "--name {name:?} starts with {WORKER_CN_PREFIX:?}, {MONITOR_CN_PREFIX:?} or {ADMIN_CN_PREFIX:?}, which \
+                 mark WORKER, MONITOR and ADMIN certificates -- pick another name for a viewer, or pass --role worker \
+                 for a worker certificate"
             ),
             Self::Rcgen { context, source } => write!(f, "{context}: {source}"),
             Self::RcgenAtPath { path, source } => write!(f, "{}: {source}", path.display()),
@@ -350,20 +354,64 @@ pub(crate) fn load_ca(dir: &Path) -> Result<Issuer<'static, KeyPair>, PkiError> 
 ///
 /// `hosts` and `ips` become the certificate's DNS and IP Subject Alternative Names --
 /// at least one is required. `rustls` ignores Common Name entirely for hostname/IP
-/// verification, so a server certificate with no SAN can never be validated.
+/// verification, so a server certificate with no SAN can never be validated. The
+/// coordinator's fixed TLS name ([`tls::COORDINATOR_TLS_NAME`]) is always added as one more
+/// DNS name; it does not count toward the "at least one" rule.
 ///
 /// # Errors
 ///
 /// A human-readable message if both `hosts` and `ips` are empty, the CA can't be loaded
 /// (see [`load_ca`]), signing fails, or the output files can't be written.
 pub fn issue_server(dir: &Path, hosts: &[String], ips: &[IpAddr]) -> Result<(), PkiError> {
+    issue_server_to(
+        dir,
+        &dir.join(SERVER_CERT_FILE),
+        &dir.join(SERVER_KEY_FILE),
+        hosts,
+        ips,
+    )
+}
+
+/// [`issue_server`] with the output files chosen.
+///
+/// Signs with the CA in `dir` and writes the certificate to `cert_path` and its key to `key_path`
+/// (a coordinator started with custom `--cert` and `--key` keeps using those files).
+///
+/// The certificate is written through a temporary file and renamed, and so is the key
+/// ([`tls::write_private_key_pem`]), so a reader never sees a half-written file. The two renames
+/// cannot be one step. The pair rule: the certificate goes first and the key second, so a
+/// failure before the first rename changes nothing, and the key (which no peer ever reads) is
+/// the last file to change. A crash between the two leaves the new certificate beside the old
+/// key; loading that pair fails with a key mismatch (`crate::certs::load_certified_key`), a
+/// running coordinator keeps the certificate it already holds, and the next reissue (a changed
+/// address, or `cert issue-server`) writes both again.
+///
+/// # Errors
+///
+/// As [`issue_server`].
+pub fn issue_server_to(
+    dir: &Path,
+    cert_path: &Path,
+    key_path: &Path,
+    hosts: &[String],
+    ips: &[IpAddr],
+) -> Result<(), PkiError> {
     if hosts.is_empty() && ips.is_empty() {
         return Err(PkiError::NoServerSan);
     }
 
     let ca_issuer = load_ca(dir)?;
 
-    let mut sans: Vec<String> = hosts.to_vec();
+    // Every server certificate carries the coordinator's fixed TLS name, so a pairing client
+    // verifies it whatever address it dialed (see `pleochroma_net::tls::COORDINATOR_TLS_NAME`).
+    let mut all_hosts: Vec<String> = hosts.to_vec();
+    if !all_hosts
+        .iter()
+        .any(|h| h.eq_ignore_ascii_case(tls::COORDINATOR_TLS_NAME))
+    {
+        all_hosts.push(tls::COORDINATOR_TLS_NAME.to_string());
+    }
+    let mut sans: Vec<String> = all_hosts.clone();
     sans.extend(ips.iter().map(IpAddr::to_string));
     // `CertificateParams::new` classifies each string as IP or DNS by parsing it as an
     // `IpAddr` first, so passing them combined is equivalent to building SANs by hand.
@@ -396,25 +444,42 @@ pub fn issue_server(dir: &Path, hosts: &[String], ips: &[IpAddr]) -> Result<(), 
             source,
         })?;
 
-    let cert_path = dir.join(SERVER_CERT_FILE);
-    let key_path = dir.join(SERVER_KEY_FILE);
-    std::fs::write(&cert_path, cert.pem()).map_err(|source| PkiError::Io {
+    // The certificate goes to a temporary file first, the key is moved into place atomically
+    // (`write_private_key_pem` renames), then the certificate follows.
+    let mut temp_name = cert_path.as_os_str().to_owned();
+    temp_name.push(".tmp");
+    let temp_path = PathBuf::from(temp_name);
+    if let Some(parent) = cert_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|source| PkiError::Io {
+            verb: "create",
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    std::fs::write(&temp_path, cert.pem()).map_err(|source| PkiError::Io {
         verb: "write",
-        path: cert_path.clone(),
+        path: temp_path.clone(),
         source,
     })?;
-    tls::write_private_key_pem(&key_path, &key_pair.serialize_pem())?;
+    // Certificate first, key second (see the doc comment for why that order).
+    if let Err(source) = std::fs::rename(&temp_path, cert_path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(PkiError::Io {
+            verb: "write",
+            path: cert_path.to_path_buf(),
+            source,
+        });
+    }
+    tls::write_private_key_pem(key_path, &key_pair.serialize_pem())?;
 
     tracing::info!(
         "pleochroma-worker cert issue-server: wrote {} and {} (SANs: {}{}{}) -- expires {} (UTC)",
         cert_path.display(),
         key_path.display(),
-        hosts.join(", "),
-        if hosts.is_empty() || ips.is_empty() {
-            ""
-        } else {
-            ", "
-        },
+        all_hosts.join(", "),
+        if ips.is_empty() { "" } else { ", " },
         ips.iter()
             .map(IpAddr::to_string)
             .collect::<Vec<_>>()
@@ -526,7 +591,10 @@ fn sign_client_leaf(
     name: &str,
     role: PeerRole,
 ) -> Result<(rcgen::Certificate, KeyPair, OffsetDateTime, String), PkiError> {
-    let label = name.strip_prefix(WORKER_CN_PREFIX).unwrap_or(name);
+    let label = [WORKER_CN_PREFIX, MONITOR_CN_PREFIX, ADMIN_CN_PREFIX]
+        .iter()
+        .find_map(|prefix| name.strip_prefix(prefix))
+        .unwrap_or(name);
     if label.trim().is_empty() {
         return Err(PkiError::EmptyClientName);
     }
@@ -645,4 +713,16 @@ pub fn default_viewer_allowlist_path(ca_path: &Path) -> PathBuf {
 #[must_use]
 pub fn default_worker_allowlist_path(ca_path: &Path) -> PathBuf {
     worker_allowlist_in(&role::pki_dir_of(ca_path))
+}
+
+/// The default MONITOR allowlist next to the `--ca` file: `allowlist-monitors.txt`.
+#[must_use]
+pub fn default_monitor_allowlist_path(ca_path: &Path) -> PathBuf {
+    monitor_allowlist_in(&role::pki_dir_of(ca_path))
+}
+
+/// The default ADMIN allowlist next to the `--ca` file: `allowlist-admins.txt`.
+#[must_use]
+pub fn default_admin_allowlist_path(ca_path: &Path) -> PathBuf {
+    admin_allowlist_in(&role::pki_dir_of(ca_path))
 }

@@ -210,7 +210,10 @@ fn receive(
             ApplyOutcome::FrameSummed { .. } | ApplyOutcome::DisplayFrameReplaced => {
                 return Err("Endpoint sent an output mode not requested by this export.".into());
             }
-            ApplyOutcome::PreviewReplaced
+            // The computer builds its shader cache: liveness only (the deadline above was
+            // renewed); the export's own progress stays where it was.
+            ApplyOutcome::Preparing { .. }
+            | ApplyOutcome::PreviewReplaced
             | ApplyOutcome::Pong { .. }
             | ApplyOutcome::StaleDropped => {}
         }

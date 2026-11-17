@@ -83,6 +83,22 @@ fn figures(brilliance: f32, windowing: f32) -> RowMetrics {
         warning_count: 0,
         has_girdle: true,
         tilt: None,
+        aset: None,
+    }
+}
+
+/// The figures of `figures`, with Zones (ASET-style) shares and a Contrast of `contrast`.
+fn figures_with_aset(brilliance: f32, windowing: f32, contrast: f32) -> RowMetrics {
+    RowMetrics {
+        aset: Some(AsetAreaShares {
+            red_pct: 44.0,
+            green_pct: 19.0,
+            blue_pct: 16.0,
+            leak_pct: 9.0,
+            lost_pct: 12.0,
+            contrast,
+        }),
+        ..figures(brilliance, windowing)
     }
 }
 
@@ -619,12 +635,13 @@ fn the_best_rows_are_marked_per_figure_among_the_valid_ones() {
 
 #[test]
 fn the_metrics_know_their_columns_and_direction() {
-    assert_eq!(SweepMetric::ALL.len(), 9);
+    assert_eq!(SweepMetric::ALL.len(), 10);
     for (index, metric) in SweepMetric::ALL.into_iter().enumerate() {
         assert_eq!(metric.index(), index);
         assert_eq!(SweepMetric::from_index(index), Some(metric));
     }
-    assert_eq!(SweepMetric::from_index(9), None);
+    assert_eq!(SweepMetric::from_index(9), Some(SweepMetric::Contrast));
+    assert_eq!(SweepMetric::from_index(10), None);
     assert!(SweepMetric::Brilliance.higher_is_better());
     assert!(!SweepMetric::Windowing.higher_is_better());
     assert!(!SweepMetric::TiltExtinction.higher_is_better());
@@ -656,20 +673,26 @@ fn the_csv_has_a_header_fixed_precision_and_quotes_where_needed() {
     assert_eq!(
         lines[0],
         "tier,angle_deg,current,valid,brilliance_pct,windowing_pct,extinction_pct,\
-         fire_index,scintillation_pct,yield_pct,facet_warnings,notes"
+         fire_index,scintillation_pct,yield_pct,facet_warnings,notes,contrast,aset_red_pct,\
+         aset_green_pct,aset_blue_pct,aset_dark_pct,aset_leak_pct,aset_lost_pct"
     );
     let tier = "\"Pavilion \"\"main\"\", 1\"";
     // The rows carry the stored negative angles; the file shows magnitudes, like the table.
     assert_eq!(
         lines[1],
-        format!("{tier},41.0000,yes,yes,80.0000,3.0000,10.0000,20.0000,30.0000,40.0000,0,")
+        format!(
+            "{tier},41.0000,yes,yes,80.0000,3.0000,10.0000,20.0000,30.0000,40.0000,0,{}",
+            ",".repeat(7)
+        )
     );
-    // Six empty figures, an empty warning count, then the quoted note.
+    // Six empty figures, an empty warning count, then the quoted note and seven empty appended
+    // columns.
     assert_eq!(
         lines[2],
         format!(
-            "{tier},40.0000,no,no{}\"It does not close, sorry\"",
-            ",".repeat(8)
+            "{tier},40.0000,no,no{}\"It does not close, sorry\"{}",
+            ",".repeat(8),
+            ",".repeat(7)
         )
     );
 }
@@ -696,6 +719,84 @@ fn the_csv_uses_a_point_and_adds_the_tilt_columns_only_when_asked() {
     assert!(!plain.contains("tilt_"));
     // A sweep with no rows is the header alone.
     assert_eq!(sweep_csv(&outcome_of(Vec::new(), false)).lines().count(), 1);
+}
+
+#[test]
+fn contrast_is_the_last_figure_and_the_older_ones_keep_their_positions() {
+    use SweepMetric::{
+        Brilliance, Contrast, Extinction, Fire, Scintillation, TiltBrilliance, TiltExtinction,
+        TiltWindowing, Windowing, Yield,
+    };
+    assert_eq!(
+        SweepMetric::ALL,
+        [
+            Brilliance,
+            Windowing,
+            Extinction,
+            Fire,
+            Scintillation,
+            Yield,
+            TiltBrilliance,
+            TiltWindowing,
+            TiltExtinction,
+            Contrast,
+        ]
+    );
+    assert_eq!(Contrast.index(), 9);
+    assert!(Contrast.higher_is_better() && !Contrast.is_tilt());
+    assert_eq!(Contrast.label(), "Contrast");
+    assert_eq!(Contrast.column_title(), "Contrast");
+    assert_eq!(Contrast.csv_name(), "contrast");
+    assert_eq!(Contrast.unit(), "");
+    let measured = row(41.0, true, Some(figures_with_aset(80.0, 3.0, 27.5)));
+    assert_eq!(Contrast.cell_text(&measured), "27.50");
+    let unmeasured = row(41.0, true, Some(figures(80.0, 3.0)));
+    assert_eq!(Contrast.cell_text(&unmeasured), "-");
+}
+
+#[test]
+fn the_best_contrast_is_the_highest_one() {
+    let rows = vec![
+        row(40.0, false, Some(figures_with_aset(70.0, 5.0, 20.0))),
+        row(41.0, true, Some(figures_with_aset(70.0, 5.0, 35.0))),
+        row(42.0, false, Some(figures(70.0, 5.0))),
+    ];
+    let flags = best_flags(&rows);
+    assert!(!flags[0].contrast && flags[1].contrast && !flags[2].contrast);
+    assert!(flags[1].get(SweepMetric::Contrast));
+}
+
+#[test]
+fn the_csv_writes_contrast_and_the_zone_shares_after_the_notes() {
+    let outcome = outcome_of(
+        vec![row(-41.0, true, Some(figures_with_aset(80.0, 3.0, 27.5)))],
+        false,
+    );
+    let csv = sweep_csv(&outcome);
+    let lines: Vec<&str> = csv.lines().collect();
+    let header: Vec<&str> = lines[0].split(',').collect();
+    assert_eq!(
+        header[header.len() - 9..header.len() - 7],
+        ["facet_warnings", "notes"]
+    );
+    assert_eq!(
+        header[header.len() - 7..],
+        [
+            "contrast",
+            "aset_red_pct",
+            "aset_green_pct",
+            "aset_blue_pct",
+            "aset_dark_pct",
+            "aset_leak_pct",
+            "aset_lost_pct",
+        ]
+    );
+    assert_eq!(header.iter().filter(|name| **name == "contrast").count(), 1);
+    assert!(
+        lines[1].ends_with(",0,,27.5000,44.0000,19.0000,16.0000,21.0000,9.0000,12.0000"),
+        "{}",
+        lines[1]
+    );
 }
 
 // --- the chart -----------------------------------------------------------------------

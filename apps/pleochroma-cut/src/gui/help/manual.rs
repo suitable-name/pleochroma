@@ -68,6 +68,7 @@ pub const CHAPTERS: &[EmbeddedChapter] = &[
     chapter!("27-inclusions-and-silk"),
     chapter!("28-play-of-color-and-schiller"),
     chapter!("29-custom-materials-and-color-patterns"),
+    chapter!("30-the-coordinator-window"),
     chapter!("appendix-a-glossary"),
     chapter!("appendix-b-keyboard-shortcuts"),
     chapter!("appendix-c-render-materials"),

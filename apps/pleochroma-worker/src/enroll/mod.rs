@@ -13,6 +13,22 @@
 //! `cert issue-token --role worker` sends its `Issue` name as `worker:<name>`; each listener
 //! refuses an `Issue` for the other role rather than minting the wrong kind.
 //!
+//! # Roles per token, cancelling, claim events, stopping
+//!
+//! A registry's role is only the default. [`EnrollRegistry::issue_for_role`] gives each
+//! pending token its own role, and a claim of a role other than the registry's appends to
+//! the path given to [`EnrollRegistry::register_allowlist`] (no path: the claim is refused).
+//! [`EnrollRegistry::remove`] cancels a pending token by its [`TokenId`], and
+//! [`EnrollRegistry::subscribe`] delivers a [`ClaimEvent`] (role, certificate fingerprint,
+//! claiming address) for every successful claim. The accept loop ends when the
+//! [`ListenerStop`] flag is set and an accept returns (see [`spawn_enroll_listener`]).
+//! Monitor and admin certificates enroll only on the VIEWER listener and only while remote
+//! administration is on: `serve` then registers the two allowlists with the registry
+//! ([`EnrollRegistry::register_allowlist`]), and `cert issue-token --role monitor|admin` (name
+//! prefix `monitor:` or `admin:`) or the control API ([`EnrollRegistry::issue_for_role`]) mints
+//! them. Without the registration they are refused. A claimed certificate's Common Name carries
+//! the role prefix.
+//!
 //! # Why this needs its own listener, not the render port
 //!
 //! The render listener (`crate::serve`) requires mutual TLS: every connection must already
@@ -76,7 +92,7 @@
 //! access as reading `ca.key`, which already lets an operator mint certificates directly.
 //! A registry built without a secret refuses every `Issue`.
 
-use crate::pki;
+use crate::{certs::SwappableCert, control::shutdown::ListenerStop, pki};
 use pleochroma_net::{
     enroll::{
         OPERATOR_SECRET_LEN, operator_secret_path, read_operator_secret, write_operator_secret,
@@ -86,7 +102,7 @@ use pleochroma_net::{
 use std::{
     net::{SocketAddr, TcpListener},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
     thread,
 };
 use zeroize::Zeroizing;
@@ -98,7 +114,7 @@ mod tests;
 
 /// The per-listener pending-enrollment table ([`EnrollRegistry`]) and why issuing one
 /// failed ([`EnrollIssueError`]).
-pub use registry::{EnrollIssueError, EnrollRegistry};
+pub use registry::{ClaimEvent, EnrollIssueError, EnrollRegistry, IssuedEnrollment, TokenId};
 
 /// How long an issued token remains claimable. Fixed, not operator-configurable -- the
 /// TTL is enforced server-side, never a courtesy either side can override.
@@ -175,17 +191,21 @@ pub struct EnrollConfig {
     /// The pre-TLS cap on bare, not-yet-handshaked connections, checked in the accept loop
     /// before a thread is spawned.
     pub handshake_limiter: crate::serve::ConnectionLimiter,
-    /// Which client role this listener enrolls (see the module doc comment).
+    /// Which client role this listener enrolls by default (see the module doc comment).
     pub role: PeerRole,
-    /// The operator secret an `Issue` request must present, loaded from (or created in)
-    /// `<pki_dir>/issue.secret` by [`Self::build`].
-    pub operator_secret: Zeroizing<[u8; OPERATOR_SECRET_LEN]>,
+    /// The listener's pending-token table, built by [`Self::build`] with the operator
+    /// secret from (or created in) `<pki_dir>/issue.secret`. Clone this `Arc` before
+    /// spawning to issue tokens per role ([`EnrollRegistry::issue_for_role`]), cancel them
+    /// ([`EnrollRegistry::remove`]) and watch claims ([`EnrollRegistry::subscribe`]).
+    pub registry: Arc<EnrollRegistry>,
 }
 
 impl EnrollConfig {
-    /// Builds an [`EnrollConfig`] for `role` from the same `serve --ca/--cert/--key`
-    /// paths and the role's resolved allowlist path. Builds its own pair of limiters rather
-    /// than taking them from the caller; see [`ENROLL_MAX_CONNECTIONS`].
+    /// Builds an [`EnrollConfig`] for `role` from the same `serve --ca/--cert/--key` paths and the
+    /// role's resolved allowlist path.
+    ///
+    /// Builds its own pair of limiters rather than taking them from the caller; see
+    /// [`ENROLL_MAX_CONNECTIONS`].
     ///
     /// # Errors
     ///
@@ -213,8 +233,64 @@ impl EnrollConfig {
                 ENROLL_MAX_CONNECTIONS.saturating_mul(ENROLL_HANDSHAKE_MULTIPLIER),
             ),
             role,
-            operator_secret,
+            registry: Arc::new(
+                EnrollRegistry::for_role(role).with_operator_secret(operator_secret),
+            ),
         })
+    }
+}
+
+/// The enrollment listener's certificate: whatever the coordinator's swappable server
+/// certificate is at the moment of the handshake, with the CA certificate appended (see
+/// [`build_enroll_server_config`] for why the CA is in the chain).
+struct ServerChainWithCa {
+    server: Arc<SwappableCert>,
+    ca: Vec<rustls::pki_types::CertificateDer<'static>>,
+}
+
+impl std::fmt::Debug for ServerChainWithCa {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerChainWithCa").finish_non_exhaustive()
+    }
+}
+
+impl rustls::server::ResolvesServerCert for ServerChainWithCa {
+    fn resolve(
+        &self,
+        _client_hello: rustls::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        let current = self.server.current();
+        let mut chain = current.cert.clone();
+        chain.extend(self.ca.iter().cloned());
+        Some(Arc::new(rustls::sign::CertifiedKey::new(
+            chain,
+            Arc::clone(&current.key),
+        )))
+    }
+}
+
+impl EnrollConfig {
+    /// Makes the listener present the coordinator's swappable server certificate.
+    ///
+    /// It is used instead of the one read from disk at start-up, so a certificate swap (new network address) is
+    /// seen by the next pairing without a restart.
+    ///
+    /// # Errors
+    ///
+    /// A human-readable message if the CA at `ca_path` cannot be read.
+    pub fn with_swappable_certificate(
+        mut self,
+        ca_path: &Path,
+        server: Arc<SwappableCert>,
+    ) -> Result<Self, String> {
+        let ca = pleochroma_net::tls::load_certs(ca_path)
+            .map_err(|e| format!("--ca {}: {e}", ca_path.display()))?;
+        let config =
+            rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+                .with_no_client_auth()
+                .with_cert_resolver(Arc::new(ServerChainWithCa { server, ca }));
+        self.tls_config = Arc::new(config);
+        Ok(self)
     }
 }
 
@@ -242,19 +318,76 @@ fn load_or_create_operator_secret(
 }
 
 /// Binds `config.bind_addr` and spawns a background thread accepting enrollment
-/// connections forever.
+/// connections until `stop` says otherwise.
 ///
 /// Mirrors `crate::serve::run`'s accept-loop shape (one `thread::spawn` per connection,
 /// `catch_unwind`-wrapped). Returns as soon as the bind succeeds, so a bad
 /// `--enroll-bind` is reported synchronously at `serve` startup.
 ///
-/// Returns the listener's actual bound address (useful when `config.bind_addr`'s port
-/// was `0`; this crate's tests use that for an ephemeral port).
+/// The loop checks `stop.flag` after every accept returns, whether it returned a
+/// connection or an error, and exits when it is set. Stopping is therefore "set the flag,
+/// then connect to `stop.wake_addr`" (see [`ListenerStop`]); that connection is dropped
+/// unanswered. When `config.bind_addr`'s port is `0` the real port is not known before
+/// the bind: use [`bind_enroll_listener`], read [`BoundEnrollListener::local_addr`], build
+/// the `ListenerStop`, then [`BoundEnrollListener::spawn`].
+///
+/// Returns the listener's actual bound address.
 ///
 /// # Errors
 ///
-/// A human-readable message if the bind itself fails (e.g. the port is already in use).
-pub fn spawn_enroll_listener(config: EnrollConfig) -> Result<SocketAddr, String> {
+/// A human-readable message if the bind itself fails (e.g. the port is already in use) or
+/// the role cannot enroll yet.
+pub fn spawn_enroll_listener(
+    config: EnrollConfig,
+    stop: ListenerStop,
+) -> Result<SocketAddr, String> {
+    let bound = bind_enroll_listener(config)?;
+    let addr = bound.local_addr();
+    bound.spawn(stop);
+    Ok(addr)
+}
+
+/// An enrollment listener that is bound but not accepting yet. See [`bind_enroll_listener`].
+pub struct BoundEnrollListener {
+    listener: TcpListener,
+    addr: SocketAddr,
+    config: EnrollConfig,
+}
+
+impl BoundEnrollListener {
+    /// The address the listener really bound (the OS-picked port when `0` was asked).
+    #[must_use]
+    pub const fn local_addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    /// Starts the accept thread. It runs until `stop.flag` is set and an accept returns.
+    pub fn spawn(self, stop: ListenerStop) {
+        run_accept_loop(self.listener, self.config, stop);
+    }
+}
+
+/// Binds `config.bind_addr` and logs it, without accepting yet; [`BoundEnrollListener::spawn`]
+/// starts the accept thread.
+///
+/// Exists so a caller can learn the bound port before it builds the [`ListenerStop`] whose
+/// `wake_addr` must reach that port.
+///
+/// # Errors
+///
+/// A human-readable message if the bind fails or the role cannot enroll yet.
+pub fn bind_enroll_listener(config: EnrollConfig) -> Result<BoundEnrollListener, String> {
+    let role_flag = match config.role {
+        PeerRole::Viewer => "",
+        PeerRole::Worker => " --role worker",
+        PeerRole::Monitor | PeerRole::Admin => {
+            return Err(format!(
+                "an enrollment listener cannot be made for {} certificates: they enroll on the \
+                 viewer listener",
+                pki::role::role_name(config.role)
+            ));
+        }
+    };
     let listener = TcpListener::bind(config.bind_addr).map_err(|e| {
         format!(
             "failed to bind enrollment listener {}: {e}",
@@ -264,19 +397,22 @@ pub fn spawn_enroll_listener(config: EnrollConfig) -> Result<SocketAddr, String>
     let bound_addr = listener
         .local_addr()
         .map_err(|e| format!("enrollment listener bound but local_addr() failed: {e}"))?;
-    let role_flag = match config.role {
-        PeerRole::Viewer => "",
-        PeerRole::Worker => " --role worker",
-    };
     tracing::info!(
         "pleochroma-worker serve: {} enrollment listener on {bound_addr} (token TTL {TOKEN_TTL_SECS}s; \
          `pleochroma-worker cert issue-token{role_flag} --admin-addr {bound_addr}` to mint one)",
         pki::role::role_name(config.role)
     );
 
-    let registry = Arc::new(
-        EnrollRegistry::for_role(config.role).with_operator_secret(config.operator_secret),
-    );
+    Ok(BoundEnrollListener {
+        listener,
+        addr: bound_addr,
+        config,
+    })
+}
+
+/// The accept thread of one enrollment listener; see [`spawn_enroll_listener`].
+fn run_accept_loop(listener: TcpListener, config: EnrollConfig, stop: ListenerStop) {
+    let registry = config.registry;
     let tls_config = config.tls_config;
     let pki_dir = config.pki_dir;
     let allowlist_path = config.allowlist_path;
@@ -285,6 +421,11 @@ pub fn spawn_enroll_listener(config: EnrollConfig) -> Result<SocketAddr, String>
 
     thread::spawn(move || {
         for incoming in listener.incoming() {
+            // Checked after every accept, the wake connection included, which is dropped
+            // unanswered. Connections still being handled keep their own threads.
+            if stop.flag.load(Ordering::SeqCst) {
+                break;
+            }
             match incoming {
                 Ok(stream) => {
                     let peer = stream.peer_addr().ok();
@@ -347,6 +488,4 @@ pub fn spawn_enroll_listener(config: EnrollConfig) -> Result<SocketAddr, String>
             }
         }
     });
-
-    Ok(bound_addr)
 }

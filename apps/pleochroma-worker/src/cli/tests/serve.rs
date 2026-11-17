@@ -27,6 +27,7 @@ fn default_serve_args() -> ServeArgs {
         no_workers: false,
         worker_allowlist: None,
         db: None,
+        no_library: false,
         max_connections: DEFAULT_MAX_CONNECTIONS,
         max_preauth_per_ip: DEFAULT_MAX_PREAUTH_PER_IP,
         interactive_workers: ALL_INTERACTIVE_WORKERS,
@@ -36,7 +37,45 @@ fn default_serve_args() -> ServeArgs {
         whole_image_pixel_samples: DEFAULT_WHOLE_IMAGE_PIXEL_SAMPLES,
         jobs_per_viewer: DEFAULT_JOBS_PER_VIEWER,
         payload_encoding: pleochroma_net::messages::adaptive::PayloadChoice::Auto,
+        allow_remote_admin: false,
     }
+}
+
+/// `--allow-remote-admin` is off by default and switches on with the flag alone.
+#[test]
+fn serve_allow_remote_admin_defaults_off_and_the_flag_turns_it_on() {
+    let allowed = |args: &[&str]| {
+        let mut argv = vec!["serve".to_string()];
+        argv.extend(args.iter().map(ToString::to_string));
+        match parse(&argv) {
+            Ok(Command::Serve(serve)) => serve.allow_remote_admin,
+            other => panic!("expected Serve, got {other:?}"),
+        }
+    };
+    assert!(!allowed(&[]));
+    assert!(allowed(&["--allow-remote-admin"]));
+    // Independent of `--allow-remote`, which only widens the bind address.
+    assert!(!allowed(&["--allow-remote"]));
+}
+
+/// `--no-library` is off by default, turns on with the flag, and refuses `--db`.
+#[test]
+fn serve_no_library_defaults_off_parses_and_refuses_db() {
+    let parsed = |args: &[&str]| {
+        let mut argv = vec!["serve".to_string()];
+        argv.extend(args.iter().map(ToString::to_string));
+        parse(&argv)
+    };
+    let no_library = |args: &[&str]| match parsed(args) {
+        Ok(Command::Serve(serve)) => serve.no_library,
+        other => panic!("expected Serve, got {other:?}"),
+    };
+    assert!(!no_library(&[]));
+    assert!(no_library(&["--no-library"]));
+    let error = parsed(&["--no-library", "--db", "x.sqlite"]).unwrap_err();
+    assert!(error.contains("--no-library"), "{error}");
+    let error = parsed(&["--db", "x.sqlite", "--no-library"]).unwrap_err();
+    assert!(error.contains("--db"), "{error}");
 }
 
 /// The live view uses every idle joined worker unless told otherwise; `all`, a count and

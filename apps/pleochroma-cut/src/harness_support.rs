@@ -341,6 +341,12 @@ pub fn help_window() -> Option<crate::HelpWindow> {
     shown(crate::gui::help::harness_window())
 }
 
+/// A clone of the live Material Reference window, or `None` when never created or closed.
+#[must_use]
+pub fn material_reference_window() -> Option<crate::MaterialReferenceWindow> {
+    shown(crate::gui::harness_material_reference_window())
+}
+
 /// A clone of the live Color Pattern window, or `None` when never created or closed.
 #[must_use]
 pub fn color_pattern_window() -> Option<crate::ColorPatternWindow> {

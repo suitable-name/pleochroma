@@ -398,7 +398,11 @@ export component GemViewportView inherits Rectangle {
 
         if ViewportModel.live_view_mode == 1: HorizontalLayout {
             alignment: start;
-            LiveFigures { narrow: root.narrow; }
+            LiveFigures {
+                narrow: root.narrow;
+                view_right: root.absolute-position.x + root.width - 12px;
+                view_bottom: root.absolute-position.y + root.height - 64px;
+            }
         }
     }
 
@@ -465,7 +469,7 @@ export component GemViewportView inherits Rectangle {
         y: root.height - 48px;
         open_by_default: !ViewportModel.gestures_seen;
         dragging: root.is_dragging;
-        extra_line: "Alt+drag or Ctrl+Shift+drag: tilt and turn the stone on the tray";
+        extra_line: "Alt+drag or Ctrl+Shift+drag: turn the stone freely on the tray";
         dismissed => { ViewportModel.gestures_seen_set(true); }
     }
 

@@ -1,6 +1,7 @@
-//! The run loop: builds the window and the app state, wires the Slint callbacks to
-//! the core, pushes the first state to the UI, runs the event loop and finally tells
-//! the core the app is stopping.
+//! The run loop: builds the window and the app state and wires the Slint callbacks to the core.
+//!
+//! It also pushes the first state to the UI, runs the event loop and finally tells the core
+//! the app is stopping.
 //!
 //! Threading: the `AppState` lives in an `Rc<RefCell<..>>` on the UI thread. Code on
 //! other threads (platform callbacks, lifecycle notifications) reaches it only through
@@ -67,9 +68,19 @@ pub struct RunOptions {
 #[cfg(feature = "desktop-preview")]
 const SCREENSHOT_DELAY: Duration = Duration::from_millis(2500);
 
-/// The screenshot delay in Render mode (the trace needs a few passes).
+/// The longest a Render-mode screenshot waits for the picture to finish. Ray-Traced may first
+/// wait for its GPU kernels, which a cold shader cache builds at start-up.
 #[cfg(feature = "desktop-preview")]
-const RENDER_SCREENSHOT_DELAY: Duration = Duration::from_secs(8);
+const RENDER_SCREENSHOT_LIMIT: Duration = Duration::from_secs(180);
+
+/// How often a Render-mode screenshot checks whether the picture is finished.
+#[cfg(feature = "desktop-preview")]
+const RENDER_POLL: Duration = Duration::from_millis(250);
+
+/// How long a Render-mode screenshot waits after the picture finished, so the finished picture
+/// and its status are on screen.
+#[cfg(feature = "desktop-preview")]
+const RENDER_SETTLE: Duration = Duration::from_millis(600);
 
 /// How often the preview's `--cutting` tries to open Cutting Mode while the start-up solve runs,
 /// and how many tries it makes before it gives up with the app's "not solved" toast (about 4 s).
@@ -120,10 +131,10 @@ pub fn run_with(
     if let Some(index) = options.template {
         let created =
             pleochroma_mobile_core::document::new_from_template(&mut state.borrow_mut(), index);
-        match created {
-            Ok(()) => crate::design::after_edit(&window, &state),
-            Err(message) => tracing::warn!(%message, "the requested template was not opened"),
-        }
+        created.map_or_else(
+            |message| tracing::warn!(%message, "the requested template was not opened"),
+            |()| crate::design::after_edit(&window, &state),
+        );
     }
     push::all(&window, &state.borrow());
     apply_view_options(&window, options);
@@ -133,15 +144,12 @@ pub fn run_with(
 
     #[cfg(feature = "desktop-preview")]
     if let Some(path) = options.screenshot.clone() {
-        // A render needs time to converge before the picture is worth keeping.
-        let delay = options.screenshot_delay.unwrap_or_else(|| {
-            if options.view == Some(2) {
-                RENDER_SCREENSHOT_DELAY
-            } else {
-                SCREENSHOT_DELAY
-            }
-        });
-        schedule_screenshot(&window, path, delay);
+        match options.screenshot_delay {
+            Some(delay) => schedule_screenshot(&window, path, delay),
+            // A render is captured once its picture is finished, not after a fixed time.
+            None if options.view == Some(2) => screenshot_when_rendered(&window, &state, path),
+            None => schedule_screenshot(&window, path, SCREENSHOT_DELAY),
+        }
     }
 
     tracing::info!("mobile app: event loop starting");
@@ -202,6 +210,42 @@ fn apply_view_options(window: &AppWindow, options: &RunOptions) {
     }
 }
 
+/// Captures the window to `path` once the render is finished (or failed), checking every
+/// [`RENDER_POLL`]; after [`RENDER_SCREENSHOT_LIMIT`] it captures whatever is on screen.
+#[cfg(feature = "desktop-preview")]
+fn screenshot_when_rendered(window: &AppWindow, state: &Rc<RefCell<AppState>>, path: PathBuf) {
+    let deadline = std::time::Instant::now() + RENDER_SCREENSHOT_LIMIT;
+    poll_render(window.as_weak(), Rc::clone(state), path, deadline);
+}
+
+#[cfg(feature = "desktop-preview")]
+fn poll_render(
+    weak: slint::Weak<AppWindow>,
+    state: Rc<RefCell<AppState>>,
+    path: PathBuf,
+    deadline: std::time::Instant,
+) {
+    use pleochroma_mobile_core::render::RenderStatus;
+
+    slint::Timer::single_shot(RENDER_POLL, move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let finished = matches!(
+            state.borrow().render.status(),
+            RenderStatus::Done { .. } | RenderStatus::Failed(_)
+        );
+        if finished {
+            schedule_screenshot(&window, path, RENDER_SETTLE);
+        } else if std::time::Instant::now() >= deadline {
+            tracing::warn!("the render did not finish in time; the screenshot shows it unfinished");
+            schedule_screenshot(&window, path, Duration::ZERO);
+        } else {
+            poll_render(weak, state, path, deadline);
+        }
+    });
+}
+
 /// Captures the window to `path` as a PNG after `delay`, then quits the event loop.
 /// Failures are logged; the loop quits either way.
 #[cfg(feature = "desktop-preview")]
@@ -218,10 +262,10 @@ fn schedule_screenshot(window: &AppWindow, path: PathBuf, delay: Duration) {
                         buffer.height(),
                         image::ExtendedColorType::Rgba8,
                     );
-                    match saved {
-                        Ok(()) => tracing::info!(path = %path.display(), "screenshot saved"),
-                        Err(error) => tracing::warn!(%error, "screenshot could not be saved"),
-                    }
+                    saved.map_or_else(
+                        |error| tracing::warn!(%error, "screenshot could not be saved"),
+                        |()| tracing::info!(path = %path.display(), "screenshot saved"),
+                    );
                 }
                 Err(error) => tracing::warn!(%error, "screenshot could not be taken"),
             }
@@ -247,6 +291,11 @@ pub fn notify_lifecycle(event: Lifecycle) {
     let queued = slint::invoke_from_event_loop(move || {
         if matches!(event, Lifecycle::Paused | Lifecycle::Stopping) {
             crate::remote::interrupt();
+        }
+        if matches!(event, Lifecycle::Resumed) {
+            // The network browse ended when the app stopped: a remote failure still on show
+            // may look for the computer again.
+            crate::design::render::forget_failure();
         }
         let handled = ui_state::with_state(|state| {
             state.lifecycle(event);

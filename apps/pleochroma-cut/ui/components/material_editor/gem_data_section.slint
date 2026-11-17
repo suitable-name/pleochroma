@@ -1,0 +1,262 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { FormRow } from "../editor_inspector/form_row.slint";
+
+// A text field whose empty hint is drawn dim (Theme.text-disabled), so an unrecorded field never
+// looks like an entry. (The std LineEdit has no placeholder color.)
+component GemField inherits Rectangle {
+    in-out property <string> text <=> field.text;
+    in property <string> hint;
+    in property <string> label;
+    in property <InputType> input-type: InputType.text;
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    height: 32px;
+    field := LineEdit {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        accessible-label: root.label;
+        accessible-description: root.hint;
+        input-type: root.input-type;
+    }
+    if field.text == "": Text {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.hint;
+        font-size: 14px;
+        color: Theme.text-disabled;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+// The Gem Data section of the Gem Material Editor: the hardness, toughness, cleavage, fracture,
+// care and source a cutter knows about his own stone. Every field is optional; a blank field
+// reads "Not recorded" on the Stone tab card and in the Material Reference. The values are held in
+// `ViewportModel.gem_data_*`: Rust fills them when the dialog's pre-fill is pushed and reads them
+// when Save runs (`gui::optics::custom_materials::gem_data_form`).
+export component MaterialGemDataSection inherits VerticalLayout {
+    // The care note's limit, the same number Rust enforces.
+    out property <int> care_limit: 200;
+
+    // A Mohs field is blank or a number from 1 to 10.
+    pure function mohs_ok(text: string) -> bool {
+        text == "" || (text.is-float() && text.to-float() >= 1 && text.to-float() <= 10)
+    }
+    property <bool> mohs_from_ok: root.mohs_ok(ViewportModel.gem_data_mohs_from);
+    property <bool> mohs_to_ok: root.mohs_ok(ViewportModel.gem_data_mohs_to);
+    property <bool> care_ok: ViewportModel.gem_data_care.character-count <= root.care_limit;
+
+    // Save is available while every entry can be stored.
+    out property <bool> save_ok: root.mohs_from_ok && root.mohs_to_ok && root.care_ok && root.sg_ok;
+    // Why not, in one sentence (shown under the field and in the Save tooltip).
+    out property <string> save_blocked_reason: !root.mohs_from_ok || !root.mohs_to_ok
+        ? "The Mohs hardness must be a number from 1 to 10."
+        : (!root.sg_ok ? "The specific gravity must be a number above 0 and up to 30." : "The care note can be at most 200 characters.");
+
+    // A text that changes whenever an entry does, for the dialog's unsaved-changes check.
+    out property <string> signature: "\{ViewportModel.gem_data_mohs_from}|\{ViewportModel.gem_data_mohs_to}|\{ViewportModel.gem_data_toughness_from}|\{ViewportModel.gem_data_toughness_to}|\{ViewportModel.gem_data_cleavage}|\{ViewportModel.gem_data_fracture}|\{ViewportModel.gem_data_care}|\{ViewportModel.gem_data_source}";
+    property <string> baseline_signature;
+    out property <bool> dirty: root.signature != root.baseline_signature;
+    // Whether any entry exists: the section opens on its own then.
+    property <bool> has_entries: ViewportModel.gem_data_mohs_from != "" || ViewportModel.gem_data_mohs_to != ""
+        || ViewportModel.gem_data_toughness_from != 0 || ViewportModel.gem_data_toughness_to != 0
+        || ViewportModel.gem_data_cleavage != "" || ViewportModel.gem_data_fracture != ""
+        || ViewportModel.gem_data_care != "" || ViewportModel.gem_data_source != "";
+
+    property <[string]> toughness_words: [
+        "Not recorded", "Very poor", "Poor", "Fair", "Good", "Excellent", "Exceptional"
+    ];
+
+    spacing: 8px;
+
+    // Specific gravity, a number field (blank = not recorded, 0.0 for Rust). The dialog's `sg_val`
+    // is two-way bound to it.
+    in-out property <float> sg_val: 0.0;
+    // The field's text for a stored value: two decimals, blank for "not recorded".
+    pure function sg_display(value: float) -> string {
+        return value <= 0.0001 ? "" : "" + Math.round(value * 100.0) / 100.0;
+    }
+    in-out property <string> sg_text: root.sg_display(root.sg_val);
+    property <bool> sg_ok: root.sg_text == "" || (root.sg_text.is-float() && root.sg_text.to-float() > 0.0 && root.sg_text.to-float() <= 30.0);
+    // The number the text stands for; blank and unusable text are 0.0, the "not recorded" sentinel.
+    pure function parsed_sg() -> float {
+        return (root.sg_text.is-float() && root.sg_ok) ? root.sg_text.to-float() : 0.0;
+    }
+    // Only a user edit writes back: the text a stored value displays as (rounded) is not an edit, so
+    // loading a material leaves its stored value, and the dialog's unsaved-changes check, untouched.
+    changed sg_text => {
+        if (root.sg_text != root.sg_display(root.sg_val)) {
+            root.sg_val = root.parsed_sg();
+        }
+    }
+    // A value pushed in from outside (a loaded material, a physics prefill) shows in the field even
+    // after the user has typed into it.
+    changed sg_val => {
+        if (Math.abs(root.parsed_sg() - root.sg_val) > 0.00001) {
+            root.sg_text = root.sg_display(root.sg_val);
+        }
+    }
+
+    init => {
+        root.baseline_signature = root.signature;
+    }
+
+    // A bold section caption, as "Color Variants" and "Inclusion Families" have; always visible.
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: "Gem Data";
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            accessible-role: AccessibleRole.text;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: "Optional";
+            font-size: 9px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+    }
+    Text {
+        text: "Entered by you. Leave a field blank to leave it unrecorded. These values show on the Stone tab and in the Material Reference.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    VerticalLayout {
+        spacing: 6px;
+
+        FormRow {
+            label: "Mohs";
+            tooltip: "The hardness range on the Mohs scale, 1 to 10. Fill only the first field for a single figure.";
+            invalid: !root.mohs_from_ok || !root.mohs_to_ok;
+            error: (!root.mohs_from_ok || !root.mohs_to_ok) ? "The Mohs hardness must be a number from 1 to 10." : "";
+            label_width: 82px;
+            GemField {
+                horizontal-stretch: 1;
+                preferred-width: 0px;
+                min-width: 0px;
+                text <=> ViewportModel.gem_data_mohs_from;
+                hint: "From";
+                label: "Mohs Hardness From";
+            }
+            Text {
+                text: "to";
+                font-size: 10px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            GemField {
+                horizontal-stretch: 1;
+                preferred-width: 0px;
+                min-width: 0px;
+                text <=> ViewportModel.gem_data_mohs_to;
+                hint: "To";
+                label: "Mohs Hardness To";
+            }
+        }
+
+        FormRow {
+            label: "Toughness";
+            tooltip: "How well the stone resists chipping and breaking, in the GIA words from Very poor to Exceptional. Pick one grade for a single figure.";
+            label_width: 82px;
+            ComboBox {
+                horizontal-stretch: 1;
+                preferred-width: 0px;
+                min-width: 0px;
+                model: root.toughness_words;
+                current-index: ViewportModel.gem_data_toughness_from;
+                accessible-label: "Toughness From";
+                selected(value) => { ViewportModel.gem_data_toughness_from = self.current-index; }
+            }
+            Text {
+                text: "to";
+                font-size: 10px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            ComboBox {
+                horizontal-stretch: 1;
+                preferred-width: 0px;
+                min-width: 0px;
+                model: root.toughness_words;
+                current-index: ViewportModel.gem_data_toughness_to;
+                accessible-label: "Toughness To";
+                selected(value) => { ViewportModel.gem_data_toughness_to = self.current-index; }
+            }
+        }
+
+        FormRow {
+            label: "Specific gravity";
+            tooltip: "The density of the material compared with water, for example 3.53. It is used to estimate carat weight. Blank means not recorded.";
+            invalid: !root.sg_ok;
+            error: !root.sg_ok ? "The specific gravity must be a number above 0 and up to 30." : "";
+            label_width: 82px;
+            GemField {
+                width: 110px;
+                horizontal-stretch: 0;
+                text <=> root.sg_text;
+                hint: "Not recorded";
+                label: "Specific Gravity";
+                input-type: decimal;
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        FormRow {
+            label: "Cleavage";
+            tooltip: "Free text, for example \"Perfect basal {001}\" or \"None\".";
+            label_width: 82px;
+            GemField {
+                text <=> ViewportModel.gem_data_cleavage;
+                hint: "Not recorded";
+                label: "Cleavage";
+            }
+        }
+
+        FormRow {
+            label: "Fracture";
+            tooltip: "Free text, for example \"Conchoidal\".";
+            label_width: 82px;
+            GemField {
+                text <=> ViewportModel.gem_data_fracture;
+                hint: "Not recorded";
+                label: "Fracture";
+            }
+        }
+
+        FormRow {
+            label: "Care";
+            tooltip: "A short care note, at most 200 characters.";
+            invalid: !root.care_ok;
+            error: !root.care_ok ? "The care note can be at most 200 characters." : "";
+            label_width: 82px;
+            GemField {
+                text <=> ViewportModel.gem_data_care;
+                hint: "Not recorded";
+                label: "Care";
+            }
+        }
+
+        FormRow {
+            label: "Source";
+            tooltip: "Where these figures come from, for example your own notes or a lab report.";
+            label_width: 82px;
+            GemField {
+                text <=> ViewportModel.gem_data_source;
+                hint: "Not recorded";
+                label: "Source";
+            }
+        }
+    }
+}

@@ -2,6 +2,9 @@
 //
 //   top bar        Import, Grid / List and Sort; selection mode swaps it for a bar with
 //                  Select All, Tag, Ignore, Share and Delete
+//   source bar     when the paired computer shares a library: the This Phone / computer
+//                  switch and Sync; a sync panel shows the progress or the result
+//                  (`library/source_bar.slint`)
 //   search row     the search pill and the Filter pill (`library/search_bar.slint`)
 //   filter chips   Mine and Show Ignored, then a removable chip per filter that is set
 //   body           2-up cards on a phone, 3 or 4 on wider windows; rows in list mode
@@ -21,6 +24,7 @@ import { LibraryIcons } from "../library/library_icons.slint";
 import { CardGrid } from "../library/card_grid.slint";
 import { FilterSheet, TagSheet } from "../library/filter_sheet.slint";
 import { SearchRow, FilterChips } from "../library/search_bar.slint";
+import { SourceBar, SyncPanel } from "../library/source_bar.slint";
 
 // A card for the empty and error states: the card surface with a soft border, the state's
 // icon, text and buttons centered inside.
@@ -130,7 +134,16 @@ component SelectionBar inherits Rectangle {
 export component LibraryPage inherits Rectangle {
     property <bool> shown: Shell.destination == 0;
     // The page has something to search: it is open and its library is not empty.
-    property <bool> searchable: LibraryModel.opened && LibraryModel.error == "" && LibraryModel.empty-kind != 1;
+    // The computer view: its library is shown instead of this phone's.
+    property <bool> remote: LibraryModel.source-index == 1;
+    // An error card replaces the body: the computer's, or (on This Phone) the phone's own.
+    property <bool> remote-failed: root.remote && LibraryModel.remote-error != "";
+    property <bool> local-failed: !root.remote && LibraryModel.error != "";
+    property <bool> failed: root.remote-failed || root.local-failed;
+    property <string> computer: LibraryModel.computer-name == "" ? "the Computer" : LibraryModel.computer-name;
+    // The list can be shown: the phone's library is open (the computer's needs no opening).
+    property <bool> ready: root.remote || LibraryModel.opened;
+    property <bool> searchable: root.ready && !root.failed && LibraryModel.empty-kind != 1;
 
     changed shown => {
         if (root.shown) {
@@ -146,7 +159,7 @@ export component LibraryPage inherits Rectangle {
         if !LibraryModel.selecting: TopBar {
             title: "Library";
             actions: [
-                { icon: Icons.open, label: "Import Designs", enabled: LibraryModel.error == "" },
+                { icon: Icons.open, label: "Import Designs", enabled: LibraryModel.error == "" && !root.remote },
                 { icon: LibraryModel.list-mode ? LibraryIcons.grid : LibraryIcons.list, label: LibraryModel.list-mode ? "Show Grid" : "Show List", enabled: true },
                 { icon: LibraryIcons.sort, label: "Sort", enabled: root.searchable }
             ];
@@ -162,6 +175,10 @@ export component LibraryPage inherits Rectangle {
         }
 
         if LibraryModel.selecting: SelectionBar { }
+
+        if LibraryModel.source-available && !LibraryModel.selecting: SourceBar { }
+
+        if LibraryModel.syncing || LibraryModel.sync-result != "": SyncPanel { }
 
         if root.searchable: SearchRow {
             filter-clicked => {
@@ -190,10 +207,29 @@ export component LibraryPage inherits Rectangle {
                 font-size: Theme.text-body;
                 horizontal-alignment: center;
                 vertical-alignment: center;
+                overflow: elide;
             }
         }
 
-        if LibraryModel.error != "": EmptyCard {
+        if root.remote-failed: EmptyCard {
+            vertical-stretch: 1;
+
+            EmptyState {
+                icon: Icons.remote;
+                title: LibraryModel.remote-unreachable && LibraryModel.computer-name != "" ? "Can't Reach " + LibraryModel.computer-name : "Library Unavailable";
+                body: LibraryModel.remote-error;
+                primary-text: "Try Again";
+                primary-clicked => {
+                    LibraryModel.retry-remote();
+                }
+                secondary-text: LibraryModel.remote-unreachable ? "Show This Phone" : "";
+                secondary-clicked => {
+                    LibraryModel.set-source(0);
+                }
+            }
+        }
+
+        if root.local-failed: EmptyCard {
             vertical-stretch: 1;
 
             EmptyState {
@@ -207,7 +243,7 @@ export component LibraryPage inherits Rectangle {
             }
         }
 
-        if LibraryModel.error == "" && !LibraryModel.opened: Text {
+        if !root.failed && !root.ready: Text {
             vertical-stretch: 1;
             text: "Opening Library";
             color: Theme.text-secondary;
@@ -216,7 +252,17 @@ export component LibraryPage inherits Rectangle {
             vertical-alignment: center;
         }
 
-        if LibraryModel.error == "" && LibraryModel.opened && LibraryModel.empty-kind == 1: EmptyCard {
+        if !root.failed && root.remote && LibraryModel.empty-kind == 1: EmptyCard {
+            vertical-stretch: 1;
+
+            EmptyState {
+                icon: Icons.remote;
+                title: "No Designs on " + root.computer;
+                body: "The library on " + root.computer + " has no designs to show.";
+            }
+        }
+
+        if !root.failed && !root.remote && root.ready && LibraryModel.empty-kind == 1: EmptyCard {
             vertical-stretch: 1;
 
             EmptyState {
@@ -231,7 +277,7 @@ export component LibraryPage inherits Rectangle {
             }
         }
 
-        if LibraryModel.error == "" && LibraryModel.opened && LibraryModel.empty-kind == 2: EmptyCard {
+        if !root.failed && root.ready && LibraryModel.empty-kind == 2: EmptyCard {
             vertical-stretch: 1;
 
             EmptyState {
@@ -245,7 +291,7 @@ export component LibraryPage inherits Rectangle {
             }
         }
 
-        if LibraryModel.error == "" && LibraryModel.opened && LibraryModel.empty-kind == 0: CardGrid {
+        if !root.failed && root.ready && LibraryModel.empty-kind == 0: CardGrid {
             vertical-stretch: 1;
             list: LibraryModel.list-mode;
         }

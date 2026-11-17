@@ -1,0 +1,280 @@
+// The source bar and the sync panel of the Library page.
+//
+//   source bar   a two-segment switch, "This Phone" and the paired computer's name, and the
+//                Sync button. Shown when the computer shares a library.
+//   sync panel   the status of a running sync with a progress bar and "Cancel", or the
+//                result of the last sync with a "Dismiss" button.
+//
+// The page shows neither until Rust sets `LibraryModel.source-available` (the bar) and
+// `syncing` or `sync-result` (the panel).
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { Icon } from "../shell/icon.slint";
+import { IconButton } from "../shell/icon_button.slint";
+import { StateLayer } from "../shell/state_layer.slint";
+import { TextButton } from "../shell/buttons.slint";
+import { LibraryModel } from "library_model.slint";
+import { LibraryIcons } from "library_icons.slint";
+
+// One half of the switch. Both halves share the width and elide a long name, so the
+// switch never widens the page.
+component SwitchSegment inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <bool> on: false;
+    // The outer end of the switch this segment rounds.
+    in property <bool> left-end: true;
+    callback clicked();
+
+    // No preferred width, so the stretch splits the switch into two equal halves however
+    // long the computer's name is.
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    background: root.on ? Theme.accent-surface : transparent;
+    border-top-left-radius: root.left-end ? Theme.touch / 2 : 0px;
+    border-bottom-left-radius: root.left-end ? Theme.touch / 2 : 0px;
+    border-top-right-radius: root.left-end ? 0px : Theme.touch / 2;
+    border-bottom-right-radius: root.left-end ? 0px : Theme.touch / 2;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    StateLayer {
+        pressed: touch.pressed;
+        hovered: touch.has-hover;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-md;
+        padding-right: Theme.space-md;
+        spacing: Theme.space-sm;
+        alignment: center;
+
+        if root.on: Rectangle {
+            width: 18px;
+
+            Icon {
+                source: Icons.check;
+                tint: Theme.accent;
+                glyph: 18px;
+            }
+        }
+
+        Text {
+            min-width: 0px;
+            text: root.text;
+            color: root.on ? Theme.accent : Theme.on-surface;
+            font-size: Theme.text-label-large;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// This Phone | the computer. Like the shared `Segmented`, but each segment may shrink and
+// elide its text.
+component SourceSwitch inherits Rectangle {
+    height: Theme.touch;
+    border-radius: Theme.touch / 2;
+    clip: true;
+
+    HorizontalLayout {
+        spacing: 0px;
+
+        SwitchSegment {
+            text: "This Phone";
+            label: "Designs on This Phone";
+            on: LibraryModel.source-index == 0;
+            left-end: true;
+            clicked => {
+                LibraryModel.set-source(0);
+            }
+        }
+
+        SwitchSegment {
+            text: LibraryModel.source-switching ? "Connecting…" : (LibraryModel.computer-name == "" ? "Computer" : LibraryModel.computer-name);
+            label: "Designs on " + LibraryModel.computer-name;
+            on: LibraryModel.source-index == 1 && !LibraryModel.source-switching;
+            left-end: false;
+            clicked => {
+                if (!LibraryModel.source-switching) {
+                    LibraryModel.set-source(1);
+                }
+            }
+        }
+    }
+
+    // The divider between the halves.
+    Rectangle {
+        x: parent.width / 2;
+        width: 1px;
+        background: Theme.outline;
+    }
+
+    // The pill outline, drawn above the segments.
+    Rectangle {
+        border-radius: root.border-radius;
+        border-width: 1px;
+        border-color: Theme.outline;
+    }
+}
+
+export component SourceBar inherits Rectangle {
+    height: Theme.touch + Theme.space-sm + Theme.space-xs;
+
+    HorizontalLayout {
+        padding-left: Theme.space-lg;
+        padding-right: Theme.space-xs;
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-sm;
+        spacing: Theme.space-sm;
+
+        SourceSwitch {
+            horizontal-stretch: 1;
+            min-width: 0px;
+        }
+
+        if LibraryModel.sync-available: IconButton {
+            icon: LibraryIcons.sync;
+            label: LibraryModel.syncing ? "Stop Sync" : "Sync with " + LibraryModel.computer-name;
+            selected: LibraryModel.syncing;
+            enabled: !LibraryModel.source-switching;
+            clicked => {
+                if (LibraryModel.syncing) {
+                    LibraryModel.cancel-sync();
+                } else {
+                    LibraryModel.sync-library();
+                }
+            }
+        }
+    }
+}
+
+// The card of a sync: text, then a button, then (while it runs) the progress bar.
+component SyncBody inherits Rectangle {
+    in property <string> text;
+    in property <bool> running: false;
+    in property <float> progress: -1;
+    in property <bool> error: false;
+    callback dismissed();
+    callback cancelled();
+
+    height: card.height + Theme.space-sm;
+
+    card := Rectangle {
+        x: Theme.space-lg;
+        y: 0px;
+        width: parent.width - 2 * Theme.space-lg;
+        height: lay.preferred-height;
+        background: root.error ? Theme.error-container : Theme.surface-container;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: root.error ? Theme.error : Theme.outline-variant;
+        clip: true;
+
+        lay := VerticalLayout {
+            padding-left: Theme.space-lg;
+            padding-top: Theme.space-xs;
+            padding-bottom: root.running ? Theme.space-md : Theme.space-xs;
+            spacing: Theme.space-xs;
+
+            HorizontalLayout {
+                spacing: Theme.space-sm;
+
+                Text {
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    text: root.text;
+                    color: root.error ? Theme.on-error-container : Theme.on-surface;
+                    font-size: Theme.text-body;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                }
+
+                if root.running: TextButton {
+                    text: "Cancel";
+                    clicked => {
+                        root.cancelled();
+                    }
+                }
+
+                if !root.running: IconButton {
+                    icon: Icons.close;
+                    label: "Dismiss";
+                    tint: root.error ? Theme.on-error-container : Theme.text-secondary;
+                    clicked => {
+                        root.dismissed();
+                    }
+                }
+            }
+
+            if root.running: Rectangle {
+                height: 4px;
+                // The bar stops short of the right edge so it lines up with the text.
+                width: lay.width - Theme.space-lg - Theme.space-lg;
+                border-radius: 2px;
+                background: Theme.surface-highest;
+                clip: true;
+
+                // Determinate: a fill from the left. Indeterminate (progress below 0): a
+                // third of the track sliding across.
+                Rectangle {
+                    property <bool> indeterminate: root.progress < 0;
+                    property <float> phase: Math.mod(animation-tick(), 1400ms) / 1400ms;
+                    width: self.indeterminate ? parent.width / 3 : parent.width * Math.min(root.progress, 1.0);
+                    x: self.indeterminate ? (parent.width + self.width) * self.phase - self.width : 0px;
+                    height: parent.height;
+                    border-radius: 2px;
+                    background: Theme.primary;
+                }
+            }
+        }
+    }
+}
+
+// A running sync: a progress indicator for a screen reader, labelled with its status.
+component RunningPanel inherits SyncBody {
+    accessible-role: AccessibleRole.progress-indicator;
+    accessible-label: LibraryModel.sync-text;
+    accessible-value: Math.round(Math.max(LibraryModel.sync-progress, 0) * 100) + "%";
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-value-step: 1;
+}
+
+// The outcome of the last sync.
+component ResultPanel inherits SyncBody {
+    accessible-role: AccessibleRole.text;
+    accessible-label: LibraryModel.sync-result;
+}
+
+export component SyncPanel inherits VerticalLayout {
+    if LibraryModel.syncing: RunningPanel {
+        text: LibraryModel.sync-text;
+        running: true;
+        progress: LibraryModel.sync-progress;
+        cancelled => {
+            LibraryModel.cancel-sync();
+        }
+    }
+
+    if !LibraryModel.syncing && LibraryModel.sync-result != "": ResultPanel {
+        text: LibraryModel.sync-result;
+        error: LibraryModel.sync-result-error;
+        dismissed => {
+            LibraryModel.dismiss-sync-result();
+        }
+    }
+}

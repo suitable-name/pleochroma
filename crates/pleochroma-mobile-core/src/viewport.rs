@@ -284,6 +284,8 @@ pub struct JobInputs {
     pub selected_tier: Option<usize>,
     /// The multi-selected tiers.
     pub multi_selected: BTreeSet<usize>,
+    /// Whether the theme is high contrast: the Solid view is drawn in that palette.
+    pub high_contrast: bool,
 }
 
 /// The settings the viewport reads.

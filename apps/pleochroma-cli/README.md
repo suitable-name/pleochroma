@@ -17,9 +17,10 @@ extension. Every command that takes a design takes several: see [Several designs
 
 | Command | What it does |
 |---|---|
-| `info` | Name, gear, symmetry, preform (shape, size and offset), material and the tier list; a tier cut to a picked corner ends its meet column with the corner's three facets. Does not solve. |
+| `info` | Name, gear, symmetry, preform (shape, size and offset), material and the tier list; a tier cut to a picked corner ends its meet column with the corner's three facets. Under the material it prints the Gem Data (hardness, toughness, cleavage, fracture, specific gravity, care, sources); see [Materials](#materials). Does not solve. |
+| `materials` | The optics and the gem data of the built-in materials: a table of all of them, or the details of one (optics, colors as hex, variants, effects, durability, sources). Also writes the manual's material tables as Markdown. See [Materials](#materials). |
 | `solve` | Solves every tier, checks that the facets enclose a stone, lists the manufacturability warnings. `--out` saves the design as `.psdd` (this converts `.asc`, `.gem` and `.gcs`). |
-| `metrics` | Table-up windowing, brilliance, extinction, fire and scintillation, the proportions and the yield. `--tilt` also averages the tilt performance. |
+| `metrics` | Table-up windowing, brilliance, extinction, fire, scintillation, Contrast and the zone shares, the proportions and the yield. `--tilt` also averages the tilt performance; `--aset-grid` also prints the grid Contrast is computed from. See [Contrast and the zone shares](#contrast-and-the-zone-shares). |
 | `validate` | The warnings and the overall Good, Check or Problem verdict of the editor's status strip. |
 | `optimize` | The Optimize tab's search on the design's own material. Lists ranked candidates; `--out` saves the best. |
 | `retarget` | The Retarget dialog's engine and validity gate, for another material. |
@@ -35,9 +36,13 @@ extension. Every command that takes a design takes several: see [Several designs
 
 ```
 pleochroma-cli info round.asc
+pleochroma-cli materials --sort hardness --desc
+pleochroma-cli materials Topaz --bands --curves topaz-index.csv
+pleochroma-cli materials --markdown gem-data
 pleochroma-cli solve round.asc --out round.psdd
 pleochroma-cli metrics round.psdd --ri 1.76 --json
 pleochroma-cli metrics round.psdd --material Sapphire --tilt --csv
+pleochroma-cli metrics round.psdd --ri 1.76 --aset-grid
 pleochroma-cli validate round.asc --json
 pleochroma-cli optimize round.psdd --preset brilliance --budget 400 --starts 4 --seed 7 --out better.psdd
 pleochroma-cli retarget round.psdd --material Sapphire --crown-fraction 0.33 --out sapphire.psdd
@@ -69,6 +74,47 @@ difference and keeps its sign in both.
 `export --date TEXT` sets the date that the `.html` or `.pdf` cutting sheet prints beside the
 designer (for example `--date "October 2026"`). Without it no date is printed, so the sheet is the
 same every time.
+
+## Materials
+
+`pleochroma-cli info` prints the Gem Data of the design's material under its `Material` line: the
+Mohs hardness, toughness, cleavage and fracture on one line, then the specific gravity with its
+range, the care notes and the sources as short citations. A value no gemological source gives
+reads `not recorded` (a toughness no source grades reads `not graded`). Values are typical for the
+species. With `--json`, `material.gem_data` holds every field: the figures, the notes where
+sources differ, the specific gravity with its basis (`cited` or `derived`), and `source_links`,
+each source with its full citation and its address.
+
+```
+Material:  Topaz (n 1.6272)
+  Gem data:  Mohs 8 · toughness poor · cleavage perfect basal {001} · fracture subconchoidal to uneven
+  SG:        3.53 (3.49–3.57)
+  Care:      The cleavage needs care in cutting, polishing and mounting; ...
+  Sources:   GIA, Topaz care guide; GIA, Gem Cleaning and Display Chart (rev. Oct 2018); ...
+```
+
+`pleochroma-cli materials [NAME]` reads the same data without a design.
+
+| Form | Prints |
+|---|---|
+| `materials` | The Material Reference table: crystal system, optic character, n_D, birefringence, dispersion, specific gravity, Mohs hardness, toughness and cleavage of the 39 built-in materials, in catalogue order. |
+| `materials NAME` | One material (any letter case; several words need no quotes): optics, the sources of its curves and spectrum, colors as hex per direction in daylight and under a 3200 K lamp, color variants, effects, durability, weight against diamond and sources. |
+
+| Flag | Meaning |
+|---|---|
+| `--json` | JSON instead of text, with the full citation and address of every source. |
+| `--csv` | The table as CSV. |
+| `--markdown TABLE` | One of the manual's tables as Markdown: `optics` and `gem-data` (Appendix C), `built-in` (the materials chapter), `sources` (every source with its address, and the notes where sources differ). |
+| `--sort COLUMN`, `--desc` | Order the table by `name`, `system`, `optic`, `ri`, `birefringence`, `dispersion`, `sg`, `hardness`, `toughness` or `cleavage`; `--desc` puts the largest first. Missing values come last. |
+| `--filter KIND` | `natural`, `synthetic`, `glass`, `custom` (the `--db` library's own materials) or `all`. |
+| `--dispersion bg` or `fc` | The dispersion shown: `bg` (default) is n at 430.8 nm minus n at 686.7 nm, the figure gem references print; `fc` is n at 486.1 nm minus n at 656.3 nm, the figure the Material Editor takes. Both come from the material's index curve. |
+| `--bands` | With a name: the absorption bands of every ray (centre, width, peak). |
+| `--curves FILE.csv` | With a name: the refractive index of every direction against wavelength (380 to 750 nm, every 5 nm). |
+| `--out FILE`, `--db FILE` | Write the report to a file; read custom materials from a design library. |
+
+The manual's material tables come from this command, so they stay in step with the code: run
+`materials --markdown optics`, `materials --markdown gem-data`, `materials --markdown built-in`
+and `materials --markdown sources`, and paste the output.
 
 ## Several designs
 
@@ -175,14 +221,20 @@ AMD GPU on the `amdgpu` kernel driver, so NVIDIA and Intel machines are left alo
 ignore the option.
 
 `metrics --json` keys: `table_up_brilliance_pct`, `table_up_windowing_pct`,
-`table_up_extinction_pct`, `table_up_fire_index`, `table_up_scintillation_pct`, with `tilt_*`
-keys added by `--tilt`, then `table_pct_of_width`, `crown_pct_of_width`,
-`pavilion_pct_of_width`, `girdle_pct_of_width`, `girdle_line_pct_of_width`,
-`total_depth_pct_of_width`, `length_to_width`, `volume_over_width_cubed`, `yield_pct`, `facets`,
-`tiers` and `warnings`. `--csv` is one header line and one row with the same names, in that
-order except that `girdle_line_pct_of_width` is the LAST column (it was added later, so a script
-that reads the columns by position keeps working). The text report prints it under Proportions
-as "Girdle line, of width", after "Girdle thickness, of width".
+`table_up_extinction_pct`, `table_up_fire_index`, `table_up_scintillation_pct`,
+`table_up_contrast`, `table_up_aset_red_pct`, `table_up_aset_green_pct`,
+`table_up_aset_blue_pct`, `table_up_aset_dark_pct`, `table_up_aset_leak_pct` and
+`table_up_aset_lost_pct`, with `tilt_*` keys added by `--tilt`, then `table_pct_of_width`,
+`crown_pct_of_width`, `pavilion_pct_of_width`, `girdle_pct_of_width`,
+`girdle_line_pct_of_width`, `total_depth_pct_of_width`, `length_to_width`,
+`volume_over_width_cubed`, `yield_pct`, `facets`, `tiers` and `warnings`. `--csv` is one header
+line and one row with the same names, in that order except that the figures added later come
+LAST, in this order: `girdle_line_pct_of_width`, `table_up_contrast`, `table_up_aset_red_pct`,
+`table_up_aset_green_pct`, `table_up_aset_blue_pct`, `table_up_aset_dark_pct`,
+`table_up_aset_leak_pct` and `table_up_aset_lost_pct` (so a script that reads the columns by
+position keeps working). The text report prints the girdle line under Proportions as "Girdle
+line, of width", after "Girdle thickness, of width", and Contrast and the zones right after
+Scintillation.
 
 The two girdle figures read the girdle in two places:
 
@@ -198,6 +250,61 @@ The two girdle figures read the girdle in two places:
   "The girdle is not level" check reports it). It is empty in CSV, `null` in JSON and `n/a` in
   text when the stone has no girdle line: no girdle tier, or no crown or pavilion facet reaching
   the girdle faces.
+
+## Contrast and the zone shares
+
+The table-up figures of `metrics` include the zone shares of the face-up view and one Contrast
+figure. They come from the same ray pass as Brilliance and Windowing: the stone is seen from
+straight above through an 18 x 18 grid of spots (180 of them inside the stone's disc), up to
+five eye directions each, traced at 589 nm. They do not depend on `--lighting`.
+
+| Text label | JSON key | Meaning |
+|---|---|---|
+| `Zone red, 45-75 deg` | `table_up_aset_red_pct` | Percent of the stone's face whose light leaves 45-75 degrees above the girdle plane. |
+| `Zone green, 0-45 deg` | `table_up_aset_green_pct` | The same, 0-45 degrees. |
+| `Zone blue, 75-90 deg` | `table_up_aset_blue_pct` | The same, 75-90 degrees (where the viewer's head is). |
+| `Zone dark` | `table_up_aset_dark_pct` | Leak plus lost. |
+| `Zone dark: leak` | `table_up_aset_leak_pct` | Out through the pavilion: the same rays as Windowing, so equal to it. |
+| `Zone dark: lost` | `table_up_aset_lost_pct` | No exit within 10 bounces, or out sideways. Not an ASET zone. |
+| `Contrast` | `table_up_contrast` | 0 to 100, see below. |
+
+Red, green, blue, leak and lost add up to 100 percent (the rare rays that fit none are in
+none). The zone edges are the Contrast view's lighting, blended across 43.4 to 46.6 degrees and
+71.1 to 80.4 degrees: Pleochroma's own smoothing of the sharp 45 and 75 degree limits, so the
+shares can differ slightly from a count with hard edges. Only leak corresponds to ASET leakage.
+
+Contrast is Pleochroma's own measure, not an AGS or GIA figure (they describe contrast in words,
+not with a formula). Call `b` the Blue share of a spot (0 to 1, the share of its rays that leave
+in the blue zone). Then
+
+```
+Contrast = 100 x mean over neighbouring spot pairs of |b(spot) - b(neighbour)|
+```
+
+over the left-right and up-down neighbours that are both on the stone (328 pairs on a full
+disc; 0 when there is none). It is 0 for a stone with no blue, with all blue, or with one smooth
+blue patch, and high where the shadow is broken up finely. A high value means finely broken-up
+shadow, not a better grade. Blue next to Dark counts as an edge too; read Zone dark and
+Windowing beside it.
+
+`--aset-grid` (text report only; it is refused with `--json` and `--csv`) prints the Blue share
+of every spot in percent, so the figure can be recomputed by hand: 18 rows from the top of the
+view down, 18 columns from left to right, `.` for a spot off the stone, then a line giving the
+number of pairs and the Contrast that the printed shares add up to (the shares are printed with
+one decimal, so a hand sum agrees to about a tenth of a point).
+
+```
+Blue-zone (ASET-style) share per spot, percent (18 x 18, as seen face-up; '.' = off the stone):
+     .     .     .     .     .   0.0  20.0 ...
+...
+Contrast = 100 x mean |difference| over the 328 left-right and up-down pairs = 27.31
+```
+
+`sweep` lists Contrast with its other figures (table, JSON key `contrast`); in its CSV the
+`contrast` column and the six zone columns (`aset_red_pct` and the others) follow `notes`.
+
+ASET is a registered trademark of the Gemological Institute of America, Inc. (GIA). Pleochroma is
+not affiliated with or endorsed by GIA or the American Gem Society.
 
 ## Optimize
 
@@ -389,12 +496,11 @@ PICTURE OPTIONS
                                over-bright colors keep their hue and saturation and are dimmed
                                (keep-color, default) or turn paler (whiten); whiten with a
                                remote worker needs --transfer full
-  --stone-shadow on|off        `render` only: override the job's Stone Shadow; needs a studio light
-                               with a backdrop (Tilt videos do not show it yet)
-  --tray-reflection PERCENT    `render` only: override the job's Tray Reflection, the head-on
-                               reflectance of the surface under the stone, from 0 (off) to 100 (a
-                               mirror); needs a studio light with a backdrop (Tilt videos do not
-                               show the tray reflection yet)
+  --stone-shadow on|off        override the job's Stone Shadow (`render` and `tilt-video`); needs a
+                               studio light with a backdrop
+  --tray-reflection PERCENT    override the job's Tray Reflection (`render` and `tilt-video`), the
+                               head-on reflectance of the surface under the stone, from 0 (off) to
+                               100 (a mirror); needs a studio light with a backdrop
   --stone-pose TILT,TURN[,SPIN]
                                `render` only: stand the stone on the tray in this pose: TILT 0 to
                                180 degrees (90 stands the table upright), TURN and SPIN 0 to 360;
@@ -427,7 +533,7 @@ PICTURE OPTIONS
   the graphics card cannot run it the stone is traced on the processor ("Tray reflection is
   traced on the CPU on this graphics card."); Ray-Traced GPU rendering always runs it. Without a studio
   light with a backdrop the message is "Tray reflection needs a studio light with a
-  backdrop."; tilt videos do not show the reflection.
+  backdrop.". `tilt-video` takes the flag too and draws the value in every frame.
 - `--stone-pose TILT,TURN[,SPIN]` stands the stone on the tray in a pose, in degrees: tilt 0 to
   180 (clamped; 90 stands the table upright), turn and spin 0 to 360 (wrapped). The tray, the
   lights and the camera stay where they are, and the tray drops to the stone's lowest point.

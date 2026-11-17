@@ -62,10 +62,12 @@ impl GpuBackend {
     #[must_use]
     pub fn acquire_with_diagnostics() -> (Self, Option<String>) {
         match crate::renderer::gpu::GpuFrameRenderer::new() {
-            Ok(renderer) => (
-                Self::with_renderer(Some(std::sync::Mutex::new(renderer))),
-                None,
-            ),
+            Ok(renderer) => {
+                let label = renderer.adapter_label().to_owned();
+                let backend = Self::with_renderer(Some(std::sync::Mutex::new(renderer)));
+                backend.remember_label(label);
+                (backend, None)
+            }
             Err(error) => (Self::disabled(), Some(error.to_string())),
         }
     }

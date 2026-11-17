@@ -117,6 +117,9 @@ pub enum LibrarySort {
 #[serde(default)]
 pub struct RenderSettings {
     /// Image engine (0 Path-Traced, 1 Ray-Traced); unknown values keep old settings usable.
+    /// A fresh install starts on Ray-Traced, which finishes quickly on a phone. A saved file
+    /// keeps its own choice, and one written before the engine could be chosen has no key and
+    /// keeps Path-Traced, the engine it used.
     #[serde(default)]
     pub engine: u8,
     pub backend: RenderBackend,
@@ -130,6 +133,10 @@ pub struct RenderSettings {
     pub live_spp_compact: u32,
     /// Samples per pixel for the live preview on a larger window.
     pub live_spp_large: u32,
+    /// Whether the user actively picked 64 or more samples. Without it the local Path-Traced
+    /// preview stays at 32 samples, whatever value an older version saved.
+    #[serde(default)]
+    pub local_spp_chosen: bool,
     /// The longest side, in pixels, of an exported picture.
     pub export_cap_px: u32,
     /// Samples per pixel of an exported picture.
@@ -139,13 +146,14 @@ pub struct RenderSettings {
 impl Default for RenderSettings {
     fn default() -> Self {
         Self {
-            engine: 0,
+            engine: 1,
             backend: RenderBackend::Automatic,
             quality: RenderQuality::Normal,
             bounces: 8,
             denoise: true,
-            live_spp_compact: 64,
-            live_spp_large: 128,
+            live_spp_compact: 32,
+            live_spp_large: 32,
+            local_spp_chosen: false,
             export_cap_px: 1024,
             export_cap_spp: 256,
         }
@@ -226,8 +234,19 @@ impl Default for LightingSettings {
 pub struct RemoteSettings {
     /// A name the user gave the worker.
     pub name: String,
-    /// Its network address (`host:port`); empty when none is set up.
+    /// Its main network address (`host:port`); empty when none is set up. It is the address
+    /// the Remote page shows and edits, and the first of [`Self::endpoint_addresses`].
     pub address: String,
+    /// Every rendering address a pairing link carried (`host:port`, at most three, the
+    /// computer's main network first). Empty for a phone set up by hand or paired before
+    /// 0.12.0: [`Self::endpoint_addresses`] then falls back to [`Self::address`], so such a
+    /// setting is read as a one-element list.
+    #[serde(default)]
+    pub addresses: Vec<String>,
+    /// The port of the computer's enrollment listener (`0` when unknown), kept from the
+    /// pairing link so the pairing can be repeated or checked later.
+    #[serde(default)]
+    pub enroll_port: u16,
     /// How much of a render is sent back.
     pub transfer: RemoteTransfer,
     /// How often, in milliseconds, partial results are sent.
@@ -238,6 +257,12 @@ pub struct RemoteSettings {
     /// default: a lighting-map upload and `FullData` frames are many megabytes. A network
     /// whose metering the platform cannot tell is treated as unmetered.
     pub allow_metered: bool,
+    /// Whether the paired computer serves a design library: `None` until the first
+    /// connection test after pairing (or a probe) learns it. The library page offers the
+    /// computer's designs and Sync only when this is `Some(true)`. Pairing again and
+    /// forgetting the computer reset it to `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serves_library: Option<bool>,
 }
 
 impl Default for RemoteSettings {
@@ -245,11 +270,53 @@ impl Default for RemoteSettings {
         Self {
             name: String::new(),
             address: String::new(),
+            addresses: Vec::new(),
+            enroll_port: 0,
             transfer: RemoteTransfer::DisplayOnly,
             cadence_ms: 500,
             enrolled: false,
             allow_metered: false,
+            serves_library: None,
         }
+    }
+}
+
+impl RemoteSettings {
+    /// The addresses to dial, in order.
+    ///
+    /// [`Self::addresses`] when a pairing link supplied them, otherwise the single
+    /// [`Self::address`] of a 0.11.1 or hand-made setup (an empty list when neither is
+    /// set). Blank entries are skipped.
+    #[must_use]
+    pub fn endpoint_addresses(&self) -> Vec<String> {
+        let listed: Vec<String> = self
+            .addresses
+            .iter()
+            .map(|address| address.trim())
+            .filter(|address| !address.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if !listed.is_empty() {
+            return listed;
+        }
+        let single = self.address.trim();
+        if single.is_empty() {
+            Vec::new()
+        } else {
+            vec![single.to_owned()]
+        }
+    }
+
+    /// Forgets the computer: name, addresses, the enrollment port and what was known of its
+    /// library. The transfer mode, update interval and metered-network choice are preferences
+    /// and stay.
+    pub fn clear_server(&mut self) {
+        self.name.clear();
+        self.address.clear();
+        self.addresses.clear();
+        self.enroll_port = 0;
+        self.enrolled = false;
+        self.serves_library = None;
     }
 }
 
@@ -374,8 +441,9 @@ impl MobileSettings {
         held
     }
 
-    /// Removes the entries of [`Self::recent`] that point at the library entries `ids` and
-    /// returns how many it removed. Call it when those entries are deleted: a line left in
+    /// Removes the entries of [`Self::recent`] that point at the library entries `ids`.
+    ///
+    /// Returns how many it removed. Call it when those entries are deleted: a line left in
     /// the list would still carry the deleted design's title (in `settings.toml` too) and
     /// could open nothing.
     pub fn forget_library_entries(&mut self, ids: &[i64]) -> usize {

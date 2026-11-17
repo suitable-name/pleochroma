@@ -64,6 +64,7 @@ impl Default for RenderContext {
             editor_material_stash: None,
             custom_materials: Arc::new(Vec::new()),
             custom_material_specific_gravity: Arc::new(Vec::new()),
+            custom_material_gem_data: Arc::new(Vec::new()),
             custom_material_physics: Arc::new(Vec::new()),
             custom_material_fluorescence: Arc::new(Vec::new()),
             pending_color_choice: None,

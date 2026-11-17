@@ -267,6 +267,13 @@ pub struct RenderContext {
     /// tracing. Kept in lock-step by `gui::optics::custom_materials` and the startup load.
     /// `Arc<Vec<..>>` for cheap cloning into per-frame snapshots.
     pub custom_material_specific_gravity: Arc<Vec<(String, f64)>>,
+    /// Name -> the gem data (hardness, toughness, cleavage, fracture, care, source) the user
+    /// entered for a custom material. A side channel to [`Self::custom_materials`] like the
+    /// specific gravity above: the Stone tab's Gem Data card and the Material Reference read
+    /// it. Only materials with at least one entered value are listed. Kept in lock-step by
+    /// `gui::optics::custom_materials` and the startup load.
+    pub custom_material_gem_data:
+        Arc<Vec<(String, pleochroma_editor::material_reference::CustomGemData)>>,
     /// Names of the custom materials whose active color mode is Physics (a recipe renders
     /// them). A side channel to [`Self::custom_materials`] like the specific gravity above,
     /// since `GemMaterial` has no color-mode field. Kept in lock-step by
@@ -672,6 +679,19 @@ impl RenderContext {
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
             .map(|(_, sg)| *sg)
+    }
+
+    /// Looks up `name`'s entered gem data in [`Self::custom_material_gem_data`], ignoring ASCII
+    /// case like the other name lookups. `None` when no custom material by that name has any.
+    #[must_use]
+    pub fn custom_gem_data(
+        &self,
+        name: &str,
+    ) -> Option<&pleochroma_editor::material_reference::CustomGemData> {
+        self.custom_material_gem_data
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, data)| data)
     }
 
     /// Whether the material being traced (the editor's override when set, else the selected

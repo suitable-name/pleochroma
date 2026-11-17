@@ -175,12 +175,31 @@ struct Entry {
     _connection_slot: Option<ConnectionSlot>,
 }
 
-/// The joined-worker registry. Shared as `Arc<Registry>` by the worker listener (which
-/// registers), the liveness thread, the viewer connections (capacity for `WELCOME`) and
-/// request execution (check-out).
+/// A render computer arriving or leaving, as [`Registry::set_observer`]'s function is told.
+///
+/// A `join --slots K` computer opens K connections that share one certificate label: it is
+/// reported once, when its first connection registers and when its last one goes. A connection
+/// without a label is a computer of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkerEvent {
+    /// The computer joined (its first connection registered).
+    Joined(WorkerInfo),
+    /// The computer left (its last connection was removed).
+    Left(WorkerInfo),
+}
+
+/// The function told about computers joining and leaving; it must not block.
+type WorkerObserver = Arc<dyn Fn(&WorkerEvent) + Send + Sync>;
+
+/// The joined-worker registry.
+///
+/// Shared as `Arc<Registry>` by the worker listener (which registers), the liveness thread, the
+/// viewer connections (capacity for `WELCOME`) and request execution (check-out).
 pub struct Registry {
     entries: Mutex<BTreeMap<u32, Entry>>,
     subscribers: Mutex<Vec<mpsc::Sender<Capacity>>>,
+    /// Told when a computer joins or leaves.
+    observer: Mutex<Option<WorkerObserver>>,
     next_id: AtomicU32,
     next_nonce: AtomicU64,
     liveness: LivenessConfig,
@@ -196,6 +215,7 @@ impl Registry {
         Arc::new(Self {
             entries: Mutex::new(BTreeMap::new()),
             subscribers: Mutex::new(Vec::new()),
+            observer: Mutex::new(None),
             next_id: AtomicU32::new(1),
             next_nonce: AtomicU64::new(1),
             liveness,
@@ -239,9 +259,10 @@ impl Registry {
         self.next_nonce.fetch_add(1, Ordering::Relaxed)
     }
 
-    /// Registers an idle, already-welcomed connection under `info.worker_id` and
-    /// notifies subscribers. `connection_slot` (the worker port's cap) is released when
-    /// the entry is removed.
+    /// Registers an idle, already-welcomed connection under `info.worker_id` and notifies
+    /// subscribers.
+    ///
+    /// `connection_slot` (the worker port's cap) is released when the entry is removed.
     pub fn insert(
         &self,
         info: WorkerInfo,
@@ -249,16 +270,41 @@ impl Registry {
         connection_slot: Option<ConnectionSlot>,
     ) {
         let id = info.worker_id;
-        self.lock_entries().insert(
-            id,
-            Entry {
-                info,
-                slot: Slot::Idle(conn),
-                last_traffic: Instant::now(),
-                _connection_slot: connection_slot,
-            },
-        );
+        let first_of_computer = {
+            let mut entries = self.lock_entries();
+            let first = !shares_label(&entries, &info);
+            entries.insert(
+                id,
+                Entry {
+                    info: info.clone(),
+                    slot: Slot::Idle(conn),
+                    last_traffic: Instant::now(),
+                    _connection_slot: connection_slot,
+                },
+            );
+            first
+        };
         self.notify();
+        if first_of_computer {
+            self.tell(&WorkerEvent::Joined(info));
+        }
+    }
+
+    /// Registers the function told when a render computer joins or leaves (see
+    /// [`WorkerEvent`]). A second call replaces the first.
+    pub fn set_observer(&self, observer: impl Fn(&WorkerEvent) + Send + Sync + 'static) {
+        *self.observer.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(observer));
+    }
+
+    fn tell(&self, event: &WorkerEvent) {
+        let observer = self
+            .observer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(observer) = observer {
+            observer(event);
+        }
     }
 
     /// The current capacity snapshot (every registered connection counts, busy or not).
@@ -332,14 +378,26 @@ impl Registry {
     /// Unregisters `worker_id` (its connection, if held here, is closed by dropping it)
     /// and notifies subscribers.
     pub fn remove(&self, worker_id: u32, why: &str) {
-        let removed = self.lock_entries().remove(&worker_id);
+        let (removed, last_of_computer) = {
+            let mut entries = self.lock_entries();
+            let removed = entries.remove(&worker_id);
+            let last = removed
+                .as_ref()
+                .is_some_and(|entry| !shares_label(&entries, &entry.info));
+            drop(entries);
+            (removed, last)
+        };
         if let Some(entry) = removed {
             tracing::warn!(
                 "coordinator: worker #{worker_id} ({:?}) dropped: {why}",
                 entry.info.peer
             );
+            let info = entry.info.clone();
             drop(entry);
             self.notify();
+            if last_of_computer {
+                self.tell(&WorkerEvent::Left(info));
+            }
         }
     }
 
@@ -373,9 +431,20 @@ impl Registry {
     }
 }
 
+/// Whether another registered connection belongs to the same computer as `info` (the same
+/// certificate label; a connection without a label belongs to no one else).
+fn shares_label(entries: &BTreeMap<u32, Entry>, info: &WorkerInfo) -> bool {
+    info.label.is_some()
+        && entries
+            .values()
+            .any(|entry| entry.info.worker_id != info.worker_id && entry.info.label == info.label)
+}
+
 /// Exclusive use of one joined worker connection for one request stream, from
-/// [`Registry::checkout`]. Dropping it checks the connection back in (idle again);
-/// [`Self::discard`] unregisters it instead.
+/// [`Registry::checkout`].
+///
+/// Dropping it checks the connection back in (idle again); [`Self::discard`] unregisters it
+/// instead.
 pub struct WorkerHandle {
     registry: Arc<Registry>,
     info: WorkerInfo,

@@ -1,0 +1,42 @@
+#!/sbin/openrc-run
+# Pleochroma render worker (pleochroma-worker join) as an OpenRC service.
+#
+# Install:  install -m 0755 pleochroma-worker /etc/init.d/pleochroma-worker
+#           install -m 0644 pleochroma-worker.confd /etc/conf.d/pleochroma-worker
+#           rc-update add pleochroma-worker default
+#           rc-service pleochroma-worker start
+# Logs:     /var/log/pleochroma/worker.log and worker.err
+#
+# The arguments and the environment are in /etc/conf.d/pleochroma-worker.
+# See chapter 10 of the manual, "Running the coordinator or a render computer as a Linux
+# service", for the user, the folders and the certificates this script expects.
+
+description="Pleochroma render worker"
+
+supervisor="supervise-daemon"
+command="/usr/local/bin/pleochroma-worker"
+# --headless is required: without it a build with a window prints a deprecation warning.
+command_args="--headless join ${worker_args}"
+command_user="pleochroma:pleochroma"
+directory="/var/lib/pleochroma"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/pleochroma/worker.log"
+error_log="/var/log/pleochroma/worker.err"
+
+# Restart after a crash, five seconds apart, without a limit. (join also reconnects to
+# the coordinator by itself.)
+respawn_delay=5
+respawn_max=0
+
+# join has no shutdown handler: SIGTERM ends it at once.
+retry="SIGTERM/10/SIGKILL/5"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner pleochroma:pleochroma --mode 0750 /var/log/pleochroma
+	checkpath --directory --owner pleochroma:pleochroma --mode 0700 /var/lib/pleochroma
+}

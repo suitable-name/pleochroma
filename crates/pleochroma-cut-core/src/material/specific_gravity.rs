@@ -3,6 +3,17 @@
 //! Provenance and the cited ranges of Zircon and Tourmaline are described in
 //! [`crate::material`]'s module doc.
 
+/// How a specific-gravity figure was obtained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SgBasis {
+    /// A source prints the representative figure.
+    Cited,
+    /// Computed from cited figures. The text is the user-facing basis note, which names the
+    /// computation and the figures it rests on. A derived figure is never shown as a source's own
+    /// number.
+    Derived(&'static str),
+}
+
 /// One material's specific gravity.
 ///
 /// A representative point figure for [`crate::yield_metrics::carat_weight`], plus the
@@ -18,6 +29,8 @@ pub struct SpecificGravity {
     /// `(low, high)` -- the cited real-world spread this representative figure
     /// simplifies. Always `low <= representative <= high`.
     pub range: (f64, f64),
+    /// Whether a source prints the representative figure or it is computed from cited figures.
+    pub basis: SgBasis,
 }
 
 /// Looks up a built-in specific gravity by the name
@@ -31,13 +44,18 @@ pub struct SpecificGravity {
 ///
 /// The covered names are the table inside this function; provenance is in
 /// [`crate::material`]'s module doc. `None` for any other name, notably "Garnet", which
-/// has no built-in preset.
+/// is a group name and not a built-in preset.
 #[must_use]
 pub fn built_in_specific_gravity(material_name: &str) -> Option<SpecificGravity> {
     // Sources: Handbook of Mineralogy / IGS (see module doc comment), except where
     // noted. Zircon and Tourmaline carry a real compositional range (see the Ranges section
     // of [`crate::material`]'s module doc); their representative is a deliberate choice
     // within that range, not an average.
+    //
+    // Source keys in the comments below: HoM = Handbook of Mineralogy, measured density unless
+    // noted; WM = webmineral.com; GIA-E = GIA gem encyclopedia facts box; IGS-T = the International
+    // Gem Society table "Specific Gravity Values of Selected Gems"; GG97 = Gems & Gemology, Winter
+    // 1997, Table 1 (Synthetic Moissanite article).
     const TABLE: &[(&str, f64, (f64, f64))] = &[
         ("Diamond", 3.52, (3.50, 3.53)),
         // Sapphire & Ruby: same corundum host lattice, same SG.
@@ -63,12 +81,92 @@ pub fn built_in_specific_gravity(material_name: &str) -> Option<SpecificGravity>
         ("Cubic Zirconia", 5.80, (5.60, 6.00)),
         // Synthetic rutile: the standard reference value.
         ("Rutile", 4.25, (4.25, 4.25)),
+        // Yellow chrysoberyl: representative from HoM chrysoberyl (3.75) and the Alexandrite
+        // row's own figure (3.73); range IGS-T "Chrysoberyl (Cat's eye, Alexandrite)" 3.70-3.78.
+        // The Alexandrite row's low end 3.68 is in neither HoM nor IGS-T, so this row uses 3.70.
+        ("Chrysoberyl (Yellow)", 3.73, (3.70, 3.78)),
+        // Quartz varieties: HoM quartz D(meas.) 2.65 (2.66 is D(calc.)); IGS-T quartz 2.65.
+        ("Amethyst", 2.65, (2.65, 2.66)),
+        ("Citrine", 2.65, (2.65, 2.66)),
+        ("Ametrine", 2.65, (2.65, 2.66)),
+        // HoM andradite D(meas.) 3.8-3.9, D(calc.) 3.859.
+        ("Andradite Garnet (Demantoid)", 3.86, (3.80, 3.90)),
+        // Synthetic. GG97 Table 1 prints 4.55; range from IGS-T 4.55-4.65.
+        ("YAG", 4.55, (4.55, 4.65)),
+        // Synthetic. GG97 Table 1 prints 7.05; range from IGS-T 7.00-7.09.
+        ("GGG", 7.05, (7.00, 7.09)),
+        // HoM benitoite D(meas.) 3.65, D(calc.) 3.68; IGS-T 3.64-3.68.
+        ("Benitoite", 3.65, (3.65, 3.68)),
+        // HoM andalusite D(meas.) 3.13-3.16.
+        ("Andalusite", 3.15, (3.13, 3.16)),
+        // HoM titanite D(meas.) 3.48-3.60; 3.53 is HoM's bracketed calculated value, IGS-T 3.52-3.54.
+        ("Titanite (Sphene)", 3.53, (3.48, 3.60)),
+        // Opal, all three entries: WM opal "1.9 - 2.3, Average = 2.09". IGS-T prints a different
+        // range for opal (1.25-2.23, footnoted, includes porous material); WM is kept.
+        ("Opal", 2.09, (1.90, 2.30)),
+        ("Precious Opal (White)", 2.09, (1.90, 2.30)),
+        ("Precious Opal (Black)", 2.09, (1.90, 2.30)),
+        // WM labradorite "2.68 - 2.71, Average = 2.69"; IGS-T 2.65-2.75 (wider, consistent).
+        ("Labradorite", 2.69, (2.68, 2.71)),
+        // Schott datasheet N-BK7, density 2.51 g/cm3.
+        ("Glass (N-BK7)", 2.51, (2.51, 2.51)),
+        // Schott datasheet F2HT (nd 1.62004, vd 36.37), density 3.60 g/cm3. The catalog has no
+        // plain F2 sheet and its N-F2 page is a different, lead-free glass, so F2HT is the sheet used.
+        ("Glass (F2)", 3.60, (3.60, 3.60)),
+        // GIA-E moonstone 2.58; IGS moonstone page and IGS-T 2.56-2.59. HoM orthoclase (the
+        // whole species) 2.55-2.63 is wider.
+        ("Moonstone", 2.58, (2.56, 2.59)),
+        // Gem values, not the pure end-member (HoM pyrope 3.582): WM pyrope average 3.74 (WM range
+        // 3.65-3.84); IGS pyrope page 3.65-3.87.
+        ("Pyrope Garnet", 3.74, (3.65, 3.87)),
+        // Gem values, not the pure end-member (HoM almandine 4.318, above every gem range found):
+        // WM almandine average 4.19 (WM range 4.09-4.31); IGS almandine page 3.95-4.30.
+        ("Almandine Garnet", 4.19, (3.95, 4.30)),
+        // WM spessartine 4.18; IGS spessartite "gems usually 4.12-4.20" (whole species 3.80-4.25);
+        // HoM spessartine 4.190.
+        ("Spessartine Garnet", 4.18, (4.12, 4.20)),
+        // IGS tsavorite page 3.55-3.73 with mean 3.61; HoM grossular 3.594; IGS-T 3.56-3.73.
+        ("Grossular Garnet (Tsavorite)", 3.61, (3.55, 3.73)),
+        // GIA-E aquamarine 2.72; range IGS-T aquamarine 2.68-2.74 (the IGS aquamarine page prints
+        // the wider 2.66-2.80). HoM beryl, the whole species, 2.63-2.97 with 2.7 average.
+        ("Aquamarine", 2.72, (2.68, 2.74)),
+        // Derived (see DERIVED): GIA-E morganite prints the range 2.80-2.91 only, and no source
+        // prints a single figure. The IGS morganite page prints 2.71-2.90.
+        ("Morganite", 2.86, (2.80, 2.91)),
+        // GIA-E peridot 3.34, a single value, stored as both ends of the range. The IGS ranges
+        // span the whole olivine series up to fayalite and are not a gem-peridot range; HoM
+        // forsterite 3.275 is the pure magnesium end-member.
+        ("Peridot", 3.34, (3.34, 3.34)),
+        // Derived (see DERIVED): two Gems & Gemology studies of color-change pyrope-spessartine,
+        // Fall 2017 GemNews (SG 3.83-3.88) and Spring 2017 GemNews (SG 3.93-4.00). No source
+        // gives a species range.
+        (
+            "Color-Change Garnet (Pyrope-Spessartine)",
+            3.92,
+            (3.83, 4.00),
+        ),
+    ];
+    // Rows whose representative is computed from cited figures, with the note shown beside it.
+    const DERIVED: &[(&str, &str)] = &[
+        (
+            "Morganite",
+            "Derived: midpoint of the cited range 2.80-2.91.",
+        ),
+        (
+            "Color-Change Garnet (Pyrope-Spessartine)",
+            "Derived: range merged from two Gems & Gemology studies (3.83-3.88 and 3.93-4.00); \
+             representative is its midpoint.",
+        ),
     ];
     TABLE
         .iter()
         .find(|(name, ..)| name.eq_ignore_ascii_case(material_name))
-        .map(|&(_, representative, range)| SpecificGravity {
+        .map(|&(name, representative, range)| SpecificGravity {
             representative,
             range,
+            basis: DERIVED
+                .iter()
+                .find(|(derived, _)| *derived == name)
+                .map_or(SgBasis::Cited, |&(_, note)| SgBasis::Derived(note)),
         })
 }

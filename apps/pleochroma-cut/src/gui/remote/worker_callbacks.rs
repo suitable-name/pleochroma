@@ -35,6 +35,9 @@ pub fn setup_worker_callbacks(
     setup_live_compute_target_callback(ui, render_ctx, settings_store);
     setup_contribute_to_final_picture_callback(ui, settings_store);
     setup_claim_token_callback(ui);
+    super::pairing::setup_pairing_callbacks(ui, render_ctx, settings_store);
+    super::use_remote::setup_use_remote_callback(ui, render_ctx, settings_store);
+    super::pairing::install_rediscovery(ui, settings_store);
     setup_test_worker_connection_callback(ui);
     setup_cert_dir_picker_callback(ui);
     super::advanced_in_use::setup_advanced_in_use_callback(ui);
@@ -90,7 +93,19 @@ fn setup_remove_remote_callback(ui: &MainWindow, settings_store: &Arc<SettingsPe
         let Some(ui) = ui_weak_remove.upgrade() else {
             return;
         };
-        settings_store_remove.update(|s| s.settings.remote = None);
+        let mut removed_cert_dir = None;
+        settings_store_remove.update(|s| {
+            removed_cert_dir = s
+                .settings
+                .remote
+                .take()
+                .map(|remote| remote.connection.cert_dir);
+        });
+        // The published route belonged to the removed remote; a later form that reuses its
+        // folder must start as a hand-entered one.
+        if let Some(cert_dir) = removed_cert_dir {
+            crate::bridge::remote::route::remove(&cert_dir);
+        }
         refresh_remote_ui(&ui, None);
         crate::gui::render::output_defaults::follow_remote_default_for_tilt(
             &ui,

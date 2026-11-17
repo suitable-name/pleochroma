@@ -98,12 +98,21 @@ pub(super) type Pixels = SharedPixelBuffer<Rgba8Pixel>;
 /// The flat grey solid style: the Edit tab's Solid view defaults (Lambert + rim on
 /// a light grey base, preform planes tinted) on an opaque background, with no
 /// selection/hover overlays -- a comparison has no selection of its own.
+///
+/// With `high_contrast` (the app's theme) the palette is [`SolidStyle::high_contrast`]
+/// instead: light edges and a darker face fill. The comparison is a live viewport, so it
+/// follows the theme; the catalogue thumbnails, variants, history, rough plan and pose
+/// preview keep the default style on purpose.
 #[must_use]
-pub(super) fn solid_style(preform_planes: usize) -> SolidStyle {
+pub(super) fn solid_style(preform_planes: usize, high_contrast: bool) -> SolidStyle {
     SolidStyle {
         background: SOLID_BACKGROUND,
         preform_plane_count: preform_planes,
-        ..SolidStyle::viewport()
+        ..if high_contrast {
+            SolidStyle::high_contrast()
+        } else {
+            SolidStyle::viewport()
+        }
     }
 }
 
@@ -139,10 +148,11 @@ impl SolidSideRenderer {
         preform_planes: usize,
         pose: CameraPose,
         size: (u32, u32),
+        high_contrast: bool,
     ) -> bool {
         self.raster.resize(size.0.max(1), size.1.max(1));
         let camera = camera_for(pose);
-        let style = solid_style(preform_planes);
+        let style = solid_style(preform_planes, high_contrast);
         if let Some(cached) = self.cache.get_or_build_geometry(stone) {
             self.raster.render_prepared(cached, &camera, &style);
             true
@@ -165,7 +175,7 @@ pub(super) fn render_solid_rgba(
     size: (u32, u32),
 ) -> Vec<u8> {
     let mut renderer = SolidSideRenderer::default();
-    renderer.render(stone, preform_planes, pose, size);
+    renderer.render(stone, preform_planes, pose, size, false);
     renderer.raster.color
 }
 
@@ -180,7 +190,7 @@ pub(super) fn render_solid_pick(
     size: (u32, u32),
 ) -> Vec<u32> {
     let mut renderer = SolidSideRenderer::default();
-    renderer.render(stone, preform_planes, pose, size);
+    renderer.render(stone, preform_planes, pose, size, false);
     renderer.raster.pick
 }
 
@@ -328,6 +338,10 @@ pub(super) struct ViewRequest {
     /// switching layouts issues a fresh request (`mode_changed`), so a layer is never
     /// owed to an older generation. The traced worker never reads it.
     pub(super) overlay_wanted: bool,
+    /// Whether the app's theme is high contrast when the request is issued: the solid
+    /// worker then draws with [`SolidStyle::high_contrast`]. The traced worker never
+    /// reads it.
+    pub(super) high_contrast: bool,
 }
 
 /// What a worker reports back.
@@ -411,7 +425,13 @@ fn solid_side_pixels(
             false,
         );
     }
-    let closed = renderer.render(&side.stone, side.preform_planes, request.pose, request.size);
+    let closed = renderer.render(
+        &side.stone,
+        side.preform_planes,
+        request.pose,
+        request.size,
+        request.high_contrast,
+    );
     (to_pixel_buffer(&renderer.raster), closed)
 }
 
@@ -686,12 +706,21 @@ mod solid_frame_tests {
     }
 
     fn frame(sides: &(SideGeometry, SideGeometry), overlay_wanted: bool) -> FrameEvent {
+        frame_themed(sides, overlay_wanted, false)
+    }
+
+    fn frame_themed(
+        sides: &(SideGeometry, SideGeometry),
+        overlay_wanted: bool,
+        high_contrast: bool,
+    ) -> FrameEvent {
         let request = ViewRequest {
             generation: 1,
             pose: POSE,
             size: (24, 16),
             renderer: Renderer::Solid,
             overlay_wanted,
+            high_contrast,
         };
         solid_frame(
             (
@@ -712,6 +741,28 @@ mod solid_frame_tests {
             } => (before, after, overlay),
             _ => panic!("the solid worker reports a solid pair"),
         }
+    }
+
+    /// The theme flag picks the high-contrast style, and the default keeps the default
+    /// viewport style; the two pictures differ (light edges against dark ones).
+    #[test]
+    fn the_theme_flag_selects_the_high_contrast_style() {
+        let high = solid_style(3, true);
+        assert_eq!(high.edge_color, SolidStyle::high_contrast().edge_color);
+        assert_eq!(
+            high.selected_color,
+            SolidStyle::high_contrast().selected_color
+        );
+        assert_eq!(high.background, SOLID_BACKGROUND);
+        assert_eq!(high.preform_plane_count, 3);
+        let default = solid_style(3, false);
+        assert_eq!(default.edge_color, SolidStyle::viewport().edge_color);
+        assert_eq!(default.base_color, SolidStyle::viewport().base_color);
+
+        let sides = (side(), side());
+        let (plain, _, _) = solid_parts(frame(&sides, false));
+        let (themed, _, _) = solid_parts(frame_themed(&sides, false, true));
+        assert_ne!(plain.as_bytes(), themed.as_bytes());
     }
 
     #[test]

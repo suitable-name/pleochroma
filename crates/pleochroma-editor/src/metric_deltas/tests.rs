@@ -19,6 +19,7 @@ fn figures(
         extinction_pct: extinction,
         fire_index: fire,
         scintillation_pct: scint,
+        aset: None,
     }
 }
 
@@ -398,4 +399,179 @@ fn a_frosted_stone_measures_differently_and_repeatably_and_its_tilt_average_stop
     });
     assert!(stopped.is_none());
     assert_eq!(calls, 5, "nothing is asked for after the refusal");
+}
+
+fn shares(red: f32, green: f32, blue: f32, leak: f32, lost: f32, contrast: f32) -> AsetAreaShares {
+    AsetAreaShares {
+        red_pct: red,
+        green_pct: green,
+        blue_pct: blue,
+        leak_pct: leak,
+        lost_pct: lost,
+        contrast,
+    }
+}
+
+fn with_contrast(mut figures: OpticalFigures, contrast: f32) -> OpticalFigures {
+    figures.aset = Some(shares(40.0, 20.0, 20.0, 10.0, 10.0, contrast));
+    figures
+}
+
+#[test]
+fn contrast_is_judged_with_a_four_point_threshold_and_higher_is_better() {
+    assert!((CONTRAST_NOISE_POINTS - 4.0).abs() < f32::EPSILON);
+    assert!((ASET_NOISE_POINTS - 2.0).abs() < f32::EPSILON);
+    assert!(DeltaMetric::Contrast.higher_is_better());
+    assert!(!DeltaMetric::Contrast.is_main());
+    assert_eq!(DeltaMetric::ALL[5], DeltaMetric::Contrast);
+    let tone = |before, after| judge(DeltaMetric::Contrast, before, after, false).map(|c| c.tone);
+    assert_eq!(tone(20.0, 24.0), Some(Tone::Same), "four points are noise");
+    assert_eq!(tone(20.0, 16.0), Some(Tone::Same));
+    assert_eq!(tone(20.0, 24.5), Some(Tone::Better));
+    assert_eq!(tone(20.0, 15.5), Some(Tone::Worse));
+    let moved = judge(DeltaMetric::Contrast, 20.0, 29.0, false).expect("finite");
+    assert!(
+        (moved.change - 9.0).abs() < 1e-4,
+        "points, not a relative change"
+    );
+}
+
+#[test]
+fn contrast_value_is_not_a_number_without_zone_figures() {
+    assert!(DeltaMetric::Contrast.value(&base()).is_nan());
+    let measured = with_contrast(base(), 27.5);
+    assert!((DeltaMetric::Contrast.value(&measured) - 27.5).abs() < 1e-6);
+    assert_eq!(judge(DeltaMetric::Contrast, f32::NAN, 20.0, false), None);
+}
+
+#[test]
+fn a_contrast_change_reads_in_the_it_also_sentence_without_a_percent_sign() {
+    let before = with_contrast(base(), 20.0);
+    let after = with_contrast(figures(64.0, 20.0, 20.0, 20.0, 50.0), 29.0);
+    assert_eq!(
+        describe_metric_deltas(&before, &after, None),
+        vec![
+            "The after design is brighter face-up (+4 %).",
+            "It also has more contrast (+9).",
+            "Windowing, extinction, fire and scintillation are about the same.",
+        ]
+    );
+    let less = with_contrast(base(), 8.0);
+    let lines = describe_metric_deltas(&before, &less, None);
+    assert_eq!(lines[0], "The after design has less contrast (-12).");
+}
+
+#[test]
+fn contrast_inside_the_noise_joins_the_same_list_as_the_lower_case_word() {
+    let before = with_contrast(base(), 20.0);
+    let after = with_contrast(figures(64.0, 20.0, 20.0, 20.0, 50.0), 23.0);
+    assert_eq!(
+        describe_metric_deltas(&before, &after, None),
+        vec![
+            "The after design is brighter face-up (+4 %).",
+            "Windowing, extinction, fire, scintillation and contrast are about the same.",
+        ]
+    );
+    assert_eq!(
+        describe_metric_deltas(&before, &before, None),
+        vec!["No clear optical difference."]
+    );
+}
+
+#[test]
+fn a_stone_without_zone_figures_adds_nothing_about_contrast() {
+    let measured = with_contrast(base(), 20.0);
+    let after = figures(64.0, 17.0, 20.0, 20.0, 50.0);
+    for lines in [
+        describe_metric_deltas(&measured, &after, None),
+        describe_metric_deltas(&after, &measured, None),
+    ] {
+        assert!(
+            lines.iter().all(|line| !line.contains("contrast")),
+            "{lines:?}"
+        );
+    }
+    assert_eq!(metric_rows(&measured, &after, None).len(), 5);
+    assert_eq!(metric_rows(&after, &measured, None).len(), 5);
+}
+
+#[test]
+fn the_contrast_row_follows_scintillation_and_has_no_unit() {
+    let before = with_contrast(base(), 20.0);
+    let after = with_contrast(base(), 29.0);
+    let rows = metric_rows(&before, &after, None);
+    assert_eq!(rows.len(), 6);
+    assert_eq!(rows[5].label, "Contrast");
+    assert_eq!(rows[5].before, "20.0");
+    assert_eq!(rows[5].after, "29.0");
+    assert_eq!(rows[5].change, "+9.0");
+    assert_eq!(rows[5].tone, Tone::Better);
+    let worse = metric_rows(&after, &before, None);
+    assert_eq!(worse[5].change, "-9.0");
+    assert_eq!(worse[5].tone, Tone::Worse);
+    let same = metric_rows(&before, &with_contrast(base(), 22.0), None);
+    assert_eq!(same[5].tone, Tone::Same);
+}
+
+#[test]
+fn tilt_rows_follow_the_contrast_row() {
+    let before = with_contrast(base(), 20.0);
+    let rows = metric_rows(
+        &before,
+        &before,
+        Some((&tilt(50.0, 20.0, 20.0), &tilt(52.0, 19.0, 20.0))),
+    );
+    assert_eq!(rows.len(), 9);
+    assert_eq!(rows[5].label, "Contrast");
+    assert_eq!(rows[6].label, "Tilt Brilliance");
+    assert_eq!(rows[8].label, "Tilt Extinction");
+}
+
+#[test]
+fn the_zone_change_names_the_two_largest_moves() {
+    let before = shares(40.0, 20.0, 20.0, 10.0, 10.0, 20.0);
+    let after = shares(44.0, 20.0, 3.0, 5.0, 0.0, 20.0);
+    assert_eq!(aset_change_text(&before, &after), "Blue -17, Dark -15");
+    let swapped = aset_change_text(&after, &before);
+    assert_eq!(swapped, "Blue +17, Dark +15");
+}
+
+#[test]
+fn the_zone_change_ignores_moves_up_to_two_points_and_breaks_ties_in_zone_order() {
+    let before = shares(40.0, 20.0, 20.0, 10.0, 10.0, 20.0);
+    assert_eq!(aset_change_text(&before, &before), "about the same");
+    let at_threshold = shares(42.0, 18.0, 22.0, 11.0, 9.0, 20.0);
+    assert_eq!(
+        aset_change_text(&before, &at_threshold),
+        "about the same",
+        "exactly two points is noise, and Dark is leak plus lost"
+    );
+    let over = shares(43.0, 20.0, 20.0, 10.0, 10.0, 20.0);
+    assert_eq!(aset_change_text(&before, &over), "Red +3");
+    let tied = shares(45.0, 15.0, 23.0, 10.0, 10.0, 20.0);
+    assert_eq!(aset_change_text(&before, &tied), "Red +5, Green -5");
+}
+
+#[test]
+fn the_zone_change_counts_dark_as_leak_plus_lost() {
+    let before = shares(40.0, 20.0, 20.0, 10.0, 10.0, 20.0);
+    let after = shares(40.0, 20.0, 20.0, 13.0, 13.0, 20.0);
+    assert_eq!(aset_change_text(&before, &after), "Dark +6");
+}
+
+#[test]
+fn a_traced_stone_carries_zone_figures_and_a_contrast_in_range() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let environment = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
+    let figures = measure_table_up(&planes, &material, environment);
+    let aset = figures.aset.expect("a traced stone has zone figures");
+    assert!((0.0..=100.0).contains(&aset.contrast), "{}", aset.contrast);
+    assert!(
+        (DeltaMetric::Contrast.value(&figures) - aset.contrast).abs() < f32::EPSILON,
+        "the delta figure is the stone's Contrast"
+    );
+    let rows = metric_rows(&figures, &figures, None);
+    assert_eq!(rows.len(), 6);
+    assert_eq!(rows[5].tone, Tone::Same);
 }

@@ -1,3 +1,2 @@
-// The figures card now lives in `ui/shared/figures.slint` (shared with the mobile app); the kit
-// keeps its names.
-export { PleoFigure as KitFigure, PleoFigures as KitFigures } from "../../shared/figures.slint";
+// Moved to crates/pleochroma-ui-kit; this file re-exports it.
+export { KitFigure, KitFigures } from "@pleochroma-kit/components/kit/figures.slint";

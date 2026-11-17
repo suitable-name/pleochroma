@@ -1,8 +1,9 @@
-//! The post-`WELCOME` request loop, shared by every render-capable connection whoever
-//! dialled it: a viewer connection `serve` accepted, and a
-//! `join`ed worker's outbound connection to its coordinator. On the latter the roles
-//! invert at the application layer -- the worker is the TLS/TCP client but the PROTOCOL
-//! server: it reads `ClientMessage`s and answers `StreamEvent`s, exactly as here.
+//! The post-`WELCOME` request loop, shared by every render-capable connection whoever dialled it.
+//!
+//! A viewer connection `serve` accepted, and a `join`ed worker's outbound connection to its
+//! coordinator. On the latter the roles invert at the application layer -- the worker is the
+//! TLS/TCP client but the PROTOCOL server: it reads `ClientMessage`s and answers `StreamEvent`s,
+//! exactly as here.
 
 #[cfg(feature = "beam")]
 use super::beam_tiles;
@@ -12,6 +13,7 @@ use super::{NO_RENDER_CAPACITY_CODE, batch, handle_non_render_message};
 use crate::{
     assets::{self, AssetCache, Fetched, HdrRoute, HeldAsset},
     cli::ComputeMode,
+    control::renders::{self, ActiveRenderStart},
     coordinator::{self, CapabilityWatch, ViewerSession},
     serve::library::LibraryHandle,
     stream_emit::{self, StreamOutcome, TimeoutRead, TimeoutWrite, is_stream_timeout},
@@ -19,11 +21,12 @@ use crate::{
 };
 use pleochroma::renderer::gpu_backend::GpuBackend;
 use pleochroma_net::{
+    admin::status::RenderKind,
     framing::{FramingError, IDLE_READ_TIMEOUT},
     messages::{
         BatchRenderRequest, BeamTileRequest, ClientMessage, ErrorMsg, FinalImageRequest,
-        JobRequest, LivePassRequest, NetError, PayloadEncoding, RenderRequest, StreamEvent,
-        TiltCurvesRequest, TransferMode, adaptive::PeerLink, error_codes,
+        JobRequest, LivePassRequest, NetError, PayloadEncoding, RenderRequest, RequestIntent,
+        StreamEvent, TiltCurvesRequest, TransferMode, adaptive::PeerLink, error_codes,
     },
 };
 use std::{
@@ -31,10 +34,11 @@ use std::{
     sync::Arc,
 };
 
-/// `<- ERROR`/`TiltCurvesResponse::Error` code for a request whose embedded scene
-/// failed [`validate::validate_scene`] -- shared verbatim between `RenderRequest`
-/// and `TiltCurvesRequest` validation failures even though the reply envelope
-/// differs.
+/// `<- ERROR`/`TiltCurvesResponse::Error` code for a request whose embedded scene failed
+/// [`validate::validate_scene`].
+///
+/// Shared verbatim between `RenderRequest` and `TiltCurvesRequest` validation failures even though
+/// the reply envelope differs.
 pub const VALIDATION_FAILED_CODE: u32 = error_codes::VALIDATION_FAILED;
 /// `<- ERROR`/`TiltCurvesResponse::Error` code for a `pleochroma` panic caught by
 /// `catch_unwind` on a validation-passing but pathological scene.
@@ -74,6 +78,120 @@ pub struct RequestContext<'a> {
     /// The durable job service: `None` on a server without an own render lane and on a
     /// `join`ed worker's connection, where job requests are refused.
     pub jobs: Option<&'a Arc<crate::jobs::JobService>>,
+    /// The asking viewer's identity key (`certificate:<hex>`, `address:<ip>`, or empty for a
+    /// viewer with neither), so its requests are listed as running renders in the coordinator
+    /// status. `None` on a `join`ed worker's connection, whose chunks the coordinator lists.
+    pub viewer: Option<&'a str>,
+}
+
+/// What [`render_start`] reads off a request.
+struct Facts {
+    kind: RenderKind,
+    width: u32,
+    height: u32,
+    is_ray: bool,
+    target: Option<u32>,
+    /// The viewer's coordinator forwards it whole to a joined worker (when it has no lane).
+    forwarded: bool,
+    /// This connection serves the request at all (a refusal is not a render).
+    served: bool,
+}
+
+/// The registry entry for `next`, or `None` when this is not a viewer's connection, the
+/// request is not a render (a job is on the durable queue), or it is refused up front.
+fn render_start(next: &NextRequest, ctx: &RequestContext<'_>) -> Option<ActiveRenderStart> {
+    let viewer = ctx.viewer?;
+    let lane = ctx.own_lane;
+    let coordinated = ctx.session.is_some();
+    let live_target =
+        |samples: u32| (samples > 0 && samples < renders::OPEN_ENDED_SAMPLES).then_some(samples);
+    let facts = match next {
+        NextRequest::Render(r) => Facts {
+            kind: match r.intent {
+                RequestIntent::Interactive => RenderKind::Live,
+                RequestIntent::Batch => RenderKind::FinalImage,
+            },
+            width: r.scene.width,
+            height: r.scene.height,
+            is_ray: r.scene.engine.is_ray(),
+            target: live_target(r.samples),
+            forwarded: false,
+            served: lane || coordinated,
+        },
+        NextRequest::FinalImage(r) => Facts {
+            kind: RenderKind::FinalImage,
+            width: r.scene.width,
+            height: r.scene.height,
+            is_ray: r.scene.engine.is_ray(),
+            target: Some(r.samples),
+            forwarded: false,
+            served: coordinated,
+        },
+        NextRequest::TiltCurves(r) => Facts {
+            kind: RenderKind::TiltCurves,
+            width: r.scene.width,
+            height: r.scene.height,
+            is_ray: r.scene.engine.is_ray(),
+            target: None,
+            forwarded: true,
+            served: true,
+        },
+        NextRequest::LivePass(r) => Facts {
+            kind: RenderKind::LivePass,
+            width: r.scene.width,
+            height: r.scene.height,
+            is_ray: r.scene.engine.is_ray(),
+            target: Some(r.samples),
+            forwarded: true,
+            served: lane || coordinated,
+        },
+        NextRequest::BeamTiles(r) => Facts {
+            kind: RenderKind::BeamTiles,
+            width: r.scene.width,
+            height: r.scene.height,
+            is_ray: r.scene.engine.is_ray(),
+            target: None,
+            forwarded: true,
+            served: lane || coordinated,
+        },
+        NextRequest::Batch(r) => {
+            let first = r.items.first()?;
+            Facts {
+                kind: RenderKind::Batch,
+                width: first.scene.width,
+                height: first.scene.height,
+                is_ray: first.scene.engine.is_ray(),
+                target: None,
+                forwarded: false,
+                served: lane,
+            }
+        }
+        NextRequest::Job(_) => return None,
+    };
+    if !facts.served {
+        return None;
+    }
+    let route = match ctx.session {
+        Some(session) if session.coordinator.own().is_none() => {
+            let joined = session
+                .coordinator
+                .registry()
+                .map_or(0, |registry| registry.workers().len());
+            renders::route_text(false, if facts.forwarded { 1 } else { joined })
+        }
+        _ => renders::route_text(true, 0),
+    };
+    let (device, fingerprint) = renders::viewer_identity(viewer);
+    Some(ActiveRenderStart {
+        device,
+        fingerprint,
+        kind: facts.kind,
+        engine: renders::engine_text(facts.is_ray).to_owned(),
+        width: facts.width,
+        height: facts.height,
+        target: facts.target,
+        route,
+    })
 }
 
 /// Writes the `UNSUPPORTED_REQUEST` reply for a well-formed request this server does
@@ -192,9 +310,10 @@ fn serve_beam_tile_request<S: Read + Write + TimeoutRead + TimeoutWrite>(
     }
 }
 
-/// The post-`WELCOME` request loop: dispatches `Cancel`/`Library`/`Ping` inline and
-/// runs each `RenderRequest` (validate, then stream) and `TiltCurvesRequest` until the
-/// peer closes the connection.
+/// The post-`WELCOME` request loop.
+///
+/// Dispatches `Cancel`/`Library`/`Ping` inline and runs each `RenderRequest` (validate, then
+/// stream) and `TiltCurvesRequest` until the peer closes the connection.
 ///
 /// Each `RenderRequest` usually comes from a fresh [`read_next_message`] call, but may
 /// already be in hand if the client pipelined it ahead of the previous request's `DONE`
@@ -218,13 +337,13 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
     let mut watch = ctx.session.and_then(CapabilityWatch::new);
 
     loop {
-        let mut next = match pending_request.take() {
-            Some(r) => NextRequest::Render(r),
-            None => match read_next_message(stream, ctx.db, watch.as_mut())? {
-                Some(n) => n,
-                // The peer closing the connection is the normal end of this loop.
-                None => return Ok(()),
-            },
+        let mut next = if let Some(r) = pending_request.take() {
+            NextRequest::Render(r)
+        } else if let Some(n) = read_next_message(stream, ctx.db, watch.as_mut())? {
+            n
+        } else {
+            // The peer closing the connection is the normal end of this loop.
+            return Ok(());
         };
         // A coordinator re-attaches the zones the viewer sent ahead of a picture request: its
         // own lane traces the scene as held, and its joined workers get them again
@@ -243,6 +362,10 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
             }
             Prepared::Closed => return Ok(()),
         };
+
+        // The request is listed as a running render exactly as long as it is served: the guard
+        // goes with this iteration, however it ends (done, cancelled, the viewer left, a failure).
+        let _render_guard = render_start(&next, ctx).map(renders::begin);
 
         pending_request = match (next, ctx.session) {
             (NextRequest::Render(request), Some(session)) => {

@@ -212,6 +212,17 @@ fn the_metrics_and_tilt_messages_round_trip() {
                 extinction_pct: 14.0,
                 scored_under,
                 doubling_arcmin: 3.5,
+                aset: Some(
+                    pleochroma::color::metrics::AsetAreaShares {
+                        red_pct: 44.0,
+                        green_pct: 19.0,
+                        blue_pct: 16.0,
+                        leak_pct: 8.75,
+                        lost_pct: 12.0,
+                        contrast: 27.5,
+                    }
+                    .into(),
+                ),
             }),
             elapsed_ms: 40.0,
         });
@@ -315,7 +326,8 @@ fn the_metrics_hdr_fields_are_pinned() {
 
     // SolveResult = variant 8, job 9; Metrics = response variant 6; five f32s; then
     // `ScoredUnder`: HdrMap = variant 1 with id 300 (AC 02), Preset = variant 0 with the
-    // zigzag varint of -1 (01); then the f32 Doubling figure (2.5 = `00 00 20 40`) and the f64
+    // zigzag varint of -1 (01); then the f32 Doubling figure (2.5 = `00 00 20 40`), the absent
+    // Zones shares (`Option` tag `00`) and the f64
     // elapsed time.
     let result = |scored_under| {
         hex(&encode_from_worker(&FromWorker::SolveResult {
@@ -328,13 +340,14 @@ fn the_metrics_hdr_fields_are_pinned() {
                 extinction_pct: 4.0,
                 scored_under,
                 doubling_arcmin: 2.5,
+                aset: None,
             }),
             elapsed_ms: 0.0,
         })
         .expect("encodes"))
     };
     let body = "06 00 00 80 3F 00 00 00 40 00 00 00 3F 00 00 00 00 00 00 80 40";
-    let tail = "00 00 20 40 00 00 00 00 00 00 00 00";
+    let tail = "00 00 20 40 00 00 00 00 00 00 00 00 00";
     assert_eq!(
         result(ScoredUnder::HdrMap(300)),
         format!("08 09 {body} 01 AC 02 {tail}")

@@ -29,7 +29,7 @@ mod types;
 pub mod view;
 
 pub use pipeline::PreviewPipeline;
-pub use plan::build_planned_frame;
+pub use plan::{build_planned_frame, build_planned_frame_themed, restyle_for_theme};
 pub use render::{DEFAULT_MESH_BOUNDING_RADIUS, RenderedFrame, render_request};
 pub use request::{PlanJob, PlannedFrame, RedrawRequest, panel_kind_from_index};
 pub use state::{

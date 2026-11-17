@@ -53,7 +53,7 @@ mod types;
 pub use connection::{
     BatchClient, BatchEvent, BatchWatch, MAX_BATCH_REQUEST_BYTES, close_idle_connections,
     connect_and_handshake, items_fitting, set_payload_choice, spawn_final_image_request,
-    spawn_remote_connection, spawn_remote_render, test_connection,
+    spawn_remote_connection, spawn_remote_render, test_connection, verify_announced,
 };
 pub use types::{
     RemoteConnectionHandle, RemoteError, RemoteFinalImageRequest, RemoteRenderHandle,

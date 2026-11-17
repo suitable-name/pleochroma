@@ -448,19 +448,32 @@ fn aset_radiance(
     _shadow: [f32; 2],
     tray: f32,
 ) -> DirectionLighting {
+    let [red, green, blue, below] = aset_zone_amplitudes(d);
+    DirectionLighting::Banded {
+        red,
+        green,
+        blue,
+        tray_ground: if tray > 0.0 { below * tray } else { 0.0 },
+    }
+}
+
+/// The ASET rig's zone amplitudes along unit direction `d`: `[red, green, blue, below]`.
+///
+/// Red, green and blue are blended across 43.4-46.6° and 71.1-80.4° of elevation and sum to the
+/// horizon blend; `below` is `1 - horizon_blend(d)`. The blended edges are this program's own
+/// smoothing of the published sharp 45° and 75° limits. The Contrast view lights with exactly these
+/// (`aset_radiance`), and the metrics' zone shares count with them.
+#[must_use]
+pub fn aset_zone_amplitudes(d: Vec3) -> [f32; 4] {
     let horizon = horizon_blend(d);
     let s45 = smoothstep(ASET_EDGE_45_LO, ASET_EDGE_45_HI, d.y);
     let s75 = smoothstep(ASET_EDGE_75_LO, ASET_EDGE_75_HI, d.y);
-    DirectionLighting::Banded {
-        red: (s45 * (1.0 - s75)) * horizon,
-        green: (1.0 - s45) * horizon,
-        blue: s75 * horizon,
-        tray_ground: if tray > 0.0 {
-            (1.0 - horizon) * tray
-        } else {
-            0.0
-        },
-    }
+    [
+        (s45 * (1.0 - s75)) * horizon,
+        (1.0 - s45) * horizon,
+        s75 * horizon,
+        1.0 - horizon,
+    ]
 }
 
 /// Daylight sky plus a direct sun (model id 5).

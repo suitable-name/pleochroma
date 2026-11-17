@@ -75,6 +75,11 @@ impl LibraryHandle {
     /// so on, so one design never overwrites another. Designs saved here are the user's
     /// own (`local://` urls), which is what "Mine" selects.
     ///
+    /// A design a sync copied from the paired computer is written only by the sync: with the
+    /// `id` of such an entry, the design is saved as a new entry of the user's own (named like
+    /// any new design, so never over another entry) and the synced entry stays as it is. The
+    /// returned id is then not `id`, which is how the caller knows it was a copy.
+    ///
     /// # Errors
     /// A sentence when `native_bytes` is not a design file or the database cannot be
     /// written.
@@ -84,7 +89,9 @@ impl LibraryHandle {
         file_name: &str,
         native_bytes: &[u8],
     ) -> Result<EntryId, String> {
-        let target = id.filter(|&id| self.entry_exists(id));
+        let target = id
+            .filter(|&id| self.entry_exists(id))
+            .filter(|&id| !self.is_synced(id));
         let name = if target.is_some() {
             file_name.to_owned()
         } else {
@@ -298,14 +305,9 @@ impl LibraryHandle {
         } else {
             file_name.trim()
         };
-        let (stem, extension) = base.rfind('.').map_or((base, ""), |dot| base.split_at(dot));
         let database = self.lock();
         for number in 1..=999_u32 {
-            let candidate = if number == 1 {
-                base.to_owned()
-            } else {
-                format!("{stem} ({number}){extension}")
-            };
+            let candidate = numbered_name(base, number);
             let taken = database
                 .diagram_entry_id_for_url(&format!("local://{candidate}"))
                 .map_err(db_error("The library could not be checked for the name"))?;
@@ -352,6 +354,16 @@ impl AppState {
         }
         detached
     }
+}
+
+/// `base` for number 1, else `<stem> (<number>)<extension>`: the name a design gets when the
+/// plain one is taken.
+pub(super) fn numbered_name(base: &str, number: u32) -> String {
+    if number <= 1 {
+        return base.to_owned();
+    }
+    let (stem, extension) = base.rfind('.').map_or((base, ""), |dot| base.split_at(dot));
+    format!("{stem} ({number}){extension}")
 }
 
 /// The done-mark file names of entry `id`'s design, from the stored entry; empty when the

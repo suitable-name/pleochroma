@@ -230,6 +230,21 @@ pub struct Progress {
     pub samples_done: u32,
 }
 
+/// `<- PREPARING`: the server's graphics card is building its shader cache.
+///
+/// This request has no samples yet. `done` of `total` build steps (`total == 0`: unknown). Sent on the
+/// heartbeat cadence instead of `PROGRESS` while nothing is traced; counts as liveness like
+/// `PROGRESS`. Epoch-gated by `request_id`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Preparing {
+    /// The request this notice belongs to.
+    pub request_id: u32,
+    /// Shader-cache build steps finished so far.
+    pub done: u32,
+    /// Build steps in total; `0` when the server does not know.
+    pub total: u32,
+}
+
 /// `<- BATCH_ITEM_PROGRESS`: one item of a `BatchRenderRequest` has been traced.
 ///
 /// Sent per item as the worker finishes tracing it (before its PNG is encoded), so a
@@ -581,6 +596,10 @@ pub enum StreamEvent {
     /// `<- BEAM_TILES`: the finished beam tiles of a `BeamTileRequest`, followed by their
     /// payload frame -- see [`BeamTilesHeader`].
     BeamTiles(BeamTilesHeader),
+    /// `<- PREPARING`: the server is still building its shader cache, so the request has
+    /// no samples yet -- see [`Preparing`]. Liveness like `Progress`. Epoch-gated by its
+    /// `request_id`.
+    Preparing(Preparing),
 }
 
 impl StreamEvent {
@@ -597,6 +616,7 @@ impl StreamEvent {
             Self::LivePass(h) => Some(h.payload_len),
             Self::BeamTiles(h) => Some(h.payload_len),
             Self::Progress(_)
+            | Self::Preparing(_)
             | Self::Done(_)
             | Self::Error(_)
             | Self::Pong { .. }
@@ -617,6 +637,7 @@ impl StreamEvent {
             Self::Frame(h) => Some(h.request_id),
             Self::Preview(h) => Some(h.request_id),
             Self::Progress(p) => Some(p.request_id),
+            Self::Preparing(p) => Some(p.request_id),
             Self::Done(d) => Some(d.request_id),
             Self::DisplayFrame(h) => Some(h.request_id),
             Self::FinalImage(h) => Some(h.request_id),

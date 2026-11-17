@@ -3,7 +3,8 @@
 use super::{
     ColorPattern, ColorRef, ColorSlot, PATTERN_BASE_FORMAT_VERSION, PATTERN_FORMAT_VERSION,
     PatternAxis, PatternCodecError, PatternColor, PatternError, PatternZone, TemplateId, ZoneColor,
-    ZoneProblem, bands_from_rows, decode_pattern, encode_pattern, rows_from_bands, template,
+    ZoneProblem, apply_color_pattern, bands_from_rows, decode_pattern, encode_pattern,
+    rows_from_bands, template,
 };
 use crate::rough_plan::zoned_plan::{decode_zoned, encode_zoned, resolve_relative};
 use glam::DVec3;
@@ -625,6 +626,33 @@ fn round_trip_keeps_evaluated_spectrum_for_kept_bands() {
             "{lambda} nm: {before} vs {after}"
         );
     }
+}
+
+/// A stone with no girdle width (zero, not a number or negative) is zoned at the render's 7 mm
+/// default, never left unzoned or refused.
+#[test]
+fn an_unusable_girdle_width_zones_a_relative_pattern_as_7_mm() {
+    for id in [
+        TemplateId::Banded,
+        TemplateId::CoreAndRim,
+        TemplateId::Tricolor,
+    ] {
+        let pattern = filled(template(id, PatternAxis::ACROSS));
+        assert!(pattern.relative_to_stone, "{}", id.label());
+        let base = GemMaterial::sapphire();
+        let at_7 = apply_color_pattern(base.clone(), &pattern, 7.0).expect("7 mm applies");
+        assert!(at_7.zoning.is_some(), "{}", id.label());
+        for width in [0.0, f64::NAN, -3.0, f64::NEG_INFINITY] {
+            let zoned = apply_color_pattern(base.clone(), &pattern, width)
+                .unwrap_or_else(|error| panic!("{} at {width}: {error}", id.label()));
+            assert_eq!(zoned.zoning, at_7.zoning, "{} at {width}", id.label());
+        }
+    }
+    // The width does matter for a usable one, so the equality above is not vacuous.
+    let banded = filled(template(TemplateId::Banded, PatternAxis::ACROSS));
+    let wide = apply_color_pattern(GemMaterial::sapphire(), &banded, 14.0).expect("applies");
+    let narrow = apply_color_pattern(GemMaterial::sapphire(), &banded, 7.0).expect("applies");
+    assert_ne!(wide.zoning, narrow.zoning);
 }
 
 #[test]

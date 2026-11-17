@@ -250,6 +250,30 @@ impl SolidStyle {
             ..Self::default()
         }
     }
+
+    /// The high-contrast variant of [`Self::viewport`] for the high-contrast setting: bright
+    /// edges, a darker mid-grey face fill with a wider light-to-shade range, and overlay colors
+    /// that stay apart from one another. The single selection is magenta, not cyan (cyan is
+    /// [`Self::multi_selected_color`]) and not blue, and the exact-facet color is a lighter
+    /// purple than the default. The default style's values are unchanged.
+    #[must_use]
+    pub fn high_contrast() -> Self {
+        Self {
+            base_color: [150, 158, 175],
+            ambient: 0.20,
+            diffuse: 0.80,
+            rim_strength: 0.25,
+            edge_color: [245, 247, 250],
+            hatch_color: [255, 90, 90],
+            selected_color: [255, 64, 200],
+            hover_color: [255, 255, 255],
+            selected_facet_color: [200, 150, 255],
+            multi_selected_color: [0, 229, 255],
+            provisional_color: [0, 255, 100],
+            moved_color: [255, 120, 0],
+            ..Self::viewport()
+        }
+    }
 }
 
 /// A flat-shaded, edge-outlined software render of a [`SolidMesh`], plus a
@@ -426,4 +450,54 @@ pub(crate) fn simplified_edge_flags(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod high_contrast_tests {
+    use super::*;
+
+    /// The default style's colors and shading stay byte for byte, so image pins hold.
+    #[test]
+    fn default_style_values_are_unchanged() {
+        let style = SolidStyle::default();
+        assert_eq!(style.base_color, [200, 205, 215]);
+        assert!((style.ambient - 0.25).abs() < f32::EPSILON);
+        assert!((style.diffuse - 0.75).abs() < f32::EPSILON);
+        assert!((style.rim_strength - 0.18).abs() < f32::EPSILON);
+        assert_eq!(style.edge_color, [30, 32, 38]);
+        assert_eq!(style.pending_color, [245, 158, 11]);
+        assert_eq!(style.hatch_color, [90, 40, 40]);
+        assert_eq!(style.selected_color, [59, 130, 246]);
+        assert_eq!(style.hover_color, [226, 232, 240]);
+        assert_eq!(style.selected_facet_color, [168, 85, 247]);
+        assert_eq!(style.multi_selected_color, [56, 189, 248]);
+        assert_eq!(style.provisional_color, [74, 222, 128]);
+        assert_eq!(style.moved_color, [251, 146, 60]);
+        assert_eq!(style.preform_tint_color, [80, 90, 140]);
+        assert!(!style.orientation_caption_bottom);
+        assert!(SolidStyle::viewport().orientation_caption_bottom);
+    }
+
+    /// The high-contrast style differs, and its single-selection color is distinct from every
+    /// other overlay color (cyan is the multi-selection color).
+    #[test]
+    fn high_contrast_differs_and_keeps_selection_distinct() {
+        let default = SolidStyle::viewport();
+        let high = SolidStyle::high_contrast();
+        assert_ne!(high.edge_color, default.edge_color);
+        assert_ne!(high.base_color, default.base_color);
+        assert_ne!(high.selected_color, default.selected_color);
+        assert!(high.orientation_caption_bottom);
+        let others = [
+            high.pending_color,
+            high.hover_color,
+            high.selected_facet_color,
+            high.multi_selected_color,
+            high.provisional_color,
+            high.moved_color,
+            high.edge_color,
+        ];
+        assert!(others.iter().all(|&color| color != high.selected_color));
+        assert_ne!(high.selected_color, default.multi_selected_color);
+    }
 }

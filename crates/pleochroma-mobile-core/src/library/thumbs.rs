@@ -124,6 +124,8 @@ fn draw(design: pleochroma_cut_core::Design, edge: u32) -> Result<Thumbnail, Str
         remembered_facet: None,
         want_handles: false,
         provisional: false,
+        // Library thumbnails keep the default palette on purpose.
+        high_contrast: false,
     };
     let mut worker = RasterWorker::new();
     let mut frame = run_job(&mut worker, &job)?;

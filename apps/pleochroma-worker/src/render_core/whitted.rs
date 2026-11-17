@@ -53,6 +53,14 @@ thread_local! {
 }
 static GPU: LazyLock<WhittedGpuBackend> = LazyLock::new(WhittedGpuBackend::acquire);
 
+/// Acquires the Ray-Traced GPU backend now (its kernel compiles inside the acquisition), so the
+/// first Ray-Traced request does not wait for it. `true` when a device is usable. Called by the
+/// shader warm-up (`crate::serve::warmup`) on its own thread; a request that arrives meanwhile
+/// waits for the same one-time acquisition.
+pub fn warm_up() -> bool {
+    GPU.adapter_label().is_some()
+}
+
 fn frame<'a>(
     scene: &'a SceneState,
     camera: &'a Camera,

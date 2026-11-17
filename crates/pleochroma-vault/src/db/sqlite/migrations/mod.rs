@@ -453,6 +453,30 @@ impl Database {
         Ok(())
     }
 
+    /// Adds `custom_gem_materials.gem_data_json`, a nullable TEXT column holding the gem data
+    /// (hardness, toughness, cleavage, fracture, care, source) a cutter entered for the
+    /// material, as JSON text opaque to this crate.
+    ///
+    /// Purely additive and nullable, like [`Self::migrate_custom_material_specific_gravity`]:
+    /// `NULL` means "not recorded" for every pre-existing row, and no data is rewritten.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if checking for the column or adding it fails.
+    pub(super) fn migrate_custom_material_gem_data(&self) -> Result<()> {
+        if Self::column_exists(&self.conn, "custom_gem_materials", "gem_data_json")? {
+            debug!("gem_data_json column already present; skipping the ADD COLUMN step.");
+            return Ok(());
+        }
+
+        info!("Adding custom_gem_materials.gem_data_json column...");
+        self.conn
+            .execute_batch("ALTER TABLE custom_gem_materials ADD COLUMN gem_data_json TEXT;")
+            .context("Failed to add custom_gem_materials.gem_data_json column")?;
+        info!("gem_data_json column migration complete.");
+        Ok(())
+    }
+
     /// Adds `custom_gem_materials.color_recipe_json`, a nullable TEXT column holding
     /// the serialized `ColorRecipe` for physically based chromophore colors.
     ///

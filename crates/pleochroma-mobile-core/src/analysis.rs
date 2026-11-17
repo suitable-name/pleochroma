@@ -73,7 +73,7 @@ pub(crate) enum Kind {
 /// A callback the worker thread calls when results or progress change.
 pub type Notifier = Arc<dyn Fn() + Send + Sync>;
 
-/// The five metrics of a finished measurement.
+/// The metrics of a finished measurement: the five light-return figures, Contrast and Doubling.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MetricsReading {
     /// Percentage of incident rays visibly returned to the observer.
@@ -91,6 +91,9 @@ pub struct MetricsReading {
     /// The Doubling figure, in arc-minutes: how far apart the two light modes of a
     /// birefringent stone show a facet edge. `0` for an isotropic stone.
     pub doubling_arcmin: f32,
+    /// The Contrast figure, 0 to 100: how finely the viewer's own shadow is broken up across
+    /// the face. `None` when the pose had no geometry to trace.
+    pub contrast: Option<f32>,
 }
 
 impl From<MetricsResultData> for MetricsReading {
@@ -103,6 +106,7 @@ impl From<MetricsResultData> for MetricsReading {
             extinction_pct: data.extinction_pct,
             under_hdr: matches!(data.scored_under, ScoredUnder::HdrMap(_)),
             doubling_arcmin: data.doubling_arcmin,
+            contrast: data.aset.map(|shares| shares.contrast),
         }
     }
 }

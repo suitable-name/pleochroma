@@ -268,8 +268,8 @@ fn hex(bytes: &[u8]) -> String {
 #[test]
 fn wire_format_is_pinned_to_worker() {
     assert_eq!(
-        PROTOCOL_VERSION, 32,
-        "the bytes below were pinned for version 32"
+        PROTOCOL_VERSION, 33,
+        "the bytes below were pinned for version 33"
     );
 
     // TraceChunk = variant 4; scene id 300 = varint AC 02.
@@ -293,7 +293,7 @@ fn wire_format_is_pinned_to_worker() {
         hex(&encode_to_worker(&watch).expect("encodes")),
         "08 05 06 62 6C 6F 62 3A 78"
     );
-    // Init = variant 0, then version 32 (0x20), role Render = 0, worker index 2.
+    // Init = variant 0, then version 33 (0x21), role Render = 0, worker index 2.
     let init = ToWorker::Init {
         protocol_version: PROTOCOL_VERSION,
         role: WorkerRole::Render,
@@ -301,7 +301,7 @@ fn wire_format_is_pinned_to_worker() {
     };
     assert_eq!(
         hex(&encode_to_worker(&init).expect("encodes")),
-        "00 20 00 02"
+        "00 21 00 02"
     );
     // Init with role Gpu = 2, worker index 0.
     let init_gpu = ToWorker::Init {
@@ -311,7 +311,7 @@ fn wire_format_is_pinned_to_worker() {
     };
     assert_eq!(
         hex(&encode_to_worker(&init_gpu).expect("encodes")),
-        "00 20 02 00"
+        "00 21 02 00"
     );
     // GpuCompile = variant 9.
     let gpu_compile = ToWorker::GpuCompile {
@@ -342,8 +342,8 @@ fn wire_format_is_pinned_to_worker() {
 #[test]
 fn wire_format_is_pinned_from_worker() {
     assert_eq!(
-        PROTOCOL_VERSION, 32,
-        "the bytes below were pinned for version 32"
+        PROTOCOL_VERSION, 33,
+        "the bytes below were pinned for version 33"
     );
 
     // ChunkResult = variant 2; one [0.5, 1.0, 2.0] sum; 187.25 ms = 0x4067680000000000.
@@ -435,12 +435,12 @@ fn wire_format_is_pinned_from_worker() {
         hex(&encode_from_worker(&gpu_lost).expect("encodes")),
         "12 04 6C 6F 73 74"
     );
-    // Loaded = variant 0, then the version 32 (0x20): the one Worker-to-page message that
+    // Loaded = variant 0, then the version 33 (0x21): the one Worker-to-page message that
     // carries the version, so a bump changes this byte too.
     let loaded = FromWorker::Loaded {
         protocol_version: PROTOCOL_VERSION,
     };
-    assert_eq!(hex(&encode_from_worker(&loaded).expect("encodes")), "00 20");
+    assert_eq!(hex(&encode_from_worker(&loaded).expect("encodes")), "00 21");
 }
 
 /// `LightingSpec` pinned: preset index and backdrop index as zigzag varints, then the

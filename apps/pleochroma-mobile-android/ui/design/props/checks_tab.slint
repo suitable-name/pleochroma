@@ -445,7 +445,8 @@ component ChecksBody inherits PageScroll {
         text: "Metrics";
     }
 
-    // The five metrics, seen near face-up. Stale numbers stay dimmed until computed again.
+    // The metrics (the five light-return figures, Contrast, and Doubling for a birefringent
+    // stone), seen near face-up. Each row is one `metric_rows` entry. Stale numbers stay dimmed until computed again.
     for metric-name[index] in PropsModel.metric-labels: MetricLine {
         label: metric-name;
         value: PropsModel.metric-values[index];

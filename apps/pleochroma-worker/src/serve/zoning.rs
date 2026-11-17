@@ -60,6 +60,7 @@ pub fn stash(payload: ZoningPayload) {
 }
 
 /// Removes and returns the payload for `request_id`.
+#[must_use]
 pub fn take(request_id: u32) -> Option<ZoningPayload> {
     STASH.with(|stash| {
         let mut stash = stash.borrow_mut();

@@ -50,7 +50,7 @@ thread_local! {
     /// `CompareModel` callback of their own (the Variants view). UI-thread-only.
     static ENTRY_DEPS: RefCell<Option<CompareDeps>> = const { RefCell::new(None) };
     /// The "Compare against" picker index the frames on screen were built for, so a refused
-    /// picker change can put the ComboBox back. UI-thread-only.
+    /// picker change can put the `ComboBox` back. UI-thread-only.
     static SHOWN_REFERENCE_INDEX: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
 }
 

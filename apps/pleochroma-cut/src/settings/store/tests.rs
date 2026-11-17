@@ -402,6 +402,7 @@ fn save_then_load_round_trips_settings_and_presets() {
             tray_reflection: 0.04,
             env_map_yaw_deg: 125.0,
             env_map_follows_camera: true,
+            product_shot: false,
         })
         .unwrap();
 

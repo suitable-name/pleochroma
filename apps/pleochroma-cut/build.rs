@@ -18,6 +18,7 @@ fn main() {
         "ui/app.slint",
         slint_build::CompilerConfiguration::new()
             .with_style("fluent-dark".to_string())
+            .with_library_paths(pleochroma_ui_kit::library_paths())
             .with_debug_info(ui_harness),
     )
     .unwrap();

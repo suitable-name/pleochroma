@@ -3,6 +3,7 @@ import { Theme } from "../components/theme.slint";
 import { AppModel } from "../models/app_model.slint";
 import { GuideModel } from "../models/guide_model.slint";
 import { LchEditor } from "../components/lch_editor.slint";
+import { MaterialReferenceModel } from "material_reference.slint";
 
 // One row of the gear-remap confirmation (`pleochroma_editor::material::GearRemapPreviewRow`).
 export struct GearRemapRow {
@@ -200,6 +201,13 @@ component TextField inherits VerticalLayout {
 export component DesignSettingsDialog inherits Rectangle {
     background: Theme.overlay-backdrop;
 
+    // The material the combo shows (it follows an unapplied pick) and its facts line; the line is
+    // empty for a combo entry that is no material, which hides it.
+    property <string> material-name: DesignSettingsModel.material-options[DesignSettingsModel.material-index];
+    property <string> gem-summary: MaterialReferenceModel.gem-summary-for(root.material-name);
+    // The material has gem data, so the line can open its details page ("No gem data yet" has none).
+    property <bool> has-gem-data: root.gem-summary != "" && root.gem-summary != "No gem data yet";
+
     TouchArea {
         clicked => { DesignSettingsModel.open = false; }
     }
@@ -286,6 +294,31 @@ export component DesignSettingsDialog inherits Rectangle {
                                 accepted => { DesignSettingsModel.apply-material(); }
                                 changed has-focus => { AppModel.text-focus = self.has-focus; }
                             }
+                        }
+                    }
+                    // The gem facts, a muted second line under the Material row: a one-line summary
+                    // (amber when the cleavage is strong enough to warn) and Details..., which opens
+                    // the Material Reference on this material. A custom material reads "No gem data yet" and still opens its page.
+                    if root.gem-summary != "": HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            // The warning carries a "!" marker and a description besides the amber, so
+                            // it does not rest on color alone.
+                            text: (MaterialReferenceModel.gem-warns-for(root.material-name) ? "! " : "") + root.gem-summary;
+                            font-size: 11px;
+                            color: !root.has-gem-data ? Theme.text-disabled : (MaterialReferenceModel.gem-warns-for(root.material-name) ? Theme.accent-amber : Theme.text-secondary);
+                            vertical-alignment: center;
+                            overflow: elide;
+                            accessible-role: AccessibleRole.text;
+                            accessible-label: root.gem-summary;
+                            accessible-description: MaterialReferenceModel.gem-warns-for(root.material-name) ? "Warning: this material has a strong cleavage and can split along it." : "";
+                        }
+                        // Custom materials have a details page too (their gem data reads "not recorded").
+                        Button {
+                            text: "Details...";
+                            clicked => { MaterialReferenceModel.open-for(root.material-name); }
                         }
                     }
                     HorizontalLayout {

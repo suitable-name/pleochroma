@@ -10,6 +10,8 @@
 //! | `list` | opening the database, searching and paging, rows, selection, properties |
 //! | `thumbs` | the thumbnail workers and what they are asked for |
 //! | `actions` | import, tags, ignore, delete, share |
+//! | `remote_source` | the paired computer's library: the source switch, live search, opening, the probe |
+//! | `sync` | copying the computer's designs into this phone's library |
 //! | `filters` | the search text and the filters as a query |
 //! | `tags` | which tags to set on the selected designs |
 //! | `format` | card subtitles and the import summary |
@@ -18,12 +20,18 @@
 //! database work runs on a queue thread and lands through the event loop, checked
 //! against a search generation. The dialog ids 3000 to 3099 belong to this module
 //! (`design::wire` routes them to [`handle_dialog_result`]).
+//!
+//! When the paired computer shares a design library the page offers a switch between
+//! "This Phone" and the computer, and a Sync job. The pairing code reaches this module
+//! through [`start_sync`], [`remote_changed`] and [`computer_found_again`].
 
 mod actions;
 mod filters;
 mod format;
 mod list;
+mod remote_source;
 mod runtime;
+mod sync;
 mod tags;
 mod thumbs;
 
@@ -38,10 +46,13 @@ use pleochroma_mobile_core::{
 };
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel, Weak};
 
+pub use self::sync::SyncStart;
 use self::{
     filters::FilterState,
     list::Reload,
+    remote_source::{RemoteBrowse, Source},
     runtime::{Runtime, with},
+    sync::SyncUi,
     tags::SheetState,
 };
 use crate::{AppWindow, LibraryCardData, LibraryModel, TagChipData, design::Shared};
@@ -97,6 +108,10 @@ pub fn wire(window: &AppWindow, state: &Shared) {
         busy: None,
         pending_delete: Vec::new(),
         scroll_token: 0,
+        source: Source::Phone,
+        remote_queue: None,
+        remote: RemoteBrowse::default(),
+        sync: SyncUi::default(),
     });
     with(|rt| {
         list::sync_options(rt, window);
@@ -118,6 +133,7 @@ pub fn push(window: &AppWindow, state: &AppState) {
     let revision = state.library.revision();
     let settings = state.settings.library;
     with(|rt| {
+        remote_source::track_pairing(rt, window, &state.settings.remote);
         list::settings_changed(rt, settings);
         if rt.handle.is_some() && revision != rt.shown_revision {
             list::reload(rt, revision, Reload::Refresh);
@@ -134,6 +150,29 @@ pub fn shutdown() {
 /// Answers the Library's dialogs (ids 3000 to 3099). Returns false for any other id.
 pub fn handle_dialog_result(window: &AppWindow, _state: &Shared, id: i32, confirmed: bool) -> bool {
     actions::handle_dialog_result(window, id, confirmed)
+}
+
+/// Starts a sync with the paired computer's library (the Sync button, or the answer to the
+/// offer after a new pairing). Asks for the local network first; a sync that already runs
+/// is left alone.
+pub fn start_sync(window: &AppWindow, start: SyncStart) {
+    sync::start(window, start);
+}
+
+/// The pairing is being forgotten or replaced: a running sync stops (what it copied stays),
+/// the page goes back to this phone's library and what was known about the computer's
+/// library is dropped. Call before the credentials change, on the UI thread.
+pub fn remote_changed(window: &AppWindow) {
+    with(|rt| {
+        sync::stop_for_pairing_change(rt);
+        remote_source::pairing_changed(rt, window);
+    });
+}
+
+/// The paired computer answered at new addresses: a computer view that showed an error asks
+/// again.
+pub fn computer_found_again(window: &AppWindow) {
+    remote_source::found_again(window);
 }
 
 /// Asks for design files and imports them into the library ("Import Files" in the
@@ -159,6 +198,20 @@ fn wire_page(window: &AppWindow, state: &Shared) {
 
     model.on_page_shown(on_window(window, list::open_and_load));
     model.on_import_designs(on_window(window, actions::import_designs));
+    model.on_set_source({
+        let weak = weak.clone();
+        move |index| {
+            if let Some(window) = weak.upgrade() {
+                remote_source::set_source(&window, index);
+            }
+        }
+    });
+    model.on_sync_library(on_window(window, |window| {
+        sync::start(window, SyncStart::Library);
+    }));
+    model.on_cancel_sync(on_window(window, sync::cancel));
+    model.on_dismiss_sync_result(on_window(window, sync::dismiss_result));
+    model.on_retry_remote(on_window(window, remote_source::retry));
 
     model.on_search_edited({
         let weak = weak.clone();
@@ -199,7 +252,9 @@ fn wire_page(window: &AppWindow, state: &Shared) {
             let (Some(window), Ok(index)) = (weak.upgrade(), usize::try_from(index)) else {
                 return;
             };
-            if let Some(id) = list::tap(&window, index) {
+            if remote_source::on_computer() {
+                remote_source::tap(&window, index);
+            } else if let Some(id) = list::tap(&window, index) {
                 actions::open_entry(&window, &state, id);
             }
         }
@@ -235,7 +290,7 @@ fn change_settings(
 /// Searches again from the top with the current text and filters.
 fn restart(window: &AppWindow) {
     with(|rt| {
-        if rt.handle.is_none() {
+        if rt.handle.is_none() && rt.source != Source::Computer {
             return;
         }
         let revision = list::current_revision(rt);
@@ -248,7 +303,7 @@ fn restart(window: &AppWindow) {
 fn change_filters(window: &AppWindow, edit: impl FnOnce(&mut Runtime)) {
     with(|rt| {
         edit(rt);
-        if rt.handle.is_some() {
+        if rt.handle.is_some() || rt.source == Source::Computer {
             let revision = list::current_revision(rt);
             list::reload(rt, revision, Reload::Restart);
         }

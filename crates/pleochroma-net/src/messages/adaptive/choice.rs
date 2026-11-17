@@ -1,6 +1,7 @@
-//! The user-facing payload-encoding setting: `auto` (follow the measured link) or one
-//! pinned encoding. Shared by the worker's `--payload-encoding` flag and the desktop
-//! app's `payload_encoding` setting.
+//! The user-facing payload-encoding setting: `auto` or one pinned encoding.
+//!
+//! `auto` follows the measured link. Shared by the worker's `--payload-encoding` flag and
+//! the desktop app's `payload_encoding` setting.
 
 use super::policy::AdaptiveEncoderPolicy;
 use crate::messages::PayloadEncoding;

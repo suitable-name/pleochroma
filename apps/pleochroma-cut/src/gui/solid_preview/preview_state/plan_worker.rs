@@ -194,7 +194,16 @@ impl live_update::Clock for InstantClock {
 /// inline) so this module's tests can force the `Stale` branch deterministically
 /// (`Duration::ZERO`, which a real `resolve_dirty` call can never finish within).
 pub fn build_planned_frame(job: PlanJob, budget: std::time::Duration) -> PlannedFrame {
-    pleochroma_solid::preview::build_planned_frame(job, budget, &InstantClock)
+    // The theme read when the worker picks the job up: high contrast draws the live Solid
+    // view with `SolidStyle::high_contrast()`.
+    pleochroma_solid::preview::build_planned_frame_themed(
+        job,
+        budget,
+        &InstantClock,
+        // Unit tests plan in parallel with the preferences tests, which switch the process-wide
+        // flag; the pixel pins must never see it.
+        !cfg!(test) && crate::gui::preferences::high_contrast_flag(),
+    )
 }
 
 impl SolidPreviewState {

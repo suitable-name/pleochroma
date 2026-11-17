@@ -445,6 +445,10 @@ fn solve_and_verdict(ctx: &mut Ctx<'_>) {
 ///
 /// The edit sets the first pavilion tier near vertical: it is cut after the girdle tiers, so its
 /// plane takes their facets away.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential UI scenario: edit, notice, Undo, Redo and the cross"
+)]
 fn vanished_facet_notice(ctx: &mut Ctx<'_>) {
     show_edit_tab(ctx.app);
     let created = create_template(ctx.app, Card::First);

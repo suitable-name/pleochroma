@@ -14,15 +14,25 @@
 //! `--token GW1-...` first claims a WORKER enrollment token over the coordinator's
 //! worker enrollment listener (default: worker port + 1, 7881) and stores the bundle in
 //! `--cert-dir`.
+//!
+//! `JoinArgs::coordinator` may list up to three addresses separated by commas (a coordinator
+//! with several network adapters): each slot starts at a different one and moves to the next
+//! after a failed attempt.
+//!
+//! Two ways in: [`run`] blocks until Ctrl-C or SIGTERM (the headless command), and [`start`]
+//! returns a [`JoinHandle`] the window starts and stops.
 
+mod handle;
 mod session;
 
+pub use handle::{JoinHandle, JoinPhase, JoinStatus, SlotPhase};
 pub use session::{
     IdleDeadlineStream, JOIN_IDLE_TIMEOUT, JoinError, JoinTarget, Session, WorkerSetup,
     bundle_role, join_once,
 };
 
 use crate::cli::{ComputeMode, JoinArgs};
+use handle::Shared;
 use pleochroma::renderer::gpu_backend::GpuBackend;
 use pleochroma_net::messages::PeerRole;
 use std::{
@@ -32,7 +42,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// The first reconnect delay (before jitter).
@@ -40,19 +50,152 @@ pub const BACKOFF_MIN: Duration = Duration::from_secs(1);
 /// The longest reconnect delay (before jitter).
 pub const BACKOFF_MAX: Duration = Duration::from_secs(60);
 
-/// Runs the `join` subcommand: optional token claim, bundle and role check, then
-/// `args.slots` reconnecting slots, forever.
+/// How long a stop waits for the slot threads before giving up on them (a render in flight
+/// ends when its socket write fails; the process may exit with the thread still running).
+const STOP_GRACE: Duration = Duration::from_secs(10);
+
+/// What a join needs once its certificate and engine are ready.
+struct Prepared {
+    targets: Vec<Arc<JoinTarget>>,
+    setup: Arc<WorkerSetup>,
+}
+
+/// Runs the `join` subcommand.
+///
+/// Optional token claim, bundle and role check, then `args.slots` reconnecting slots until Ctrl-C
+/// or SIGTERM, which end it cleanly (the process then exits with status 0).
+///
+/// If the signal handler cannot be installed, a warning is logged and the join runs until
+/// the process is killed, as before.
 ///
 /// # Errors
 ///
 /// A human-readable message for anything that can't get better by retrying: a failed
 /// token claim, an unreadable bundle, or a bundle that is not a WORKER certificate.
 pub fn run(args: &JoinArgs) -> Result<(), String> {
+    let shared = Arc::new(Shared::new(args.slots));
+    let for_signal = Arc::clone(&shared);
+    if let Err(e) = ctrlc::set_handler(move || {
+        tracing::info!("pleochroma-worker join: stopping");
+        for_signal.request_stop();
+    }) {
+        tracing::warn!("could not install the Ctrl-C / SIGTERM handler ({e}); stop with kill");
+    }
+    let result = run_shared(args, &shared);
+    shared.finished.store(true, Ordering::Relaxed);
+    result
+}
+
+/// Starts a join in the background and returns the handle to watch and stop it.
+///
+/// The token claim, the certificate check and the engine start-up happen on the join's own
+/// thread, so the call returns at once; a problem shows up in [`JoinHandle::status`] (phase
+/// [`JoinPhase::Stopped`] with the error text). No signal handler is installed.
+#[must_use]
+pub fn start(args: &JoinArgs) -> JoinHandle {
+    let shared = Arc::new(Shared::new(args.slots));
+    let (args, for_thread) = (args.clone(), Arc::clone(&shared));
+    let spawned = thread::Builder::new()
+        .name("join".to_owned())
+        .spawn(move || {
+            if let Err(e) = run_shared(&args, &for_thread) {
+                tracing::warn!("pleochroma-worker join: {e}");
+                for_thread.set_error(e);
+            }
+            for_thread.finished.store(true, Ordering::Relaxed);
+        });
+    if let Err(e) = spawned {
+        tracing::warn!("pleochroma-worker join: could not start its thread: {e}");
+        shared.set_error(
+            "This computer could not start the helper. Close other programs and try again.",
+        );
+        shared.finished.store(true, Ordering::Relaxed);
+    }
+    JoinHandle { shared }
+}
+
+/// What is wrong with the certificate folder `cert_dir`, in plain words for the window, or
+/// `None` when it holds a worker certificate.
+#[must_use]
+pub fn bundle_problem(cert_dir: &Path) -> Option<String> {
+    match bundle_role(cert_dir) {
+        Ok(PeerRole::Worker) => None,
+        Ok(PeerRole::Viewer | PeerRole::Monitor | PeerRole::Admin) => Some(
+            "The certificate in this folder is not for a render computer. Connect again with a new link from \"Add a render computer\" on the coordinator.".to_owned(),
+        ),
+        Err(_) => Some(
+            "No certificate for this computer was found. Connect again with a new link from \"Add a render computer\" on the coordinator.".to_owned(),
+        ),
+    }
+}
+
+/// The body of [`run`] and of [`start`]'s thread: prepare, run the slots, wait for them.
+fn run_shared(args: &JoinArgs, shared: &Arc<Shared>) -> Result<(), String> {
+    let prepared = prepare(args)?;
+    if shared.stopping() {
+        return Ok(());
+    }
+    // Builds the kernels in the background (log lines only), so the first chunk does not wait for
+    // a compile; its `PREPARING` tells the coordinator in the meantime.
+    let warm = if args.compute_mode == ComputeMode::OnlyCpu {
+        None
+    } else {
+        crate::serve::warmup::start(Arc::clone(&prepared.setup.gpu), "join")
+    };
+    let threads: Vec<_> = (0..shared.slots.len())
+        .map(|index| {
+            let targets = prepared.targets.clone();
+            let setup = Arc::clone(&prepared.setup);
+            let shared = Arc::clone(shared);
+            thread::spawn(move || run_slot(index, &targets, &setup, &shared))
+        })
+        .collect();
+    wait_for_slots(threads, shared);
+    if let Some(warm) = warm {
+        warm.cancel();
+    }
+    Ok(())
+}
+
+/// Waits for the slot threads. After a stop it gives them [`STOP_GRACE`] and then lets go.
+fn wait_for_slots(threads: Vec<thread::JoinHandle<()>>, shared: &Shared) {
+    let mut stop_seen: Option<Instant> = None;
+    while !threads.iter().all(thread::JoinHandle::is_finished) {
+        if shared.stopping() {
+            let since = *stop_seen.get_or_insert_with(Instant::now);
+            if since.elapsed() > STOP_GRACE {
+                tracing::warn!("pleochroma-worker join: a slot did not end in time; leaving it");
+                return;
+            }
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    for slot in threads {
+        if slot.join().is_err() {
+            tracing::error!("pleochroma-worker join: a slot thread panicked");
+        }
+    }
+}
+
+/// The token claim, the certificate check and the engine start-up.
+fn prepare(args: &JoinArgs) -> Result<Prepared, String> {
+    let addresses: Vec<&str> = args
+        .coordinator
+        .split(',')
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .collect();
+    let Some(first) = addresses.first() else {
+        return Err(format!(
+            "coordinator address {:?} must be host:port",
+            args.coordinator
+        ));
+    };
     if let Some(token) = &args.token {
-        let enroll_addr = match &args.enroll_addr {
-            Some(addr) => addr.clone(),
-            None => default_enroll_addr(&args.coordinator)?,
-        };
+        let enroll_addr = args
+            .enroll_addr
+            .as_ref()
+            .map_or_else(|| default_enroll_addr(first), |addr| Ok(addr.clone()))?;
         let bundle = pleochroma_net::enroll::claim(token, &enroll_addr)
             .map_err(|e| format!("claiming the worker token at {enroll_addr}: {e}"))?;
         crate::enroll_client::write_bundle(&args.cert_dir, &bundle)?;
@@ -62,7 +205,10 @@ pub fn run(args: &JoinArgs) -> Result<(), String> {
         );
     }
     check_worker_bundle(&args.cert_dir)?;
-    let target = Arc::new(JoinTarget::from_bundle(&args.coordinator, &args.cert_dir)?);
+    let targets = addresses
+        .iter()
+        .map(|address| JoinTarget::from_bundle(address, &args.cert_dir).map(Arc::new))
+        .collect::<Result<Vec<_>, _>>()?;
 
     // Acquired once; a device lost later is re-acquired by the backend itself (cool-down
     // and hourly attempt budget in `pleochroma::renderer::gpu_backend`), and every
@@ -108,20 +254,7 @@ pub fn run(args: &JoinArgs) -> Result<(), String> {
         assets,
         payload: args.payload_encoding,
     });
-    let stop = Arc::new(AtomicBool::new(false));
-    let slots: Vec<_> = (0..args.slots)
-        .map(|slot| {
-            let (target, setup, stop) =
-                (Arc::clone(&target), Arc::clone(&setup), Arc::clone(&stop));
-            thread::spawn(move || run_slot(slot, &target, &setup, &stop))
-        })
-        .collect();
-    for slot in slots {
-        if slot.join().is_err() {
-            tracing::error!("pleochroma-worker join: a slot thread panicked");
-        }
-    }
-    Ok(())
+    Ok(Prepared { targets, setup })
 }
 
 /// The scene for [`crate::render_core::hybrid::calibrate_now`]'s start-up probe. It is a real
@@ -175,6 +308,12 @@ fn check_worker_bundle(cert_dir: &Path) -> Result<(), String> {
              --role worker` on the coordinator, or `join --token` with a `cert issue-token --role worker` token)",
             cert_dir.display()
         )),
+        PeerRole::Monitor | PeerRole::Admin => Err(format!(
+            "--cert-dir {}: this is a MONITOR or ADMIN certificate -- `join` needs a worker certificate (`cert \
+             issue-client --role worker` on the coordinator, or `join --token` with a `cert issue-token --role \
+             worker` token)",
+            cert_dir.display()
+        )),
     }
 }
 
@@ -197,32 +336,51 @@ pub fn default_enroll_addr(coordinator: &str) -> Result<String, String> {
     Ok(format!("{host}:{enroll_port}"))
 }
 
-/// One slot: join, serve until the connection ends, back off, repeat -- until `stop`.
-pub fn run_slot(slot: usize, target: &JoinTarget, setup: &WorkerSetup, stop: &AtomicBool) {
+/// One slot: join, serve until the connection ends, back off, repeat -- until a stop. Slot
+/// `index` starts at address `index` of `targets` and moves to the next after a failed attempt.
+fn run_slot(index: usize, targets: &[Arc<JoinTarget>], setup: &WorkerSetup, shared: &Shared) {
+    let slot_state = &shared.slots[index];
+    let mut which = index % targets.len();
     let mut backoff = Backoff::new();
-    while !stop.load(Ordering::Relaxed) {
-        match join_once(target, setup) {
+    while !shared.stopping() {
+        let target = &targets[which];
+        slot_state.connecting();
+        match session::join_once_observed(target, setup, Some(slot_state)) {
             Ok(session) => {
                 backoff.reset();
                 match session.ended {
-                    Ok(()) => tracing::info!(
-                        "pleochroma-worker join: slot {slot}: the coordinator closed worker #{}'s connection",
-                        session.worker_id
-                    ),
-                    Err(e) => tracing::warn!(
-                        "pleochroma-worker join: slot {slot}: worker #{}'s connection ended: {e}",
-                        session.worker_id
-                    ),
+                    Ok(()) => {
+                        tracing::info!(
+                            "pleochroma-worker join: slot {index}: the coordinator closed worker #{}'s connection",
+                            session.worker_id
+                        );
+                        shared.set_error("The coordinator closed the connection.");
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "pleochroma-worker join: slot {index}: worker #{}'s connection ended: {e}",
+                            session.worker_id
+                        );
+                        shared.set_error("The connection to the coordinator was lost.");
+                    }
                 }
             }
-            Err(e) => tracing::warn!(
-                "pleochroma-worker join: slot {slot}: {} -- {e}",
-                target.addr
-            ),
+            Err(e) => {
+                tracing::warn!(
+                    "pleochroma-worker join: slot {index}: {} -- {e}",
+                    target.addr
+                );
+                shared.set_error(e.plain(&target.addr));
+                which = (which + 1) % targets.len();
+            }
+        }
+        slot_state.waiting();
+        if shared.stopping() {
+            break;
         }
         let delay = backoff.next_delay();
-        tracing::info!("pleochroma-worker join: slot {slot}: reconnecting in {delay:.1?}");
-        sleep_unless_stopped(delay, stop);
+        tracing::info!("pleochroma-worker join: slot {index}: reconnecting in {delay:.1?}");
+        sleep_unless_stopped(delay, &shared.stop);
     }
 }
 
@@ -303,6 +461,39 @@ mod tests {
         assert_eq!(bases, [1, 2, 4, 8, 16, 32, 60, 60, 60, 60]);
         backoff.reset();
         assert_eq!(backoff.next, BACKOFF_MIN);
+    }
+
+    #[test]
+    fn a_folder_without_a_certificate_has_a_plain_problem() {
+        let missing = std::env::temp_dir().join("pleochroma-join-no-such-folder");
+        let problem = bundle_problem(&missing).expect("a problem");
+        assert!(problem.contains("Add a render computer"), "{problem}");
+        assert!(!problem.contains("--cert-dir"), "{problem}");
+    }
+
+    #[test]
+    fn a_start_with_an_unreadable_folder_ends_with_the_problem_in_the_status() {
+        let args = JoinArgs {
+            coordinator: "127.0.0.1:7880".to_owned(),
+            cert_dir: std::env::temp_dir().join("pleochroma-join-no-such-folder"),
+            slots: 2,
+            threads: 0,
+            compute_mode: ComputeMode::OnlyCpu,
+            token: None,
+            enroll_addr: None,
+            payload_encoding: pleochroma_net::messages::adaptive::PayloadChoice::Auto,
+        };
+        let handle = start(&args);
+        for _ in 0..100 {
+            if handle.is_finished() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        let status = handle.status();
+        assert!(handle.is_finished());
+        assert_eq!(status.phase, JoinPhase::Stopped);
+        assert!(!status.error.is_empty());
     }
 
     #[test]

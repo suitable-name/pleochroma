@@ -1,0 +1,593 @@
+// The first-run wizard of the coordinator (lane S2-Z). `WizardPage` is the whole-window page: it
+// draws nothing while `WizardState.open` is false. `WizardState` holds the choices; the Rust side
+// (`src/gui/pages/wizard.rs`) reads them when `finished` fires.
+//
+// Steps: 0 Start (run here / monitor elsewhere), 1 Name, 2 Library (a file, none, or an existing
+// coordinator folder that keeps every paired device), 3 Network (its own page, decision D5),
+// 4 Rendering, 5 Done (start at login, keep awake; decision D10). A computer that only monitors
+// another coordinator skips 1–4: it shows two steps, Start and Done.
+import { Theme } from "@pleochroma-kit/theme.slint";
+import { KitIcon, KitIcons, KitButton, KitBadge, KitSwitch } from "@pleochroma-kit/components/kit/kit.slint";
+import { ScrollView } from "std-widgets.slint";
+import { ActivateScope } from "focus.slint";
+
+// 24 x 24 stroke icons the kit does not have.
+global ZIcons {
+    out property <string> server: "M4 4 H20 V10 H4 Z M4 14 H20 V20 H4 Z M7.5 7 H8.5 M7.5 17 H8.5";
+    out property <string> monitor: "M3 4.5 H21 V16 H3 Z M9 20 H15 M12 16 V20";
+    out property <string> wifi: "M3 9 A13 13 0 0 1 21 9 M6 12.5 A8.5 8.5 0 0 1 18 12.5 M9 16 A4 4 0 0 1 15 16 M12 19.5 H12.01";
+    out property <string> folder: "M3 6 H10 L12 8 H21 V19 H3 Z";
+    out property <string> book: "M5 4 H17 A2 2 0 0 1 19 6 V20 H7 A2 2 0 0 1 5 18 Z M5 18 A2 2 0 0 1 7 16 H19";
+    out property <string> power: "M12 3 V12 M7 6.5 A7.5 7.5 0 1 0 17 6.5";
+    out property <string> clock: "M12 3.5 A8.5 8.5 0 1 0 12 20.5 A8.5 8.5 0 1 0 12 3.5 Z M12 7.5 V12 L15 14";
+}
+
+// The choices of the wizard. The Rust side fills `name`, `network-address` and `gpu-note`
+// before it opens the page and reads everything back in `finished`.
+export global WizardState {
+    in-out property <bool> open: false;
+    in-out property <int> step: 0;
+    // 0 run a coordinator here, 1 monitor or manage one on another computer.
+    in-out property <int> mode: 0;
+    in-out property <string> name;
+    // 0 a library file, 1 rendering only (no library), 2 an existing coordinator folder.
+    in-out property <int> library-kind: 0;
+    in-out property <string> library-path;
+    in-out property <string> folder-path;
+    // 0 devices on my network, 1 only this computer.
+    in-out property <int> network: 0;
+    in property <string> network-address;
+    // 0 GPU and CPU, 1 GPU only, 2 CPU only.
+    in-out property <int> render-mode: 0;
+    in property <string> gpu-note;
+    // Stored as a choice only; the autostart itself is switched on by the settings page.
+    in-out property <bool> start-at-login: false;
+    in-out property <bool> keep-awake: true;
+    // A plain-words problem with the last picked path.
+    in property <string> error;
+
+    callback choose-library();
+    callback choose-folder();
+    // The last step's button: the Rust side reads the choices and closes the page.
+    callback finished();
+}
+
+// One numbered stop of the progress line. state: 0 done, 1 current, 2 later.
+component WizStep inherits Rectangle {
+    in property <string> n;
+    in property <string> label;
+    in property <int> state: 2;
+    width: 72px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Step " + root.n + ", " + root.label + (root.state == 0 ? ", done" : (root.state == 1 ? ", current step" : ", not reached yet"));
+    VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 26px;
+                height: 26px;
+                border-radius: 13px;
+                background: root.state == 2 ? Theme.bg-input : (root.state == 1 ? Theme.accent-cyan : Theme.accent-cyan-surface);
+                border-width: root.state == 1 ? 0px : 1px;
+                border-color: root.state == 0 ? Theme.accent-cyan : Theme.border-medium;
+                if root.state == 0: KitIcon { x: 6px; y: 6px; d: KitIcons.check; size: 14px; stroke: 2.2px; ink: Theme.accent-cyan; }
+                if root.state != 0: Text {
+                    text: root.n;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: root.state == 1 ? Theme.text-on-accent : Theme.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        Text {
+            text: root.label;
+            font-size: 11px;
+            font-weight: root.state == 1 ? 650 : 500;
+            color: root.state == 1 ? Theme.text-primary : (root.state == 0 ? Theme.text-secondary : Theme.text-muted);
+            horizontal-alignment: center;
+        }
+    }
+}
+
+// The line between two stops.
+component WizLine inherits VerticalLayout {
+    in property <bool> filled: false;
+    horizontal-stretch: 1;
+    padding-top: 12px;
+    Rectangle { height: 2px; border-radius: 1px; background: root.filled ? Theme.accent-cyan : Theme.border-medium; }
+}
+
+// A radio card: one of several exclusive choices.
+component Choice inherits Rectangle {
+    in property <bool> selected: false;
+    in property <string> icon;
+    in property <string> title;
+    in property <string> sub;
+    in property <string> badge;
+    in property <bool> tight: false;
+    callback clicked();
+    height: root.tight ? 58px : 66px;
+    border-radius: 12px;
+    background: root.selected ? Theme.accent-cyan-surface : Theme.bg-input;
+    border-width: root.selected || choice-fs.has-focus ? 2px : 1px;
+    border-color: choice-fs.has-focus ? Theme.accent-cyan-hover : (root.selected ? Theme.accent-cyan : Theme.border-medium);
+    accessible-role: radio-button;
+    accessible-label: root.title;
+    accessible-description: root.sub;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.clicked(); }
+    choice-fs := ActivateScope {
+        activated => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        spacing: 16px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                border-width: 2px;
+                border-color: root.selected ? Theme.accent-cyan : Theme.border-control;
+                if root.selected: Rectangle { x: 4px; y: 4px; width: 8px; height: 8px; border-radius: 4px; background: Theme.accent-cyan; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 38px;
+                height: 38px;
+                border-radius: 10px;
+                background: root.selected ? Theme.accent-cyan.with-alpha(0.16) : Theme.bg-elevated;
+                KitIcon { x: 9px; y: 9px; d: root.icon; size: 20px; ink: root.selected ? Theme.accent-cyan : Theme.text-secondary; }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 3px;
+            HorizontalLayout {
+                spacing: 10px;
+                Text { text: root.title; font-size: 15px; font-weight: 650; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+                if root.badge != "": VerticalLayout {
+                    alignment: center;
+                    KitBadge { text: root.badge; fill: Theme.accent-cyan.with-alpha(0.18); ink: Theme.accent-cyan; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text { text: root.sub; font-size: 12px; color: Theme.text-secondary; overflow: elide; }
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A picked path with its "Choose…" button.
+component PathRow inherits HorizontalLayout {
+    in property <string> path;
+    in property <string> placeholder;
+    in property <string> button-label: "Choose…";
+    callback choose();
+    height: 34px;
+    spacing: 10px;
+    Rectangle {
+        horizontal-stretch: 1;
+        border-radius: 8px;
+        background: Theme.bg-input;
+        border-width: 1px;
+        border-color: Theme.border-medium;
+        accessible-role: AccessibleRole.text;
+        accessible-label: root.path != "" ? "Chosen: " + root.path : root.placeholder;
+        Text {
+            x: 12px;
+            width: parent.width - 24px;
+            height: parent.height;
+            text: root.path != "" ? root.path : root.placeholder;
+            font-size: 12px;
+            color: root.path != "" ? Theme.text-primary : Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    KitButton {
+        text: root.button-label;
+        h: 34px;
+        clicked => { root.choose(); }
+    }
+}
+
+// A switch with a title and a plain-words line under it.
+component OptionRow inherits Rectangle {
+    in property <string> title;
+    in property <string> sub;
+    in property <bool> on;
+    callback toggled();
+    height: 60px;
+    border-radius: 10px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 14px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 3px;
+            Text { text: root.title; font-size: 13px; font-weight: 650; color: Theme.text-primary; overflow: elide; }
+            Text { text: root.sub; font-size: 12px; color: Theme.text-secondary; wrap: word-wrap; }
+        }
+        VerticalLayout {
+            alignment: center;
+            KitSwitch {
+                on: root.on;
+                label: root.title;
+                toggled => { root.toggled(); }
+            }
+        }
+    }
+}
+
+// A line of the summary on the last step.
+component SummaryRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    height: 22px;
+    spacing: 12px;
+    Text { width: 88px; text: root.label; font-size: 12px; color: Theme.text-muted; vertical-alignment: center; }
+    Text { text: root.value; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+}
+
+// A tinted note with an icon.
+component Note inherits Rectangle {
+    in property <string> text;
+    min-height: 48px;
+    border-radius: 10px;
+    background: Theme.surface-info;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    HorizontalLayout {
+        padding: 12px;
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            KitIcon { d: KitIcons.info; size: 18px; ink: Theme.accent-cyan; }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            font-size: 12px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}
+
+export component WizardPage inherits Rectangle {
+    // The card is 640 x 560 and shrinks with the window.
+    property <length> card-w: Math.min(640px, root.width - 24px);
+    property <length> card-h: Math.min(560px, root.height - 24px);
+    property <bool> short: root.card-h < 520px;
+    property <int> step: WizardState.step;
+    property <bool> monitor: WizardState.mode == 1;
+    property <[string]> labels: root.monitor ? ["Start", "Done"] : ["Start", "Name", "Library", "Network", "Rendering", "Done"];
+    // The stop of the progress line the page is on.
+    property <int> current: root.monitor && root.step == 5 ? 1 : root.step;
+    property <bool> can-next: root.step == 1 ? WizardState.name != "" : (root.step == 2 ? (WizardState.library-kind == 1 || (WizardState.library-kind == 0 && WizardState.library-path != "") || (WizardState.library-kind == 2 && WizardState.folder-path != "")) : true);
+
+    if WizardState.open: Rectangle {
+        background: Theme.bg-darkest;
+        TouchArea { }
+        // The wizard takes the keyboard focus when it opens, so Tab starts inside the card.
+        FocusScope {
+            init => { self.focus(); }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: root.card-w;
+            height: root.card-h;
+            border-radius: 16px;
+            background: Theme.surface-dialog;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            drop-shadow-blur: 48px;
+            drop-shadow-offset-y: 12px;
+            drop-shadow-color: Theme.modal-shadow;
+            accessible-role: groupbox;
+            accessible-label: "First-run setup";
+
+            VerticalLayout {
+                padding: 32px;
+                padding-top: root.short ? 20px : 26px;
+                padding-bottom: 24px;
+                spacing: 0px;
+
+                // Brand row.
+                if !root.short: HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        border-radius: 8px;
+                        background: Theme.accent-cyan-surface;
+                        KitIcon { x: 6px; y: 6px; d: KitIcons.gem; size: 18px; ink: Theme.accent-cyan; }
+                    }
+                    Text { text: "Pleochroma Coordinator · first-run setup"; font-size: 12px; color: Theme.text-muted; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: "Step " + (root.current + 1) + " of " + root.labels.length; font-size: 12px; color: Theme.text-muted; vertical-alignment: center; }
+                }
+                if !root.short: Rectangle { height: 18px; }
+
+                // Progress line.
+                HorizontalLayout {
+                    height: 48px;
+                    for label[i] in root.labels: HorizontalLayout {
+                        horizontal-stretch: i == root.labels.length - 1 ? 0 : 1;
+                        spacing: 4px;
+                        WizStep {
+                            n: i + 1;
+                            label: label;
+                            state: i < root.current ? 0 : (i == root.current ? 1 : 2);
+                        }
+                        if i < root.labels.length - 1: WizLine { filled: i < root.current; }
+                    }
+                }
+                Rectangle { height: 14px; }
+
+                // The step.
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 0px;
+                        alignment: start;
+                        padding-right: root.short ? 14px : 0px;
+
+                        // 0: Start.
+                        if root.step == 0: VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "What would you like to do?"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                            Text { text: "Pick how you want to use Pleochroma on this computer."; font-size: 13px; color: Theme.text-secondary; height: 18px; vertical-alignment: center; }
+                            Rectangle { height: 4px; }
+                            Choice {
+                tight: root.short;
+                                selected: !root.monitor;
+                                icon: ZIcons.server;
+                                title: "Run a coordinator on this computer";
+                                badge: "Recommended";
+                                sub: "Phones and render computers connect here.";
+                                clicked => { WizardState.mode = 0; }
+                            }
+                            Choice {
+                tight: root.short;
+                                selected: root.monitor;
+                                icon: ZIcons.monitor;
+                                title: "Monitor or manage a coordinator on another computer";
+                                sub: "No server runs here. You connect with a code.";
+                                clicked => { WizardState.mode = 1; }
+                            }
+                            Note { text: "You can add or switch coordinators later from the name at the top of the sidebar."; }
+                        }
+
+                        // 1: Name.
+                        if root.step == 1: VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "Name this coordinator"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                            Text { text: "Phones and other computers show this name. It starts as the name of this computer."; font-size: 13px; color: Theme.text-secondary; wrap: word-wrap; }
+                            Rectangle { height: 8px; }
+                            Rectangle {
+                                height: 40px;
+                                border-radius: 8px;
+                                background: Theme.bg-input;
+                                border-width: 1px;
+                                border-color: name-input.has-focus ? Theme.accent-cyan : Theme.border-medium;
+                                name-input := TextInput {
+                                    x: 14px;
+                                    width: parent.width - 28px;
+                                    height: parent.height;
+                                    text <=> WizardState.name;
+                                    font-size: 15px;
+                                    color: Theme.text-primary;
+                                    vertical-alignment: center;
+                                    single-line: true;
+                                    accessible-label: "Coordinator name";
+                                    init => { self.focus(); }
+                                }
+                            }
+                            Text { text: "You can change it later in Settings."; font-size: 11px; color: Theme.text-muted; height: 16px; vertical-alignment: center; }
+                        }
+
+                        // 2: Library.
+                        if root.step == 2: VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "Where are your designs?"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                            Text { text: "Your phones browse designs from one library file on this computer."; font-size: 13px; color: Theme.text-secondary; wrap: word-wrap; }
+                            Rectangle { height: 2px; }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.library-kind == 0;
+                                icon: ZIcons.book;
+                                title: "Choose a library file";
+                                sub: "The facet_diagrams.sqlite file of Pleochroma.";
+                                clicked => { WizardState.library-kind = 0; }
+                            }
+                            if WizardState.library-kind == 0: PathRow {
+                                path: WizardState.library-path;
+                                placeholder: "No file chosen";
+                                choose => { WizardState.choose-library(); }
+                            }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.library-kind == 1;
+                                icon: KitIcons.cpu;
+                                title: "Rendering only (no library)";
+                                sub: "Phones can render here but cannot browse designs.";
+                                clicked => { WizardState.library-kind = 1; }
+                            }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.library-kind == 2;
+                                icon: ZIcons.folder;
+                                title: "Use an existing coordinator folder";
+                                sub: "Takes over a setup that ran headless and keeps every paired device.";
+                                clicked => { WizardState.library-kind = 2; }
+                            }
+                            if WizardState.library-kind == 2: PathRow {
+                                path: WizardState.folder-path;
+                                placeholder: "No folder chosen";
+                                choose => { WizardState.choose-folder(); }
+                            }
+                            if WizardState.error != "": Text { text: WizardState.error; font-size: 12px; color: Theme.danger; wrap: word-wrap; }
+                        }
+
+                        // 3: Network.
+                        if root.step == 3: VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "Who can connect?"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                            Text { text: "Pick who may use this coordinator. You can change it later in Settings."; font-size: 13px; color: Theme.text-secondary; wrap: word-wrap; }
+                            Rectangle { height: 2px; }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.network == 0;
+                                icon: ZIcons.wifi;
+                                title: "Devices on my network";
+                                badge: "Recommended";
+                                sub: WizardState.network-address != "" ? WizardState.network-address : "Phones and other computers on the same network";
+                                clicked => { WizardState.network = 0; }
+                            }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.network == 1;
+                                icon: ZIcons.monitor;
+                                title: "Only this computer";
+                                sub: "Phones and other computers cannot connect";
+                                clicked => { WizardState.network = 1; }
+                            }
+                            Note { text: "Your system may ask to allow Pleochroma on the network — choose Allow for private networks."; }
+                        }
+
+                        // 4: Rendering.
+                        if root.step == 4: VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "Render on this computer"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                            Text { text: "Pick what this computer uses to render for your devices."; font-size: 13px; color: Theme.text-secondary; wrap: word-wrap; }
+                            Rectangle { height: 2px; }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.render-mode == 0;
+                                icon: KitIcons.cpu;
+                                title: "Graphics card and processor";
+                                badge: "Recommended";
+                                sub: WizardState.gpu-note != "" ? WizardState.gpu-note : "The graphics card first, the processor for the rest";
+                                clicked => { WizardState.render-mode = 0; }
+                            }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.render-mode == 1;
+                                icon: KitIcons.sparkle;
+                                title: "Graphics card only";
+                                sub: "Keeps the processor free for other work";
+                                clicked => { WizardState.render-mode = 1; }
+                            }
+                            Choice {
+                tight: root.short;
+                                selected: WizardState.render-mode == 2;
+                                icon: KitIcons.layers;
+                                title: "Processor only";
+                                sub: "Slower, but works on every computer";
+                                clicked => { WizardState.render-mode = 2; }
+                            }
+                        }
+
+                        // 5: Done, a coordinator here.
+                        if root.step == 5 && !root.monitor: VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "Ready to start"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                            Text { text: "Two last choices for how the coordinator runs."; font-size: 13px; color: Theme.text-secondary; height: 18px; vertical-alignment: center; }
+                            Rectangle { height: 2px; }
+                            OptionRow {
+                                title: Platform.os == OperatingSystemType.windows ? "Start with Windows (in the tray)" : "Start at login (in the tray)";
+                                sub: "Runs only while you are logged in.";
+                                on: WizardState.start-at-login;
+                                toggled => { WizardState.start-at-login = !WizardState.start-at-login; }
+                            }
+                            OptionRow {
+                                title: "Keep this computer awake while devices are connected or jobs run";
+                                sub: "It can still sleep when nothing is going on.";
+                                on: WizardState.keep-awake;
+                                toggled => { WizardState.keep-awake = !WizardState.keep-awake; }
+                            }
+                            Rectangle { height: 4px; }
+                            SummaryRow { label: "Name"; value: WizardState.name; }
+                            SummaryRow { label: "Library"; value: WizardState.library-kind == 1 ? "Rendering only (no library)" : (WizardState.library-kind == 0 ? WizardState.library-path : WizardState.folder-path); }
+                            SummaryRow { label: "Network"; value: WizardState.network == 0 ? "Devices on my network" : "Only this computer"; }
+                            SummaryRow { label: "Rendering"; value: WizardState.render-mode == 0 ? "Graphics card and processor" : (WizardState.render-mode == 1 ? "Graphics card only" : "Processor only"); }
+                            if WizardState.error != "": Text { text: WizardState.error; font-size: 12px; color: Theme.danger; wrap: word-wrap; }
+                        }
+
+                        // 5: Done, monitor only.
+                        if root.step == 5 && root.monitor: VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "Connect to a coordinator"; font-size: 20px; font-weight: 700; color: Theme.text-primary; height: 28px; vertical-alignment: center; }
+                            Text { text: "No server runs on this computer. Next you add the coordinator you want to manage."; font-size: 13px; color: Theme.text-secondary; wrap: word-wrap; }
+                            Rectangle { height: 2px; }
+                            Note { text: "On the other computer, open Connect a computer to get a pairing link. Paste it here to connect."; }
+                            OptionRow {
+                                title: Platform.os == OperatingSystemType.windows ? "Start with Windows (in the tray)" : "Start at login (in the tray)";
+                                sub: "Runs only while you are logged in.";
+                                on: WizardState.start-at-login;
+                                toggled => { WizardState.start-at-login = !WizardState.start-at-login; }
+                            }
+                        }
+                    }
+                }
+                Rectangle { height: 12px; }
+
+                // Footer.
+                HorizontalLayout {
+                    height: 34px;
+                    if root.step > 0: KitButton {
+                        kind: 2;
+                        text: "Back";
+                        h: 34px;
+                        clicked => {
+                            if root.monitor && root.step == 5 {
+                                WizardState.step = 0;
+                            } else {
+                                WizardState.step = root.step - 1;
+                            }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    KitButton {
+                        kind: 1;
+                        text: root.step < 5 ? "Next" : (root.monitor ? "Add a coordinator" : "Start the coordinator");
+                        enabled: root.can-next;
+                        h: 34px;
+                        clicked => {
+                            if root.step == 0 && root.monitor {
+                                WizardState.step = 5;
+                            } else if root.step < 5 {
+                                WizardState.step = root.step + 1;
+                            } else {
+                                WizardState.finished();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+}

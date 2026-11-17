@@ -178,7 +178,7 @@ The 3D viewport's camera and light controls (Chapter 2) are mouse
 gestures — left-drag to orbit, middle-drag or Ctrl+left-drag (Cmd on macOS) to move the
 stone within the picture, right-drag or Shift+left-drag to move the
 light (or to turn the HDR map, when one is loaded), Alt+left-drag or Ctrl+Shift+left-drag to
-tilt and turn the stone on the tray (vertical = tilt, horizontal = turn), scroll to zoom — not keyboard shortcuts.
+turn the stone itself freely, the way the orbit turns it, scroll to zoom — not keyboard shortcuts.
 Reset Camera and the named views (Front, Top) centre the stone again; they keep its Stone Pose. The Edit tab's Solid
 viewport (Chapter 13) shares that same orbit/pan/zoom camera with the Live
 Render tab in its Solid/Path-Traced/Solid + Path-Traced/Ray-Traced modes; its Diagram mode instead

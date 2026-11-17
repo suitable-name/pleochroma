@@ -19,7 +19,7 @@ export global ParametersModel {
 
     // --- R2S ---
     // Which folding cards of the Stone tab are open, one bit each: 1 Crystal Axis, 2 Girdle &
-    // Edges, 4 Clarity, 8 Structure. Persisted (`gui::parameters_dock`); not part of a tab reset.
+    // Edges, 4 Clarity, 8 Structure, 16 Gem Data. Persisted (`gui::parameters_dock`); not part of a tab reset.
     in-out property <int> stone_folds: 0;
     // The Stone tab asks for one card to open or fold: its bit, then the new state.
     callback stone_fold_set(int, bool);

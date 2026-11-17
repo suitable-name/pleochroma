@@ -563,6 +563,307 @@ fn a_claim_connection_cannot_issue_a_render_request() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+// ---- Per-token role, remove, claim events, stoppable accept loop ---------------------
+
+/// Runs one `Claim { secret }` through the connection handler and returns the reply.
+fn claim_via_handler(
+    registry: &EnrollRegistry,
+    dir: &std::path::Path,
+    allowlist: Option<&std::path::Path>,
+    token_text: &str,
+    peer: SocketAddr,
+) -> EnrollResponse {
+    let decoded = token::decode(token_text).unwrap();
+    let mut input = Vec::new();
+    pleochroma_net::messages::write_message(
+        &mut input,
+        &EnrollRequest::Claim {
+            secret: *decoded.secret,
+        },
+    )
+    .unwrap();
+    let mut duplex = DuplexHalf::new(input);
+    handle_enroll_connection(&mut duplex, registry, dir, allowlist, Some(peer)).unwrap();
+    pleochroma_net::messages::read_message(&mut Cursor::new(duplex.out)).unwrap()
+}
+
+#[test]
+fn every_token_carries_the_role_it_was_issued_with() {
+    use pleochroma_net::messages::PeerRole;
+    let dir = unique_temp_dir("per-token-role");
+    pki::init(&dir).unwrap();
+    let registry = EnrollRegistry::new(); // a viewer registry
+
+    let viewer = registry
+        .issue_for_role(&dir, "phone", PeerRole::Viewer)
+        .unwrap();
+    let worker = registry
+        .issue_for_role(&dir, "box", PeerRole::Worker)
+        .unwrap();
+    assert_ne!(viewer.id, worker.id);
+    assert_eq!(worker.role, PeerRole::Worker);
+
+    let worker_claim = registry
+        .claim(&token::decode(&worker.token).unwrap().secret)
+        .unwrap();
+    assert_eq!(worker_claim.role, PeerRole::Worker);
+    assert_eq!(worker_claim.id, worker.id);
+    assert!(worker_claim.name.starts_with(pki::WORKER_CN_PREFIX));
+    let viewer_claim = registry
+        .claim(&token::decode(&viewer.token).unwrap().secret)
+        .unwrap();
+    assert_eq!(viewer_claim.role, PeerRole::Viewer);
+    assert_eq!(viewer_claim.name, "phone");
+
+    // Monitor and admin certificates enroll only once remote administration registered
+    // their allowlists (see `monitor_and_admin_codes_need_their_registered_allowlists`).
+    for role in [PeerRole::Monitor, PeerRole::Admin] {
+        let err = registry.issue_for_role(&dir, "remote", role).unwrap_err();
+        assert!(err.to_string().contains("switched on"), "{err}");
+    }
+    assert_eq!(registry.pending.lock().unwrap().len(), 0);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Remote administration on: the viewer registry issues monitor and admin codes, a claim
+/// gives the certificate the role prefix and lists it in that role's allowlist, and the
+/// claim event carries the role. Off (no registered allowlist): nothing is issued.
+#[test]
+fn monitor_and_admin_codes_need_their_registered_allowlists() {
+    use pleochroma_net::messages::PeerRole;
+    let dir = unique_temp_dir("remote-admin-codes");
+    pki::init(&dir).unwrap();
+    let registry = authorised_registry();
+    let events = registry.subscribe();
+
+    // Off: refused both ways, nothing left pending.
+    assert!(matches!(
+        issue_via_handler(&registry, &dir, "monitor:wall"),
+        EnrollResponse::IssueRefused { reason } if reason.contains("remote administration")
+    ));
+    assert!(matches!(
+        issue_via_handler(&registry, &dir, "admin:ops"),
+        EnrollResponse::IssueRefused { reason } if reason.contains("--allow-remote-admin")
+    ));
+    assert!(
+        registry
+            .issue_for_role(&dir, "wall", PeerRole::Monitor)
+            .is_err()
+    );
+    assert_eq!(registry.pending.lock().unwrap().len(), 0);
+
+    // On: the two allowlists are registered.
+    let monitors = pki::monitor_allowlist_in(&dir);
+    let admins = pki::admin_allowlist_in(&dir);
+    registry.register_allowlist(PeerRole::Monitor, monitors.clone());
+    registry.register_allowlist(PeerRole::Admin, admins.clone());
+
+    for (name, role, list) in [
+        ("monitor:wall", PeerRole::Monitor, &monitors),
+        ("admin:ops", PeerRole::Admin, &admins),
+    ] {
+        let EnrollResponse::Issued { token, .. } = issue_via_handler(&registry, &dir, name) else {
+            panic!("{name} must be issued while remote administration is on");
+        };
+        let response = claim_via_handler(&registry, &dir, None, &token, remote_peer());
+        let EnrollResponse::Claimed {
+            client_cert_pem, ..
+        } = response
+        else {
+            panic!("expected Claimed, got {response:?}");
+        };
+        let der = rustls_pemfile_cert(&client_cert_pem);
+        assert_eq!(pki::role_of_certificate(&der).unwrap(), role);
+        let cn = pki::role::subject_common_name(&der).unwrap().unwrap();
+        assert!(cn.starts_with(name.split(':').next().unwrap()), "{cn}");
+        let allowlist = pleochroma_net::tls::Allowlist::load(list).unwrap();
+        assert!(allowlist.contains(&pleochroma_net::tls::fingerprint(&der.into())));
+        let claim = events.try_recv().expect("a claim event");
+        assert_eq!(claim.role, role);
+        assert_eq!(claim.name, cn);
+    }
+    // The viewer allowlist is not touched by these claims.
+    assert!(!pki::viewer_allowlist_in(&dir).exists());
+
+    // A worker listener never issues them, even with the allowlists registered.
+    let workers = EnrollRegistry::for_role(PeerRole::Worker)
+        .with_operator_secret(Zeroizing::new(OPERATOR_SECRET));
+    workers.register_allowlist(PeerRole::Monitor, monitors);
+    assert!(matches!(
+        issue_via_handler(&workers, &dir, "monitor:wall"),
+        EnrollResponse::IssueRefused { reason } if reason.contains("VIEWER enrollment")
+    ));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn remove_cancels_a_pending_token_once() {
+    use pleochroma_net::messages::PeerRole;
+    let dir = unique_temp_dir("remove");
+    pki::init(&dir).unwrap();
+    let registry = EnrollRegistry::new();
+
+    let keep = registry
+        .issue_for_role(&dir, "keep", PeerRole::Viewer)
+        .unwrap();
+    let cancel = registry
+        .issue_for_role(&dir, "cancel", PeerRole::Viewer)
+        .unwrap();
+
+    assert!(registry.remove(cancel.id));
+    assert!(!registry.remove(cancel.id), "already removed");
+    assert!(
+        registry
+            .claim(&token::decode(&cancel.token).unwrap().secret)
+            .is_none(),
+        "a cancelled token must not claim"
+    );
+    assert!(
+        registry
+            .claim(&token::decode(&keep.token).unwrap().secret)
+            .is_some(),
+        "the other token is untouched"
+    );
+    assert!(!registry.remove(keep.id), "claimed tokens are gone too");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_claim_emits_role_fingerprint_and_peer_to_every_subscriber() {
+    use pleochroma_net::messages::PeerRole;
+    let dir = unique_temp_dir("claim-event");
+    pki::init(&dir).unwrap();
+    let worker_allowlist = dir.join(pki::WORKER_ALLOWLIST_FILE);
+    let viewer_allowlist = dir.join(pki::VIEWER_ALLOWLIST_FILE);
+    let registry = EnrollRegistry::new();
+    registry.register_allowlist(PeerRole::Worker, worker_allowlist.clone());
+    let first = registry.subscribe();
+    let second = registry.subscribe();
+
+    let issued = registry
+        .issue_for_role(&dir, "box", PeerRole::Worker)
+        .unwrap();
+    let before = first.try_recv();
+    assert!(before.is_err(), "issuing alone sends no event");
+
+    let peer: SocketAddr = "192.168.1.50:41234".parse().unwrap();
+    let reply = claim_via_handler(
+        &registry,
+        &dir,
+        Some(&viewer_allowlist),
+        &issued.token,
+        peer,
+    );
+    assert!(matches!(reply, EnrollResponse::Claimed { .. }), "{reply:?}");
+
+    for receiver in [&first, &second] {
+        let event = receiver.try_recv().expect("one claim event per subscriber");
+        assert_eq!(event.id, issued.id);
+        assert_eq!(event.role, PeerRole::Worker);
+        assert_eq!(event.peer, peer);
+        assert!(event.name.starts_with(pki::WORKER_CN_PREFIX));
+        let allowlist = pleochroma_net::tls::Allowlist::load(&worker_allowlist).unwrap();
+        assert!(allowlist.contains(&event.fingerprint));
+        assert!(receiver.try_recv().is_err(), "exactly one event");
+    }
+    assert!(!viewer_allowlist.exists(), "the viewer list is not touched");
+
+    // The event holds no secret.
+    let shown = format!("{:?}", first.try_recv());
+    assert!(!shown.contains("GW1"), "{shown}");
+    let issued_debug = format!("{issued:?}");
+    assert!(!issued_debug.contains(&issued.token), "{issued_debug}");
+
+    // A dropped receiver is forgotten without disturbing the others.
+    drop(second);
+    let again = registry
+        .issue_for_role(&dir, "box2", PeerRole::Worker)
+        .unwrap();
+    let reply = claim_via_handler(&registry, &dir, None, &again.token, peer);
+    assert!(matches!(reply, EnrollResponse::Claimed { .. }), "{reply:?}");
+    assert_eq!(first.try_recv().unwrap().id, again.id);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_claim_of_another_role_without_a_registered_allowlist_is_refused() {
+    use pleochroma_net::messages::PeerRole;
+    let dir = unique_temp_dir("claim-no-allowlist");
+    pki::init(&dir).unwrap();
+    let registry = EnrollRegistry::new();
+    let events = registry.subscribe();
+    let issued = registry
+        .issue_for_role(&dir, "box", PeerRole::Worker)
+        .unwrap();
+
+    let reply = claim_via_handler(&registry, &dir, None, &issued.token, loopback_peer());
+    assert!(matches!(reply, EnrollResponse::ClaimFailed), "{reply:?}");
+    assert!(events.try_recv().is_err(), "a refused claim sends no event");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A real CA, server certificate and enrollment config on an ephemeral loopback port.
+fn real_config(label: &str) -> (PathBuf, super::EnrollConfig) {
+    let dir = unique_temp_dir(label);
+    pki::init(&dir).unwrap();
+    pki::issue_server(&dir, &[], &["127.0.0.1".parse().unwrap()]).unwrap();
+    let config = super::EnrollConfig::build(
+        "127.0.0.1:0".parse().unwrap(),
+        &dir.join(pki::CA_CERT_FILE),
+        &dir.join(pki::SERVER_CERT_FILE),
+        &dir.join(pki::SERVER_KEY_FILE),
+        Some(dir.join(pki::VIEWER_ALLOWLIST_FILE)),
+        pleochroma_net::messages::PeerRole::Viewer,
+    )
+    .unwrap();
+    (dir, config)
+}
+
+#[test]
+fn the_accept_loop_exits_when_its_stop_flag_is_set_and_woken() {
+    use crate::control::shutdown::ListenerStop;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let (dir, config) = real_config("stop-loop");
+    let bound = super::bind_enroll_listener(config).unwrap();
+    let addr = bound.local_addr();
+    let flag = Arc::new(AtomicBool::new(false));
+    bound.spawn(ListenerStop {
+        flag: Arc::clone(&flag),
+        wake_addr: addr,
+    });
+
+    // Accepting: a plain TCP connection is taken.
+    std::net::TcpStream::connect(addr).expect("the listener must accept before the stop");
+
+    // Stop: set the flag, then wake the blocked accept with one connection.
+    flag.store(true, Ordering::SeqCst);
+    std::net::TcpStream::connect(addr).ok();
+
+    // The loop returned and dropped its listener, so the port soon refuses connections.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if std::net::TcpStream::connect(addr).is_err() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the listener kept accepting after the stop flag"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A `Read + Write` double over two independent in-memory buffers -- reimplemented
 /// rather than shared with `crate::serve::tests::DuplexHalf` (private to that module),
 /// and this module needs none of its `TimeoutRead` behavior.

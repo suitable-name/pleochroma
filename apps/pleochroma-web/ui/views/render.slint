@@ -142,6 +142,7 @@ export component RenderView inherits Rectangle {
     // the worker-failure banner when that shows. Nothing while there is nothing to measure.
     if MetricsModel.has-metrics || MetricsModel.status-text != "": MetricsHud {
         compact: root.width < 520px;
+        room: root.width - 16px;
         x: 8px;
         // A phone-width view lifts the HUD above the "Design" toggle at the window's
         // bottom-right corner (`app.slint`), which it would otherwise cover.

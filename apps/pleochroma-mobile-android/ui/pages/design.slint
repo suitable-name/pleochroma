@@ -198,8 +198,9 @@ component SolveRow inherits Rectangle {
     }
 }
 
-// The solve status line ("Closed solid -- volume 0.1234 ... (solved in 0.05 s)"): two lines
-// at most; a tap shows all of it.
+// The solve status line, the shared text of the solver ("Closed solid · volume 2.1879 (model
+// units³)", then "(solved in 0.05 s)" when it is known): two lines at most, so it wraps at the
+// "·" or before the "(" on a 384 dp phone; a tap shows all of it.
 component StatusLine inherits Rectangle {
     height: Theme.touch;
     accessible-role: AccessibleRole.button;

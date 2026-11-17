@@ -34,6 +34,43 @@ pub fn build_planned_frame(
     budget: Duration,
     clock: &dyn live_update::Clock,
 ) -> PlannedFrame {
+    build_planned_frame_themed(job, budget, clock, false)
+}
+
+/// The viewport style for the theme.
+///
+/// [`SolidStyle::high_contrast`]'s palette when `high_contrast` is set, otherwise `style`
+/// unchanged. The per-facet flags, the preform settings and everything else the planner filled
+/// in carry over, so only the palette changes.
+///
+/// Only the live viewports use this (the desktop's Solid view and Compare, the Android
+/// viewport). The thumbnails, variants, history, rough plan and pose preview keep the
+/// default style on purpose: they are content shown small or exported, not interface.
+#[must_use]
+pub fn restyle_for_theme(style: SolidStyle, high_contrast: bool) -> SolidStyle {
+    if !high_contrast {
+        return style;
+    }
+    SolidStyle {
+        flagged: style.flagged,
+        pending: style.pending,
+        selected: style.selected,
+        preform_plane_count: style.preform_plane_count,
+        show_preform: style.show_preform,
+        ..SolidStyle::high_contrast()
+    }
+}
+
+/// [`build_planned_frame`] with the theme: `high_contrast` draws the frame's style with
+/// [`SolidStyle::high_contrast`] (see [`restyle_for_theme`]). `false` is exactly
+/// [`build_planned_frame`].
+#[must_use]
+pub fn build_planned_frame_themed(
+    job: PlanJob,
+    budget: Duration,
+    clock: &dyn live_update::Clock,
+    high_contrast: bool,
+) -> PlannedFrame {
     let limit = job.cut_limit();
     let PlanJob {
         design,
@@ -90,14 +127,17 @@ pub fn build_planned_frame(
     // No `MeshCache` here: the render step makes the `Unbounded` check. `style` stays
     // undimmed whatever that check finds.
     let preform_plane_count = facet_map.preform_plane_count();
-    let style = SolidStyle {
-        flagged: overlay.flagged,
-        pending: overlay.pending,
-        selected: overlay.selected,
-        preform_plane_count,
-        show_preform,
-        ..SolidStyle::viewport()
-    };
+    let style = restyle_for_theme(
+        SolidStyle {
+            flagged: overlay.flagged,
+            pending: overlay.pending,
+            selected: overlay.selected,
+            preform_plane_count,
+            show_preform,
+            ..SolidStyle::viewport()
+        },
+        high_contrast,
+    );
     let out_of_date = matches!(plan.freshness, live_update::Freshness::Stale { .. });
     // An `Unsolvable` plan carries no masts (`plan.solved` is `None`, see
     // `live_update::plan_preview`). The frame is stamped with the new generation, so
@@ -263,6 +303,39 @@ mod tests {
             "eight groove placements and four dimples stay with the stone"
         );
         assert_eq!(frame.placements.len(), frame.tools.len());
+    }
+
+    /// The high-contrast flag swaps the palette to `SolidStyle::high_contrast()` and keeps
+    /// the facet flags and preform settings; off, the style is untouched.
+    #[test]
+    fn the_theme_flag_selects_the_high_contrast_palette() {
+        let planned = SolidStyle {
+            flagged: vec![true, false],
+            pending: vec![false, true],
+            selected: vec![true, true],
+            preform_plane_count: 3,
+            show_preform: false,
+            ..SolidStyle::viewport()
+        };
+        let default = restyle_for_theme(planned.clone(), false);
+        assert_eq!(default.edge_color, SolidStyle::viewport().edge_color);
+        assert_eq!(
+            default.selected_color,
+            SolidStyle::viewport().selected_color
+        );
+
+        let high = restyle_for_theme(planned, true);
+        let expected = SolidStyle::high_contrast();
+        assert_eq!(high.base_color, expected.base_color);
+        assert_eq!(high.edge_color, expected.edge_color);
+        assert_eq!(high.selected_color, expected.selected_color);
+        assert_eq!(high.multi_selected_color, expected.multi_selected_color);
+        assert_ne!(high.edge_color, SolidStyle::viewport().edge_color);
+        assert_eq!(high.flagged, vec![true, false]);
+        assert_eq!(high.pending, vec![false, true]);
+        assert_eq!(high.selected, vec![true, true]);
+        assert_eq!(high.preform_plane_count, 3);
+        assert!(!high.show_preform);
     }
 
     /// A clock that never advances: every solve is "within budget".

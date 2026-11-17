@@ -216,6 +216,45 @@ mod tests {
         );
     }
 
+    /// A "Presentation" stored by an earlier version (a lighting mood without the shadow, the
+    /// reflection or the product shot) comes back as the product shot on load, keeping its
+    /// `export_usable` choice, while a user preset of its own keeps its values.
+    #[test]
+    fn ensure_built_in_presets_turns_a_stored_presentation_into_the_product_shot() {
+        let mut old = built_in_presets()
+            .into_iter()
+            .find(|p| p.name == "Presentation")
+            .expect("the Presentation built-in exists");
+        old.stone_shadow = false;
+        old.tray_reflection = 0.0;
+        old.product_shot = false;
+        old.export_usable = true;
+        let mut mine = old.clone();
+        mine.name = "My Presentation".to_string();
+        mine.built_in = false;
+        let mut file = SettingsFile {
+            settings: AppSettings::default(),
+            presets: vec![old, mine],
+            rig_profiles: Vec::new(),
+        };
+        file.ensure_built_in_presets();
+        let refreshed = file
+            .find_preset("Presentation")
+            .expect("the built-in is still there");
+        assert!(refreshed.product_shot);
+        assert!(refreshed.stone_shadow);
+        assert_eq!(
+            refreshed.tray_reflection.to_bits(),
+            crate::settings::model::PRESENTATION_TRAY_REFLECTION.to_bits()
+        );
+        assert!(refreshed.export_usable, "the per-install choice survives");
+        let mine = file
+            .find_preset("My Presentation")
+            .expect("the user preset is untouched");
+        assert!(!mine.product_shot && !mine.stone_shadow);
+        assert_eq!(mine.tray_reflection.to_bits(), 0);
+    }
+
     /// A settings file without the rig section still loads, with no rigs.
     #[test]
     fn a_settings_file_without_rig_profiles_loads_with_none() {

@@ -29,8 +29,14 @@ use pleochroma::{geometry::GpuFacetPlane, optics::materials::GemMaterial, render
 use pleochroma_cut_core::{
     Design, StoneRenderEffects,
     material::{
-        BuiltinMaterials, MaterialLookup, MaterialSelection, pattern::follow_noted_pattern,
+        BuiltinMaterials, MaterialLookup, MaterialSelection,
+        pattern::{ColorPattern, PatternError, follow_noted_pattern},
     },
+};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::Mutex,
 };
 
 /// Built-ins plus whatever custom catalogue materials the caller hands in.
@@ -180,16 +186,96 @@ fn design_girdle_mm(design: &Design) -> f64 {
 ///
 /// A pattern replaces the absorption with its per-mm zone colors, so it also changes which size
 /// rule the material gets: see [`optimize_needs_model_width`].
+///
+/// A pattern that cannot apply leaves `material` as it is and logs a warning with the reason, so
+/// the plain color is never silent; [`design_pattern_problem`] gives callers the same reason as a
+/// sentence for the screen.
 fn with_design_pattern(material: GemMaterial, design: &Design) -> GemMaterial {
     let Some(pattern) = design.material.color_pattern_override.as_ref() else {
         return material;
     };
-    pleochroma_cut_core::material::pattern::apply_color_pattern(
+    match pleochroma_cut_core::material::pattern::apply_color_pattern(
         material.clone(),
         pattern,
         design_girdle_mm(design),
+    ) {
+        Ok(patterned) => patterned,
+        Err(error) => {
+            if first_report_of(pattern, &error) {
+                tracing::warn!(
+                    design = design_label(design).unwrap_or("(unnamed)"),
+                    %error,
+                    "the stone's color pattern cannot be applied; rendering the material's own color"
+                );
+            }
+            material
+        }
+    }
+}
+
+/// Whether this pattern and error pair has not been logged yet in this process; records it.
+///
+/// Optimize resolves the material many times per run, so the warning is logged once per distinct
+/// pattern and error, not on every call.
+fn first_report_of(pattern: &ColorPattern, error: &PatternError) -> bool {
+    static SEEN: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+    let mut hasher = DefaultHasher::new();
+    format!("{pattern:?}|{error:?}").hash(&mut hasher);
+    let key = hasher.finish();
+    let mut seen = SEEN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if seen.contains(&key) {
+        false
+    } else {
+        seen.push(key);
+        true
+    }
+}
+
+/// The first non-empty header line of the design's schedule, the nearest thing a design has to a
+/// name.
+fn design_label(design: &Design) -> Option<&str> {
+    design
+        .meta
+        .headers
+        .iter()
+        .map(String::as_str)
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+}
+
+/// Why the design's color pattern cannot be applied, as a sentence for the screen; `None` when the
+/// design has no pattern or the pattern applies.
+///
+/// The reason depends on the pattern alone, not on the material it would be applied to. The
+/// stone then renders in the material's own color, which the sentence says.
+#[must_use]
+pub fn design_pattern_problem(design: &Design) -> Option<String> {
+    let pattern = design.material.color_pattern_override.as_ref()?;
+    let error = pleochroma_cut_core::material::pattern::apply_color_pattern(
+        GemMaterial::diamond(),
+        pattern,
+        design_girdle_mm(design),
     )
-    .unwrap_or(material)
+    .err()?;
+    Some(format!(
+        "The stone's color pattern cannot be applied ({}); it renders in the material's own color.",
+        error.to_string().trim_end_matches('.')
+    ))
+}
+
+/// `message` with the design's color-pattern problem ([`design_pattern_problem`]) appended as a
+/// further sentence, and whether there was one.
+///
+/// Every open path's toast goes through this, so the wording stays in one place; a `true` means the
+/// toast should be a warning.
+#[must_use]
+pub fn with_pattern_notice(message: &str, design: &Design) -> (String, bool) {
+    design_pattern_problem(design).map_or_else(
+        || (message.to_owned(), false),
+        |problem| (format!("{message} {problem}"), true),
+    )
 }
 
 /// Whether [`sized_material_for_optimize`] needs the planes' model width for `material`.

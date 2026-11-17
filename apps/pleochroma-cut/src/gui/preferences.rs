@@ -1,6 +1,7 @@
-//! App-wide preferences: the Simple/Advanced switch, the UI scale, high contrast, larger
-//! drag handles and the tutorial resets, plus the Snap/Slice pills the Solid viewport
-//! remembers.
+//! App-wide preferences: the Simple/Advanced switch, the UI scale and high contrast.
+//!
+//! It also holds the larger drag handles and the tutorial resets, plus the Snap/Slice pills
+//! the Solid viewport remembers.
 //!
 //! The Slint side is `ui/models/preferences.slint` (`PreferencesModel`), the Preferences
 //! dialog (`ui/components/preferences_dialog.slint`, Edit > Preferences..., Ctrl+Comma) and
@@ -38,7 +39,10 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::{
     cell::{Cell, RefCell},
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 /// How much larger the Solid viewport's handles are drawn (and grabbed) with the "Larger
@@ -128,14 +132,24 @@ thread_local! {
     static THEME_SINKS: RefCell<Vec<ThemeSink>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Whether the high-contrast palette is on right now.
-fn high_contrast_enabled() -> bool {
+/// The high-contrast state for threads other than the UI thread (the Solid preview's plan
+/// worker reads it; `HIGH_CONTRAST` above is UI-thread only).
+static HIGH_CONTRAST_SHARED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the high-contrast palette is on right now (UI thread only).
+pub(crate) fn high_contrast_enabled() -> bool {
     HIGH_CONTRAST.get()
+}
+
+/// Whether the high-contrast palette is on right now, from any thread. The Solid viewport's
+/// plan worker draws its facet style in that palette.
+pub(crate) fn high_contrast_flag() -> bool {
+    HIGH_CONTRAST_SHARED.load(Ordering::Relaxed)
 }
 
 /// Registers `sink` and brings it up to the current state at once. A sink that reports its
 /// window gone (`false`) is not kept.
-fn register_theme_sink(sink: impl Fn(bool) -> bool + 'static) {
+pub(crate) fn register_theme_sink(sink: impl Fn(bool) -> bool + 'static) {
     if sink(high_contrast_enabled()) {
         THEME_SINKS.with_borrow_mut(|sinks| sinks.push(Box::new(sink)));
     }
@@ -144,6 +158,7 @@ fn register_theme_sink(sink: impl Fn(bool) -> bool + 'static) {
 /// Switches the palette in every registered window, dropping the sinks of closed ones.
 fn apply_high_contrast(on: bool) {
     HIGH_CONTRAST.set(on);
+    HIGH_CONTRAST_SHARED.store(on, Ordering::Relaxed);
     THEME_SINKS.with_borrow_mut(|sinks| sinks.retain(|sink| sink(on)));
 }
 
@@ -162,6 +177,19 @@ fn bind_main_window_theme(ui: &MainWindow) {
 /// Makes the compare window follow the high-contrast preference. Called once, when the
 /// window is created.
 pub(super) fn bind_compare_window_theme(window: &CompareWindow) {
+    let weak = window.as_weak();
+    register_theme_sink(move |on| {
+        let Some(window) = weak.upgrade() else {
+            return false;
+        };
+        window.global::<Theme>().set_high_contrast(on);
+        true
+    });
+}
+
+/// Makes the Material Reference window follow the high-contrast preference. Called once, when
+/// the window is created.
+pub(super) fn bind_material_reference_window_theme(window: &crate::MaterialReferenceWindow) {
     let weak = window.as_weak();
     register_theme_sink(move |on| {
         let Some(window) = weak.upgrade() else {
@@ -269,6 +297,7 @@ pub(super) fn apply_loaded(ui: &MainWindow, settings: &AppSettings) {
         .set_show_axis(settings.show_crystal_axis);
 
     HIGH_CONTRAST.set(settings.high_contrast);
+    HIGH_CONTRAST_SHARED.store(settings.high_contrast, Ordering::Relaxed);
     bind_main_window_theme(ui);
 }
 
@@ -408,13 +437,13 @@ fn save_path_cache_limit(store: &SettingsPersister, gb: u32) -> u32 {
 /// returns how many were deleted. A failure is logged, never shown: the limit applies again on
 /// the next change.
 fn enforce_path_cache_limit(gb: u32, root: &Path) -> usize {
-    match lru::enforce_limit(root, disk_limit_bytes(gb), None) {
-        Ok(evicted) => evicted.len(),
-        Err(error) => {
+    lru::enforce_limit(root, disk_limit_bytes(gb), None).map_or_else(
+        |error| {
             tracing::warn!("The path cache limit could not be applied: {error}");
             0
-        }
-    }
+        },
+        |evicted| evicted.len(),
+    )
 }
 
 /// Saves the "Speed Up Still Views With a Path Cache" switch and hands it to the render thread.

@@ -14,7 +14,7 @@
 use super::{
     MAX_SWEEP_ANGLE_DEG, MIN_SWEEP_ANGLE_DEG, RowMetrics, SweepError, SweepMetric, SweepOptions,
     SweepRange, SweepScene,
-    csv::{LINE_END, escape, number, yes_no},
+    csv::{APPENDED_COLUMNS, LINE_END, appended_fields, escape, loop_metrics, number, yes_no},
     estimate_seconds, plan_sweep,
     score::{Cancelled, score_clone},
 };
@@ -599,13 +599,11 @@ pub fn estimate_seconds_2d(
 /// A header, then one line per finished cell in row-major order (the down tier's angle changes
 /// slowest). Angles are magnitudes, like the table; the format is the one-tier CSV's (point
 /// decimals, four decimals, empty field for a missing figure, CRLF line ends). The tilt-average
-/// columns are there only when the sweep asked for them.
+/// columns are there only when the sweep asked for them. Contrast and the six Zones (ASET-style)
+/// shares follow `notes`.
 #[must_use]
 pub fn sweep2d_csv(outcome: &Sweep2dOutcome) -> String {
-    let metrics: Vec<SweepMetric> = SweepMetric::ALL
-        .into_iter()
-        .filter(|metric| outcome.tilt_average || !metric.is_tilt())
-        .collect();
+    let metrics: Vec<SweepMetric> = loop_metrics(outcome.tilt_average);
     let mut header: Vec<&str> = vec![
         "tier_a",
         "tier_b",
@@ -617,6 +615,7 @@ pub fn sweep2d_csv(outcome: &Sweep2dOutcome) -> String {
     header.extend(metrics.iter().map(|metric| metric.csv_name()));
     header.push("facet_warnings");
     header.push("notes");
+    header.extend(APPENDED_COLUMNS);
     let mut text = header.join(",");
     text.push_str(LINE_END);
     for cell in &outcome.cells {
@@ -638,6 +637,7 @@ pub fn sweep2d_csv(outcome: &Sweep2dOutcome) -> String {
                 .map_or_else(String::new, |figures| figures.warning_count.to_string()),
         );
         fields.push(escape(&cell.notes_text()));
+        fields.extend(appended_fields(cell.metrics.as_ref()));
         text.push_str(&fields.join(","));
         text.push_str(LINE_END);
     }

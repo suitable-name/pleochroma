@@ -6,7 +6,7 @@ use crate::support::{
     app::{pump, wait_until},
     coverage,
 };
-use pleochroma_cut::EditorModel;
+use pleochroma_cut::{EditorModel, RemoteWorkerModel};
 use slint::ComponentHandle;
 use std::time::Duration;
 
@@ -23,6 +23,9 @@ enum Action {
     Escape,
     /// Activate the first control labelled "... Values" (a value slider's menu).
     ValueMenu,
+    /// Ask for the Remote Coordinator dialog as File > Remote Rendering... does
+    /// (`RemoteWorkerModel.open_dialog`): the window menu is not part of the accessibility tree.
+    OpenRemote,
 }
 
 /// Performs `action`; `false` when its target is not on screen.
@@ -46,6 +49,13 @@ fn perform(ctx: &mut Ctx<'_>, action: &Action) -> bool {
                 h.invoke_accessible_default_action();
                 true
             })
+        }
+        Action::OpenRemote => {
+            ctx.app
+                .ui()
+                .global::<RemoteWorkerModel>()
+                .invoke_open_dialog();
+            true
         }
     }
 }
@@ -108,8 +118,8 @@ fn popup_cycle(ctx: &mut Ctx<'_>, name: &str, open: &Action, close: &Action) {
 }
 
 /// `FilterPanel`, `ImportDialog`, `RemoteWorkerDialog` (header), `EditorLogPopup` and the
-/// value-slider menu: each opens by its button, exposes controls and closes (Esc or its close
-/// button).
+/// value-slider menu: each opens by its button (the remote dialog as its menu entry asks for it),
+/// exposes controls and closes (Esc or its close button).
 pub(super) fn popups_open_and_close(ctx: &mut Ctx<'_>) {
     if !create_template_design(ctx) {
         return;
@@ -123,7 +133,7 @@ pub(super) fn popups_open_and_close(ctx: &mut Ctx<'_>) {
     let esc = Action::Escape;
     popup_cycle(ctx, "FilterPanel", &Action::Click(&["Filters"]), &esc);
     popup_cycle(ctx, "ImportDialog", &Action::Click(&["Import"]), &esc);
-    popup_cycle(ctx, "RemoteWorkerDialog", &Action::Click(&["Remote"]), &esc);
+    popup_cycle(ctx, "RemoteWorkerDialog", &Action::OpenRemote, &esc);
     popup_cycle(
         ctx,
         "EditorLogPopup",

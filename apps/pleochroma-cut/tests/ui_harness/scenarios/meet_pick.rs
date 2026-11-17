@@ -153,6 +153,10 @@ fn arm(ctx: &mut Ctx<'_>, ui: &MainWindow, press: &str) -> bool {
 }
 
 /// Arm, rings, pick, row states, History, Undo, arm again, Escape.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential UI scenario from arming the pick to Escape"
+)]
 fn meet_pick_mode(ctx: &mut Ctx<'_>) {
     show_edit_tab(ctx.app);
     if !ctx.expect(

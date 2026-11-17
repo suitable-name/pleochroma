@@ -438,6 +438,7 @@ mod tests {
                 c_axis_second_azimuth_deg: None,
                 inclusion_families_json: None,
                 structure_json: None,
+                gem_data_json: None,
             })
             .expect("the material saves");
         };

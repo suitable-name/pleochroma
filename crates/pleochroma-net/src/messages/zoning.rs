@@ -567,7 +567,7 @@ mod tests {
             4
         );
         assert_eq!(
-            PROTOCOL_VERSION, 44,
+            PROTOCOL_VERSION, 45,
             "zoning itself needs no protocol bump; the pinned value moves with the other changes"
         );
     }

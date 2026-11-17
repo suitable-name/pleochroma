@@ -13,6 +13,7 @@ use crate::{
     },
     gui::{
         progress_eta::{EtaEstimator, format_eta},
+        render::stone_pose::product_shot_for_stone,
         show_toast,
     },
     settings::{LightingPreset as SavedLightingPreset, LocalComputeTarget, model::PITCH_RANGE_RAD},
@@ -75,6 +76,11 @@ pub(in crate::gui) const fn apply_export_bounce_cap(
 /// Material and geometry are never touched: a preset is a view, so every fanned-out render
 /// shares the material and geometry of the base capture.
 ///
+/// - A preset with `product_shot` (the built-in "Presentation") then lays the stone out like the
+///   Product Shot button, for this scene's design and a picture of `aspect` (width over height):
+///   the stone faces the camera on the tray, the camera drops to the product-shot elevation, and
+///   the distance and pan place the stone. A stone that closes no solid keeps its pose and camera.
+///
 /// `mesh_bounding_radius` is the live figure the live apply and the orbit camera clamp `distance`
 /// against. The caller reads it once before the fan-out starts.
 #[must_use]
@@ -82,6 +88,7 @@ pub(super) fn apply_preset_to_scene(
     mut scene: SceneSnapshot,
     preset: &SavedLightingPreset,
     mesh_bounding_radius: f64,
+    aspect: f32,
 ) -> SceneSnapshot {
     // The scene fields as the one shared `LightingValues`, each limited the way the live
     // controls limit it, exactly as the live apply reads them.
@@ -133,6 +140,24 @@ pub(super) fn apply_preset_to_scene(
     }
     if let Some(pose) = values.pose_stone_pose() {
         scene.stone_pose = StonePose::from_array(pose);
+    }
+    // After the pose and the camera of the rules above, as the live apply does: the product
+    // shot is the last word on where the stone stands and how it is framed.
+    if preset.product_shot
+        && let Some(shot) = product_shot_for_stone(
+            &scene.active_planes,
+            &scene.tools,
+            scene.yaw,
+            scene.stone_pose.spin_deg,
+            aspect,
+        )
+    {
+        scene.stone_pose = shot.pose;
+        scene.yaw = shot.yaw;
+        scene.pitch = shot.pitch;
+        scene.camera_roll = shot.roll;
+        scene.distance = shot.distance;
+        scene.camera_pan = shot.pan;
     }
 
     if let Some(path) = &values.env_map_path {
@@ -636,8 +661,9 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
-        let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5);
+        let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5, 1.0);
         assert_eq!(overlaid.yaw, base.yaw);
         assert_eq!(overlaid.pitch, base.pitch);
         assert_eq!(overlaid.camera_pan, base.camera_pan);
@@ -682,14 +708,15 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
-        let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5);
+        let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5, 1.0);
         assert_eq!(overlaid.yaw, 0.75);
         assert_eq!(overlaid.pitch, 0.3);
         assert_eq!(overlaid.camera_roll, std::f32::consts::FRAC_PI_2);
         assert_eq!(overlaid.camera_pan, [0.4, -0.3]);
         preset.camera_pan = None;
-        let older = apply_preset_to_scene(base, &preset, 1.5);
+        let older = apply_preset_to_scene(base, &preset, 1.5, 1.0);
         assert_eq!(older.camera_pan, [0.0, 0.0], "an older view is centred");
     }
 
@@ -702,14 +729,14 @@ mod tests {
         let posed = StonePose::from_array([90.0, 30.0, 10.0]);
         base.stone_pose = posed;
         let mut preset = crate::settings::model::built_in_presets().remove(0);
-        let mood = apply_preset_to_scene(base.clone(), &preset, 1.5);
+        let mood = apply_preset_to_scene(base.clone(), &preset, 1.5, 1.0);
         assert_eq!(mood.stone_pose, posed, "lighting-only keeps the pose");
         preset.camera_yaw = Some(0.75);
         preset.camera_pitch = Some(0.3);
-        let designed = apply_preset_to_scene(base.clone(), &preset, 1.5);
+        let designed = apply_preset_to_scene(base.clone(), &preset, 1.5, 1.0);
         assert_eq!(designed.stone_pose, StonePose::IDENTITY, "no pose recorded");
         preset.stone_pose = Some([45.0, 10.0, 0.0]);
-        let shot = apply_preset_to_scene(base, &preset, 1.5);
+        let shot = apply_preset_to_scene(base, &preset, 1.5, 1.0);
         assert_eq!(shot.stone_pose, StonePose::from_array([45.0, 10.0, 0.0]));
     }
 
@@ -750,8 +777,9 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
-        let overlaid = apply_preset_to_scene(base, &preset, 1.5);
+        let overlaid = apply_preset_to_scene(base, &preset, 1.5, 1.0);
         assert_eq!(overlaid.surface_glare.to_bits(), 0.25_f32.to_bits());
         assert_eq!(overlaid.head_shadow_deg.to_bits(), 5.0_f32.to_bits());
         assert!(overlaid.env_map.is_none(), "no saved map means the rig");
@@ -796,8 +824,9 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 90.0,
             env_map_follows_camera: true,
+            product_shot: false,
         };
-        let turned = apply_preset_to_scene(base, &preset, 1.5);
+        let turned = apply_preset_to_scene(base, &preset, 1.5, 1.0);
         assert!(turned.env_map.is_some(), "the saved map loads");
         assert_eq!(
             turned.hdr_orientation,
@@ -808,7 +837,7 @@ mod tests {
             "the saved lighting's turn reaches the exported scene"
         );
         preset.env_map_path = None;
-        let studio = apply_preset_to_scene(turned, &preset, 1.5);
+        let studio = apply_preset_to_scene(turned, &preset, 1.5, 1.0);
         assert!(studio.env_map.is_none());
         assert_eq!(studio.hdr_orientation, HdrOrientation::default());
         let _ = std::fs::remove_file(&path);
@@ -846,14 +875,15 @@ mod tests {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
-        let on = apply_preset_to_scene(base, &preset, 1.5);
+        let on = apply_preset_to_scene(base, &preset, 1.5, 1.0);
         assert!(
             on.stone_shadow,
             "the saved lighting's shadow reaches the scene"
         );
         preset.stone_shadow = false;
-        let off = apply_preset_to_scene(on, &preset, 1.5);
+        let off = apply_preset_to_scene(on, &preset, 1.5, 1.0);
         assert!(!off.stone_shadow, "a saved lighting without it clears it");
     }
 
@@ -889,11 +919,12 @@ mod tests {
             tray_reflection: 0.04,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
-        let on = apply_preset_to_scene(base, &preset, 1.5);
+        let on = apply_preset_to_scene(base, &preset, 1.5, 1.0);
         assert_eq!(on.tray_reflection.to_bits(), 0.04f32.to_bits());
         preset.tray_reflection = 0.0;
-        let off = apply_preset_to_scene(on, &preset, 1.5);
+        let off = apply_preset_to_scene(on, &preset, 1.5, 1.0);
         assert_eq!(off.tray_reflection.to_bits(), 0);
     }
 
@@ -933,11 +964,63 @@ mod tests {
             tray_reflection: 0.04,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         };
-        let overlaid = apply_preset_to_scene(base, &preset, 1.5);
+        let overlaid = apply_preset_to_scene(base, &preset, 1.5, 1.0);
         assert!(!overlaid.stone_closed);
         assert!(!overlaid.remote_stone_shadow());
         assert_eq!(overlaid.remote_tray_reflection().to_bits(), 0);
+    }
+
+    /// The "Presentation" built-in lays the stone out like the Product Shot button on the export
+    /// path: the pose, the camera and the pan come from the design and the picture's shape, and the
+    /// shadow and the reflection come with the look. The same preset without the flag leaves the
+    /// base capture's pose and camera alone.
+    #[test]
+    fn apply_preset_to_scene_lays_a_product_shot_preset_out_like_the_button() {
+        let base = SceneSnapshot::capture(&Mutex::new(RenderContext {
+            yaw: 1.23,
+            pitch: 0.44,
+            camera_pan: [0.2, 0.1],
+            ..Default::default()
+        }))
+        .expect("Diamond resolves");
+        let mut preset = crate::settings::model::built_in_presets()
+            .into_iter()
+            .find(|p| p.name == "Presentation")
+            .expect("the Presentation built-in exists");
+        assert!(preset.product_shot);
+        let expected = product_shot_for_stone(
+            &base.active_planes,
+            &base.tools,
+            base.yaw,
+            base.stone_pose.spin_deg,
+            1.5,
+        )
+        .expect("the Diamond closes a solid");
+
+        let laid = apply_preset_to_scene(base.clone(), &preset, 1.5, 1.5);
+        assert_eq!(laid.stone_pose, expected.pose);
+        assert_eq!(laid.yaw.to_bits(), base.yaw.to_bits(), "the yaw is kept");
+        assert_eq!(laid.pitch.to_bits(), expected.pitch.to_bits());
+        assert_eq!(laid.camera_roll.to_bits(), expected.roll.to_bits());
+        assert_eq!(laid.distance.to_bits(), expected.distance.to_bits());
+        assert_eq!(laid.camera_pan, expected.pan);
+        assert!(laid.stone_shadow, "the Presentation look has the shadow");
+        assert_eq!(
+            laid.tray_reflection.to_bits(),
+            crate::settings::model::PRESENTATION_TRAY_REFLECTION.to_bits()
+        );
+
+        // The picture's shape matters: a tall picture pulls the eye back to fit the stone's width.
+        let tall = apply_preset_to_scene(base.clone(), &preset, 1.5, 0.5);
+        assert!(tall.distance > laid.distance);
+
+        preset.product_shot = false;
+        let mood = apply_preset_to_scene(base.clone(), &preset, 1.5, 1.5);
+        assert_eq!(mood.stone_pose, base.stone_pose);
+        assert_eq!(mood.camera_pan, base.camera_pan);
+        assert_eq!(mood.pitch.to_bits(), base.pitch.to_bits());
     }
 
     /// A job scene of a stone that is not closed resolves to a snapshot that is not closed, and

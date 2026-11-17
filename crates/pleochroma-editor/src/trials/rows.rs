@@ -12,7 +12,7 @@ const TIE_TOLERANCE: f64 = 0.005;
 
 /// In which figures one trial is the best of the list.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct BestMarks([bool; 10]);
+pub struct BestMarks([bool; DeltaFigure::ALL.len()]);
 
 impl BestMarks {
     /// Whether the trial is the best in `figure`.
@@ -91,7 +91,9 @@ pub struct TrialRowView {
     /// Whether the trial has scored figures at all.
     pub has_metrics: bool,
     /// The figure cells, in the order of [`DeltaFigure::ALL`]; the figures the trial lacks
-    /// (a tilt average that was not measured) have no cell.
+    /// (a tilt average that was not measured, Contrast of a stone that was not traced for
+    /// it) have no cell. The desktop table shows a fixed list of columns and ignores the
+    /// other cells.
     pub cells: Vec<TrialCell>,
 }
 

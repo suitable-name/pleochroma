@@ -1,0 +1,24 @@
+// A small picture of how a rig lights: a dome seen from above, four stacked solid circles from
+// the rim to the centre in the light the rig spreads over it. The colors are picture data.
+// kind: 0 tent, 1 grading tray, 2 white tray, 3 shop, 4 window, 5 sky, 6 sky + sun, 7 D65,
+// 8 warm, 9 warm A, 10 ring, 11 dark spot, 12 contrast, 13 UV 365 nm, 14 UV 395 nm.
+export component PleoRigThumb inherits Rectangle {
+    in property <int> kind;
+    in property <length> size: 56px;
+
+    // Centre to rim.
+    property <[color]> c0: [#f4f6fb, #1a1c22, #ffffff, #fff6d8, #e9f0ff, #dcebff, #fff7d6, #ffffff, #ffd59a, #ffc983, #0f1116, #fffbe8, #2f6bff, #e9d5ff, #f3e8ff];
+    property <[color]> c1: [#e3e7ef, #eef1f8, #f3f6fb, #e4d3a6, #c3cfe8, #b6d0f5, #8fb4ec, #1a1d24, #3a2614, #3a220e, #ffffff, #121318, #e2342f, #a78bfa, #c4b5fd];
+    property <[color]> c2: [#bfc6d3, #e2e6ef, #dfe5f0, #a8946b, #8fa0c0, #8fb4ec, #7aa3e0, #14161c, #1c140c, #1c120a, #0f1116, #0b0c10, #e2342f, #6d28d9, #7c3aed];
+    property <[color]> c3: [#6b7280, #c9cfdc, #aab3c5, #4a4436, #3a4250, #4a6a9a, #3a5a8a, #0f1116, #110c08, #110b06, #0f1116, #08090c, #27b24a, #2e1065, #3b0f7a];
+    property <length> d: root.size * 0.78;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size * 0.18;
+    background: #0b0e15;
+    Rectangle { x: (root.size - root.d) / 2; y: (root.size - root.d) / 2; width: root.d; height: root.d; border-radius: root.d / 2; background: root.c3[root.kind]; }
+    Rectangle { x: (root.size - root.d * 0.74) / 2; y: (root.size - root.d * 0.74) / 2; width: root.d * 0.74; height: root.d * 0.74; border-radius: root.d * 0.37; background: root.c2[root.kind]; }
+    Rectangle { x: (root.size - root.d * 0.5) / 2; y: (root.size - root.d * 0.5) / 2; width: root.d * 0.5; height: root.d * 0.5; border-radius: root.d * 0.25; background: root.c1[root.kind]; }
+    Rectangle { x: (root.size - root.d * 0.26) / 2; y: (root.size - root.d * 0.26) / 2; width: root.d * 0.26; height: root.d * 0.26; border-radius: root.d * 0.13; background: root.c0[root.kind]; }
+}

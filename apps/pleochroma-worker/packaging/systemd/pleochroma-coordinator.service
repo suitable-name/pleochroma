@@ -1,0 +1,94 @@
+# Pleochroma coordinator (pleochroma-worker serve) as a systemd service.
+#
+# Install:  cp pleochroma-coordinator.service /etc/systemd/system/
+#           systemctl daemon-reload
+#           systemctl enable --now pleochroma-coordinator
+# Logs:     journalctl -u pleochroma-coordinator -f
+#
+# Before the first start (see chapter 10 of the manual, "Running the coordinator or a
+# render computer as a Linux service"):
+#   - the user and group "pleochroma" and /var/lib/pleochroma exist;
+#   - /var/lib/pleochroma/pki holds ca.pem, ca.key, server.pem and server.key
+#     (pleochroma-worker cert init / cert issue-server, run as the service user);
+#   - the binary is /usr/local/bin/pleochroma-worker.
+
+[Unit]
+Description=Pleochroma coordinator
+Documentation=https://pleochroma.com
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pleochroma
+Group=pleochroma
+
+# serve keeps its state relative to this folder: the library database (--db), the
+# "jobs" and "asset-cache" folders next to it, and the PKI folder holding --ca.
+WorkingDirectory=/var/lib/pleochroma
+
+# --headless is required: without it a build with a window prints a deprecation warning.
+#
+# PLACEHOLDERS to change:
+#   --bind          the address the viewers connect to. 0.0.0.0:7878 listens on every
+#                   interface; the enrollment listener takes 7879, the worker port 7880
+#                   and the worker enrollment listener 7881 (all on the same host).
+#   --db            the design library. It is opened read-only and may be missing.
+#   --render        this computer renders too. Needs a build with the worker feature
+#                   (GPU needs the gpu feature). Remove it for a coordinator that only
+#                   serves the library and lets joined workers render.
+# --allow-remote is required for any address that is not loopback.
+ExecStart=/usr/local/bin/pleochroma-worker --headless serve \
+    --bind 0.0.0.0:7878 --allow-remote \
+    --ca /var/lib/pleochroma/pki/ca.pem \
+    --cert /var/lib/pleochroma/pki/server.pem \
+    --key /var/lib/pleochroma/pki/server.key \
+    --db /var/lib/pleochroma/facet_diagrams.sqlite \
+    --render
+
+# On a SIGTERM serve stops accepting, closes its connections and exits 0. It waits up to
+# 10 seconds for that, so give systemd a little more before it sends SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+
+# The GPU shader caches (the app's pipeline cache and Mesa's) live under the cache folder.
+# It must be writable, or every start compiles the shaders again: keep it below
+# ReadWritePaths, whatever the service user's home is.
+Environment=XDG_CACHE_HOME=/var/lib/pleochroma/.cache
+
+# Log level (the default is info). Output goes to the journal.
+#Environment=RUST_LOG=info
+
+# Skip the one request at start that asks GitHub for a newer release (offline server).
+#Environment=PLEOCHROMA_NO_UPDATE_CHECK=1
+
+# AMD GPU with Mesa's RADV driver: the worker turns its scheduler workaround on by itself
+# when it finds an AMD GPU on the amdgpu driver. Set this only to force it on or off.
+#Environment=PLEOCHROMA_RADV_WORKAROUND=on
+
+# Where the HDR map cache lives and how large it may grow (defaults: "asset-cache" next
+# to --db, 2048 MiB).
+#Environment=PLEOCHROMA_ASSET_CACHE_DIR=/var/lib/pleochroma/asset-cache
+#Environment=PLEOCHROMA_ASSET_CACHE_MIB=2048
+
+# GPU rendering: the service user needs the device nodes in /dev/dri. Uncomment, and
+# check the group names with "ls -l /dev/dri" (some systems have only "video").
+# Do not add PrivateDevices=true: it hides /dev/dri.
+#SupplementaryGroups=video render
+
+# Hardening. The service user can write only below /var/lib/pleochroma.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pleochroma
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

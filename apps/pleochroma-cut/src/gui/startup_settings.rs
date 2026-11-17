@@ -88,6 +88,22 @@ pub(super) fn apply_loaded_settings(
         ui.global::<ViewportModel>()
             .set_selected_material_index(idx);
     }
+    // The Stone tab's material facts for the library view's starting material.
+    let (custom, custom_gem, custom_sg) = {
+        let ctx = RenderContext::lock(render_ctx);
+        (
+            ctx.custom_materials.clone(),
+            ctx.custom_material_gem_data.clone(),
+            ctx.custom_material_specific_gravity.clone(),
+        )
+    };
+    crate::gui::editor::push_gem_card(
+        ui,
+        Some(effective_material_name),
+        &custom,
+        &custom_gem,
+        &custom_sg,
+    );
     if !material_found {
         show_toast(
             ui,

@@ -1,4 +1,5 @@
 //! Static checks over the Slint sources (`ui/**/*.slint`) and the Rust handlers (`src/**`).
+//!
 //! No window is created and no extra dependency is used; the sources are read as text with a
 //! small brace-aware scanner that blanks comments and string contents first.
 //!
@@ -66,25 +67,36 @@ fn collect_files(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Every `.slint` file under `ui/` as `(path relative to ui/, text)`.
+/// Every `.slint` file under `ui/` as `(path relative to ui/, text)`, plus the shared kit's files
+/// (`crates/pleochroma-ui-kit/ui`) under the same relative paths. A kit file replaces the
+/// re-export stub at its path under `ui/`, so the checks see the code, not the stub.
 fn slint_sources() -> Vec<(String, String)> {
-    let ui = crate_dir().join("ui");
-    let mut files = Vec::new();
-    collect_files(&ui, "slint", &mut files);
-    assert!(!files.is_empty(), "no .slint files under {}", ui.display());
-    files
-        .iter()
-        .map(|path| {
-            let rel = path
-                .strip_prefix(&ui)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let text = fs::read_to_string(path)
-                .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-            (rel, text)
-        })
-        .collect()
+    let read_all = |ui: &Path| -> Vec<(String, String)> {
+        let mut files = Vec::new();
+        collect_files(ui, "slint", &mut files);
+        assert!(!files.is_empty(), "no .slint files under {}", ui.display());
+        files
+            .iter()
+            .map(|path| {
+                let rel = path
+                    .strip_prefix(ui)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let text = fs::read_to_string(path)
+                    .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+                (rel, text)
+            })
+            .collect()
+    };
+    let mut sources = read_all(&crate_dir().join("ui"));
+    for (rel, text) in read_all(&crate_dir().join("../../crates/pleochroma-ui-kit/ui")) {
+        match sources.iter_mut().find(|(known, _)| *known == rel) {
+            Some(slot) => slot.1 = text,
+            None => sources.push((rel, text)),
+        }
+    }
+    sources
 }
 
 /// Adds every identifier that starts with `on_` in `text` to `names`.

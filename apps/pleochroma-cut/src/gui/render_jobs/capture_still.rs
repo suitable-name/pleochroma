@@ -240,6 +240,7 @@ fn continue_add(
         &deps.settings_store,
         &base_scene,
         &deps.mesh_bounding_radius,
+        request.params.width.max(1) as f32 / request.params.height.max(1) as f32,
     );
     if let Some(reason) = jobs
         .iter()

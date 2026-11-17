@@ -130,8 +130,8 @@ as off. Live viewing builds a Preview map in the background and restarts accumul
 when it arrives. Camera moves reuse the map; light changes rebuild it. Exports, jobs,
 final images, batches and the passes of an adaptive export build Final quality before
 tracing. Remote workers compute their own maps, Preview for a live viewport request
-and Final for the rest (`SceneState::stone_shadow`, protocol 40). Tilt views and
-videos omit it.
+and Final for the rest (`SceneState::stone_shadow`, protocol 40). Tilt videos draw it; the tilt hover
+preview omits it.
 
 ### Tray Reflection
 
@@ -148,8 +148,8 @@ this light)"). It persists globally, in saved
 lighting, and in each design's stored lighting; older settings and saved rows load it as off.
 The path cache does not serve it, and neither does beam tracing (in a build with the `beam`
 feature); notes say so. Spectral GPU rendering leaves the render to the processor when the card
-cannot run it; Ray-Traced GPU rendering always runs it. Tilt views and videos omit it ("Tilt views don't show
-the tray reflection."). Remote workers build the mirror themselves
+cannot run it; Ray-Traced GPU rendering always runs it. Tilt videos draw it; the tilt hover preview omits
+it ("Tilt views don't show the tray reflection."). Remote workers build the mirror themselves
 (`SceneState::tray_reflection`, protocol 41).
 
 ### Stone Pose
@@ -206,7 +206,7 @@ Keys written by the Parameters dock (Stone / Lighting & Environment / Render & O
 | `migrated_stone_effects` | `true` / `false` | `false` for a file without the key, `true` on a brand-new install |
 | `[settings.update_check]` | `enabled` (`true` / `false`; absent = not asked yet), `last_check_unix` (seconds), `skipped_version` (`"0.7.3"`) | not asked, never checked, none skipped |
 | `[settings.output.still]` | `size_preset`, `custom_width`, `custom_height`, `sample_exponent`, `bounces`, `color_space_index`, `compute`, `transfer`, `adaptive_sampling`, `target_noise_index`, `path_cache`, `keep_path_cache`, `beam` (Beam Tracing (Faceted Stones)), `keep_beams` (Keep Beams for Re-Renders) | the still export's defaults (the boxes are `false`). Beam tracing is retired: every build reads and writes `beam` and `keep_beams` unchanged, but only a build with the `beam` feature shows or uses them. Adaptive sampling is an optional build feature (`adaptive-sampling`): every build reads and writes `adaptive_sampling` and `target_noise_index` unchanged, but only a build with the feature shows or uses them |
-| `[settings.output.tilt_video]` | `resolution_preset`, `custom_width`, `custom_height`, `sample_exponent`, `bounces`, `color_space_index`, `transfer`, `filename_template`, `start_angle_deg` / `end_angle_deg` (-90..90), `step_hundredths_deg` (1..500, so 0.01°..5°), `fps_index` (`0` 24, `1` 30, `2` 60), `axes` (chosen axes `0`..`3`; empty = the chart's axis), `quarter_turn`, `show_values`, `metric_brilliance`, `metric_windowing`, `metric_extinction`, `metric_tilt_brilliance`, `metric_angle`, `keep_frames`, `adaptive_sampling` (same rule as in `[settings.output.still]`), `target_noise_index`, `path_cache`, `keep_video_cache` (Keep Path Cache for This Video; in a build with the `beam` feature it keeps the beams too), `beam` (Beam Tracing (Faceted Stones)) | the tilt video's defaults (the boxes are `false`). Every build reads and writes `beam` unchanged; only a build with the retired `beam` feature shows or uses it |
+| `[settings.output.tilt_video]` | `resolution_preset`, `custom_width`, `custom_height`, `sample_exponent`, `bounces`, `color_space_index`, `transfer`, `filename_template`, `start_angle_deg` / `end_angle_deg` (-90..90), `step_hundredths_deg` (1..500, so 0.01°..5°), `fps_index` (`0` 24, `1` 30, `2` 60), `axes` (chosen axes `0`..`3`; empty = the chart's axis), `quarter_turn`, `show_values`, `metric_brilliance`, `metric_windowing`, `metric_extinction`, `metric_tilt_brilliance`, `metric_angle`, `keep_frames`, `stone_shadow` and `tray_reflection` (the section's Stone Shadow and Tray Reflection switches, both off by default), `adaptive_sampling` (same rule as in `[settings.output.still]`), `target_noise_index`, `path_cache`, `keep_video_cache` (Keep Path Cache for This Video; in a build with the `beam` feature it keeps the beams too), `beam` (Beam Tracing (Faceted Stones)) | the tilt video's defaults (the boxes are `false`). Every build reads and writes `beam` unchanged; only a build with the retired `beam` feature shows or uses it |
 
 **Output defaults.** `[settings.output]` is what the Export and Tilt Video dialogs open
 with. Both tables and every field are optional (a file without them loads the defaults),
@@ -341,6 +341,9 @@ pub struct RemoteEndpoint {
     pub connection: WorkerSettings,
     pub export_transfer: ExportTransfer, // FullData (default) | FinalPicture
     pub live_transfer: LiveTransfer,     // FullData (default) | FinalPicture
+    pub addresses: Vec<String>,          // host:port list tried in order; empty = just connection.address (0.11.1 files)
+    pub enroll_port: u16,                // enrollment port from the pairing link; 0 = not paired by link
+    pub fixed_name: bool,                // paired by link: verified by its fixed certificate name, whatever IP answers
 }
 
 pub struct WorkerSettings {

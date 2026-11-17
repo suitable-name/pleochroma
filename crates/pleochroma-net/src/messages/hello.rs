@@ -25,6 +25,8 @@
 //! Hello carries its [`RenderCapability`] in [`Hello::capability`]; a coordinator that
 //! accepts it replies with [`Welcome::registration`] set. A server that does not accept
 //! joining workers refuses a worker Hello with an `ErrorMsg` in place of `WELCOME`.
+//! [`PeerRole::Monitor`] and [`PeerRole::Admin`] (protocol 45) are remote administration
+//! clients; like a viewer they carry no capability.
 //!
 //! # The first three fields are the version-probe prefix
 //!
@@ -46,6 +48,12 @@ pub enum PeerRole {
     /// A render worker joining a coordinator: dials out, then serves the coordinator's
     /// requests on the same connection.
     Worker,
+    /// A read-only remote administration client (wire byte 2): may read the coordinator's
+    /// status and change nothing.
+    Monitor,
+    /// A remote administration client (wire byte 3): may read the status and change
+    /// the coordinator's settings.
+    Admin,
 }
 
 /// `-> HELLO`: a client's opening message, identifying its protocol version and
@@ -99,12 +107,13 @@ impl Hello {
     }
 
     /// Whether [`Self::role`] and [`Self::capability`] agree: a worker must report its
-    /// capability, a viewer must not report one.
+    /// capability, every other role must not report one.
     #[must_use]
     pub const fn role_is_consistent(&self) -> bool {
         matches!(
             (self.role, &self.capability),
-            (PeerRole::Viewer, None) | (PeerRole::Worker, Some(_))
+            (PeerRole::Viewer | PeerRole::Monitor | PeerRole::Admin, None)
+                | (PeerRole::Worker, Some(_))
         )
     }
 }
@@ -135,9 +144,10 @@ pub enum Backend {
     },
 }
 
-/// The render half of [`Welcome`], present only when this worker was built with (and
-/// has active) render capacity -- see [`Welcome::render`]. Also what a joining worker
-/// reports in [`Hello::capability`].
+/// The render half of [`Welcome`], present only when this worker has active render capacity.
+///
+/// The worker must also have been built with it -- see [`Welcome::render`]. Also what a
+/// joining worker reports in [`Hello::capability`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderCapability {
     /// Which engine serves requests.
@@ -210,10 +220,11 @@ pub struct Welcome {
 }
 
 impl Welcome {
-    /// A `WELCOME` carrying this build's [`super::PROTOCOL_VERSION`]. Every literal outside
-    /// this crate goes through here so the `render`-only `zoning` field is set (to `false`) in
-    /// whichever feature combination the crate was built with; a caller that advertises
-    /// zoning overwrites it afterwards.
+    /// A `WELCOME` carrying this build's [`super::PROTOCOL_VERSION`].
+    ///
+    /// Every literal outside this crate goes through here so the `render`-only `zoning` field
+    /// is set (to `false`) in whichever feature combination the crate was built with; a
+    /// caller that advertises zoning overwrites it afterwards.
     #[must_use]
     pub const fn new(
         build_hash: [u8; 8],
@@ -367,10 +378,10 @@ mod tests {
     fn hello_and_welcome_bytes_are_the_pre_zoning_layout() {
         let mut hello = Hello::viewer(PROTOCOL_VERSION, [1, 2, 3, 4, 5, 6, 7, 8], [8; 8]);
         hello.accept_encodings = vec![PayloadEncoding::Raw];
-        let mut expected_hello = vec![0x2C, 1, 2, 3, 4, 5, 6, 7, 8];
+        let mut expected_hello = vec![0x2D, 1, 2, 3, 4, 5, 6, 7, 8];
         expected_hello.extend_from_slice(&[8; 8]);
         expected_hello.extend_from_slice(&[0x00, 0x00, 0x01, 0x00]);
-        assert_eq!(PROTOCOL_VERSION, 44, "the hand-written bytes assume v44");
+        assert_eq!(PROTOCOL_VERSION, 45, "the hand-written bytes assume v45");
         assert_eq!(postcard::to_allocvec(&hello).unwrap(), expected_hello);
 
         let welcome = Welcome {
@@ -385,7 +396,7 @@ mod tests {
             #[cfg(feature = "render")]
             zoning: false,
         };
-        let mut expected_welcome = vec![0x2C];
+        let mut expected_welcome = vec![0x2D];
         expected_welcome.extend_from_slice(&[9; 8]);
         expected_welcome.extend_from_slice(&[10; 8]);
         expected_welcome.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00]);
@@ -415,5 +426,32 @@ mod tests {
         assert_eq!(postcard::to_allocvec(&coordinator).unwrap()[0], 2);
         assert_eq!(postcard::to_allocvec(&PeerRole::Viewer).unwrap(), [0]);
         assert_eq!(postcard::to_allocvec(&PeerRole::Worker).unwrap(), [1]);
+        assert_eq!(postcard::to_allocvec(&PeerRole::Monitor).unwrap(), [2]);
+        assert_eq!(postcard::to_allocvec(&PeerRole::Admin).unwrap(), [3]);
+    }
+
+    #[test]
+    fn hello_round_trips_for_monitor_and_admin() {
+        for role in [
+            PeerRole::Viewer,
+            PeerRole::Worker,
+            PeerRole::Monitor,
+            PeerRole::Admin,
+        ] {
+            let mut hello = Hello::viewer(PROTOCOL_VERSION, [3; 8], [4; 8]);
+            hello.role = role;
+            if role == PeerRole::Worker {
+                hello.capability = Some(cpu_capability());
+            }
+            assert!(hello.role_is_consistent(), "{role:?}");
+            assert_eq!(round_trip(&hello), hello, "{role:?}");
+        }
+        let mut admin = Hello::viewer(PROTOCOL_VERSION, [3; 8], [4; 8]);
+        admin.role = PeerRole::Admin;
+        admin.capability = Some(cpu_capability());
+        assert!(
+            !admin.role_is_consistent(),
+            "an admin reporting a capability"
+        );
     }
 }

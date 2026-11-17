@@ -52,7 +52,8 @@ pub const ALL_WORKERS_LOST: u32 = 6;
 /// The `HELLO`'s role is not accepted on this port.
 ///
 /// A `PeerRole::Worker` Hello on a server that does not accept joining workers (or on
-/// its viewer port), a `PeerRole::Viewer` Hello on a worker port, or a Hello whose role
+/// its viewer port), a `PeerRole::Viewer` Hello on a worker port, a `PeerRole::Monitor` or
+/// `PeerRole::Admin` Hello on a server without remote administration, or a Hello whose role
 /// and capability disagree. Sent in place of `WELCOME`.
 pub const ROLE_REFUSED: u32 = 7;
 
@@ -98,6 +99,12 @@ pub const JOB_LIMIT: u32 = 13;
 /// of a job that is not `Done`, or cancelling one that already ended.
 pub const JOB_STATE: u32 = 14;
 
+/// A remote administration request is not allowed for the sender's role.
+///
+/// For example a `Monitor` asking to change a setting. The connection stays usable; the
+/// message names the role and the action.
+pub const PERMISSION_DENIED: u32 = 15;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +129,7 @@ mod tests {
             ("JOB_UNKNOWN", JOB_UNKNOWN),
             ("JOB_LIMIT", JOB_LIMIT),
             ("JOB_STATE", JOB_STATE),
+            ("PERMISSION_DENIED", PERMISSION_DENIED),
         ];
         for (i, (name_a, a)) in codes.iter().enumerate() {
             for (name_b, b) in &codes[i + 1..] {

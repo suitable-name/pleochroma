@@ -536,6 +536,8 @@ fn on_update(
         RemoteUpdate::Connected { .. }
         | RemoteUpdate::FinalImage { .. }
         | RemoteUpdate::Frame { .. }
+        // Alive but not yet tracing: `last_update` already restarted the silence clock.
+        | RemoteUpdate::Preparing { .. }
         | RemoteUpdate::DisplayFrame { .. }
         | RemoteUpdate::CapabilityChanged { .. } => None,
     }

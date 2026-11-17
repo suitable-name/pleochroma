@@ -62,8 +62,9 @@ precompute, which can be canceled. The remote worker builds the same map locally
 no map bytes cross the connection. The path cache reports in every build that it
 cannot serve the stone shadow and uses ordinary tracing; beam tracing does the same,
 but only in a build with the `beam` feature. Spectral GPU rendering uses
-the megakernel when supported and otherwise falls back to CPU. Tilt videos do not
-show the stone shadow yet.
+the megakernel when supported and otherwise falls back to CPU. Tilt views never show
+the stone shadow; a tilt video draws it only when its **Stone Shadow** switch is on
+(Chapter 14).
 
 ### Tray Reflection
 
@@ -91,8 +92,9 @@ the cache does not keep." and beam tracing (in a build with the `beam` feature) 
 "Beam tracing off: the tray reflection is traced without beams."; both use ordinary tracing.
 Spectral GPU rendering uses the graphics card when it can run the reflection and otherwise
 says "Tray reflection is traced on the CPU on this graphics card."; Ray-Traced GPU rendering
-always shows it. Tilt views and tilt videos
-do not show the reflection ("Tilt views don't show the tray reflection."). A still with the
+always shows it. Tilt views
+do not show the reflection ("Tilt views don't show the tray reflection."); a tilt video draws
+it only when its **Tray Reflection** switch is on (Chapter 14). A still with the
 reflection on is saved as a format 4 render job (format 5 when the stone has color zones, format 6 with a
 turned HDR map, format 7 with the stone moved within the picture, format 8 with a Stone Pose; Chapter 23).
 

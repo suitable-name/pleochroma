@@ -32,6 +32,12 @@
 //!   `DEBUG_MODE.md`).
 //! - `PLEOCHROMA_HARNESS_LIBRARY`: a `facet_diagrams.sqlite` to copy into the profile (it is
 //!   never opened itself). Without it a small fixture library is used.
+//! - `PLEOCHROMA_VIDEOS_REMOTE`: a `settings.toml` (the owner's own) whose `[settings.remote]`
+//!   the live renders use next to this computer (Live Compute on Local + Remote), under the
+//!   neutral label "Render Server"; the owner's label and the remote's host join the private
+//!   words. A remote that does not accept a connection within three seconds is not used and the
+//!   run stays local. The Render Jobs lessons (`output-render-jobs`, `output-render-jobs-queue`)
+//!   show where a job renders and always stay local.
 //! - `UIPROBE_JOBS=serial`: one tutorial at a time; `UIPROBE_FFMPEG`: the ffmpeg executable.
 //!
 //! Per tutorial, in its browser section's folder `<ss>-<section>/` (for example
@@ -87,7 +93,7 @@ mod targets;
 use config::Config;
 use pleochroma_editor::guide::GuideCatalog;
 use std::{cell::RefCell, process::ExitCode, rc::Rc};
-use support::{Ctx, HarnessApp, SettingsSeed, profile::print_shutdown_summary};
+use support::{Ctx, HarnessApp, profile::print_shutdown_summary};
 use uiprobe::{
     Harness, Jobs,
     backend::Renderer,
@@ -107,6 +113,9 @@ fn main() -> ExitCode {
     );
     // Read before the profile moves the working directory and redirects the user variables.
     let config = Rc::new(Config::from_env());
+    if let Some(note) = &config.remote_note {
+        println!("tutorial-videos: {note}");
+    }
     if !config.debug
         && let Err(error) = numbering::write_playlist(&config.out_dir)
     {
@@ -173,7 +182,7 @@ fn register(harness: Harness, app: &SharedApp, config: &Rc<Config>, id: String) 
             app: &mut guard,
             profile,
             report,
-            seed: SettingsSeed::ExistingInstall,
+            seed: config.seed_for(&id),
         };
         let outcome = director::film(&mut ctx, &config, &id);
         // A refused configuration or failed launch can return before a window exists.

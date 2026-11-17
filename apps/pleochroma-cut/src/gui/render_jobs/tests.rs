@@ -938,15 +938,14 @@ fn video_job_with(dir: &Path, keep_frames: bool, remote: RemoteSelection) -> Ren
     .expect("the video job builds")
 }
 
-/// A tilt video job with the Stone Shadow on is frozen without it, as a format 1 or 2 file
-/// that the job rules accept.
-#[test]
-fn a_tilt_video_job_drops_the_stone_shadow_instead_of_being_refused() {
-    let request = VideoExportRequest {
-        scene: capture(RenderContext {
-            stone_shadow: true,
-            ..RenderContext::default()
-        }),
+/// A video request for the tray effect tests: the default Live Render scene with `shadow` and
+/// `reflection` set the way the section's switches would leave them.
+fn effects_video_request(shadow: bool, reflection: f32) -> VideoExportRequest {
+    let mut scene = capture(RenderContext::default());
+    scene.stone_shadow = shadow;
+    scene.tray_reflection = reflection;
+    VideoExportRequest {
+        scene,
         axes: vec![0],
         start_deg: -2.0,
         end_deg: 2.0,
@@ -967,11 +966,15 @@ fn a_tilt_video_job_drops_the_stone_shadow_instead_of_being_refused() {
         adaptive: None,
         path_cache: None,
         beam: None,
-    };
-    assert!(
-        request.scene.stone_shadow,
-        "the request asks for the shadow"
-    );
+    }
+}
+
+/// A tilt video job freezes the Stone Shadow its request draws, as the job format that carries it,
+/// and the job rebuilds the same scene for the frame loop. A request without it is the format 1
+/// file it always was.
+#[test]
+fn a_tilt_video_job_keeps_the_stone_shadow_its_request_draws() {
+    let request = effects_video_request(true, 0.0);
     let job = convert::build_video_job(
         &request,
         "Shadow video".to_string(),
@@ -980,44 +983,29 @@ fn a_tilt_video_job_drops_the_stone_shadow_instead_of_being_refused() {
         0,
     )
     .expect("the tilt video job builds");
-    assert!(!job.scene.stone_shadow);
-    assert!(job.format <= 2, "no stone-shadow job format");
+    assert!(job.scene.stone_shadow);
+    assert_eq!(job.format, 3, "the stone shadow is job format 3");
+    let text = codec::to_text(&job).expect("encodes");
+    let back = codec::from_text(&text).expect("decodes");
+    assert!(convert::snapshot_from_job(&back, None).stone_shadow);
+
+    let plain = convert::build_video_job(
+        &effects_video_request(false, 0.0),
+        "Plain video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the tilt video job builds");
+    assert!(!plain.scene.stone_shadow);
+    assert!(plain.format <= 2, "no stone-shadow job format");
 }
 
-/// A tilt video job with the Tray Reflection on is frozen without it, as a file the job rules
-/// accept (below the format that carries the reflection).
+/// A tilt video job freezes the Tray Reflection its request draws, in the format that carries it,
+/// and reads it back; a request without it freezes none.
 #[test]
-fn a_tilt_video_job_drops_the_tray_reflection_instead_of_being_refused() {
-    let request = VideoExportRequest {
-        scene: capture(RenderContext {
-            tray_reflection: 0.04,
-            ..RenderContext::default()
-        }),
-        axes: vec![0],
-        start_deg: -2.0,
-        end_deg: 2.0,
-        step_deg: 2.0,
-        total_frames: 3,
-        fps: 30,
-        width: 16,
-        height: 16,
-        samples_per_pixel: 1,
-        color_space: ColorSpace::Srgb,
-        out_dir: std::env::temp_dir(),
-        out_name: "clip".to_string(),
-        selection: metrics::MetricSelection::default(),
-        curves: Vec::new(),
-        keep_frames: false,
-        remote: RemoteSelection::local_only(),
-        local_compute: LocalComputeTarget::Cpu,
-        adaptive: None,
-        path_cache: None,
-        beam: None,
-    };
-    assert!(
-        request.scene.tray_reflection > 0.0,
-        "the request asks for the reflection"
-    );
+fn a_tilt_video_job_keeps_the_tray_reflection_its_request_draws() {
+    let request = effects_video_request(false, 0.04);
     let job = convert::build_video_job(
         &request,
         "Reflection video".to_string(),
@@ -1026,8 +1014,27 @@ fn a_tilt_video_job_drops_the_tray_reflection_instead_of_being_refused() {
         0,
     )
     .expect("the tilt video job builds");
-    assert_eq!(job.scene.tray_reflection.to_bits(), 0);
-    assert!(job.format <= 3, "no tray-reflection job format");
+    assert_eq!(job.scene.tray_reflection.to_bits(), 0.04f32.to_bits());
+    assert_eq!(job.format, 4, "the tray reflection is job format 4");
+    let text = codec::to_text(&job).expect("encodes");
+    let back = codec::from_text(&text).expect("decodes");
+    assert_eq!(
+        convert::snapshot_from_job(&back, None)
+            .tray_reflection
+            .to_bits(),
+        0.04f32.to_bits()
+    );
+
+    let plain = convert::build_video_job(
+        &effects_video_request(false, 0.0),
+        "Plain video".to_string(),
+        DesignInfo::default(),
+        "clip".to_string(),
+        0,
+    )
+    .expect("the tilt video job builds");
+    assert_eq!(plain.scene.tray_reflection.to_bits(), 0);
+    assert!(plain.format <= 3, "no tray-reflection job format");
 }
 
 /// A still job keeps the Tray Reflection through the frozen scene and back into a snapshot.

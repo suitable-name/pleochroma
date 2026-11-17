@@ -1,13 +1,16 @@
 //! `pleochroma-worker`: a library server for a `pleochroma`-backed gemstone design catalogue,
 //! with optional render capacity on top.
 //!
-//! **Default role: library server.** Running `serve` with no extra features accepts
+//! **The default build** (`gui`, `gpu`) opens the coordinator window (`gui` module); every
+//! command below also runs without it under `--headless`.
+//!
+//! **Primary role: library server.** Running `serve` with no extra features accepts
 //! `pleochroma-net`'s read-only design-library protocol (see [`serve::library`]) over
 //! mutual TLS: listing and searching designs, fetching one in full, fetching an
 //! attachment's bytes. Clients such as the mobile apps speak this protocol and have no
 //! renderer compiled in.
 //!
-//! **`worker` feature (off by default): render capacity.** Gates `RenderRequest`
+//! **`worker` feature (on by default through `gui`): render capacity.** Gates `RenderRequest`
 //! handling, `stream_emit`, `render_core`, `render_cmd`, the `render` subcommand, and
 //! `Backend` advertisement in `WELCOME`. See `Cargo.toml` for what it turns on, and
 //! [`serve`]'s module docs for how one connection dispatches between the library and
@@ -23,7 +26,7 @@
 //!
 //! # GPU
 //!
-//! An optional `gpu` feature (off by default, implies `worker`) routes tracing through
+//! The `gpu` feature (on by default, implies `worker`) routes tracing through
 //! `pleochroma`'s GPU megakernel instead of `optics::raytracer::trace_spectral_ray`. The
 //! equivalence harness in `crates/pleochroma/examples/gpu_equivalence_harness/` checks it
 //! against a real adapter.
@@ -38,18 +41,24 @@
 // `wgpu`. Do not remove: the overflow reproduces on every `--features gpu` build.
 #![recursion_limit = "256"]
 
+pub mod admin;
 #[cfg(feature = "worker")]
 pub mod assets;
+pub mod certs;
 pub mod cli;
+pub mod control;
 #[cfg(feature = "worker")]
 pub mod coordinator;
 pub mod enroll;
 pub mod enroll_client;
+#[cfg(feature = "gui")]
+pub mod gui;
 #[cfg(feature = "worker")]
 pub mod jobs;
 #[cfg(feature = "worker")]
 pub mod join;
 pub mod pki;
+pub mod platform;
 #[cfg(feature = "worker")]
 pub mod png_out;
 pub mod radv_workaround;
@@ -58,6 +67,7 @@ pub mod render_cmd;
 #[cfg(feature = "worker")]
 pub mod render_core;
 pub mod serve;
+pub mod settings;
 #[cfg(feature = "worker")]
 mod stream_emit;
 #[cfg(feature = "worker")]

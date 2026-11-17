@@ -32,7 +32,8 @@ pub struct MirrorState {
     pub url: String,
     /// Which remote server this state was last synced from -- sibling convention to
     /// `crate::db::sqlite::LEGACY_SOURCE_ID`/`crate::local::LOCAL_SOURCE_ID`; a mirror
-    /// sync's own `source_id` is the worker's configured address.
+    /// sync's own `source_id` is `pleochroma_library_mirror::source_id` of a key for the remote:
+    /// Cut uses the worker's configured address, the Android app its pairing's CA tag.
     pub source_id: String,
     /// Version digest of the summary row.
     pub summary_version: [u8; 32],

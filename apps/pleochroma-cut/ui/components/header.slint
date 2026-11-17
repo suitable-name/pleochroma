@@ -22,7 +22,28 @@ export component HeaderToolbar inherits Rectangle {
 
     property <bool> filters_open: filter_popup.is-open;
     property <bool> remote_open: remote_popup.is-open;
-    // Another surface asked for the Remote Coordinator dialog (`RemoteWorkerModel.open_dialog()`).
+    // Whatever closes the Remote Coordinator popup (Esc, its close button, a click outside), a
+    // pairing link that waits for confirmation is forgotten, so its code does not stay in memory.
+    // A pairing that already runs finishes on its own; if it then fails, Rust drops the offer
+    // because `pair_dialog_closed` is set. (Watched here: a `changed is-open` inside the popup
+    // itself breaks the Slint compiler's constant propagation.)
+    changed remote_open => {
+        RemoteWorkerModel.pair_dialog_closed = !root.remote_open;
+        if (!root.remote_open && RemoteWorkerModel.pair_stage == 1) {
+            RemoteWorkerModel.cancel_pairing();
+        }
+    }
+    // The "Render on <computer>?" question after a pairing is drawn by the window, under any popup:
+    // the Remote Coordinator popup steps aside while it is asked. (Watched here, not inside the
+    // popup: a `changed` handler on a built-in property in a popup breaks constant propagation.)
+    property <bool> use_remote_asked: RemoteWorkerModel.use_remote_prompt_open;
+    changed use_remote_asked => {
+        if (root.use_remote_asked && remote_popup.is-open) {
+            remote_popup.close();
+        }
+    }
+    // The Remote Coordinator dialog lives here; File > Remote Rendering... and the Compute card's
+    // Settings... ask for it through `RemoteWorkerModel.open_dialog()`.
     property <int> remote_open_requests: RemoteWorkerModel.open_requests;
     changed remote_open_requests => {
         if (!remote_popup.is-open) {
@@ -60,25 +81,18 @@ export component HeaderToolbar inherits Rectangle {
     property <length> controls_spacing: root.compact ? 6px : 10px;
     property <length> combo_min_w: root.compact ? 72px : 96px;
     property <length> search_min_w: root.compact ? 100px : 140px;
-    // Smallest / preferred width of the control cluster: Filters is a fixed 84px, Import and
-    // Remote are their buttons' own widths. Nine cells and eight gaps: a hidden cell keeps its
-    // place at zero width.
-    // The Remote button is advanced: the Simple interface leaves it out unless a remote is already
-    // set up or the library shown is a remote one (then it is how the cutter reaches it). Its cell
-    // keeps its place in the row at zero width, so the id-based sums below stay right.
-    property <bool> show_remote: GuideModel.shows_advanced() || RemoteWorkerModel.configured
-        || RemoteWorkerModel.library_is_remote || root.remote_open;
-    property <length> remote_w: root.show_remote ? remote_btn.preferred-width : 0px;
+    // Smallest / preferred width of the control cluster: Filters is a fixed 84px, Import is its
+    // button's own width. Eight cells and seven gaps: a hidden cell keeps its place at zero width.
     // The Jobs chip (the render queue) shows only while a job is waiting or running. Its cell
-    // keeps its place at zero width, like the Remote button's, so the gap count stays fixed.
+    // keeps its place at zero width, so the gap count stays fixed.
     property <length> jobs_w: RenderJobsModel.chip_visible ? jobs_chip.preferred-width : 0px;
     // The export chip (a running export started from a dialog, popup open or not) is the same
-    // kind of cell: zero width when idle, so nine cells and eight gaps, always.
+    // kind of cell: zero width when idle, so eight cells and seven gaps, always.
     property <length> export_w: ExportRunModel.direct_running ? export_chip.preferred-width : 0px;
     property <length> controls_min_w: root.search_min_w + 3 * root.combo_min_w + 84px
-        + import_btn.preferred-width + root.remote_w + root.jobs_w + root.export_w + 8 * root.controls_spacing;
+        + import_btn.preferred-width + root.jobs_w + root.export_w + 7 * root.controls_spacing;
     property <length> controls_pref_w: 260px + 160px + 130px + 140px + 84px
-        + import_btn.preferred-width + root.remote_w + root.jobs_w + root.export_w + 8 * root.controls_spacing;
+        + import_btn.preferred-width + root.jobs_w + root.export_w + 7 * root.controls_spacing;
     // The indicator was clicked: `app.slint` shows the running export's popup again.
     callback show_export_progress();
     // Wide row: the logo cluster keeps what the controls leave, never less than its own minimum width.
@@ -599,28 +613,6 @@ export component HeaderToolbar inherits Rectangle {
                 }
             }
 
-            // Remote rendering: opens the single Remote Coordinator dialog
-            // (`remote_popup`, `RemoteWorkerDialog`).
-            Rectangle {
-                width: root.remote_w;
-                height: 28px;
-                visible: root.show_remote;
-                Tooltip { text: @markdown("Set up a remote computer to do the heavy rendering, and switch to its library. See the manual chapter on the remote worker."); }
-                remote_btn := Button {
-                    text: "Remote";
-                    accessible-description: "Set up a remote computer to do the heavy rendering, and switch to its library.";
-                    icon: @image-url("../icons/gem.svg");
-                    colorize-icon: true;
-                    height: 28px;
-                    clicked => {
-                        if (remote_popup.is-open) {
-                            remote_popup.close();
-                        } else {
-                            remote_popup.show();
-                        }
-                    }
-                }
-            }
         }
 
     // --- FLOATING FILTER PANEL ---
@@ -651,6 +643,7 @@ export component HeaderToolbar inherits Rectangle {
 
     // --- FLOATING REMOTE-WORKERS POPUP ---
     remote_popup := RemoteWorkerDialog {
+        available_height: max(200px, root.window_height - root.height - 30px);
         x: parent.width - self.width - 16px;
         y: root.height + 6px;
     }

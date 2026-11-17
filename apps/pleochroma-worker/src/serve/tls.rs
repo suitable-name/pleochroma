@@ -1,7 +1,7 @@
 //! TLS transport setup for the viewer and worker listeners.
 //!
 //! [`Transport`] and [`Auth`] are decided once at [`crate::serve::run`] startup by
-//! [`build_transport`]. Each connection then goes through [`accept_tls`] and [`check_auth`].
+//! [`build_transport_with_cert`]. Each connection then goes through [`accept_tls`] and [`check_auth`].
 //! See the "TLS" section of `crate::serve`'s module docs for the full picture.
 //!
 //! # Roles
@@ -16,11 +16,15 @@
 //!   its real role so the `HELLO` gate refuses it with `ROLE_REFUSED` and a message that
 //!   names the mix-up -- never served.
 
-use crate::{cli::ServeArgs, pki};
+use crate::{
+    certs::{self, SwappableCert},
+    cli::ServeArgs,
+    pki,
+};
 use pleochroma_net::messages::PeerRole;
 use std::{
     net::{SocketAddr, TcpStream},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
 };
@@ -49,14 +53,54 @@ pub enum Transport {
     Tls {
         config: Arc<rustls::ServerConfig>,
         auth: Auth,
+        /// The server certificate behind `config`, which the address watch swaps and the
+        /// enrollment listeners present too.
+        certificate: Arc<SwappableCert>,
     },
     /// `--insecure-no-tls`. See the module doc comment.
     Insecure,
 }
 
-/// Builds this process's viewer [`Transport`] from `args`, per [`crate::serve::run`]'s
-/// doc comment.
+/// Builds a mutual-TLS server config, TLS 1.3 only, whose certificate comes from `resolver`
+/// instead of being fixed at build time.
+///
+/// Same client side as [`pleochroma_net::tls::server_config`] (a client certificate signed by
+/// `ca` is required); only the server certificate differs. The certificate is chosen per
+/// handshake, so [`SwappableCert::swap`] takes effect for the next connection without
+/// rebuilding the config or restarting a listener.
+///
+/// # Errors
+///
+/// A message if `ca` is empty or `rustls` refuses the configuration.
+pub fn server_config_with_resolver(
+    ca: rustls::RootCertStore,
+    resolver: Arc<SwappableCert>,
+) -> Result<Arc<rustls::ServerConfig>, String> {
+    let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(ca))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let config = rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+        .with_client_cert_verifier(verifier)
+        .with_cert_resolver(resolver);
+    Ok(Arc::new(config))
+}
+
+/// Builds this process's viewer [`Transport`] from `args`, per [`crate::serve::run`]'s doc comment.
+///
+/// Tests only: the server itself needs the certificate too and calls [`build_transport_with_cert`].
+#[cfg(test)]
 pub fn build_transport(args: &ServeArgs, bind_addr: SocketAddr) -> Result<Transport, String> {
+    build_transport_with_cert(args, bind_addr).map(|(transport, _)| transport)
+}
+
+/// Builds this process's viewer [`Transport`] from `args`.
+///
+/// It also returns the swappable server certificate behind the TLS config (`None` for
+/// `--insecure-no-tls`), so the caller can start a [`crate::certs::watch::AddressWatch`] over it.
+pub fn build_transport_with_cert(
+    args: &ServeArgs,
+    bind_addr: SocketAddr,
+) -> Result<(Transport, Option<Arc<SwappableCert>>), String> {
     if args.insecure_no_tls {
         if !bind_addr.ip().is_loopback() {
             return Err(format!(
@@ -68,7 +112,7 @@ pub fn build_transport(args: &ServeArgs, bind_addr: SocketAddr) -> Result<Transp
             "pleochroma-worker serve: --insecure-no-tls -- serving PLAINTEXT with no TLS and no authentication. For \
              local debugging only; every connection accepted this way is logged."
         );
-        return Ok(Transport::Insecure);
+        return Ok((Transport::Insecure, None));
     }
 
     let ca_path = args.ca.clone().ok_or_else(|| {
@@ -83,11 +127,15 @@ pub fn build_transport(args: &ServeArgs, bind_addr: SocketAddr) -> Result<Transp
 
     let ca = pleochroma_net::tls::load_ca(&ca_path)
         .map_err(|e| format!("--ca {}: {e}", ca_path.display()))?;
-    let cert_chain = pleochroma_net::tls::load_certs(&cert_path)
-        .map_err(|e| format!("--cert {}: {e}", cert_path.display()))?;
-    let key = pleochroma_net::tls::load_private_key(&key_path)
-        .map_err(|e| format!("--key {}: {e}", key_path.display()))?;
-    let config = pleochroma_net::tls::server_config(ca, cert_chain, key)
+    let initial = certs::load_certified_key(&cert_path, &key_path).map_err(|e| {
+        format!(
+            "--cert {} / --key {}: {e}",
+            cert_path.display(),
+            key_path.display()
+        )
+    })?;
+    let server_cert = Arc::new(SwappableCert::new(initial));
+    let config = server_config_with_resolver(ca, Arc::clone(&server_cert))
         .map_err(|e| format!("failed to build TLS config: {e}"))?;
 
     let allowlist = if args.trust_any_client_cert {
@@ -98,12 +146,15 @@ pub fn build_transport(args: &ServeArgs, bind_addr: SocketAddr) -> Result<Transp
         );
         None
     } else {
-        let allowlist_path = args
-            .allowlist
-            .clone()
-            .unwrap_or_else(|| pki::default_viewer_allowlist_path(&ca_path));
-        // Loaded once here purely to fail fast at startup on a bad/missing path --
-        // accept_tls re-loads it on every connection; see Auth::allowlist.
+        let allowlist_path = if let Some(path) = &args.allowlist {
+            path.clone()
+        } else {
+            let path = pki::default_viewer_allowlist_path(&ca_path);
+            create_missing_default_allowlist(&path)?;
+            path
+        };
+        // Loaded once here purely to fail fast at startup on a bad or missing `--allowlist`
+        // path -- accept_tls re-loads it on every connection; see Auth::allowlist.
         let preflight = pleochroma_net::tls::Allowlist::load(&allowlist_path).map_err(|e| {
             format!(
                 "--allowlist {}: {e} (run `pleochroma-worker cert issue-client` to trust a viewer, or pass \
@@ -119,19 +170,51 @@ pub fn build_transport(args: &ServeArgs, bind_addr: SocketAddr) -> Result<Transp
         Some(allowlist_path)
     };
 
-    Ok(Transport::Tls {
-        config,
-        auth: Auth {
-            role: PeerRole::Viewer,
-            allowlist,
+    Ok((
+        Transport::Tls {
+            config,
+            auth: Auth {
+                role: PeerRole::Viewer,
+                allowlist,
+            },
+            certificate: Arc::clone(&server_cert),
         },
-    })
+        Some(server_cert),
+    ))
+}
+
+/// Creates the default viewer allowlist, empty, when the certificate folder has none yet.
+///
+/// A new coordinator has its CA and server certificate but no paired viewer, and pairing
+/// needs the coordinator running. An empty list trusts nobody, so every viewer is refused
+/// until one is paired. Only the default path is created: a missing `--allowlist` path given
+/// on the command line is likely a typo and still fails the start.
+fn create_missing_default_allowlist(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| {
+            format!(
+                "could not create the viewer allowlist {}: {e}",
+                path.display()
+            )
+        })?;
+    tracing::info!(
+        "pleochroma-worker serve: created an empty viewer allowlist at {} -- every viewer is refused \
+         until one is paired",
+        path.display()
+    );
+    Ok(())
 }
 
 /// The worker port's [`Auth`]: role [`PeerRole::Worker`] and the `--worker-allowlist`
 /// (default `allowlist-workers.txt` next to `--ca`), or none under `--trust-any-client-cert`.
 ///
-/// Unlike the viewer allowlist, a MISSING worker allowlist is not a startup error --
+/// Unlike an explicit `--allowlist`, a MISSING worker allowlist is not a startup error --
 /// most coordinators start before any worker is enrolled -- it only means every worker
 /// is refused until one is (logged at `info`). A malformed one still fails fast.
 #[cfg(feature = "worker")]

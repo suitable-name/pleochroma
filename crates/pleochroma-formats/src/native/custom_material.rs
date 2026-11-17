@@ -135,9 +135,194 @@ pub struct CustomMaterialSnapshot {
     /// column, stored as `structure = "<json>"`. Same rules as [`Self::inclusions`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub structure: Option<String>,
+    /// The gem data the author entered for the material
+    /// (`[material.custom.gem_data]`, see [`CustomGemDataTable`]). `None` for a material
+    /// without any; nothing is written while it is `None`. A table this build cannot read
+    /// loads as `None`. Missing keys read as `None`, so the schema version does not change.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_gem_data"
+    )]
+    pub gem_data: Option<CustomGemDataTable>,
     /// See [`PreformTable::unknown`]'s doc comment.
     #[serde(flatten, default)]
     pub unknown: toml::Table,
+}
+
+/// The toughness words of the file, weakest first. The position of a word is its rank on the
+/// scale (`Toughness::rank` in `pleochroma-cut-core`).
+pub const GEM_TOUGHNESS_WORDS: [&str; 6] = [
+    "very_poor",
+    "poor",
+    "fair",
+    "good",
+    "excellent",
+    "exceptional",
+];
+
+/// The Mohs scale's lower bound.
+const MOHS_MIN: f64 = 1.0;
+/// The Mohs scale's upper bound.
+const MOHS_MAX: f64 = 10.0;
+
+/// The gem data of a custom material as plain values, written as the
+/// `[material.custom.gem_data]` sub-table:
+///
+/// ```toml
+/// [material.custom.gem_data]
+/// mohs = [7.5, 8.0]
+/// toughness = ["good", "good"]
+/// cleavage = "Imperfect basal"
+/// fracture = "Conchoidal"
+/// care = "Avoid sudden temperature changes while dopping."
+/// source = "My notes, 2026"
+/// ```
+///
+/// Every key is optional. The table keeps what the file says; the checked views
+/// ([`Self::mohs_range`], [`Self::toughness_ranks`]) return `None` for a value that is not on
+/// its scale, and [`Self::load_notes`] names each such value. A file therefore never fails
+/// to load over a gem figure.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CustomGemDataTable {
+    /// Mohs hardness as `[from, to]`, either order.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_value"
+    )]
+    pub mohs: Option<[f64; 2]>,
+    /// Toughness as `[from, to]` words of [`GEM_TOUGHNESS_WORDS`], either order.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_value"
+    )]
+    pub toughness: Option<[String; 2]>,
+    /// Cleavage as the author wrote it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_value"
+    )]
+    pub cleavage: Option<String>,
+    /// Fracture as the author wrote it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_value"
+    )]
+    pub fracture: Option<String>,
+    /// Care notes as the author wrote them.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_value"
+    )]
+    pub care: Option<String>,
+    /// Where the author's figures come from.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_value"
+    )]
+    pub source: Option<String>,
+}
+
+/// The position of `word` in [`GEM_TOUGHNESS_WORDS`], compared without case and with spaces
+/// and hyphens read as underscores ("Very poor" is `very_poor`).
+#[must_use]
+pub fn gem_toughness_rank(word: &str) -> Option<u8> {
+    let key = word.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    GEM_TOUGHNESS_WORDS
+        .iter()
+        .position(|w| *w == key)
+        .and_then(|i| u8::try_from(i).ok())
+}
+
+impl CustomGemDataTable {
+    /// `true` when no field holds anything; such a table is not worth writing.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.mohs.is_none()
+            && self.toughness.is_none()
+            && self.cleavage.is_none()
+            && self.fracture.is_none()
+            && self.care.is_none()
+            && self.source.is_none()
+    }
+
+    /// The Mohs figures as `f32`, `None` when absent or when either end is not finite or lies
+    /// outside 1 to 10.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Mohs figures have one or two decimals; f32 holds them exactly enough for display"
+    )]
+    pub fn mohs_range(&self) -> Option<(f32, f32)> {
+        let [a, b] = self.mohs?;
+        let on_scale = |v: f64| v.is_finite() && (MOHS_MIN..=MOHS_MAX).contains(&v);
+        (on_scale(a) && on_scale(b)).then_some((a as f32, b as f32))
+    }
+
+    /// The toughness ends as ranks on the scale of [`GEM_TOUGHNESS_WORDS`] (0 very poor to 5
+    /// exceptional), `None` when absent or when either word is unknown.
+    #[must_use]
+    pub fn toughness_ranks(&self) -> Option<(u8, u8)> {
+        let [a, b] = self.toughness.as_ref()?;
+        Some((gem_toughness_rank(a)?, gem_toughness_rank(b)?))
+    }
+
+    /// One sentence for each stored value that the checked views leave out, for the load
+    /// report.
+    #[must_use]
+    pub fn load_notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if self.mohs.is_some() && self.mohs_range().is_none() {
+            notes.push(
+                "The custom material's Mohs hardness is outside 1 to 10 and is read as not recorded."
+                    .to_owned(),
+            );
+        }
+        if self.toughness.is_some() && self.toughness_ranks().is_none() {
+            notes.push(
+                "The custom material's toughness uses an unknown word and is read as not recorded."
+                    .to_owned(),
+            );
+        }
+        notes
+    }
+}
+
+/// Reads one optional field, turning a value of the wrong type into `None` instead of failing
+/// the whole file.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "serde's `deserialize_with` requires this exact `Result` signature"
+)]
+fn lenient_value<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    use serde::Deserialize as _;
+    Ok(Option::<T>::deserialize(deserializer).ok().flatten())
+}
+
+/// Reads [`CustomMaterialSnapshot::gem_data`], turning a table this build cannot parse into
+/// `None` instead of failing the whole file.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "serde's `deserialize_with` requires this exact `Result` signature"
+)]
+fn lenient_gem_data<'de, D>(deserializer: D) -> Result<Option<CustomGemDataTable>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    Ok(Option::<CustomGemDataTable>::deserialize(deserializer)
+        .ok()
+        .flatten())
 }
 
 /// The per-ray body-color rows of a custom material, as plain numbers.
@@ -319,8 +504,16 @@ impl CustomMaterialSnapshot {
             dispersion_model_gamma: None,
             inclusions: None,
             structure: None,
+            gem_data: None,
             unknown: toml::Table::new(),
         }
+    }
+
+    /// Attaches [`Self::gem_data`]. A table with no field set stores `None`.
+    #[must_use]
+    pub fn with_gem_data(mut self, gem_data: Option<CustomGemDataTable>) -> Self {
+        self.gem_data = gem_data.filter(|table| !table.is_empty());
+        self
     }
 
     /// Attaches the per-axis curves ([`Self::dispersion_model_e`], and the pair

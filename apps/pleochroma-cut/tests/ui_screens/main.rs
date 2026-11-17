@@ -29,6 +29,13 @@
 //! - `PLEOCHROMA_SCREENS_RENDER_TIMEOUT`: seconds a shot waits for a render (default 120). A
 //!   render that has not settled by then is photographed anyway and noted in the report; it is
 //!   not a finding.
+//! - `PLEOCHROMA_SCREENS_REMOTE`: a `settings.toml` (the owner's own) whose `[settings.remote]`
+//!   the live renders use, with Live Compute on Local + Remote. Only that table is copied, under
+//!   the neutral label "Render Server"; the owner's label and the remote's host join the private
+//!   words. The shots that show the remote choices themselves (`parameters_render`,
+//!   `emerald_export_settings_4k`, `tilt_performance_export`, `remote_coordinator`) stay local.
+//!   An unusable file, or a remote that does not accept a connection within three seconds, is
+//!   said once and the run renders locally.
 //!
 //! Only the PNG files named below are written, and only when their shot succeeded: a shot whose
 //! steps fail leaves the old file in place and reports a finding `shot` with the reason. No file
@@ -76,7 +83,7 @@ use std::{
     process::ExitCode,
     rc::Rc,
 };
-use support::{Ctx, HarnessApp, SettingsSeed, profile::print_shutdown_summary};
+use support::{Ctx, HarnessApp, profile::print_shutdown_summary};
 use uiprobe::{
     Harness, Jobs,
     backend::{Renderer, require_debug_info},
@@ -204,6 +211,9 @@ fn main() -> ExitCode {
     );
     // Read before the profile moves the working directory and redirects the user variables.
     let config = Rc::new(Config::from_env());
+    if let Some(note) = &config.remote_note {
+        println!("ui-screens: {note}");
+    }
     let harness = Harness::new()
         .profile(
             HarnessProfile::isolated()
@@ -290,7 +300,7 @@ fn register(
             request_abort(message.clone());
             return Err(Finding::simple("launch", message));
         }
-        let seed = SettingsSeed::ExistingInstall;
+        let seed = config.seed_for(name);
         let mut guard = app.borrow_mut();
         let _ = take_panics();
         // The toast readers serve the crate's own end-of-scenario `check_health`.

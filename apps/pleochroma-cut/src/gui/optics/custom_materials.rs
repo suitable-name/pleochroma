@@ -3,6 +3,7 @@
 
 mod crystal_axis;
 mod curves;
+mod gem_data_form;
 mod inclusions;
 mod save;
 
@@ -32,6 +33,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::sync::{Arc, Mutex};
 
 // The material editor's color helpers; `physics_ui` reaches them through this module.
+use gem_data_form::GemDataForm;
 pub(super) use save::{
     CUSTOM_KEEP_COLOR_INDEX, absorption_rgb_for_color_index, color_index_for_absorption_rgb,
 };
@@ -106,6 +108,8 @@ fn push_selected_custom_material_fields(
         inclusions::push_row(ui, None);
         model.set_selected_custom_material_valid(false);
         model.set_selected_material_color_outdated(false);
+        // The Gem Data section starts blank for a built-in or vanished selection.
+        GemDataForm::default().push(ui);
         // The Dispersion section reads its starting state unconditionally (unlike the
         // optics fields above, which the dialog gates on `selected_custom_material_valid`),
         // so a built-in or vanished selection must not leave the previous material's model.
@@ -115,6 +119,8 @@ fn push_selected_custom_material_fields(
     crystal_axis::push_row(ui, Some(&row), selected_name);
     // The per-axis curves, inclusion families and play-of-color structure of the row.
     inclusions::push_row(ui, Some(&row));
+    // The gem data the user entered, for the Gem Data section.
+    GemDataForm::from_json(row.gem_data_json.as_deref()).push(ui);
     let material = gem_material_from_row(&row);
     model.set_selected_custom_material_valid(true);
     model.set_selected_custom_material_ri(row.refractive_index);
@@ -359,6 +365,9 @@ pub(in crate::gui) fn setup_custom_material_callbacks(
                     // The dialog's three render-physics sections; without the window nothing was
                     // authored, so the stored data stays.
                     physics: ui_weak_save.upgrade().map(|ui| inclusions::read_form(&ui)),
+                    // The Gem Data section's fields ride beside the arguments in
+                    // `ViewportModel.gem_data_*`; without the window the stored data stays.
+                    gem_data: ui_weak_save.upgrade().map(|ui| GemDataForm::read(&ui)),
                 },
             );
             let Some(ui) = ui_weak_save.upgrade() else {

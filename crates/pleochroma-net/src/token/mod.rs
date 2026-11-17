@@ -47,7 +47,7 @@ const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 ///
 /// `secret` is wrapped in [`Zeroizing`], so it is wiped on drop. `ca_fingerprint` is
 /// public (a hash of the CA certificate that every client receives) and needs no wiping.
-#[derive(Debug)]
+/// Its `Debug` output never shows the secret.
 pub struct EnrollToken {
     /// The fresh CSPRNG bearer secret, zeroized on drop.
     pub secret: Zeroizing<[u8; SECRET_LEN]>,
@@ -55,8 +55,20 @@ pub struct EnrollToken {
     pub ca_fingerprint: crate::tls::Fingerprint,
 }
 
+impl std::fmt::Debug for EnrollToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnrollToken")
+            .field("secret", &"<redacted>")
+            .field("ca_fingerprint", &self.ca_fingerprint)
+            .finish()
+    }
+}
+
 /// Why [`decode`] could not produce an [`EnrollToken`] from a string.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// `Debug` is written by hand: `InvalidCharacter` would otherwise print a character of the
+/// token.
+#[derive(PartialEq, Eq)]
 pub enum TokenError {
     /// Missing or wrong `GW1-` prefix: most likely not a worker enrollment token, or a
     /// truncated one.
@@ -69,6 +81,16 @@ pub enum TokenError {
     WrongLength,
 }
 
+impl std::fmt::Debug for TokenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WrongPrefix => f.write_str("WrongPrefix"),
+            Self::InvalidCharacter(_) => f.write_str("InvalidCharacter(<redacted>)"),
+            Self::WrongLength => f.write_str("WrongLength"),
+        }
+    }
+}
+
 impl std::fmt::Display for TokenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -76,8 +98,9 @@ impl std::fmt::Display for TokenError {
                 f,
                 "not a pleochroma-worker enrollment token (missing or wrong {TOKEN_PREFIX:?} prefix)"
             ),
-            Self::InvalidCharacter(c) => {
-                write!(f, "{c:?} is not a valid Crockford Base32 character")
+            // The character is part of the secret, so the message says only that one is wrong.
+            Self::InvalidCharacter(_) => {
+                f.write_str("the token has a character that is not valid Crockford Base32")
             }
             Self::WrongLength => write!(
                 f,
@@ -305,6 +328,9 @@ mod tests {
         // 'U' is deliberately excluded from the Crockford alphabet.
         let err = decode("GW1-UUUUU").unwrap_err();
         assert_eq!(err, TokenError::InvalidCharacter('U'));
+        // Neither the message nor the debug text echoes the character of the token.
+        assert!(!err.to_string().contains('U'), "{err}");
+        assert!(!format!("{err:?}").contains('U'), "{err:?}");
     }
 
     #[test]

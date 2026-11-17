@@ -54,7 +54,10 @@ then every other kind of material. A card at the bottom right, **Building the Sh
 shows a bar for each renderer, and the status strip shows the same activity. **Hide** puts the
 card away; the build goes on. A render that waits for its shaders says so in its progress line,
 for example "Building shader cache: Path-Traced 3 of 9". The build runs after an install or an
-update; later starts load the finished cache and show no card. Some graphics drivers keep no
+update; later starts load the finished cache and show no card. The card appears only while
+shaders are being built, never while they load from the cache; if a start finds part of the
+cache missing (a new graphics driver, say), the card comes up from the first missing shader.
+The status strip is separate and still shows the activity while a start takes a while. Some graphics drivers keep no
 cache between starts, and the card says so: there only the open stone's shaders are built, at
 every start, and another material's shaders when that material is first rendered. With
 **Local Compute** set to CPU nothing is built: the graphics card is not used at all.

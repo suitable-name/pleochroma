@@ -54,5 +54,7 @@ fn apply(
         let state = state.borrow();
         push::prefs::push(&window, &state.settings);
         push::shell::push_theme(&window, &state.settings);
+        // The diagram picture follows the theme (high contrast) at once, not at the next edit.
+        crate::design::viewport::push(&window, &state);
     }
 }

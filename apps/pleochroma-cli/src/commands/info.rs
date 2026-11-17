@@ -1,6 +1,10 @@
 //! `info`: what a design is, without solving it.
 
-use super::{deliver, key_values, list_block, open};
+use super::{
+    deliver, key_values, list_block,
+    materials::{GemBlock, gem_block, gem_data_json, gem_lines},
+    open,
+};
 use crate::{
     args::InfoArgs,
     format::{ANGLE_DECIMALS, Align, INDEX_DECIMALS, fixed, json_number, json_text, table},
@@ -13,6 +17,7 @@ use pleochroma_cut_core::{
     ConstraintTier, Design, PreformShape, TierLabelInfo, compute_tier_labels,
 };
 use serde_json::{Value, json};
+use std::fmt::Write as _;
 
 /// The word for a tier's block.
 const fn block_word(block: Block) -> &'static str {
@@ -194,7 +199,9 @@ fn material_text(design: &Design, catalogue: &Catalogue) -> String {
     }
 }
 
-/// The material, as JSON.
+/// The material, as JSON. `gem_data` holds the Gem Data of the material (hardness, toughness,
+/// cleavage, parting, fracture, care, specific gravity and the sources with their addresses), or
+/// `null` for a design that names no material this run can resolve.
 fn material_json(design: &Design, catalogue: &Catalogue) -> Value {
     let found = resolve_scoring(design, catalogue, None).ok();
     json!({
@@ -202,7 +209,24 @@ fn material_json(design: &Design, catalogue: &Catalogue) -> Value {
         "refractive_index_override": design.material.refractive_index_override,
         "refractive_index": found.as_ref().map(|scoring| json_number(scoring.n_d(), 6)),
         "resolved": found.is_some(),
+        "gem_data": gem_block(design, catalogue).map(|block| gem_data_json(&block)),
     })
+}
+
+/// `text`, the header lines of the report, with the gem data block under its `Material:` line:
+/// an indented line for the summary, the specific gravity, the care notes, the sources and each
+/// note.
+fn with_gem_block(text: &str, block: &GemBlock) -> String {
+    let mut out = String::new();
+    for line in text.split_inclusive('\n') {
+        out.push_str(line);
+        if line.starts_with("Material:") {
+            for (label, value) in gem_lines(block) {
+                let _ = writeln!(out, "  {:<11}{value}", format!("{label}:"));
+            }
+        }
+    }
+    out
 }
 
 /// The report as text.
@@ -239,6 +263,9 @@ fn text_report(loaded: &Loaded, catalogue: &Catalogue) -> String {
     };
     pairs.push(("Tiers", tiers));
     let mut text = key_values(&pairs);
+    if let Some(block) = gem_block(design, catalogue) {
+        text = with_gem_block(&text, &block);
+    }
 
     let blocks = classify_blocks(&design.meet_tier_inputs());
     let labels = compute_tier_labels(&design.tiers);
@@ -620,6 +647,148 @@ mod tests {
         assert_eq!(
             json_report(&loaded, &catalogue),
             json_report(&loaded, &catalogue)
+        );
+    }
+
+    /// A design in the built-in material `name`.
+    fn loaded_in(name: &str) -> Loaded {
+        let mut design = testing::template();
+        design.material = crate::materials::named_selection(&design.material, name);
+        Loaded::in_memory(design, "round.psdd")
+    }
+
+    /// T-L1: the text report shows the gem data block under the Material line.
+    #[test]
+    fn the_text_report_shows_the_gem_data_under_the_material_line() {
+        let report = text_report(&loaded_in("Topaz"), &Catalogue::default());
+        let lines: Vec<&str> = report.lines().collect();
+        let material = lines
+            .iter()
+            .position(|line| line.starts_with("Material:"))
+            .expect("a Material line");
+        assert!(lines[material].contains("Topaz (n 1.6"), "{report}");
+        let gem = lines[material + 1];
+        assert!(gem.starts_with("  Gem data:  Mohs 8"), "{report}");
+        assert!(gem.contains("toughness poor"), "{report}");
+        assert!(gem.contains("cleavage perfect basal {001}"), "{report}");
+        assert!(gem.contains("fracture subconchoidal to uneven"), "{report}");
+        assert!(
+            lines[material + 2].starts_with("  SG:        3."),
+            "{report}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("  Care:      ") && line.contains("cleavage")),
+            "{report}"
+        );
+        let sources = lines
+            .iter()
+            .find(|line| line.starts_with("  Sources:   "))
+            .expect("a Sources line");
+        assert!(sources.contains("GIA, Topaz care guide"), "{report}");
+        assert!(
+            sources.contains("Handbook of Mineralogy, Topaz"),
+            "{report}"
+        );
+        // The block sits between the Material line and the rest of the header.
+        assert!(
+            lines
+                .iter()
+                .position(|line| line.starts_with("Tiers:"))
+                .is_some_and(|tiers| tiers > material + 3),
+            "{report}"
+        );
+        assert!(report.lines().all(|line| line == line.trim_end()));
+    }
+
+    #[test]
+    fn a_material_with_a_derived_figure_or_no_grade_says_so() {
+        let report = text_report(&loaded_in("Morganite"), &Catalogue::default());
+        assert!(report.contains("  Note:      Derived: "), "{report}");
+        let glass = text_report(&loaded_in("Glass (N-BK7)"), &Catalogue::default());
+        assert!(glass.contains("toughness not graded"), "{glass}");
+    }
+
+    /// A design that names no material has no gem data block.
+    #[test]
+    fn a_design_with_no_material_has_no_gem_data() {
+        let mut design = testing::template();
+        design.material = pleochroma_cut_core::MaterialSelection::none();
+        let loaded = Loaded::in_memory(design, "round.psdd");
+        let report = text_report(&loaded, &Catalogue::default());
+        assert!(!report.contains("Gem data:"), "{report}");
+        let value: Value =
+            serde_json::from_str(&json_report(&loaded, &Catalogue::default())).expect("valid JSON");
+        assert!(value["material"]["gem_data"].is_null());
+    }
+
+    /// T-L2: the JSON report holds `gem_data`, with the sources and their addresses.
+    #[test]
+    fn the_json_report_holds_the_gem_data_with_sources_and_addresses() {
+        let loaded = loaded_in("Topaz");
+        let value: Value =
+            serde_json::from_str(&json_report(&loaded, &Catalogue::default())).expect("valid JSON");
+        let gem = &value["material"]["gem_data"];
+        assert_eq!(gem["built_in"], true);
+        assert_eq!(gem["origin"], "natural");
+        assert!(
+            gem["hardness"]
+                .as_str()
+                .is_some_and(|text| text.starts_with('8')),
+            "{gem}"
+        );
+        assert_eq!(gem["hardness_range"][0], 8.0);
+        assert!(gem["toughness"].is_string(), "{gem}");
+        assert_eq!(gem["cleavage"], "Perfect basal {001}");
+        assert!(gem["fracture"].is_string(), "{gem}");
+        assert!(
+            gem["care"].as_array().is_some_and(|care| !care.is_empty()),
+            "{gem}"
+        );
+        assert!(gem["specific_gravity"]["representative"].as_f64().is_some());
+        assert_eq!(gem["specific_gravity"]["basis"], "cited");
+        let links = gem["source_links"].as_array().expect("source links");
+        assert!(!links.is_empty(), "{gem}");
+        assert!(
+            links.iter().any(
+                |link| link["url"] == "https://www.gia.edu/topaz-care-cleaning"
+                    && link["citation"] == "GIA, Topaz care guide"
+            ),
+            "{links:?}"
+        );
+    }
+
+    #[test]
+    fn the_gem_data_of_the_templates_material_is_diamonds() {
+        let loaded = template_loaded();
+        let value: Value =
+            serde_json::from_str(&json_report(&loaded, &Catalogue::default())).expect("valid JSON");
+        let gem = &value["material"]["gem_data"];
+        assert!(
+            gem["hardness"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("10")),
+            "{gem}"
+        );
+        assert_eq!(gem["specific_gravity"]["representative"], 3.52);
+        let report = text_report(&loaded, &Catalogue::default());
+        assert!(report.contains("  Gem data:  Mohs 10"), "{report}");
+        assert!(
+            report.contains("  SG:        3.52 (3.50\u{2013}3.53)"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn a_design_specific_gravity_replaces_the_tables_in_the_block() {
+        let mut design = testing::template();
+        design.material.specific_gravity_override = Some(3.6);
+        let loaded = Loaded::in_memory(design, "round.psdd");
+        let report = text_report(&loaded, &Catalogue::default());
+        assert!(
+            report.contains("  SG:        3.60 (set in the design)"),
+            "{report}"
         );
     }
 

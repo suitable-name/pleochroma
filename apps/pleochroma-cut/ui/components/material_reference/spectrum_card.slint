@@ -1,0 +1,270 @@
+import { Theme } from "../../theme.slint";
+import { KitButton, KitChip, KitSegment, KitSegmentBar } from "../kit/kit.slint";
+import { MaterialReferenceModel } from "../../models/material_reference.slint";
+import { WrapText, RefCard, RefStyle } from "common.slint";
+
+// A ray toggle: the ray's line color as a dot, its daylight color as a swatch, and its name. An
+// "on" chip is outlined in its line color.
+component RayChip inherits Rectangle {
+    in property <string> text;
+    in property <color> ink;
+    in property <color> swatch;
+    in property <bool> on: true;
+    callback toggled();
+
+    height: 26px;
+    width: chip_row.preferred-width;
+    border-radius: 13px;
+    background: root.on ? Theme.surface-sunken : transparent;
+    border-width: fs.has-focus ? 2px : 1px;
+    border-color: fs.has-focus ? Theme.accent-cyan-hover : (root.on ? root.ink : Theme.border-dialog);
+    accessible-role: AccessibleRole.checkbox;
+    accessible-label: root.text;
+    accessible-description: "Show or hide this ray's curve and bands.";
+    accessible-checkable: true;
+    accessible-checked: root.on;
+    accessible-action-default => { root.toggled(); }
+
+    Tooltip { text: @markdown("Show or hide this ray's curve and bands."); }
+    fs := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.toggled();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    chip_row := HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle { width: 7px; height: 7px; border-radius: 3px; background: root.on ? root.ink : Theme.text-disabled; }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                background: root.swatch;
+                border-width: 1px;
+                border-color: Theme.chip-edge;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.on ? Theme.text-primary : Theme.text-muted;
+            vertical-alignment: center;
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// The Absorption Spectrum card: the absorption (relative, all rays on one scale) or the transmission
+// of a stone of the stated width, one curve per ray, over a strip of the visible spectrum; a band
+// summary; and a band table that unfolds. Rays toggle individually. The chosen variant replaces the
+// default's spectrum.
+export component SpectrumCard inherits RefCard {
+    title: "ABSORPTION SPECTRUM";
+
+    // Bit i set: ray i is drawn.
+    property <int> ray_mask: 7;
+    property <bool> bands_open: false;
+    pure function ray_on(i: int) -> bool {
+        return Math.mod(Math.floor(root.ray_mask / Math.pow(2, i)), 2) == 1;
+    }
+    function toggle_ray(i: int) {
+        let bit = Math.pow(2, i);
+        root.ray_mask = root.ray_on(i) ? root.ray_mask - bit : root.ray_mask + bit;
+    }
+
+    HorizontalLayout {
+        spacing: 10px;
+        alignment: end;
+        if MaterialReferenceModel.spectrum_variant != "": Text {
+            horizontal-stretch: 1;
+            text: "Variant: " + MaterialReferenceModel.spectrum_variant;
+            font-size: 11px;
+            color: Theme.accent-cyan;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if MaterialReferenceModel.spectrum_estimated: VerticalLayout {
+            alignment: center;
+            KitChip {
+                text: "Estimated";
+                ink: Theme.accent-cyan;
+                fill: Theme.accent-cyan-surface;
+            }
+        }
+        KitSegmentBar {
+            width: 196px;
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+                for name[i] in ["Absorption", "Transmission"]: Rectangle {
+                    horizontal-stretch: 1;
+                    KitSegment {
+                        x: 0px;
+                        width: parent.width;
+                        text: name;
+                        hint: i == 1 ? MaterialReferenceModel.spectrum_tooltip : "Relative absorption of each ray, all on one scale.";
+                        on: (i == 1) == MaterialReferenceModel.spectrum_transmission;
+                        picked => {
+                            MaterialReferenceModel.spectrum_transmission = i == 1;
+                            MaterialReferenceModel.spectrum_mode(i);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // The ray chips, by their natural size.
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        for ray[i] in MaterialReferenceModel.spectrum_series: RayChip {
+            text: ray.label;
+            ink: RefStyle.ink(ray.ink);
+            swatch: i < MaterialReferenceModel.spectrum_swatches.length ? MaterialReferenceModel.spectrum_swatches[i] : Theme.swatch-empty;
+            on: root.ray_on(i);
+            toggled => { root.toggle_ray(i); }
+        }
+    }
+
+    chart := Rectangle {
+        height: 204px;
+        background: Theme.chart-bg;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.chart-border;
+        clip: true;
+        accessible-role: AccessibleRole.image;
+        accessible-label: "Absorption spectrum from 380 to 780 nanometers, one curve per ray, over a strip of the visible colors. The band list below gives every value.";
+
+        Text {
+            x: 12px;
+            y: 5px;
+            text: MaterialReferenceModel.spectrum_transmission ? "Transmission" : "Absorption (relative)";
+            font-size: 10px;
+            color: Theme.text-disabled;
+        }
+        plot := Rectangle {
+            x: 12px;
+            y: 22px;
+            width: parent.width - 24px;
+            height: parent.height - 22px - 52px;
+            for t in MaterialReferenceModel.spectrum_x_ticks: Rectangle {
+                x: plot.width * t.position / 100.0;
+                width: 1px;
+                height: 100%;
+                background: Theme.chart-grid;
+            }
+            Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: Theme.chart-grid-mid; }
+            for ray[i] in MaterialReferenceModel.spectrum_series: Path {
+                visible: root.ray_on(i);
+                width: 100%;
+                height: 100%;
+                fit: fill;
+                viewbox-width: 100;
+                viewbox-height: 100;
+                commands: ray.path;
+                stroke: RefStyle.ink(ray.ink);
+                stroke-width: 2px;
+                fill: transparent;
+            }
+        }
+        // The visible spectrum, 380 to 780 nm: data, so it keeps its colors in high contrast.
+        Rectangle {
+            x: plot.x;
+            y: plot.y + plot.height + 4px;
+            width: plot.width;
+            height: 10px;
+            border-radius: 2px;
+            background: @linear-gradient(90deg,
+                #2a0040 0%, #5a00a8 5%, #2d2dff 15%, #00c8ff 27.5%, #00e060 35%, #a8f000 45%,
+                #ffd000 52.5%, #ff4000 62.5%, #c00000 80%, #300000 100%);
+        }
+        for t in MaterialReferenceModel.spectrum_x_ticks: Text {
+            x: plot.x + plot.width * t.position / 100.0 - 24px;
+            y: parent.height - 24px;
+            width: 48px;
+            text: t.text;
+            font-size: 10px;
+            color: Theme.text-disabled;
+            horizontal-alignment: center;
+        }
+    }
+
+    WrapText {
+        text: MaterialReferenceModel.spectrum_summary;
+        font-size: 11px;
+        ink: Theme.text-secondary;
+        
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        WrapText {
+            horizontal-stretch: 1;
+            text: MaterialReferenceModel.spectrum_provenance;
+            font-size: 10px;
+            ink: Theme.text-muted;
+            
+        }
+        VerticalLayout {
+            alignment: start;
+            KitButton {
+                text: "Bands...";
+                chevron: true;
+                active: root.bands_open;
+                h: 28px;
+                hint: "Show or hide every absorption band: ray, center, width, peak and shape.";
+                clicked => { root.bands_open = !root.bands_open; }
+            }
+        }
+    }
+
+    // The band table.
+    if root.bands_open: VerticalLayout {
+        spacing: 1px;
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 8px;
+            Text { horizontal-stretch: 2; min-width: 60px; text: "Ray"; font-size: 10px; font-weight: 700; color: Theme.text-muted; }
+            Text { horizontal-stretch: 1; min-width: 50px; text: "Center"; font-size: 10px; font-weight: 700; color: Theme.text-muted; }
+            Text { horizontal-stretch: 2; min-width: 70px; text: "Width"; font-size: 10px; font-weight: 700; color: Theme.text-muted; }
+            Text { horizontal-stretch: 1; min-width: 40px; text: "Peak"; font-size: 10px; font-weight: 700; color: Theme.text-muted; }
+            Text { horizontal-stretch: 1; min-width: 50px; text: "Shape"; font-size: 10px; font-weight: 700; color: Theme.text-muted; }
+        }
+        for b[i] in MaterialReferenceModel.spectrum_bands: Rectangle {
+            height: 22px;
+            border-radius: Theme.radius-sm;
+            background: Math.mod(i, 2) == 0 ? Theme.surface-sunken : Theme.surface-raised;
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 8px;
+                HorizontalLayout {
+                    horizontal-stretch: 2;
+                    min-width: 60px;
+                    spacing: 5px;
+                    Text { text: b.ray; font-size: 11px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+                }
+                Text { horizontal-stretch: 1; min-width: 50px; text: b.center; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; }
+                Text { horizontal-stretch: 2; min-width: 70px; text: b.width; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; overflow: elide; }
+                Text { horizontal-stretch: 1; min-width: 40px; text: b.peak; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; }
+                Text { horizontal-stretch: 1; min-width: 50px; text: b.shape; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; overflow: elide; }
+            }
+        }
+    }
+}

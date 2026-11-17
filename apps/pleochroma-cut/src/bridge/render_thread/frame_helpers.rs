@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{ActivityModel, settings::model::LiveComputeTarget};
 use glam::Vec3;
+use pleochroma::color::metrics::GemOpticalMetrics;
 use slint::{ComponentHandle, Weak};
 use std::{
     cell::RefCell,
@@ -155,10 +156,7 @@ pub(super) fn push_frame_to_ui<T, F, M>(
 ) where
     T: TraceActivitySink + 'static,
     F: Fn(&T, slint::SharedPixelBuffer<slint::Rgba8Pixel>, u64) + Send + 'static + Clone,
-    M: Fn(&T, f32, f32, f32, f32, f32, f32, [f32; 19], [f32; 19], [f32; 19], f32)
-        + Send
-        + 'static
-        + Clone,
+    M: Fn(&T, GemOpticalMetrics, [f32; 19], [f32; 19], [f32; 19], f32) + Send + 'static + Clone,
 {
     if redraw_gate.submit(payload).is_none() {
         // An enqueued closure is still pending -- it will pick up the payload
@@ -191,12 +189,7 @@ pub(super) fn push_frame_to_ui<T, F, M>(
             let metrics = metrics_snapshot.metrics;
             update_metrics(
                 &ui,
-                metrics.brilliance_pct,
-                metrics.fire_index,
-                metrics.scintillation_pct,
-                metrics.windowing_pct,
-                metrics.extinction_pct,
-                metrics.doubling_arcmin,
+                metrics,
                 metrics_snapshot.graph_brilliance,
                 metrics_snapshot.graph_extinction,
                 metrics_snapshot.graph_windowing,
@@ -246,25 +239,18 @@ fn track_trace_activity<T: TraceActivitySink>(ui: &T, flags: FrameActivityFlags)
 pub(super) fn push_metrics_to_ui<T, M>(
     ui_weak: &Weak<T>,
     update_metrics: &M,
-    metrics_snapshot: FrameMetricsSnapshot,
+    metrics_snapshot: &FrameMetricsSnapshot,
 ) where
     T: ComponentHandle + 'static,
-    M: Fn(&T, f32, f32, f32, f32, f32, f32, [f32; 19], [f32; 19], [f32; 19], f32)
-        + Send
-        + 'static
-        + Clone,
+    M: Fn(&T, GemOpticalMetrics, [f32; 19], [f32; 19], [f32; 19], f32) + Send + 'static + Clone,
 {
+    let metrics_snapshot = *metrics_snapshot;
     let update_metrics = update_metrics.clone();
     let _ = ui_weak.upgrade_in_event_loop(move |ui| {
         let metrics = metrics_snapshot.metrics;
         update_metrics(
             &ui,
-            metrics.brilliance_pct,
-            metrics.fire_index,
-            metrics.scintillation_pct,
-            metrics.windowing_pct,
-            metrics.extinction_pct,
-            metrics.doubling_arcmin,
+            metrics,
             metrics_snapshot.graph_brilliance,
             metrics_snapshot.graph_extinction,
             metrics_snapshot.graph_windowing,

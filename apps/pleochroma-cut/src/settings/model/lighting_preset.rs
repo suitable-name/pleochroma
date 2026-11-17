@@ -126,6 +126,14 @@ pub struct LightingPreset {
     /// reads `false`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub env_map_follows_camera: bool,
+    /// Whether applying this preset also lays the stone out like Product Shot
+    /// (`gui::render::stone_pose::product_shot`): the stone faces the camera on the tray, the
+    /// camera drops to the product-shot elevation and the pan places the stone. The pose depends
+    /// on the design, so it is computed when the preset is applied (live and in the export
+    /// fan-out) and never stored here; a preset with this flag records no camera pose of its
+    /// own. Only a built-in sets it ("Presentation"). A preset without this field reads `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub product_shot: bool,
 }
 
 impl LightingPreset {
@@ -204,13 +212,20 @@ impl LightingPreset {
     }
 }
 
+/// The Tray Reflection of the "Presentation" built-in: the head-on reflectance of the glossy
+/// tray, so the stone standing on it shows its mirror image below (`0.04` is 4 %, black acrylic
+/// or glass). The one place to tune how strong that mirror image is. Chosen from test renders of
+/// the 2026-11-16 product-shot layout (ring lights at 72°, 0 / 4 / 8 / 15 %): 4 % shows a clear
+/// mirror image that stays darker than the stone.
+pub const PRESENTATION_TRAY_REFLECTION: f32 = 0.04;
+
 /// The built-in presets shipped with the app, a small set that cannot be deleted.
 ///
 /// Three carry their own tray: "Studio Softbox" a grey card, "Dramatic Spotlight" and
 /// "Presentation" black velvet; the others use the default White. Every built-in but "Presentation"
-/// is a viewing setup to judge a stone by; "Presentation" is the showcase look of a jeweler's
+/// is a viewing setup to judge a stone by; "Presentation" is the product shot of a jeweler's
 /// photo. Names double as stable identity: `SettingsFile::ensure_built_in_presets` matches on
-/// `name`.
+/// `name`, and refreshes a stored built-in from this table on every load.
 ///
 /// `env_map_path` is `None` and `export_usable` is `false` for every built-in, and
 /// `camera_yaw`/`camera_pitch` are `None` for every built-in except "Grading tray"
@@ -218,13 +233,20 @@ impl LightingPreset {
 /// stone as designed, since `stone_pose` is `None` on every built-in):
 /// applying a lighting mood must only change the lighting, never reposition the camera
 /// or swap in an environment map. They also default out of the export fan-out list.
+/// "Presentation" is the one other that moves the camera, through `product_shot` rather than a
+/// stored pose: applying it lays the stone out like the Product Shot button for the design on
+/// screen (the stone faces the camera on the tray, the camera at
+/// `PRODUCT_SHOT_PITCH_DEG`, the pan placing it), live and in the export fan-out.
 ///
 /// `stone_shadow` is on for the looks on a white or grey tray (Studio Softbox, Daylight
 /// Bright, Light Tent, Daylight Sun, Window daylight): the shadow and the colored light the stone
-/// casts sit it on the paper. It is off on black velvet, where nothing of it shows, and for the
-/// Grading tray, whose even dome casts no shadow worth drawing in its face-up view.
-/// `tray_reflection` is off for every built-in: a glossy tray mirrors the studio rigs' lamps as
-/// blown-out discs, and light arriving from below through it leaves the pavilion grainy.
+/// casts sit it on the paper. It is off on black velvet (Dramatic Spotlight), where nothing of
+/// it shows, and for the Grading tray, whose even dome casts no shadow worth drawing in its
+/// face-up view; "Presentation" turns it on because its stone stands on the tray.
+/// `tray_reflection` is off for every built-in but "Presentation" (`PRESENTATION_TRAY_REFLECTION`,
+/// the mirror image below the stone that a product shot shows): on the other looks a glossy tray
+/// mirrors the studio rigs' lamps as blown-out discs, and light arriving from below through it
+/// leaves the pavilion grainy.
 ///
 /// `exposure` is the compensation on top of the rig's incident-light meter
 /// (`RenderContext::effective_exposure`): `1.0` shows white paper as every rig shows it,
@@ -261,6 +283,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         },
         LightingPreset {
             name: "Daylight Bright".to_string(),
@@ -286,6 +309,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         },
         LightingPreset {
             name: "Dramatic Spotlight".to_string(),
@@ -310,6 +334,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         },
         LightingPreset {
             name: "Light Tent".to_string(),
@@ -333,6 +358,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         },
         // The colour-grading view: the D65 hemisphere seen face-up, the one built-in with a
         // camera pose (yaw and pitch must both be `Some`). The apply callback clamps pitch to
@@ -364,6 +390,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         },
         // Exposure 1.5: metered for the sunlit paper, the stone (which sees mostly the sky)
         // read dark; half a stop more shows it as a sunlit stone looks, with the paper still
@@ -390,6 +417,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         },
         // Window daylight: one broad soft source low in the sky (30 degrees = 0.52 rad, in
         // the 25-35 degree band the preset is designed for), a dim room around it.
@@ -417,17 +445,22 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             tray_reflection: 0.0,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: false,
         },
-        // The showcase look of a jeweler's photo, for pictures that show a stone off rather
-        // than judge it: the studio ring lights at their Studio Softbox pose over black velvet,
-        // half a stop above the meter. On black the ring lights give the most saturated color
-        // and crisp sparkle, and +0.5 EV lifts a dark stone without clipping a light one.
-        // A mood: the camera stays where it is.
+        // The product shot of a jeweler's photo, for pictures that show a stone off rather
+        // than judge it: the studio ring lights over black velvet, brighter than the meter.
+        // The lights stand at 72° rather than the Studio Softbox's 54°: from the product shot's
+        // low camera a glossy tray mirrors lights at 54° as blown-out discs along the bottom of
+        // the picture, and at 72° their mirror images fall outside it. On black the ring lights give the most saturated color and
+        // crisp sparkle, and the extra exposure lifts a dark stone without clipping a light one.
+        // The stone also stands facing the camera on the tray with its shadow and its mirror
+        // image (`product_shot`): the pose and the camera depend on the design, so they are
+        // worked out when the preset is applied, not stored here.
         LightingPreset {
             name: "Presentation".to_string(),
             built_in: true,
             light_yaw_deg: 48.0,
-            light_pitch_deg: 54.0,
+            light_pitch_deg: 72.0,
             exposure: 1.4,
             lighting_rig: "Gem Studio Ring Lights".to_string(),
             camera_distance: 2.4,
@@ -441,10 +474,11 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::Black,
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
-            stone_shadow: false,
-            tray_reflection: 0.0,
+            stone_shadow: true,
+            tray_reflection: PRESENTATION_TRAY_REFLECTION,
             env_map_yaw_deg: 0.0,
             env_map_follows_camera: false,
+            product_shot: true,
         },
     ]
 }
@@ -684,16 +718,19 @@ mod tests {
             tray_reflection: 0.04,
             env_map_yaw_deg: 125.0,
             env_map_follows_camera: true,
+            product_shot: false,
         };
         let toml_str = toml::to_string_pretty(&preset).expect("must serialize");
         let round_tripped: LightingPreset = toml::from_str(&toml_str).expect("must deserialize");
         assert_eq!(preset, round_tripped);
     }
 
-    /// The "Presentation" built-in shows a stone off: the studio ring lights over black velvet,
-    /// brighter than the meter, without moving the camera.
+    /// The "Presentation" built-in is a product shot: the studio ring lights over black velvet,
+    /// brighter than the meter, with the shadow and the mirror image of the tray, and the stone
+    /// laid out like Product Shot when it is applied. It stores no camera pose of its own (the pose
+    /// depends on the design).
     #[test]
-    fn the_presentation_view_is_ring_lights_on_black_velvet_above_the_meter() {
+    fn the_presentation_view_is_a_product_shot_with_ring_lights_on_black_velvet() {
         let preset = built_in_presets()
             .into_iter()
             .find(|p| p.name == "Presentation")
@@ -705,7 +742,54 @@ mod tests {
         );
         assert_eq!(preset.backdrop, Backdrop::Black);
         assert!(preset.exposure > 1.0, "exposure {}", preset.exposure);
+        assert!(preset.product_shot);
+        assert!(preset.stone_shadow);
+        assert_eq!(
+            preset.tray_reflection.to_bits(),
+            PRESENTATION_TRAY_REFLECTION.to_bits()
+        );
+        assert!(preset.tray_reflection > 0.0);
         assert!(preset.values().camera_pose().is_none());
+        assert_eq!(preset.stone_pose, None);
+    }
+
+    /// Only "Presentation" lays the stone out like Product Shot and mirrors the tray; every other
+    /// built-in is a lighting without either.
+    #[test]
+    fn only_the_presentation_view_is_a_product_shot_with_a_tray_reflection() {
+        for preset in built_in_presets() {
+            let presentation = preset.name == "Presentation";
+            assert_eq!(preset.product_shot, presentation, "{}", preset.name);
+            assert_eq!(
+                preset.tray_reflection > 0.0,
+                presentation,
+                "{}",
+                preset.name
+            );
+        }
+    }
+
+    /// A preset stored before the product-shot flag existed reads it as off, a stored flag
+    /// survives the settings text, and an off flag is not written.
+    #[test]
+    fn the_product_shot_flag_defaults_off_round_trips_and_is_not_written_when_off() {
+        let old = r#"
+            name = "Older"
+            light_yaw_deg = 10.0
+            light_pitch_deg = 20.0
+            exposure = 1.0
+            lighting_rig = "Gem Studio Ring Lights"
+            camera_distance = 2.4
+        "#;
+        let mut preset: LightingPreset = toml::from_str(old).expect("an older preset parses");
+        assert!(!preset.product_shot);
+        let plain = toml::to_string_pretty(&preset).expect("serializes");
+        assert!(!plain.contains("product_shot"), "{plain}");
+        preset.product_shot = true;
+        let text = toml::to_string_pretty(&preset).expect("serializes");
+        assert!(text.contains("product_shot = true"), "{text}");
+        let back: LightingPreset = toml::from_str(&text).expect("deserializes");
+        assert!(back.product_shot);
     }
 
     /// The "Window daylight" built-in exists, selects the window rig and keeps the key low

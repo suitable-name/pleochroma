@@ -81,6 +81,9 @@ fn doubling_sample(pair: &[RayClassification; 2]) -> Option<(f32, f32)> {
 /// the ray that was visibly returned (`0`, one half or `1`), or `None` when the ray misses the
 /// stone.
 ///
+/// Each mode is also folded into the zone sums under the grid spot index `spot`, with
+/// `MODE_WEIGHT`.
+///
 /// `tone` is told about two traced rays per camera ray (one per mode) and offered each returned
 /// mode with half its Fresnel weight, so its returned fraction and its weighted mixture are the
 /// 50/50 split of the two modes.
@@ -90,6 +93,7 @@ pub(super) fn accumulate_sample_pair(
     mut tone: Option<&mut ToneAccumulator>,
     diag_fire_debug: bool,
     (u, v): (f32, f32),
+    spot: usize,
     (sub_right, sub_up): (f32, f32),
 ) -> Option<f32> {
     let ray = aperture_ray(ctx, u, v, sub_right, sub_up);
@@ -102,11 +106,12 @@ pub(super) fn accumulate_sample_pair(
         if let Some(t) = tone.as_deref_mut() {
             t.count_total();
         }
+        acc.fold_aset(spot, class, MODE_WEIGHT);
         let counts = acc.weighted.get_or_insert_default();
         match class {
             RayClassification::EntryBlocked | RayClassification::Invalid => {}
             RayClassification::Windowed => counts.windowed += MODE_WEIGHT,
-            RayClassification::Extinct => counts.extinct += MODE_WEIGHT,
+            RayClassification::Extinct { .. } => counts.extinct += MODE_WEIGHT,
             RayClassification::Returned(ray) => {
                 counts.returned += MODE_WEIGHT;
                 returned_share += MODE_WEIGHT;

@@ -454,6 +454,17 @@ impl JobStore {
         Ok(info)
     }
 
+    /// A job of any owner: its owner key and how it stands. `None` for an unknown job. For the
+    /// coordinator's own bookkeeping (its activity feed); a viewer never sees another owner's job.
+    #[must_use]
+    pub fn describe(&self, id: &JobId) -> Option<(String, JobInfo)> {
+        let inner = self.lock();
+        let record = inner.records.get(id)?;
+        let described = (record.owner.clone(), self.info(id, record));
+        drop(inner);
+        Some(described)
+    }
+
     /// `owner`'s jobs, newest first, at most [`MAX_JOB_LIST`].
     #[must_use]
     pub fn list(&self, owner: &str) -> Vec<JobInfo> {

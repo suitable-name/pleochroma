@@ -26,6 +26,7 @@ pub fn release_window_state() {
     // The windows that belong to the main window go first, so nothing is looking at the handles.
     rough_plan::close_planner_window();
     help::close_help_window();
+    super::material_reference::release_window_state();
     search::cancel_pending_searches();
     pickers::release_window_state();
     editor::release_window_state();
@@ -59,5 +60,8 @@ pub fn live_holders() -> Vec<&'static str> {
     render::design_lighting::note_holders(&mut held);
     render_jobs::controller::note_holders(&mut held);
     rough_plan::note_holders(&mut held);
+    if super::material_reference::holds_state() {
+        held.push("material_reference (window, main-window handles)");
+    }
     held
 }

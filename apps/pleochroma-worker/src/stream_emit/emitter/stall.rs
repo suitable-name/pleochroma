@@ -23,6 +23,12 @@ impl StallWatch {
         }
     }
 
+    /// Starts the window again: a producer waiting for the graphics card's shader build is not
+    /// wedged.
+    pub(super) fn restart(&mut self) {
+        self.since = Instant::now();
+    }
+
     /// Records the latest `samples_done` (any change restarts the window) and returns
     /// the window once the producer has gone longer than it without a new sample.
     pub(super) fn observe(&mut self, samples_done: u32) -> Option<Duration> {

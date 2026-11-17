@@ -1,0 +1,349 @@
+// The Library page of the coordinator window: which design library the coordinator serves, how
+// many designs it holds, and that it is read-only; or, in library-less mode, plain words that
+// rendering still works and a "Choose a library..." action.
+//
+// Page contract: one `LibraryPage` with no required properties and one `LibraryState` global.
+// `src/gui/pages/library.rs` fills the state from the coordinator status once a second and
+// answers the callbacks. Built from the coordinator kit (`../frame.slint`).
+import { ScrollView } from "std-widgets.slint";
+import { Theme, ShellState, KitIcon, KitIcons, KitButton, KitCard, KitBadge, KitSwitch, CIcons } from "../frame.slint";
+
+export global LibraryState {
+    /// False in library-less ("rendering only") mode.
+    in property <bool> has-library: false;
+    /// The library file; empty in library-less mode.
+    in property <string> path;
+    /// "4,812", or "Counting..." while the count is not known; empty in library-less mode.
+    in property <string> designs-text;
+    /// "designs" or "design".
+    in property <string> designs-word: "designs";
+    /// True: the coordinator never writes to the library.
+    in property <bool> read-only: true;
+    /// Whether the signed-in role may change the setting (never remote).
+    in property <bool> can-change: true;
+    /// Whether the signed-in role may restart the coordinator.
+    in property <bool> can-restart: true;
+    /// Why Change is greyed out, shown under the card; empty when allowed.
+    in property <string> denied-reason;
+    /// True after a change was saved and the coordinator still runs with the old library.
+    in-out property <bool> restart-pending: false;
+    /// What the saved setting says, for the restart notice ("D:\Gems\a.sqlite" or "no library").
+    in-out property <string> pending-text;
+    /// The last failed action in plain words; empty when the last action worked.
+    in-out property <string> error;
+
+    /// "Choose a library...": the Rust side opens a file picker and saves the choice.
+    callback choose-library();
+    /// "Rendering only": the Rust side saves "no library".
+    callback clear-library();
+    /// Open the library's folder in the file manager.
+    callback open-folder();
+    /// Restart the coordinator so the saved choice applies.
+    callback restart-now();
+}
+
+// A 40 px icon chip.
+component Chip40 inherits Rectangle {
+    in property <string> d;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: Theme.accent-cyan-surface;
+    KitIcon { x: 8px; y: 8px; d: root.d; size: 24px; ink: Theme.accent-cyan; }
+}
+
+export component LibraryPage inherits Rectangle {
+    property <bool> wide: root.width >= 600px;
+
+    background: transparent;
+
+    ScrollView {
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: start;
+
+            if LibraryState.error != "": Text {
+                text: LibraryState.error;
+                font-size: 12px;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            // A saved change waits for a restart.
+            if LibraryState.restart-pending && !ShellState.remote: KitCard {
+                height: note.preferred-height + 28px;
+                background: Theme.accent-amber-glow;
+                border-color: Theme.accent-amber;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Restart needed: " + LibraryState.pending-text;
+                note := HorizontalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    VerticalLayout {
+                        alignment: center;
+                        KitIcon { d: CIcons.refresh; size: 18px; ink: Theme.accent-amber; }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Saved: " + LibraryState.pending-text + ". Restart the coordinator to use it.";
+                        font-size: 13px;
+                        color: Theme.text-primary;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        KitButton {
+                            kind: 1;
+                            text: "Restart now";
+                            h: 32px;
+                            enabled: LibraryState.can-restart;
+                            hint: LibraryState.can-restart ? "" : ShellState.denied-reason;
+                            clicked => {
+                                LibraryState.restart-now();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Normal mode: the library, its design count, read-only.
+            if LibraryState.has-library: KitCard {
+                height: body.preferred-height + 48px;
+                body := VerticalLayout {
+                    padding: 24px;
+                    spacing: 16px;
+                    HorizontalLayout {
+                        spacing: 14px;
+                        Chip40 { d: CIcons.book; }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text { text: "Design library"; font-size: 15px; font-weight: 650; color: Theme.text-primary; }
+                            Text { text: "The designs your devices can search and open."; font-size: 12px; color: Theme.text-secondary; wrap: word-wrap; }
+                        }
+                        if LibraryState.read-only && root.wide: VerticalLayout {
+                            alignment: start;
+                            KitBadge { text: "Read only"; fill: Theme.success.with-alpha(0.16); ink: Theme.success; }
+                        }
+                    }
+                    if root.wide: HorizontalLayout {
+                        spacing: 10px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 40px;
+                            border-radius: 8px;
+                            background: Theme.bg-input;
+                            accessible-role: AccessibleRole.text;
+                            accessible-label: "Library file: " + LibraryState.path;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 10px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    KitIcon { d: CIcons.folder; size: 16px; ink: Theme.text-muted; }
+                                }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: LibraryState.path;
+                                    font-size: 13px;
+                                    font-family: "Consolas";
+                                    color: Theme.text-primary;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                        KitButton {
+                            text: "Change…";
+                            h: 40px;
+                            enabled: LibraryState.can-change;
+                            hint: LibraryState.can-change ? "" : ShellState.denied-reason;
+                            clicked => {
+                                LibraryState.choose-library();
+                            }
+                        }
+                        // The library file is on the coordinator's own computer: not offered for a remote one.
+                        if !ShellState.remote: KitButton {
+                            icon: CIcons.folder;
+                            text: "Open folder";
+                            h: 40px;
+                            clicked => {
+                                LibraryState.open-folder();
+                            }
+                        }
+                    }
+                    if !root.wide: VerticalLayout {
+                        spacing: 10px;
+                        Rectangle {
+                            height: 40px;
+                            border-radius: 8px;
+                            background: Theme.bg-input;
+                            accessible-role: AccessibleRole.text;
+                            accessible-label: "Library file: " + LibraryState.path;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 10px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    KitIcon { d: CIcons.folder; size: 16px; ink: Theme.text-muted; }
+                                }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: LibraryState.path;
+                                    font-size: 12px;
+                                    font-family: "Consolas";
+                                    color: Theme.text-primary;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            KitButton {
+                                text: "Change…";
+                                h: 36px;
+                                enabled: LibraryState.can-change;
+                                hint: LibraryState.can-change ? "" : ShellState.denied-reason;
+                                clicked => {
+                                    LibraryState.choose-library();
+                                }
+                            }
+                            if !ShellState.remote: KitButton {
+                                icon: CIcons.folder;
+                                text: "Open folder";
+                                h: 36px;
+                                clicked => {
+                                    LibraryState.open-folder();
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: LibraryState.designs-text;
+                            font-size: 22px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            vertical-alignment: bottom;
+                        }
+                        Text {
+                            text: LibraryState.designs-word;
+                            font-size: 13px;
+                            color: Theme.text-muted;
+                            vertical-alignment: bottom;
+                        }
+                    }
+                    if LibraryState.read-only: HorizontalLayout {
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: start;
+                            KitIcon { d: KitIcons.lock; size: 14px; ink: Theme.text-muted; }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: "Read only. The coordinator never changes your library.";
+                            font-size: 12px;
+                            color: Theme.text-muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+
+            // Library-less mode: said in plain words, with the way out.
+            if !LibraryState.has-library: KitCard {
+                height: empty.preferred-height + 48px;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "This coordinator has no design library. Rendering still works.";
+                empty := VerticalLayout {
+                    padding: 24px;
+                    spacing: 16px;
+                    HorizontalLayout {
+                        spacing: 14px;
+                        Chip40 { d: CIcons.book; }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text { text: "No design library"; font-size: 15px; font-weight: 650; color: Theme.text-primary; }
+                            Text { text: "Rendering only"; font-size: 12px; color: Theme.text-secondary; }
+                        }
+                    }
+                    Text {
+                        text: "This coordinator has no design library. Rendering still works.";
+                        font-size: 13px;
+                        color: Theme.text-primary;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: "Devices can send renders here, but they cannot search or open designs on this computer. Choose a library to change that.";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        KitButton {
+                            kind: 1;
+                            icon: CIcons.folder;
+                            text: "Choose a library…";
+                            h: 36px;
+                            enabled: LibraryState.can-change;
+                            hint: LibraryState.can-change ? "" : ShellState.denied-reason;
+                            clicked => {
+                                LibraryState.choose-library();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // The way back to rendering only.
+            if LibraryState.has-library: KitCard {
+                height: 74px;
+                HorizontalLayout {
+                    padding: 20px;
+                    spacing: 16px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "Rendering only (no library)"; font-size: 13px; font-weight: 650; color: Theme.text-primary; overflow: elide; }
+                        Text { text: "Devices can send renders, but they cannot search or open designs on this computer."; font-size: 12px; color: Theme.text-secondary; overflow: elide; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        KitSwitch {
+                            label: "Rendering only (no library)";
+                            on: false;
+                            enabled: LibraryState.can-change;
+                            hint: LibraryState.can-change ? "" : ShellState.denied-reason;
+                            toggled => {
+                                LibraryState.clear-library();
+                            }
+                        }
+                    }
+                }
+            }
+
+            if LibraryState.denied-reason != "": Text {
+                text: LibraryState.denied-reason;
+                font-size: 12px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

@@ -4,7 +4,11 @@
 //! Tutorials are picked by the harness itself: arguments after `--` that do not start with `-`
 //! select scenarios (`video:<id>`) by name substring.
 
-use crate::support::library_source::{ENV_LIBRARY, LibrarySource, configured_source};
+use crate::support::{
+    SettingsSeed,
+    library_source::{ENV_LIBRARY, LibrarySource, configured_source},
+    remote_seed::{RemoteSeed, remote_from_env},
+};
 use std::{fs, path::PathBuf};
 
 /// Environment variable that overrides the output folder (default: the workspace `videos`).
@@ -19,6 +23,12 @@ pub const ENV_DEBUG: &str = "PLEOCHROMA_VIDEOS_DEBUG";
 /// Environment variable that is rejected: a run with it set makes no video. Recordings need
 /// visible user input only; synthetic `GuideModel.event` input is forbidden.
 pub const ENV_INJECT: &str = "PLEOCHROMA_VIDEOS_ALLOW_INJECT";
+/// Environment variable naming a `settings.toml` whose `[settings.remote]` the live renders use
+/// next to this computer (the owner's own settings file; it is read once and never written).
+pub const ENV_REMOTE: &str = "PLEOCHROMA_VIDEOS_REMOTE";
+/// The tutorials that render on this computer even with [`ENV_REMOTE`] set: their export dialog
+/// and Export Script show where a job renders, and the lessons say to keep This Computer.
+const LOCAL_ONLY_TUTORIALS: [&str; 2] = ["output-render-jobs", "output-render-jobs-queue"];
 /// The window's logical size.
 pub const LOGICAL_SIZE: (u32, u32) = (1920, 1080);
 /// The middle of the window, where the cursor starts (logical pixels).
@@ -56,6 +66,10 @@ pub struct Config {
     pub library_note: Option<String>,
     /// Lower-case texts a video must not show.
     pub private_words: Vec<String>,
+    /// The remote the live renders use, `None` when [`ENV_REMOTE`] is unset or unusable.
+    pub remote: Option<RemoteSeed>,
+    /// What the run says about [`ENV_REMOTE`]: the remote in use, or why it is not.
+    pub remote_note: Option<String>,
 }
 
 impl Config {
@@ -90,6 +104,24 @@ impl Config {
             LibrarySource::Database(path) => Some(path),
             LibrarySource::Fixtures => None,
         };
+        let mut private_words = private_words();
+        let (remote, remote_note) = match remote_from_env(ENV_REMOTE) {
+            Ok(None) => (None, None),
+            Ok(Some(remote)) => {
+                remote.extend_private_words(&mut private_words);
+                let note = format!(
+                    "live renders use the remote of {ENV_REMOTE}; {} stay on this computer",
+                    LOCAL_ONLY_TUTORIALS.join(", ")
+                );
+                (Some(remote), Some(note))
+            }
+            Err(reason) => (
+                None,
+                Some(format!(
+                    "{ENV_REMOTE} is not used: {reason}; live renders stay local"
+                )),
+            ),
+        };
         Self {
             out_dir,
             four_k: flag(ENV_4K),
@@ -98,7 +130,29 @@ impl Config {
             debug: flag(ENV_DEBUG),
             library,
             library_note: source_note,
-            private_words: private_words(),
+            private_words,
+            remote,
+            remote_note,
+        }
+    }
+
+    /// The settings file tutorial `id` starts from: the existing install, plus the remote when
+    /// one is configured and the tutorial is not one of [`LOCAL_ONLY_TUTORIALS`].
+    #[must_use]
+    pub fn seed_for(&self, id: &str) -> SettingsSeed {
+        RemoteSeed::seed_for(self.remote.as_ref(), LOCAL_ONLY_TUTORIALS.contains(&id))
+    }
+
+    /// A line for the report about where tutorial `id` renders.
+    #[must_use]
+    pub fn render_line(&self, id: &str) -> String {
+        match (&self.remote, &self.remote_note) {
+            (Some(_), _) if LOCAL_ONLY_TUTORIALS.contains(&id) => {
+                "renders: this computer (the lesson shows where a job renders)".to_owned()
+            }
+            (Some(_), _) => "renders: the remote of the run and this computer".to_owned(),
+            (None, Some(note)) => format!("renders: this computer ({note})"),
+            (None, None) => format!("renders: this computer ({ENV_REMOTE} is not set)"),
         }
     }
 

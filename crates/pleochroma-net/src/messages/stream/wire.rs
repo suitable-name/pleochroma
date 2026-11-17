@@ -1,7 +1,7 @@
-//! Read/write helpers for [`super::types::StreamEvent`] and its `FRAME`/`PREVIEW`
-//! variants: a `postcard`-encoded header frame plus, for `Frame`/`Preview`, a second raw
-//! payload frame -- see the parent module docs for why the payload never goes through
-//! `postcard`.
+//! Read/write helpers for [`super::types::StreamEvent`] and its `FRAME`/`PREVIEW` variants.
+//!
+//! A `postcard`-encoded header frame plus, for `Frame`/`Preview`, a second raw payload
+//! frame -- see the parent module docs for why the payload never goes through `postcard`.
 
 use super::types::{FrameHeader, PreviewHeader, StreamEvent};
 

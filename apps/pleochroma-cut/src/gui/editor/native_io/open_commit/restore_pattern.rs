@@ -15,9 +15,9 @@ use crate::{
 };
 use pleochroma_cut_core::{
     material::{
-        decode_pattern, encode_pattern, inclusion_families_from_json, inclusion_families_to_json,
-        per_axis_dispersion_of_snapshot, per_axis_dispersion_to_json, structure_spec_from_json,
-        structure_spec_to_json,
+        LibraryMaterial, decode_pattern, encode_pattern, inclusion_families_from_json,
+        inclusion_families_to_json, per_axis_dispersion_of_snapshot, per_axis_dispersion_to_json,
+        structure_spec_from_json, structure_spec_to_json,
     },
     native::{
         CustomMaterialSnapshot, dispersion_model_from_dto, dispersion_model_to_json,
@@ -84,6 +84,10 @@ fn create_row(db: &Database, name: &str, snapshot: &CustomMaterialSnapshot) -> a
         .as_deref()
         .and_then(structure_spec_from_json)
         .and_then(|spec| structure_spec_to_json(&spec));
+    let gem_data_json = snapshot
+        .gem_data
+        .as_ref()
+        .and_then(LibraryMaterial::encode_gem_data);
     let text = |value: &str| (!value.is_empty()).then_some(value.to_string());
     let crystal_system = text(&snapshot.crystal_system);
     let optical_character = text(&snapshot.optical_character);
@@ -106,6 +110,7 @@ fn create_row(db: &Database, name: &str, snapshot: &CustomMaterialSnapshot) -> a
         c_axis_second_azimuth_deg: snapshot.c_axis_second_azimuth_deg.map(narrow),
         inclusion_families_json: inclusions_json.as_deref(),
         structure_json: structure_json.as_deref(),
+        gem_data_json: gem_data_json.as_deref(),
     })
 }
 

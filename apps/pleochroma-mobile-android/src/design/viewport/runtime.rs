@@ -16,6 +16,7 @@ use std::{
 use pleochroma_cut_core::Design;
 use pleochroma_mobile_core::{
     app_state::AppState,
+    settings::ThemeChoice,
     tasks::{BackgroundQueue, Generation},
     viewport::{
         FrameKey, JobInputs,
@@ -37,6 +38,8 @@ struct Runtime {
     generation: Generation,
     /// The key of the newest job submitted, to skip a push that changed nothing.
     last_key: Option<FrameKey>,
+    /// Whether the last job was drawn in the high-contrast palette.
+    high_contrast: bool,
     /// A snapshot of the design for jobs, kept while the session does not change.
     snapshot: Option<Snapshot>,
     window: slint::Weak<AppWindow>,
@@ -71,6 +74,7 @@ pub(super) fn install(window: &AppWindow, state: &Shared) {
             worker: Arc::new(Mutex::new(RasterWorker::new())),
             generation: Generation::default(),
             last_key: None,
+            high_contrast: false,
             snapshot: None,
             window: window.as_weak(),
             state: Rc::clone(state),
@@ -132,6 +136,13 @@ impl Runtime {
             selected,
             &session.multi_selected,
         );
+        // The theme is not part of the frame key: a switch forgets the key, so the next
+        // request draws the picture again in the other palette.
+        let high_contrast = state.settings.theme == ThemeChoice::HighContrast;
+        if high_contrast != self.high_contrast {
+            self.high_contrast = high_contrast;
+            self.last_key = None;
+        }
         if self.last_key.as_ref() == Some(&key) {
             return;
         }
@@ -142,6 +153,7 @@ impl Runtime {
             solved: solved.map(<[_]>::to_vec),
             selected_tier: selected,
             multi_selected: session.multi_selected.clone(),
+            high_contrast,
         };
         let token = self.generation.advance();
         let job = state.viewport.job(token, inputs);

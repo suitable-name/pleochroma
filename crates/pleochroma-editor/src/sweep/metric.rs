@@ -27,11 +27,14 @@ pub enum SweepMetric {
     TiltWindowing,
     /// Tilt-averaged extinction (lower is better).
     TiltExtinction,
+    /// Contrast of the table-up view, 0 to 100 (higher is better). Last, so the position of
+    /// every other figure in [`Self::ALL`] stays the same.
+    Contrast,
 }
 
 impl SweepMetric {
     /// Every figure, in table order: the single-pose figures, then the tilt averages.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Brilliance,
         Self::Windowing,
         Self::Extinction,
@@ -41,6 +44,7 @@ impl SweepMetric {
         Self::TiltBrilliance,
         Self::TiltWindowing,
         Self::TiltExtinction,
+        Self::Contrast,
     ];
 
     /// The figure at position `index` of [`Self::ALL`].
@@ -62,6 +66,7 @@ impl SweepMetric {
             Self::TiltBrilliance => 6,
             Self::TiltWindowing => 7,
             Self::TiltExtinction => 8,
+            Self::Contrast => 9,
         }
     }
 
@@ -78,6 +83,7 @@ impl SweepMetric {
             Self::TiltBrilliance => "Tilt brilliance",
             Self::TiltWindowing => "Tilt windowing",
             Self::TiltExtinction => "Tilt extinction",
+            Self::Contrast => "Contrast",
         }
     }
 
@@ -94,6 +100,7 @@ impl SweepMetric {
             Self::TiltBrilliance => "Tilt brill. %",
             Self::TiltWindowing => "Tilt wind. %",
             Self::TiltExtinction => "Tilt ext. %",
+            Self::Contrast => "Contrast",
         }
     }
 
@@ -110,14 +117,15 @@ impl SweepMetric {
             Self::TiltBrilliance => "tilt_brilliance_pct",
             Self::TiltWindowing => "tilt_windowing_pct",
             Self::TiltExtinction => "tilt_extinction_pct",
+            Self::Contrast => "contrast",
         }
     }
 
-    /// The unit written after a value: `" %"`, or nothing for the fire index.
+    /// The unit written after a value: `" %"`, or nothing for the fire index and Contrast.
     #[must_use]
     pub const fn unit(self) -> &'static str {
         match self {
-            Self::Fire => "",
+            Self::Fire | Self::Contrast => "",
             _ => " %",
         }
     }
@@ -162,6 +170,7 @@ impl SweepMetric {
             Self::TiltBrilliance => f64::from(metrics.tilt.as_ref()?.brilliance_pct),
             Self::TiltWindowing => f64::from(metrics.tilt.as_ref()?.windowing_pct),
             Self::TiltExtinction => f64::from(metrics.tilt.as_ref()?.extinction_pct),
+            Self::Contrast => return metrics.aset.map(|aset| f64::from(aset.contrast)),
         })
     }
 
@@ -198,6 +207,8 @@ pub struct BestFlags {
     pub tilt_windowing: bool,
     /// The row has the best (lowest) tilt-averaged extinction.
     pub tilt_extinction: bool,
+    /// The row has the most contrast.
+    pub contrast: bool,
 }
 
 impl BestFlags {
@@ -214,6 +225,7 @@ impl BestFlags {
             SweepMetric::TiltBrilliance => self.tilt_brilliance,
             SweepMetric::TiltWindowing => self.tilt_windowing,
             SweepMetric::TiltExtinction => self.tilt_extinction,
+            SweepMetric::Contrast => self.contrast,
         }
     }
 
@@ -228,6 +240,7 @@ impl BestFlags {
             SweepMetric::TiltBrilliance => self.tilt_brilliance = true,
             SweepMetric::TiltWindowing => self.tilt_windowing = true,
             SweepMetric::TiltExtinction => self.tilt_extinction = true,
+            SweepMetric::Contrast => self.contrast = true,
         }
     }
 }

@@ -432,7 +432,9 @@ fn the_csv_has_one_line_per_cell_in_row_major_order() {
     // A header, one line per cell, and the empty remainder after the final line end.
     assert_eq!(lines.len(), 1 + outcome.cells.len() + 1);
     assert!(lines[0].starts_with("tier_a,tier_b,angle_a_deg,angle_b_deg,current,valid,"));
-    assert!(lines[0].ends_with(",facet_warnings,notes"));
+    assert!(lines[0].contains(",facet_warnings,notes,contrast,aset_red_pct,"));
+    assert!(lines[0].ends_with(",aset_dark_pct,aset_leak_pct,aset_lost_pct"));
+    assert_eq!(lines[0].matches("contrast").count(), 1);
     assert!(!lines[0].contains("tilt_"));
     assert!(lines[1].starts_with("Crown Main,Pavilion Main,34.0000,40.0000,"));
     assert_eq!(lines[outcome.cells.len() + 1], "");

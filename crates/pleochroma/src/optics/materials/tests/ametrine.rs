@@ -181,7 +181,9 @@ fn ametrine_halves_are_purple_and_yellow() {
 ///
 /// The amethyst half is the Anahi (Bolivia) amethyst of its stones, which reads redder than the
 /// commercial Amethyst built-in (the ametrine photos' purple has a median hue of 337, the
-/// amethyst photos 316). So its hue may differ by up to 25 deg; the citrine half keeps 10.
+/// amethyst photos 316). So its hue may differ by up to 25 deg. The Citrine built-in is the pale
+/// 0.53 x strength (L* 92 h 94), the citrine half's recipe the deeper L* 84 h 85 (the 2026-11-04
+/// seeds), so the citrine half may differ by up to 12 in lightness and 15 deg in hue.
 #[test]
 fn ametrine_halves_match_the_citrine_and_amethyst_built_ins() {
     let mm_per_unit = f64::from(effective_stone_width_mm(0.0)) / ZONE_SWATCH_FALLBACK_MODEL_WIDTH;
@@ -200,15 +202,15 @@ fn ametrine_halves_match_the_citrine_and_amethyst_built_ins() {
             .unpolarised
             .lab)
     };
-    for (zone, name, max_dh) in [
-        (&zoning.zones[0].absorption.tensor, "Citrine", 10.0),
-        (&zoning.base.tensor, "Amethyst", 25.0),
+    for (zone, name, max_dl, max_dh) in [
+        (&zoning.zones[0].absorption.tensor, "Citrine", 12.0, 15.0),
+        (&zoning.base.tensor, "Amethyst", 7.0, 25.0),
     ] {
         let [l, _, h] = half(zone);
         let [l_ref, _, h_ref] = built_in(name);
         let dh = ((h - h_ref + 180.0).rem_euclid(360.0) - 180.0).abs();
         assert!(
-            (l - l_ref).abs() <= 7.0 && dh <= max_dh,
+            (l - l_ref).abs() <= max_dl && dh <= max_dh,
             "the {name} half (L* {l:.1}, h {h:.1}) must read like the {name} \
              built-in (L* {l_ref:.1}, h {h_ref:.1})"
         );
