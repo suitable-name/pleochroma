@@ -162,7 +162,7 @@ fn the_report_text_without_concave_tiers_is_the_plain_text() {
 fn the_report_text_names_the_concave_tiers_that_are_not_verified() {
     let text = format_deep_solve_report_for(&report(true), false, 2);
     assert!(
-        text.ends_with("(flat stone; 2 concave tier(s) are not part of the printed proportions)"),
+        text.ends_with("(flat stone; 2 concave tiers are not part of the printed proportions)"),
         "{text}"
     );
     assert!(text.starts_with("Deep Solve: ACCEPTED"), "{text}");

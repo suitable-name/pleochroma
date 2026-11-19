@@ -43,7 +43,7 @@ export component PlanField inherits VerticalLayout {
     Rectangle {
         height: 30px;
         if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
-        LineEdit {
+        field_edit := LineEdit {
             x: 0px;
             y: 0px;
             width: parent.width;
@@ -69,7 +69,9 @@ export component PlanField inherits VerticalLayout {
             }
         }
         if root.unit != "": Text {
-            x: parent.width - self.width - 10px;
+            // The style's clear button takes the right edge while the field is focused and has
+            // text; the unit steps left of it.
+            x: parent.width - self.width - (field_edit.has-focus && root.value != "" ? 36px : 10px);
             y: 0px;
             height: parent.height;
             text: root.unit;

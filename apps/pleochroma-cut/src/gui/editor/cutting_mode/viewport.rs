@@ -12,7 +12,7 @@
 use crate::{
     EditorModel, MainWindow, SolidPreviewModel, ViewportModel,
     gui::{
-        render::fit_view,
+        render::{camera_handles, fit_view},
         solid_preview::cut_slider::{CutPosition, MODEL_FINISHED},
         view_modes::EditViewMode,
     },
@@ -34,17 +34,22 @@ pub(super) struct Saved {
     pub(super) view_mode: i32,
     /// `EditorModel.selected_tier_index`.
     pub(super) selected_row: i32,
+    /// The camera's distance (the zoom). Cutting mode only moves this one (Fit); yaw, pitch, roll
+    /// and pan stay as the cutter left them. `None` when the camera is not registered, and for a
+    /// design that replaced the one on screen (the old zoom means nothing for it).
+    pub(super) camera_distance: Option<f32>,
 }
 
 impl Saved {
     /// What a design that replaced the one on screen starts with: the finished stone, the Solid
-    /// view as it was left, nothing selected.
+    /// view as it was left, nothing selected, the camera fitted again.
     pub(super) const fn after_replacement(self) -> Self {
         Self {
             viewport_size: self.viewport_size,
             tier_cutoff: MODEL_FINISHED,
             view_mode: self.view_mode,
             selected_row: -1,
+            camera_distance: None,
         }
     }
 }
@@ -90,12 +95,10 @@ pub(super) fn fit_to_rough(ui: &MainWindow, radius: f64) {
     ui.global::<ViewportModel>().invoke_set_view(FIT_VIEW);
 }
 
-/// Lifts the rough's floor and fits the finished stone again, when [`fit_to_rough`] ran: the
-/// editor view the screen gives back is framed like the one it took.
+/// Fits the finished stone again after [`lift_rough_floor`] said the rough's floor was set (the
+/// screen was closed without a saved view to give back).
 pub(super) fn release_rough(ui: &MainWindow) {
-    if fit_view::set_radius_floor(0.0) > 0.0 {
-        ui.global::<ViewportModel>().invoke_set_view(FIT_VIEW);
-    }
+    ui.global::<ViewportModel>().invoke_set_view(FIT_VIEW);
 }
 
 /// `ViewportModel.set_view`'s kind for Fit.
@@ -111,6 +114,7 @@ pub(super) fn capture(ui: &MainWindow) -> Saved {
         tier_cutoff: ui.global::<SolidPreviewModel>().get_tier_cutoff(),
         view_mode: EditViewMode::from_raw(ui.global::<SolidPreviewModel>().get_view_mode()).raw(),
         selected_row: ui.global::<EditorModel>().get_selected_tier_index(),
+        camera_distance: camera_handles::camera_distance(),
     }
 }
 
@@ -122,12 +126,22 @@ pub(super) fn show_step(ui: &MainWindow, step: &CuttingStep, position: usize, st
     if solid.get_view_mode() != view_mode {
         solid.set_view_mode(view_mode);
     }
-    set_cutoff(ui, cutoff_after(position, step_count));
+    // The row first: the redraw the new cutoff asks for reads the selection when it is planned, so
+    // selecting after it would draw the stone with the previous step's tier highlighted.
     select_row(ui, step.table_row);
+    set_cutoff(ui, cutoff_after(position, step_count));
 }
 
-/// Puts the viewport back the way [`capture`] found it.
-pub(super) fn restore(ui: &MainWindow, saved: Saved) {
+/// Lifts the rough's Fit floor without fitting, and says whether [`fit_to_rough`] had set one.
+/// [`restore`] then puts the editor's own zoom back.
+pub(super) fn lift_rough_floor() -> bool {
+    fit_view::set_radius_floor(0.0) > 0.0
+}
+
+/// Puts the viewport back the way [`capture`] found it. `fit_needed` is whether the rough's floor
+/// was lifted ([`lift_rough_floor`]): without a saved zoom the finished stone is fitted again,
+/// at the editor viewport's size.
+pub(super) fn restore(ui: &MainWindow, saved: Saved, fit_needed: bool) {
     let solid = ui.global::<SolidPreviewModel>();
     if solid.get_view_mode() != saved.view_mode {
         solid.set_view_mode(saved.view_mode);
@@ -139,6 +153,13 @@ pub(super) fn restore(ui: &MainWindow, saved: Saved) {
         solid.set_viewport_width(width);
         solid.set_viewport_height(height);
         solid.invoke_viewport_resized();
+    }
+    // The zoom the cutter had comes back as it was; a Fit here would frame the stone for the
+    // narrower picture cutting mode drew, or for a design that is no longer the one on screen.
+    match saved.camera_distance {
+        Some(distance) if camera_handles::restore_camera_distance(distance) => {}
+        _ if fit_needed => ui.global::<ViewportModel>().invoke_set_view(FIT_VIEW),
+        _ => {}
     }
     set_cutoff(ui, saved.tier_cutoff);
     let editor = ui.global::<EditorModel>();
@@ -221,6 +242,7 @@ mod tests {
             tier_cutoff: 4,
             view_mode: 3,
             selected_row: 2,
+            camera_distance: Some(6.5),
         };
         assert_eq!(
             saved.after_replacement(),
@@ -229,6 +251,7 @@ mod tests {
                 tier_cutoff: MODEL_FINISHED,
                 view_mode: 3,
                 selected_row: -1,
+                camera_distance: None,
             }
         );
     }

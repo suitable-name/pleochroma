@@ -1,6 +1,6 @@
 //! `[meta]` and `[[attachments]]`: round trips, limits, integrity checks, determinism.
 
-use super::{tests::sample, *};
+use super::{meta::RiRangeChoice, tests::sample, *};
 
 const UUID: &str = "0b5f0a8e-5a43-4d52-9c1f-7c8f3a1e2d90";
 
@@ -95,6 +95,131 @@ fn unknown_keys_inside_meta_and_attachments_survive() {
     let parsed = parse(&text).expect("parses");
     assert_eq!(parsed, file);
     assert_eq!(to_string(&parsed).expect("serializes"), text);
+}
+
+/// The three range keys of `meta` as the file stores them, in a fixed order.
+fn range_keys(meta: &DesignMetadata) -> Vec<&'static str> {
+    ["ri_min", "ri_max", "ri_range_source"]
+        .into_iter()
+        .filter(|key| meta.unknown.contains_key(*key))
+        .collect()
+}
+
+#[test]
+fn the_ri_range_choice_round_trips_through_the_file() {
+    for choice in [
+        RiRangeChoice::Off,
+        RiRangeChoice::Designer {
+            low: 1.7,
+            high: Some(2.15),
+        },
+        RiRangeChoice::Designer {
+            low: 1.63,
+            high: None,
+        },
+        RiRangeChoice::Estimate,
+    ] {
+        let mut meta = full_meta();
+        meta.set_ri_range_choice(choice);
+        assert_eq!(meta.ri_range_choice(), choice);
+        let text = to_string(&sample().with_meta(meta.clone())).expect("serializes");
+        let parsed = parse(&text).expect("parses");
+        assert_eq!(parsed.meta.ri_range_choice(), choice, "{choice:?}");
+        assert_eq!(parsed.meta, meta);
+        assert_eq!(to_string(&parsed).expect("serializes"), text);
+    }
+}
+
+#[test]
+fn the_three_keys_follow_the_choice() {
+    let mut meta = DesignMetadata::default();
+    assert_eq!(meta.ri_range_choice(), RiRangeChoice::Off);
+    meta.set_ri_range_choice(RiRangeChoice::Designer {
+        low: 1.54,
+        high: Some(1.8),
+    });
+    assert_eq!(range_keys(&meta), ["ri_min", "ri_max", "ri_range_source"]);
+    meta.set_ri_range_choice(RiRangeChoice::Designer {
+        low: 1.54,
+        high: None,
+    });
+    assert_eq!(range_keys(&meta), ["ri_min", "ri_range_source"]);
+    // An estimate writes the source only, never a number, and drops the old numbers.
+    meta.set_ri_range_choice(RiRangeChoice::Estimate);
+    assert_eq!(range_keys(&meta), ["ri_range_source"]);
+    assert_eq!(
+        meta.unknown
+            .get("ri_range_source")
+            .and_then(toml::Value::as_str),
+        Some("estimate")
+    );
+    meta.set_ri_range_choice(RiRangeChoice::Off);
+    assert!(range_keys(&meta).is_empty());
+    assert!(meta.is_empty(), "Off leaves nothing behind");
+}
+
+#[test]
+fn a_range_in_a_hand_written_or_older_file_reads_as_the_designers() {
+    let mut meta = DesignMetadata::default();
+    meta.unknown
+        .insert("ri_min".to_string(), toml::Value::Float(1.6));
+    assert_eq!(
+        meta.ri_range_choice(),
+        RiRangeChoice::Designer {
+            low: 1.6,
+            high: None
+        },
+        "no source key"
+    );
+    meta.unknown
+        .insert("ri_max".to_string(), toml::Value::Integer(2));
+    assert_eq!(
+        meta.ri_range_choice(),
+        RiRangeChoice::Designer {
+            low: 1.6,
+            high: Some(2.0)
+        },
+        "a whole number is read too"
+    );
+    meta.unknown.insert(
+        "ri_range_source".to_string(),
+        toml::Value::String("estimate".to_string()),
+    );
+    assert_eq!(meta.ri_range_choice(), RiRangeChoice::Estimate);
+    let mut stray = DesignMetadata::default();
+    stray
+        .unknown
+        .insert("ri_max".to_string(), toml::Value::Float(2.0));
+    assert_eq!(stray.ri_range_choice(), RiRangeChoice::Off, "no low end");
+}
+
+#[test]
+fn the_unknown_key_path_keeps_the_range_keys_as_read() {
+    // A file with the three keys written by hand, read and written back as an older reader that
+    // knows no accessor would: every key survives, in the same text.
+    let mut meta = full_meta();
+    meta.unknown
+        .insert("ri_min".to_string(), toml::Value::Float(1.7));
+    meta.unknown
+        .insert("ri_max".to_string(), toml::Value::Float(2.15));
+    meta.unknown.insert(
+        "ri_range_source".to_string(),
+        toml::Value::String("designer".to_string()),
+    );
+    let file = sample().with_meta(meta);
+    let text = to_string(&file).expect("serializes");
+    assert!(text.contains("ri_min = 1.7") && text.contains("ri_max = 2.15"));
+    assert!(text.contains("ri_range_source = \"designer\""));
+    let parsed = parse(&text).expect("parses");
+    assert_eq!(parsed, file);
+    assert_eq!(to_string(&parsed).expect("serializes"), text);
+    assert_eq!(
+        parsed.meta.ri_range_choice(),
+        RiRangeChoice::Designer {
+            low: 1.7,
+            high: Some(2.15)
+        }
+    );
 }
 
 #[test]

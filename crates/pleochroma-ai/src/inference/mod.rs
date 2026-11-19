@@ -50,3 +50,14 @@ pub use error::InferenceError;
 pub use optimizer_model::RlOptimizerModel;
 pub use report::{ScoreReadout, score_design_at_fidelity};
 pub use retarget_model::{CertifiedRetargetResult, RlRetargetModel, RlRetargetProposal};
+
+/// Record the latest deterministic policy step and check its consecutive-rejection limit.
+/// A zero limit disables early stopping.
+pub fn policy_stalled(consecutive: &mut usize, rejected: bool, limit: usize) -> bool {
+    *consecutive = if rejected {
+        consecutive.saturating_add(1)
+    } else {
+        0
+    };
+    limit > 0 && *consecutive >= limit
+}

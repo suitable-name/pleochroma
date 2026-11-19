@@ -355,6 +355,12 @@ pub(super) fn apply_reconstructed_planes(
         entry_id
     );
 
+    // A job's view ends first, so the cutter's own look is back before this row claims the
+    // viewport and writes its material over it. The view ends without touching the editor.
+    crate::gui::render_jobs::view::session::end(
+        ui,
+        crate::gui::render_jobs::view::session::EndReason::LibrarySelected,
+    );
     // The stone is framed unless the cutter has zoomed. Measured before the render context
     // is locked, since it builds the stone's solid.
     let framing = fit_view::auto_frame_distance(ui, render_ctx, &planes);

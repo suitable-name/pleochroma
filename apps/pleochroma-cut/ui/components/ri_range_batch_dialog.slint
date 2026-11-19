@@ -1,0 +1,287 @@
+import { Theme } from "../theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { RiBatchModel } from "../models/ri_batch.slint";
+import { TipButton } from "compact_controls.slint";
+
+// The Compute RI Ranges batch of the library (Library menu, command palette), mounted from
+// `components/app/global_dialogs.slint` while `RiBatchModel.visible`. It has the shape of
+// `tilt_batch_dialog.slint`: a confirm step, then a running step with progress and Cancel, then a
+// summary. The batch itself is `gui::batch::ri_range`.
+//
+// `design_index` is a completed count, not a cursor: several lanes work at once.
+export component RiRangeBatchDialog inherits Rectangle {
+    in property <bool> confirming: RiBatchModel.confirming;
+    in property <int> design_count: RiBatchModel.design_count;
+    in property <int> missing_count: RiBatchModel.missing_count;
+    in property <bool> running: RiBatchModel.running;
+    in property <bool> done: RiBatchModel.done;
+    in property <int> design_index: RiBatchModel.design_index;
+    in property <int> design_total: RiBatchModel.design_total;
+    in property <string> eta: RiBatchModel.eta;
+    in property <int> lanes_active: RiBatchModel.lanes_active;
+    in property <int> lanes_total: RiBatchModel.lanes_total;
+    in property <string> summary: RiBatchModel.summary;
+
+    // The confirm step can start when there is something to go through and no batch runs.
+    property <bool> can_start: root.design_count > 0 && !root.running;
+    // `* 1.0` forces float division rather than Slint's integer division.
+    property <float> design_fraction: root.design_total > 0
+        ? (root.design_index * 1.0) / root.design_total
+        : 0.0;
+    property <float> lane_fraction: root.lanes_total > 0
+        ? (root.lanes_active * 1.0) / root.lanes_total
+        : 0.0;
+
+    background: Theme.overlay-backdrop;
+
+    // A full-window backdrop: clicks beside the card must not reach the design behind it.
+    TouchArea {
+        width: 100%;
+        height: 100%;
+    }
+
+    // The keyboard stays inside the card: Escape declines the offer or closes the summary, Enter
+    // takes the main button, and every other key is swallowed so a shortcut cannot fire on the
+    // design behind. A running batch ignores Escape: the Cancel button stops it.
+    FocusScope {
+        width: 100%;
+        height: 100%;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Tab {
+                return reject;
+            }
+            if event.text == Key.Escape {
+                if root.confirming {
+                    RiBatchModel.cancel();
+                } else if root.done {
+                    RiBatchModel.close();
+                }
+            } else if event.text == Key.Return {
+                if root.confirming {
+                    if root.can_start {
+                        RiBatchModel.start();
+                    }
+                } else if root.done {
+                    RiBatchModel.close();
+                }
+            }
+            return accept;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 380px;
+                    // Stated, not derived from the content: Slint measures a wrapped Text as one
+                    // line, so a height taken from the children would under-measure and `clip`
+                    // would cut off the buttons. Capped against `root.height` so the card never
+                    // exceeds the window.
+                    height: root.confirming
+                        ? Math.min(root.height - 96px, 330px)
+                        : Math.min(root.height - 96px, root.done ? 220px : 240px);
+                    background: Theme.surface-dialog;
+                    border-radius: Theme.radius-md;
+                    border-width: 1px;
+                    border-color: Theme.border-dialog;
+                    drop-shadow-blur: 24px;
+                    drop-shadow-color: Theme.modal-shadow;
+                    clip: true;
+
+                    // Swallows clicks so they never reach anything behind this card.
+                    TouchArea {}
+
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 12px;
+
+                        if root.confirming: VerticalLayout {
+                            spacing: 12px;
+
+                            Text {
+                                text: "Compute RI Ranges?";
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            // Body between the fixed title and the fixed buttons, so the buttons
+                            // are never clipped.
+                            ScrollView {
+                                vertical-stretch: 1;
+                                VerticalLayout {
+                                    spacing: 10px;
+                                    Text {
+                                        text: root.design_count < 0
+                                            ? "Counting your designs..."
+                                            : (root.design_count == 0
+                                                ? "There are no designs in Mine yet."
+                                                : "Trace the RI range of "
+                                                    + (root.design_count == 1 ? "your design" : "your " + root.design_count + " designs")
+                                                    + "? "
+                                                    + (root.missing_count < 0
+                                                        ? ""
+                                                        : (root.missing_count == 0
+                                                            ? "Every range is already up to date."
+                                                            : (root.missing_count == 1
+                                                                ? "1 has no current range yet."
+                                                                : root.missing_count + " have no current range yet.")))
+                                                    + " A range that is already up to date is skipped.");
+                                        font-size: 12px;
+                                        color: Theme.text-secondary;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: "The ranges are Pleochroma estimates, traced at each design's own angles. They fill the list \"Your designs that work here\" in the Material Reference.";
+                                        font-size: 11px;
+                                        color: Theme.text-muted;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: "It renders in the background, but the live 3D tracer pauses for the duration. Cancel at any time without losing what is already computed; the next run continues where this one stopped.";
+                                        font-size: 11px;
+                                        color: Theme.text-muted;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: end;
+
+                                TipButton {
+                                    text: "Not Now";
+                                    hint: "Do not compute any RI ranges now.";
+                                    clicked => { RiBatchModel.cancel(); }
+                                }
+                                TipButton {
+                                    text: "Compute";
+                                    hint: "Compute the RI ranges in the background. Enter does the same.";
+                                    primary: true;
+                                    enabled: root.can_start;
+                                    clicked => { RiBatchModel.start(); }
+                                }
+                            }
+                        }
+
+                        if !root.confirming: VerticalLayout {
+                            spacing: 12px;
+
+                            Text {
+                                vertical-stretch: 0;
+                                text: root.done ? "RI range computation finished" : "Computing RI ranges...";
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                                accessible-role: AccessibleRole.text;
+                            }
+
+                            if !root.done: VerticalLayout {
+                                vertical-stretch: 0;
+                                spacing: 10px;
+
+                                VerticalLayout {
+                                    spacing: 4px;
+                                    HorizontalLayout {
+                                        alignment: space-between;
+                                        Text {
+                                            text: "Completed " + root.design_index + " / " + root.design_total
+                                                + (root.eta == "" ? "" : " · " + root.eta);
+                                            font-size: 10px;
+                                            color: Theme.text-muted;
+                                        }
+                                        Text {
+                                            text: Math.round(root.design_fraction * 100) + "%";
+                                            font-size: 10px;
+                                            font-weight: 700;
+                                            color: Theme.accent-cyan;
+                                        }
+                                    }
+                                    Rectangle {
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: Theme.surface-sunken;
+                                        border-width: 1px;
+                                        border-color: Theme.border-dialog;
+                                        clip: true;
+                                        accessible-role: AccessibleRole.progress-indicator;
+                                        accessible-label: "RI Ranges Completed";
+                                        accessible-value: Math.round(root.design_fraction * 100) + " percent";
+                                        Rectangle {
+                                            x: 0;
+                                            y: 0;
+                                            width: parent.width * root.design_fraction;
+                                            height: 100%;
+                                            background: Theme.accent-cyan;
+                                            animate width { duration: 150ms; }
+                                        }
+                                    }
+                                }
+
+                                // The busy count of the lane pool.
+                                if root.lanes_total > 0: VerticalLayout {
+                                    spacing: 4px;
+                                    Text {
+                                        text: "Lanes " + root.lanes_active + " / " + root.lanes_total;
+                                        font-size: 10px;
+                                        color: Theme.text-muted;
+                                    }
+                                    Rectangle {
+                                        height: 6px;
+                                        border-radius: 3px;
+                                        background: Theme.surface-sunken;
+                                        border-width: 1px;
+                                        border-color: Theme.border-dialog;
+                                        clip: true;
+                                        Rectangle {
+                                            x: 0;
+                                            y: 0;
+                                            width: parent.width * root.lane_fraction;
+                                            height: 100%;
+                                            background: Theme.accent-amber;
+                                            animate width { duration: 150ms; }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.done: Text {
+                                vertical-stretch: 0;
+                                text: root.summary;
+                                font-size: 12px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                            }
+
+                            // The card height is fixed; the spare height goes here, so the buttons
+                            // sit at the bottom.
+                            Rectangle { vertical-stretch: 1; }
+
+                            HorizontalLayout {
+                                vertical-stretch: 0;
+                                spacing: 8px;
+                                alignment: end;
+
+                                if !root.done: TipButton {
+                                    text: "Cancel";
+                                    hint: "Stop computing. The ranges already finished are kept.";
+                                    clicked => { RiBatchModel.cancel(); }
+                                }
+                                if root.done: TipButton {
+                                    text: "Close";
+                                    hint: "Close this summary.";
+                                    primary: true;
+                                    clicked => { RiBatchModel.close(); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

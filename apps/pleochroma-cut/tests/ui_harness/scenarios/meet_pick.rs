@@ -253,8 +253,9 @@ fn meet_pick_mode(ctx: &mut Ctx<'_>) {
     ctx.wait_for("Undo takes the pick back", Duration::from_secs(30), || {
         editor.get_meet_pick_state() == STATE_NONE
     });
+    // Without a pick the chip says who chooses the corner: the tier still meets its two names.
     ctx.expect(
-        editor.get_meet_pick_chip().is_empty(),
+        editor.get_meet_pick_chip() == "Shallowest of the names",
         "pick-undo-chip",
         format!(
             "the chip reads {:?} after Undo",

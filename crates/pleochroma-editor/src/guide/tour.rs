@@ -72,7 +72,7 @@ pub fn welcome_tour_guide() -> Guide {
         .actions([
             "The Tier tab changes one tier's angle, indices and name.",
             "The other tabs hold the rough (Preform), Optimize and the History of your edits.",
-            "The cutting order is on the Cutting Instructions page, in the places segment of the design header.",
+            "The cutting order is on the Cutting Instructions tab of the design header.",
         ])
         .highlight("inspector_tier"),
     )

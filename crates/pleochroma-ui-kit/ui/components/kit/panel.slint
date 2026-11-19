@@ -294,8 +294,10 @@ export component KitFillSegments inherits KitSegmentBar {
     HorizontalLayout {
         padding: 2px;
         spacing: 2px;
+        // Wider segments for longer labels, so "Preset's Own" next to "Blue" is not clipped.
         for name[i] in root.labels: Rectangle {
-            horizontal-stretch: 1;
+            horizontal-stretch: name.character-count + 6;
+            preferred-width: 0px;
             KitSegment {
                 x: 0px;
                 width: parent.width;

@@ -10,11 +10,11 @@ fn table_rows(text: &str) -> Vec<&str> {
 }
 
 #[test]
-fn the_table_lists_the_thirty_nine_built_ins_with_a_header_and_a_footer() {
+fn the_table_lists_the_forty_built_ins_with_a_header_and_a_footer() {
     let outcome = testing::run(&["materials"]);
     assert_eq!(outcome.exit, 0, "{}", outcome.stderr);
     let rows = table_rows(&outcome.stdout);
-    assert_eq!(rows.len(), 39, "{}", outcome.stdout);
+    assert_eq!(rows.len(), 40, "{}", outcome.stdout);
     let header = outcome.stdout.lines().next().expect("a header");
     for word in [
         "Material",
@@ -27,7 +27,7 @@ fn the_table_lists_the_thirty_nine_built_ins_with_a_header_and_a_footer() {
         assert!(header.contains(word), "{header}");
     }
     assert!(
-        outcome.stdout.contains("39 materials."),
+        outcome.stdout.contains("40 materials."),
         "{}",
         outcome.stdout
     );
@@ -55,12 +55,13 @@ fn the_dispersion_option_switches_the_column_heading() {
 }
 
 #[test]
-fn the_filter_keeps_only_the_glasses() {
+fn the_filter_keeps_only_the_glasses_and_the_glass_ceramic() {
     let outcome = testing::run(&["materials", "--filter", "glass", "--csv"]);
     assert_eq!(outcome.exit, 0, "{}", outcome.stderr);
     let lines: Vec<&str> = outcome.stdout.lines().collect();
-    assert_eq!(lines.len(), 3, "{}", outcome.stdout);
+    assert_eq!(lines.len(), 4, "{}", outcome.stdout);
     assert!(lines[1].starts_with("Glass ("), "{}", lines[1]);
+    assert!(lines[3].starts_with("Nanosital,glass,"), "{}", lines[3]);
     let custom = testing::run(&["materials", "--filter", "custom"]);
     assert!(custom.stdout.contains("0 materials."), "{}", custom.stdout);
 }
@@ -70,7 +71,7 @@ fn the_csv_has_a_header_and_a_line_for_every_material() {
     let outcome = testing::run(&["materials", "--csv"]);
     assert_eq!(outcome.exit, 0, "{}", outcome.stderr);
     let lines: Vec<&str> = outcome.stdout.lines().collect();
-    assert_eq!(lines.len(), 40, "{}", outcome.stdout);
+    assert_eq!(lines.len(), 41, "{}", outcome.stdout);
     assert!(lines[0].starts_with("name,origin,species,"), "{}", lines[0]);
     assert!(
         lines
@@ -86,9 +87,9 @@ fn the_json_table_carries_full_citations_and_addresses() {
     let outcome = testing::run(&["materials", "--json"]);
     assert_eq!(outcome.exit, 0, "{}", outcome.stderr);
     let value: Value = serde_json::from_str(&outcome.stdout).expect("valid JSON");
-    assert_eq!(value["count"], 39);
+    assert_eq!(value["count"], 40);
     let materials = value["materials"].as_array().expect("a list");
-    assert_eq!(materials.len(), 39);
+    assert_eq!(materials.len(), 40);
     for material in materials {
         let links = material["gem_data"]["source_links"]
             .as_array()

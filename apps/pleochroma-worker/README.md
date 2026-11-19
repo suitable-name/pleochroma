@@ -136,7 +136,7 @@ pleochroma-worker --config <file>  # use another settings file
 
 ### macOS
 
-In 0.12.0 the window runs from the plain binary, with a menu-bar item. Packaging it as an
+In 0.12.1 the window runs from the plain binary, with a menu-bar item. Packaging it as an
 app bundle, signing and notarizing it, and the Info.plist entries are the owner's work and
 are not part of the source tree. One entry is needed for pairing and discovery to work from
 a bundle: macOS asks the user before an app may talk to devices on the local network and
@@ -154,7 +154,7 @@ Because the coordinator announces `_pleochroma._tcp`, the bundle also needs
 file needs it**: `pleochroma-worker --headless serve ...`, `--headless render ...`,
 `--headless join ...`, `--headless cert ...`. The flag may stand anywhere on the line.
 
-- **Deprecation.** A command given without `--headless` still runs in 0.12.0, with one
+- **Deprecation.** A command given without `--headless` still runs in 0.12.1, with one
   warning on standard error: `warning: "serve" without --headless is deprecated; add --headless`.
   Change scripts, service files and shortcuts now. A bare
   line with no command, or only `--minimized`, `--config <file>`, `--no-update-check` or

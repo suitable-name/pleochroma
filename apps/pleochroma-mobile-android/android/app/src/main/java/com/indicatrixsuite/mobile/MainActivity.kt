@@ -1,5 +1,7 @@
 package com.indicatrixsuite.mobile
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.app.NativeActivity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -21,8 +23,12 @@ import android.webkit.WebViewClient
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -37,7 +43,8 @@ import kotlin.concurrent.thread
  * at the bottom, implemented in `platform_android/natives.rs`). Keep both sides in step.
  *
  * Convention: every service method returns `null` on success and a sentence for the
- * user on failure. `thermalHeadroom` and `cacheDirPath` return their value.
+ * user on failure. `thermalHeadroom`, `cacheDirPath`, `deviceFacts` and `lastExitInfo`
+ * return their value.
  *
  * NativeActivity is not a ComponentActivity, so results come through
  * `startActivityForResult` / `onActivityResult` with request codes mapped to the Rust
@@ -74,6 +81,7 @@ class MainActivity : NativeActivity() {
         // Edge to edge: Slint reads the insets and keeps the UI out of the system bars.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
+        cleanMailCache()
         if (Build.VERSION.SDK_INT >= 33) {
             backNavigation = BackNavigationController(this, this::nativeBackCommitted, this::nativeBackProgress)
         }
@@ -181,6 +189,39 @@ class MainActivity : NativeActivity() {
     }
 
     /**
+     * `composeEmail(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Ljava/lang/String;`:
+     * opens the mail app with one zip attached, for the logs of the developer page. The bytes
+     * go to cache/mail/ (a FileProvider root of its own: every [share] empties cache/share/).
+     * The intent is `ACTION_SEND` with a `mailto:` selector, so only mail apps answer; where
+     * none does, the plain chooser opens. `resolveActivity` is never called: the manifest
+     * has no `<queries>`, so it would report nothing on Android 11 and later.
+     */
+    fun composeEmail(to: String, subject: String, body: String, name: String, bytes: ByteArray): String? = guarded {
+        val dir = File(cacheDir, "mail")
+        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Could not prepare the mail folder.")
+        val file = File(dir, safeFileName(name))
+        file.writeBytes(bytes)
+        val uri = FileProvider.getUriForFile(this, FILE_AUTHORITY, file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/zip"
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, body)
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(file.name, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val mailOnly = Intent(send).apply { selector = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")) }
+        try {
+            onUi { startActivity(mailOnly) }
+        } catch (e: ActivityNotFoundException) {
+            val chooser = Intent.createChooser(send, null).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            onUi { startActivity(chooser) }
+        }
+        null
+    }
+
+    /**
      * `printHtml(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;`: loads [html] in a
      * WebView, then opens the print dialog.
      */
@@ -264,6 +305,143 @@ class MainActivity : NativeActivity() {
 
     /** `cacheDirPath()Ljava/lang/String;`: the app's cache directory. */
     fun cacheDirPath(): String = cacheDir.absolutePath
+
+    /**
+     * `deviceFacts()Ljava/lang/String;`: what the diagnostics may say about the device, as
+     * `key=value` lines. No account, no `ANDROID_ID`, no serial number.
+     */
+    fun deviceFacts(): String {
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL ?: "" else ""
+        val facts = listOf(
+            "app_version" to version,
+            "android_release" to (Build.VERSION.RELEASE ?: ""),
+            "sdk_int" to Build.VERSION.SDK_INT.toString(),
+            "manufacturer" to (Build.MANUFACTURER ?: ""),
+            "model" to (Build.MODEL ?: ""),
+            "soc_model" to soc,
+            "abi" to (Build.SUPPORTED_ABIS.firstOrNull() ?: ""),
+            "total_ram_mb" to totalRamMb().toString(),
+            "fingerprint" to (Build.FINGERPRINT ?: ""),
+        )
+        return facts.joinToString("\n") { (key, value) -> "$key=${oneLine(value)}" }
+    }
+
+    /** The device's total memory in MB, or 0 when the system does not say. */
+    private fun totalRamMb(): Long =
+        try {
+            val info = ActivityManager.MemoryInfo()
+            getSystemService(ActivityManager::class.java).getMemoryInfo(info)
+            info.totalMem / BYTES_PER_MB
+        } catch (e: Exception) {
+            0L
+        }
+
+    /**
+     * `lastExitInfo(J)Ljava/lang/String;`: the newest process exit of this app that is later
+     * than [afterMs], as `key=value` lines (`reason`, `description`, `timestamp_ms`, `pid`,
+     * `trace_file`), or `null` when there is none or the system has no exit history (before
+     * Android 11). The system's trace stream is saved into files/logs/ here: an ANR trace as
+     * text (`anr-<stamp>.txt`), a native crash tombstone whole and binary
+     * (`crash-snapshot-<stamp>.pb`). Rust passes the time of the last exit it reported, so
+     * an exit is reported once.
+     */
+    fun lastExitInfo(afterMs: Long): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return try {
+            readLastExit(afterMs)
+        } catch (e: Exception) {
+            Log.w(TAG, "reading the last process exit failed", e)
+            null
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun readLastExit(afterMs: Long): String? {
+        val manager = getSystemService(ActivityManager::class.java)
+        val exit = manager.getHistoricalProcessExitReasons(packageName, 0, 1).firstOrNull() ?: return null
+        if (exit.timestamp <= afterMs) return null
+        val reason = when (exit.reason) {
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> "crash_native"
+            ApplicationExitInfo.REASON_CRASH -> "crash"
+            ApplicationExitInfo.REASON_ANR -> "anr"
+            ApplicationExitInfo.REASON_USER_REQUESTED -> "user_requested"
+            ApplicationExitInfo.REASON_LOW_MEMORY -> "low_memory"
+            else -> "other"
+        }
+        val lines = arrayListOf(
+            "reason=$reason",
+            "description=${oneLine(exit.description ?: "")}",
+            "timestamp_ms=${exit.timestamp}",
+            "pid=${exit.pid}",
+        )
+        saveExitTrace(exit, reason)?.let { lines.add("trace_file=$it") }
+        return lines.joinToString("\n")
+    }
+
+    /**
+     * Saves the exit's trace stream into files/logs/ and returns the file name, or `null` when
+     * there is none. An ANR trace is text and is cut at [ANR_TRACE_CAP]; a native crash
+     * tombstone is a binary protobuf and is kept whole or not at all (a cut one cannot be read).
+     */
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun saveExitTrace(exit: ApplicationExitInfo, reason: String): String? {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(exit.timestamp))
+        val name: String
+        val cap: Int
+        val whole: Boolean
+        when (reason) {
+            "anr" -> {
+                name = "anr-$stamp.txt"; cap = ANR_TRACE_CAP; whole = false
+            }
+            "crash_native" -> {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+                name = "crash-snapshot-$stamp.pb"; cap = SNAPSHOT_CAP; whole = true
+            }
+            else -> return null
+        }
+        val stream = exit.traceInputStream ?: return null
+        val out = ByteArrayOutputStream()
+        stream.use {
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (total <= cap) {
+                val count = it.read(buffer, 0, minOf(buffer.size, cap + 1 - total))
+                if (count < 0) break
+                out.write(buffer, 0, count)
+                total += count
+            }
+        }
+        var bytes = out.toByteArray()
+        if (bytes.size > cap) {
+            if (whole) return null
+            bytes = bytes.copyOf(cap)
+        }
+        if (bytes.isEmpty()) return null
+        val dir = File(filesDir, "logs")
+        if (!dir.isDirectory && !dir.mkdirs()) return null
+        File(dir, name).writeBytes(bytes)
+        return name
+    }
+
+    /** One line: line breaks become spaces, so a `key=value` list stays parseable. */
+    private fun oneLine(text: String): String = text.replace('\n', ' ').replace('\r', ' ')
+
+    /** Deletes the mail attachments of earlier sessions (older than [MAIL_MAX_AGE_MS]). */
+    private fun cleanMailCache() {
+        thread(name = "pleochroma-mail-clean") {
+            try {
+                val cutoff = System.currentTimeMillis() - MAIL_MAX_AGE_MS
+                File(cacheDir, "mail").listFiles()?.forEach { if (it.lastModified() < cutoff) it.delete() }
+            } catch (e: Exception) {
+                Log.w(TAG, "cleaning the mail folder failed", e)
+            }
+        }
+    }
 
     /** `systemPowerSave()Z`: whether the battery saver is on. */
     fun systemPowerSave(): Boolean =
@@ -698,6 +876,14 @@ class MainActivity : NativeActivity() {
         private const val PERMISSION_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
         private const val LOCAL_NETWORK_SDK = 37
         private const val UI_WAIT_MS = 2000L
+
+        /** Caps of the saved exit traces: an ANR text, a whole native crash tombstone. */
+        private const val ANR_TRACE_CAP = 256 * 1024
+        private const val SNAPSHOT_CAP = 2 * 1024 * 1024
+
+        /** A mail attachment older than this is deleted at the next start. */
+        private const val MAIL_MAX_AGE_MS = 60L * 60L * 1000L
+        private const val BYTES_PER_MB = 1024L * 1024L
 
         init {
             System.loadLibrary("pleochroma_mobile_android")

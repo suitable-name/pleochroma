@@ -4,6 +4,8 @@ import { CompareModel } from "../../models/compare.slint";
 import { CuttingModeModel } from "../../models/cutting_mode.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { ExportModel } from "../../models/export.slint";
+import { JobCopyModel } from "../../models/job_copy.slint";
+import { JobEditModel } from "../../models/job_edit.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { HelpModel } from "../../models/help.slint";
 import { LibraryModel } from "../../models/library.slint";
@@ -15,6 +17,9 @@ import { RemoteWorkerModel } from "../../models/remote_worker.slint";
 import { RawTextModel } from "../../models/raw_text.slint";
 import { RenderJobsModel } from "../../models/render_jobs.slint";
 import { RetargetModel } from "../../models/retarget.slint";
+import { RiBatchModel } from "../../models/ri_batch.slint";
+import { RiChartModel } from "../../models/ri_chart.slint";
+import { RiFieldModel } from "../../models/ri_field.slint";
 import { ShortcutsModel } from "../../models/shortcuts.slint";
 import { SweepModel } from "../../models/sweep.slint";
 import { TiltModel } from "../../models/tilt.slint";
@@ -161,13 +166,13 @@ export component WindowState {
             ? root.dialog_area_width
             : (root.toast_over_viewport ? root.toast_right - root.viewport_left : root.window_width));
     // The toast's distance from the window's bottom edge (unused at the top). Edit: above the
-    // viewport's info chip and its HUD line (the chip's top edge is ~115px up) and the status
-    // strip; Live Render: above the hint pills; the catalogue tabs have neither. Cutting
-    // mode: above its navigation row.
+    // viewport's hover readout chip (its top edge is ~185px up from the window bottom), the
+    // "Preview cannot be solved" status line and the Cut To slider; Live Render: above the hint
+    // pills; the catalogue tabs have neither. Cutting mode: above its navigation row.
     out property <length> toast_bottom: root.toast_cutting
         ? 104px
         : (root.active_tab == 0 && root.params_in_edit_row
-            ? 128px
+            ? 196px
             : (root.active_tab == 0 && root.render_view_tab == 0 ? 76px : 24px));
 
     // Whether `LibraryModel.panel_collapsed` is currently `true`
@@ -342,7 +347,9 @@ export component WindowState {
     // keyboard back, unless one of the other dialogs (or the unsaved-changes question) is still
     // up and keeps it.
     // The command palette is one of them, and so are the Retarget dialog's Compare-only mode
-    // and the colour-conflict question, which draw a scrim of their own.
+    // and the colour-conflict question, which draw a scrim of their own. The Edit Job dialog,
+    // its "Render this job again?" question, Copy to Materials, the RI chart, the RI range batch
+    // and the export's RI range wait are the same kind.
     out property <bool> other_overlay_open: EditorModel.new_dialog_open || EditorModel.gear_remap_open
         || EditorModel.anchor_explainer_open || EditorModel.unsaved_dialog_open
         || CommandPaletteModel.open || RetargetModel.compare_open
@@ -354,7 +361,9 @@ export component WindowState {
         || root.radv_prompt_open || RemoteWorkerModel.use_remote_prompt_open
         || root.close_confirm_open || root.tutorials_browser_open || root.raw_text_open
         || root.sweep_open || root.cutting_mode_open
-        || ExportModel.is_open;
+        || ExportModel.is_open
+        || JobEditModel.open || JobEditModel.requeue_question_open || JobCopyModel.open
+        || RiChartModel.open || RiBatchModel.visible || RiFieldModel.export_waiting;
     changed other_overlay_open => {
         if !root.other_overlay_open {
             root.focus_main();

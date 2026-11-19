@@ -219,7 +219,7 @@ fn the_viewport_tools_are_unavailable_in_the_diagram_view() {
     let slice = COMMANDS.iter().find(|c| c.id == "view.slice").unwrap();
     assert_eq!(
         slice.availability(&diagram),
-        Err("Not available in the Diagram view")
+        Err("Leave the Diagram view first")
     );
 }
 
@@ -239,4 +239,73 @@ fn building_a_library_lesson_needs_a_selected_library_design() {
     // build one.
     let no_design = CommandState::ready().with(Fact::Design, false);
     assert_eq!(build.availability(&no_design), Ok(()));
+}
+
+#[test]
+fn the_render_job_and_ri_range_commands_are_in_the_table_with_their_checks() {
+    use crate::gui::commands::state::GuideGroup as G;
+    let lookup = |id: &str| COMMANDS.iter().find(|c| c.id == id).unwrap();
+    let cases: [(&str, &str, Check, Fact); 3] = [
+        (
+            "jobs.load_view",
+            "Load Job View...",
+            Check::HasJobs,
+            Fact::HasJobs,
+        ),
+        (
+            "jobs.back_to_my_view",
+            "Back to My View",
+            Check::JobViewShown,
+            Fact::JobViewShown,
+        ),
+        (
+            "jobs.update_from_view",
+            "Update Job from This View",
+            Check::JobViewCanUpdate,
+            Fact::JobViewCanUpdate,
+        ),
+    ];
+    for (id, title, check, fact) in cases {
+        let command = lookup(id);
+        assert_eq!(command.title, title);
+        // The guide's lock is first, then the one fact the command needs.
+        assert_eq!(
+            command.requires,
+            &[Check::Guide(G::ViewTabs), check],
+            "{id}"
+        );
+        assert_eq!(command.availability(&CommandState::ready()), Ok(()), "{id}");
+        let without = CommandState::ready().with(fact, false);
+        assert!(command.availability(&without).is_err(), "{id}");
+    }
+    assert_eq!(lookup("material.ri_chart").title, "RI Chart...");
+    assert_eq!(
+        lookup("material.ri_chart").requires,
+        &[Check::Guide(G::Advanced), Check::Design]
+    );
+    let no_design = CommandState::ready().with(Fact::Design, false);
+    assert_eq!(
+        lookup("material.ri_chart").availability(&no_design),
+        Err("Open or create a design first")
+    );
+    assert_eq!(
+        lookup("material.queue_check_set").requires,
+        &[Check::Guide(G::Advanced), Check::CanQueueCheckSet]
+    );
+    let no_set = CommandState::ready().with(Fact::CanQueueCheckSet, false);
+    assert!(
+        lookup("material.queue_check_set")
+            .availability(&no_set)
+            .is_err()
+    );
+    assert_eq!(
+        lookup("library.compute_ri_ranges").requires,
+        &[Check::Guide(G::Advanced), Check::TiltBatchIdle]
+    );
+    let batch = CommandState::ready().with(Fact::TiltBatchRunning, true);
+    assert!(
+        lookup("library.compute_ri_ranges")
+            .availability(&batch)
+            .is_err()
+    );
 }

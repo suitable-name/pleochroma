@@ -1,5 +1,8 @@
 use super::{SHADER_SOURCE, WhittedGpuError, context};
-use crate::renderer::gpu::{GpuContext, compute};
+use crate::{
+    diag::{self, Engine, PrepareStep},
+    renderer::gpu::{GpuContext, compute},
+};
 
 pub struct WhittedGpuRenderer {
     pub(super) id: u64,
@@ -11,6 +14,9 @@ pub struct WhittedGpuRenderer {
     pub(super) slots: [Option<super::native_dispatch::Slot>; 2],
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) timing: super::native_dispatch::ChunkTiming,
+    /// The `upload_id` of the scene whose trace last completed (0 before the first one).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) traced_upload: u64,
     /// The device. Declared last on purpose: the pipeline and the buffers above drop first,
     /// so the context's last clone tears the device down inside its lifecycle turn.
     pub(super) ctx: GpuContext,
@@ -70,6 +76,7 @@ impl WhittedGpuRenderer {
                 "Ray-Traced needs four storage buffers".into(),
             ));
         }
+        diag::set_prepare(Engine::RayTraced, PrepareStep::BuildingShaders, 0, 1);
         let scope = ctx.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let pipeline = compute::create_persisted_compute_pipeline(
             &ctx.device,
@@ -80,10 +87,12 @@ impl WhittedGpuRenderer {
             &[],
         );
         if let Some(error) = scope.pop().await {
+            diag::clear_prepare(Engine::RayTraced);
             return Err(WhittedGpuError::Declined(format!(
                 "Ray-Traced shader: {error}"
             )));
         }
+        diag::set_prepare(Engine::RayTraced, PrepareStep::BuildingShaders, 1, 1);
         let info = ctx.adapter.get_info();
         let label = format!("{} ({:?}; Ray-Traced)", info.name, info.backend);
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -97,6 +106,8 @@ impl WhittedGpuRenderer {
             slots: [None, None],
             #[cfg(not(target_arch = "wasm32"))]
             timing: super::native_dispatch::ChunkTiming::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            traced_upload: 0,
         })
     }
 

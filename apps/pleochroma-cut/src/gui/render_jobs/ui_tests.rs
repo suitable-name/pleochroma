@@ -6,9 +6,9 @@
 use super::{
     capture_still::{plan_still_outputs, still_label, still_summary},
     capture_video::{VideoFacts, video_label, video_summary},
-    controller::{after_finish, next_job},
+    controller::{BulkOutcome, after_finish, apply_bulk_compute, next_job},
     execute::{ExecContext, execute_job},
-    rows::{LiveProgress, queue_view, row_view},
+    rows::{FactsMap, JobFacts, LiveProgress, queue_view, row_view},
     script_export::{BundleOptions, build_bundle, bundle_folder_name, write_bundle},
 };
 use crate::{bridge::export_thread::ExportParams, settings::LocalComputeTarget};
@@ -31,7 +31,10 @@ use pleochroma_render_jobs::{
     script::{RemoteArgs, ScriptFlavor},
     state::{APP_CLOSING_NOTE, INTERRUPTED_NOTE, JobState, StopReason},
 };
-use pleochroma_vault::model::render_job::RenderJobMeta;
+use pleochroma_vault::{
+    db::sqlite::Database,
+    model::render_job::{NewRenderJob, RenderJobMeta},
+};
 use std::{
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
@@ -98,7 +101,7 @@ fn buttons(row: &super::rows::RowView) -> Vec<&'static str> {
 
 /// A lone row (so neither Up nor Down shows).
 fn single(meta: &RenderJobMeta, live: Option<&JobProgress>) -> super::rows::RowView {
-    row_view(meta, 0, 1, live)
+    row_view(meta, 0, 1, live, None)
 }
 
 // ---- Rows --------------------------------------------------------------------------
@@ -288,9 +291,9 @@ fn tilt_video_rows_speak_in_frames() {
 #[test]
 fn only_the_first_row_hides_up_and_only_the_last_hides_down() {
     let metas = [still(1, "queued"), still(2, "queued"), still(3, "queued")];
-    let first = row_view(&metas[0], 0, 3, None);
-    let middle = row_view(&metas[1], 1, 3, None);
-    let last = row_view(&metas[2], 2, 3, None);
+    let first = row_view(&metas[0], 0, 3, None, None);
+    let middle = row_view(&metas[1], 1, 3, None, None);
+    let last = row_view(&metas[2], 2, 3, None, None);
     assert_eq!((first.can_move_up, first.can_move_down), (false, true));
     assert_eq!((middle.can_move_up, middle.can_move_down), (true, true));
     assert_eq!((last.can_move_up, last.can_move_down), (true, false));
@@ -302,7 +305,7 @@ fn only_the_first_row_hides_up_and_only_the_last_hides_down() {
 
 #[test]
 fn an_unknown_state_word_gives_a_neutral_row_with_only_delete() {
-    let row = row_view(&still(4, "frozen"), 1, 3, None);
+    let row = row_view(&still(4, "frozen"), 1, 3, None, None);
     assert_eq!(row.state_word, "unknown");
     assert_eq!(row.state_text, "Unknown");
     assert_eq!(row.progress, -1.0);
@@ -313,20 +316,25 @@ fn an_unknown_state_word_gives_a_neutral_row_with_only_delete() {
 
 #[test]
 fn the_chip_is_hidden_with_no_jobs_and_when_only_finished_jobs_remain() {
-    let empty = queue_view(&[], false, None);
+    let empty = queue_view(&[], false, None, &FactsMap::new());
     assert_eq!(empty.rows, Vec::<super::rows::RowView>::new());
     assert!(!empty.chip_visible);
     assert!(!empty.can_start_queue);
     assert_eq!(empty.queue_status, "");
     assert_eq!(empty.chip_progress, -1.0);
 
-    let finished = queue_view(&[still(1, "done"), still(2, "cancelled")], false, None);
+    let finished = queue_view(
+        &[still(1, "done"), still(2, "cancelled")],
+        false,
+        None,
+        &FactsMap::new(),
+    );
     assert!(!finished.chip_visible);
     assert!(!finished.can_start_queue);
     assert_eq!(finished.queue_status, "1 done");
 
     // A started queue shows the chip even when the last job just finished.
-    let started = queue_view(&[still(1, "done")], true, None);
+    let started = queue_view(&[still(1, "done")], true, None, &FactsMap::new());
     assert!(started.chip_visible);
     assert!(started.queue_running);
     assert_eq!(started.chip_text, "Jobs");
@@ -334,7 +342,7 @@ fn the_chip_is_hidden_with_no_jobs_and_when_only_finished_jobs_remain() {
 
 #[test]
 fn a_paused_job_keeps_the_chip_on_screen() {
-    let view = queue_view(&[still(1, "paused")], false, None);
+    let view = queue_view(&[still(1, "paused")], false, None, &FactsMap::new());
     assert!(view.chip_visible);
     assert!(!view.can_start_queue);
     assert_eq!(view.chip_text, "Jobs: 1 paused");
@@ -343,7 +351,7 @@ fn a_paused_job_keeps_the_chip_on_screen() {
 #[test]
 fn waiting_jobs_show_the_chip_and_the_queue_line() {
     let metas = [still(1, "done"), still(2, "queued"), still(3, "queued")];
-    let view = queue_view(&metas, false, None);
+    let view = queue_view(&metas, false, None, &FactsMap::new());
     assert!(view.chip_visible);
     assert!(view.can_start_queue);
     assert_eq!(view.chip_text, "Jobs: 2 waiting");
@@ -365,7 +373,7 @@ fn a_running_job_gives_the_chip_its_place_and_percent() {
         job_id: 2,
         progress: progress(0, 1, 0.42, Some(60.0)),
     };
-    let view = queue_view(&metas, true, Some(&live));
+    let view = queue_view(&metas, true, Some(&live), &FactsMap::new());
     assert!(view.chip_visible);
     assert_eq!(view.chip_text, "Rendering 2 of 4 \u{b7} 42%");
     assert_eq!(view.chip_progress, 0.42);
@@ -380,7 +388,7 @@ fn a_running_job_gives_the_chip_its_place_and_percent() {
         job_id: 9,
         progress: progress(0, 1, 0.9, None),
     };
-    let view = queue_view(&metas, true, Some(&other));
+    let view = queue_view(&metas, true, Some(&other), &FactsMap::new());
     assert_eq!(view.chip_text, "Rendering 2 of 4 \u{b7} 0%");
     assert_eq!(view.chip_progress, 0.0);
     assert_eq!(view.rows[1].progress_text, "Starting");
@@ -758,4 +766,185 @@ fn the_scene_the_app_writes_into_a_job_records_the_estimator_it_is_built_with() 
     }
     let scene = super::convert::scene_from_snapshot(&snapshot, 32, 24);
     assert_eq!(scene.estimator, default_estimator());
+}
+
+// ---- Row layout flags, facts and bulk compute -----------------------------------------------
+
+fn facts(compute: ComputeChoice, is_ray: bool) -> Option<JobFacts> {
+    Some(JobFacts { compute, is_ray })
+}
+
+#[test]
+fn each_state_has_its_one_big_button_and_its_edit_flag() {
+    let mut done = still(1, "done");
+    done.result_path = Some("/out/gem.png".to_string());
+    let cases = [
+        (still(1, "queued"), 1, true, false),
+        (still(1, "running"), 1, false, true),
+        (still(1, "paused"), 2, true, false),
+        (still(1, "failed"), 2, true, false),
+        (done, 3, true, false),
+        (still(1, "cancelled"), 4, true, false),
+    ];
+    for (meta, primary, can_edit, show_cancel) in cases {
+        let row = single(&meta, None);
+        assert_eq!(row.primary_action, primary, "{}", meta.state);
+        assert_eq!(row.can_edit, can_edit, "{}", meta.state);
+        assert_eq!(row.show_cancel, show_cancel, "{}", meta.state);
+        assert!(row.has_menu && row.can_duplicate && row.can_copy && row.can_load_view);
+        assert!(!row.unknown_state);
+        assert_eq!(row.label_tooltip, "Job 1");
+    }
+    // A finished job with no result file has nothing to show.
+    assert_eq!(single(&still(1, "done"), None).primary_action, 0);
+}
+
+#[test]
+fn an_unknown_state_row_has_no_action_no_edit_and_no_badge() {
+    let row = row_view(
+        &still(4, "frozen"),
+        1,
+        3,
+        None,
+        facts(ComputeChoice::Remote, false),
+    );
+    assert!(row.unknown_state && row.has_menu && row.can_delete);
+    assert_eq!(row.primary_action, 0);
+    assert!(!row.can_edit && !row.can_duplicate && !row.can_copy && !row.can_load_view);
+    assert_eq!(row.compute_label, "");
+}
+
+#[test]
+fn the_compute_badge_and_the_kind_line_come_from_the_facts() {
+    let queued = still(1, "queued");
+    assert_eq!(single(&queued, None).compute_label, "");
+    let words = [
+        (ComputeChoice::Local, "Local Only"),
+        (ComputeChoice::Remote, "Remote Only"),
+        (ComputeChoice::Both, "Local + Remote"),
+    ];
+    for (choice, label) in words {
+        let row = row_view(&queued, 0, 1, None, facts(choice, false));
+        assert_eq!(row.compute_label, label);
+        assert_eq!(row.kind_text, "Still Image");
+        assert!(row.is_still);
+    }
+    let ray = row_view(&queued, 0, 1, None, facts(ComputeChoice::Local, true));
+    assert!(ray.kind_text.contains("Ray-Traced"));
+    let clip = row_view(
+        &video(2, "paused", 3),
+        0,
+        1,
+        None,
+        facts(ComputeChoice::Both, false),
+    );
+    assert!(!clip.is_still);
+    assert_eq!(clip.kind_text, "Tilt Video");
+}
+
+#[test]
+fn the_window_knows_whether_any_job_exists_and_pick_mode_ends_without_one() {
+    assert!(!queue_view(&[], false, None, &FactsMap::new()).has_jobs);
+    assert!(queue_view(&[still(1, "done")], false, None, &FactsMap::new()).has_jobs);
+    assert!(super::rows::pick_mode_after_publish(true, true, true));
+    assert!(!super::rows::pick_mode_after_publish(true, false, true));
+    assert!(!super::rows::pick_mode_after_publish(true, true, false));
+    assert!(!super::rows::pick_mode_after_publish(false, true, true));
+}
+
+/// Queues `job` in `db` in `state` with `frames_done` finished frames.
+fn queue_row(db: &Database, job: &RenderJobFile, state: &str, frames_done: u32) -> i64 {
+    let text = codec::to_text(job).expect("the job encodes");
+    let id = db
+        .add_render_job(
+            &NewRenderJob {
+                kind: "still",
+                label: &job.label,
+                summary: "A summary",
+                frames_total: 1,
+                output_path: &job.output,
+                snapshot_version: job.format,
+                snapshot: &text,
+            },
+            1,
+        )
+        .expect("the job is added");
+    db.set_render_job_state(id, state, None, 2).expect("state");
+    db.set_render_job_progress(id, frames_done, 2)
+        .expect("progress");
+    id
+}
+
+fn plain_job(label: &str) -> RenderJobFile {
+    let mut job = file(TOKEN_A, label, "/out/gem.png", None, still_kind());
+    job.format = pleochroma_render_jobs::format_for(&job);
+    job
+}
+
+fn compute_of(db: &Database, id: i64) -> ComputeChoice {
+    let row = db.get_render_job(id).expect("reads").expect("exists");
+    codec::from_text(&row.snapshot)
+        .expect("decodes")
+        .compute
+        .target
+}
+
+/// Bulk compute stores the choice in waiting, paused and failed jobs, leaves a Ray-Traced job
+/// on this computer, skips the running one, and never changes a state or a frame count.
+#[test]
+fn bulk_compute_skips_and_counts_and_changes_no_state() {
+    let db = Database::new(Some(":memory:")).expect("vault");
+    let queued = queue_row(&db, &plain_job("a"), "queued", 0);
+    let failed = queue_row(&db, &plain_job("b"), "failed", 0);
+    let paused = queue_row(&db, &plain_job("c"), "paused", 0);
+    let done = queue_row(&db, &plain_job("d"), "done", 1);
+    let running = queue_row(&db, &plain_job("e"), "running", 0);
+    let mut ray_job = plain_job("f");
+    ray_job.engine = pleochroma::renderer::engine::EngineSpec {
+        engine: pleochroma::renderer::engine::RenderEngine::RayTraced,
+        ray: pleochroma::renderer::engine::RayOptions::default(),
+    };
+    ray_job.format = pleochroma_render_jobs::format_for(&ray_job);
+    let ray = queue_row(&db, &ray_job, "queued", 0);
+
+    let before = db.list_render_jobs().expect("lists");
+    // The paused job is the one the controller says renders now (a stale row): it is skipped.
+    let outcome = apply_bulk_compute(&db, &before, ComputeChoice::Both, Some(paused));
+    assert_eq!(
+        outcome,
+        BulkOutcome {
+            written: vec![queued, failed],
+            already: 0,
+            ray_local: 1,
+            had_started: 1,
+            refused: 0,
+        }
+    );
+    for id in [queued, failed] {
+        assert_eq!(compute_of(&db, id), ComputeChoice::Both);
+    }
+    for id in [paused, done, running, ray] {
+        assert_eq!(compute_of(&db, id), ComputeChoice::Local);
+    }
+
+    // No state, frame count, label or position moved.
+    let after = db.list_render_jobs().expect("lists");
+    for (old, new) in before.iter().zip(&after) {
+        assert_eq!(
+            (&old.state, old.frames_done, &old.label, old.position),
+            (&new.state, new.frames_done, &new.label, new.position)
+        );
+    }
+
+    // Asking again: the two stored jobs already have it, the paused one is written now.
+    let again = apply_bulk_compute(&db, &after, ComputeChoice::Both, None);
+    assert_eq!(again.written, [paused]);
+    assert_eq!(again.already, 2);
+
+    // A Ray-Traced job accepts Local Only (it has it already).
+    let local = apply_bulk_compute(&db, &after, ComputeChoice::Local, None);
+    assert_eq!(local.written.len(), 3);
+    assert_eq!(local.already, 1);
+    assert_eq!(compute_of(&db, queued), ComputeChoice::Local);
+    assert_eq!(local.ray_local, 0);
 }

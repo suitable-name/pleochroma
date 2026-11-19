@@ -157,6 +157,9 @@ export component FitView inherits Rectangle {
     property <bool> scan_shown: RoughPlanModel.base_kind == 3 && RoughPlanModel.scan_verdict >= 0 && !RoughPlanModel.mesh_busy;
     // Armed picks: a face for a cut or for the axis, or the two ends of an edge.
     property <bool> picking: RoughPlanModel.face_from_view_armed || RoughPlanModel.axis_pick != 0;
+    // The bottom bar is too short for text toggles (legend plus three labels): the toggles drop to
+    // icons, whatever the window width (the center column is only about 380 px at 1180 px).
+    property <bool> bar_compact: RoughPlanModel.narrow || bottom_bar.width < 560px;
 
     function end_drag() {
         if root.dragging {
@@ -502,7 +505,7 @@ export component FitView inherits Rectangle {
         }
 
         // Bottom: the legend and the layer toggles, or the hint.
-        KitGlass {
+        bottom_bar := KitGlass {
             x: 12px;
             y: parent.height - self.height - 12px;
             width: parent.width - 24px;
@@ -550,8 +553,9 @@ export component FitView inherits Rectangle {
                         height: parent.height;
                         text: RoughPlanModel.view_hint != "" ? RoughPlanModel.view_hint
                             : (RoughPlanModel.view_mode == 0
-                                ? (RoughPlanModel.base_kind == 3 ? "Drag to orbit \u{00B7} scroll to zoom" : "Drag to orbit \u{00B7} scroll to zoom \u{00B7} click an edge to cut it")
-                                : "Drag to orbit \u{00B7} scroll to zoom \u{00B7} hover stones for details");
+                                ? (RoughPlanModel.base_kind == 3 ? "Drag to orbit \u{00B7} scroll to zoom"
+                                    : (root.bar_compact ? "Click an edge to cut it \u{00B7} drag to orbit" : "Drag to orbit \u{00B7} scroll to zoom \u{00B7} click an edge to cut it"))
+                                : (root.bar_compact ? "Drag to orbit \u{00B7} hover stones for details" : "Drag to orbit \u{00B7} scroll to zoom \u{00B7} hover stones for details"));
                         font-size: 11px;
                         color: Theme.text-secondary;
                         vertical-alignment: center;
@@ -570,7 +574,7 @@ export component FitView inherits Rectangle {
                         LayerToggle {
                             text: "Rough";
                             icon: RoughIcons.gem;
-                            narrow: RoughPlanModel.narrow;
+                            narrow: root.bar_compact;
                             hint: "Show the outline of the whole rough around the stones.";
                             on: RoughPlanModel.show_rough;
                             toggled => {
@@ -581,7 +585,7 @@ export component FitView inherits Rectangle {
                         LayerToggle {
                             text: "Saw";
                             icon: RoughIcons.saw;
-                            narrow: RoughPlanModel.narrow;
+                            narrow: root.bar_compact;
                             hint: "Show where the saw would cut the rough apart between stones.";
                             on: RoughPlanModel.show_saw;
                             toggled => {
@@ -592,7 +596,7 @@ export component FitView inherits Rectangle {
                         LayerToggle {
                             text: "Stones";
                             icon: RoughIcons.stone;
-                            narrow: RoughPlanModel.narrow;
+                            narrow: root.bar_compact;
                             hint: "Show the stones placed in the rough.";
                             on: RoughPlanModel.show_stones;
                             toggled => {
@@ -611,7 +615,7 @@ export component FitView inherits Rectangle {
                         if root.scan_shown: LayerToggle {
                             text: "Problems";
                             icon: KitIcons.info;
-                            narrow: RoughPlanModel.narrow;
+                            narrow: root.bar_compact;
                             hint: "Color the places the import repaired in amber and the places where the scan crosses itself in red, with a marker at each.";
                             on: RoughPlanModel.show_problems;
                             toggled => {
@@ -622,7 +626,7 @@ export component FitView inherits Rectangle {
                         if root.scan_shown: LayerToggle {
                             text: "Outline";
                             icon: KitIcons.block;
-                            narrow: RoughPlanModel.narrow;
+                            narrow: root.bar_compact;
                             hint: "Draw the outline the planner works on as a cyan ghost over the scan, so a fallback to the convex outline can be seen.";
                             on: RoughPlanModel.show_outline;
                             toggled => {
@@ -633,7 +637,7 @@ export component FitView inherits Rectangle {
                         LayerToggle {
                             text: "Cut Faces";
                             icon: KitIcons.face;
-                            narrow: RoughPlanModel.narrow;
+                            narrow: root.bar_compact;
                             hint: "Show the flat faces your cuts make on the rough, in the 3D view.";
                             on: RoughPlanModel.show_cut_faces;
                             toggled => {

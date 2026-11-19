@@ -462,21 +462,26 @@ pub(super) fn save_best_validation(
     let Some(validation) = runner.stats().last_validation.as_ref() else {
         return Ok(());
     };
+    let Some(score) = validation
+        .mean_deployed_score
+        .filter(|score| score.is_finite())
+    else {
+        return Ok(());
+    };
     if args.fixture
-        || !validation.mean_final_score.is_finite()
         || validation.designs == 0
         || validation.failed > 0
         || records
             .best_validation_score
-            .is_some_and(|score| validation.mean_final_score >= score)
+            .is_some_and(|best| score >= best)
     {
         return Ok(());
     }
-    records.best_validation_score = Some(validation.mean_final_score);
     let path = validation_checkpoint_path(args, records.best_validation_tag().as_deref());
     runner.save_checkpoint(Path::new(&path))?;
+    records.best_validation_score = Some(score);
     console.message(&format!(
-        "Validation checkpoint at iteration {}: {path}",
+        "Validation checkpoint at iteration {} (deployed Full score {score:.3}): {path}",
         runner.stats().iteration
     ));
     Ok(())

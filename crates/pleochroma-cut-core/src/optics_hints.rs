@@ -22,6 +22,13 @@
 //! `1 / n > 1` is `NaN`, and `n == 1.0` gives `90.0`. [`windowing_risk`] maps a `NaN`
 //! margin to [`Risk::Windows`]; left alone, it would compare as [`Risk::Safe`].
 
+use crate::design::{Design, hinge::tier_plane_ranges};
+use pleochroma::geometry::{
+    meet_solver::{Block, SolvedTier, classify_blocks},
+    stone_metrics::{SolidStatus, build_solid_mesh},
+};
+use std::collections::BTreeSet;
+
 /// The critical angle for total internal reflection at refractive index `n`.
 ///
 /// In degrees: `asin(1/n)`. Below this angle (measured from the facet's own
@@ -262,6 +269,77 @@ pub fn crown_windowing_risk(pavilion_angle_deg: f64, crown_angle_deg: f64, n: f6
     } else {
         Risk::Safe
     }
+}
+
+/// The refractive index the pavilion alone asks for, read from its shallowest tier.
+///
+/// A cheap hint, not a trace: see [`geometric_ri_hint`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeometricRiHint {
+    /// `1 / sin(angle)` of the shallowest pavilion tier: below this index light entering
+    /// through the table leaks out of that tier.
+    pub n_geo: f64,
+    /// The code of that tier (`P2`).
+    pub tier: String,
+    /// The tier's angle from the girdle plane, in degrees (positive).
+    pub angle_deg: f64,
+}
+
+/// The geometric refractive-index hint of `design`, from its solve `solved`.
+///
+/// `n_geo = 1 / sin(a_min)`, where `a_min` is the smallest angle among the pavilion tiers that
+/// still have facets on the finished stone. The culet and any other flat tier are not counted,
+/// nor are the girdle and the crown. `None` when `solved` is not one entry per tier, when the
+/// stone does not close, or when no pavilion tier is left.
+///
+/// The hint holds only for light entering through the table: tilted views and light entering
+/// through the crown are not counted.
+#[must_use]
+pub fn geometric_ri_hint(design: &Design, solved: &[SolvedTier]) -> Option<GeometricRiHint> {
+    if solved.len() != design.tiers.len() {
+        return None;
+    }
+    let planes = design.planes_from_solved(solved);
+    let SolidStatus::Closed(mesh) = build_solid_mesh(&planes) else {
+        return None;
+    };
+    let live: BTreeSet<usize> = mesh
+        .rings
+        .iter()
+        .filter(|(_, ring)| ring.len() >= 3)
+        .map(|&(plane, _)| plane)
+        .collect();
+    let ranges = tier_plane_ranges(design, solved);
+    let blocks = classify_blocks(&design.meet_tier_inputs());
+    let (index, angle_deg) = design
+        .tiers
+        .iter()
+        .zip(&blocks)
+        .enumerate()
+        .filter(|(_, (tier, block))| {
+            **block == Block::Pavilion && !is_horizontal_angle_deg(tier.angle_deg)
+        })
+        .filter(|(index, _)| {
+            ranges
+                .get(*index)
+                .is_some_and(|range| range.clone().any(|plane| live.contains(&plane)))
+        })
+        .map(|(index, (tier, _))| (index, tier.angle_deg.abs()))
+        .min_by(|a, b| a.1.total_cmp(&b.1))?;
+    let n_geo = 1.0 / angle_deg.to_radians().sin();
+    if !(n_geo.is_finite() && n_geo > 1.0) {
+        return None;
+    }
+    let tier = design
+        .tier_codes()
+        .flat
+        .get(index)
+        .map(|info| info.code.clone())?;
+    Some(GeometricRiHint {
+        n_geo,
+        tier,
+        angle_deg,
+    })
 }
 
 #[cfg(test)]
@@ -509,5 +587,81 @@ mod tests {
             guard_retargeted_angle_deg(-41.0, f64::NAN),
             (-41.0, AngleGuard::Within)
         );
+    }
+
+    // --- geometric_ri_hint ---
+
+    /// Pentalume Sapphire: P1 at 43, P2 at 40.5, P3 at 44 degrees, no culet.
+    const PENTALUME: &str = "GemCad 5.0
+g 80 0
+y 5 y
+I 1.7680773735046387
+H Pentalume Sapphire
+H Designed by Niklas Gussek
+a -43 0.7130808923813132 0 n P1_Five_broad_mains 16 32 48 64
+a -40.5 0.7661935481511087 8 n P2_Five_corner_guards 24 40 56 72
+a -44 0.7955073176906 76 n P3_Ten_shoulder_splits 4 12 20 28 36 44 52 60 68
+a 90 1 0 n G1_Five_long_sides 16 32 48 64 G Set stone size.
+a 90 1.13 8 n G2_Five_clipping_flats 24 40 56 72
+a 34 0.5944270003043362 0 n C1_Five_broad_bezels 16 32 48 64
+a 30 0.6018060796608384 8 n C2_Five_corner_bezels 24 40 56 72
+a 33 0.6346315320439263 76 n C3_Ten_shoulder_facets 4 12 20 28 36 44 52 60 68
+a 0 0.35 n Table
+";
+
+    fn pentalume() -> Design {
+        let schedule = pleochroma_formats::asc::parse_asc(PENTALUME).expect("the fixture parses");
+        let preform = crate::preform::PreformSpec::cylinder_for_schedule(&schedule, 3.0, 1.0, 3.0);
+        Design::from_asc_schedule(preform, &schedule)
+    }
+
+    /// The shallowest pavilion tier names the index: P2 at 40.5 degrees, not the first or the
+    /// steepest one.
+    #[test]
+    fn the_hint_reads_the_shallowest_pavilion_tier() {
+        let design = pentalume();
+        let solved = design.solve().expect("every imported tier is pinned");
+        let hint = geometric_ri_hint(&design, &solved).expect("a pavilion tier is left");
+        assert_eq!(hint.tier, "P2");
+        assert!((hint.angle_deg - 40.5).abs() < 1e-9, "{}", hint.angle_deg);
+        let expected = 1.0 / 40.5_f64.to_radians().sin();
+        assert!((hint.n_geo - expected).abs() < 1e-9, "{}", hint.n_geo);
+    }
+
+    /// The index follows `1 / sin(angle)`: at the critical angle of `n_geo` the tier sits exactly
+    /// on the edge of windowing.
+    #[test]
+    fn the_hint_index_is_the_one_whose_critical_angle_is_the_tier_angle() {
+        let design = pentalume();
+        let solved = design.solve().expect("every imported tier is pinned");
+        let hint = geometric_ri_hint(&design, &solved).expect("a pavilion tier is left");
+        assert!((critical_angle_deg(hint.n_geo) - hint.angle_deg).abs() < 1e-9);
+    }
+
+    /// The culet is flat, not a windowing question: a template's hint never reads an angle near
+    /// zero.
+    #[test]
+    fn the_culet_is_never_the_shallowest_tier() {
+        let spec = crate::templates::TEMPLATES
+            .iter()
+            .find(|spec| {
+                spec.tiers().iter().any(|tier| {
+                    is_horizontal_angle_deg(tier.angle_deg) && tier.angle_deg.is_sign_negative()
+                })
+            })
+            .expect("a built-in template has a culet");
+        let design = Design::new(spec.preform.clone(), spec.schedule_meta(), spec.tiers());
+        let solved = design.solve().expect("every template tier is pinned");
+        let hint = geometric_ri_hint(&design, &solved).expect("the template has a pavilion");
+        assert!(hint.angle_deg > 1.0, "{}", hint.angle_deg);
+        assert!(hint.n_geo > 1.0 && hint.n_geo < 10.0, "{}", hint.n_geo);
+    }
+
+    /// A solve that is not one entry per tier gives no hint.
+    #[test]
+    fn a_misaligned_solve_gives_no_hint() {
+        let design = pentalume();
+        let solved = design.solve().expect("every imported tier is pinned");
+        assert_eq!(geometric_ri_hint(&design, &solved[1..]), None);
     }
 }

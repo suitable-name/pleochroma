@@ -28,6 +28,10 @@ pub struct InferenceConfig {
     pub steps: usize,
     /// Largest angle change per step, degrees (finite, positive).
     pub max_step_deg: f64,
+    /// Optional probe displacement represented in the policy observation, in degrees.
+    /// An explicit value overrides the checkpoint. Weights without this metadata use
+    /// `max_step_deg`, matching the trainer's default probe rule.
+    pub probe_scale_deg: Option<f64>,
     /// Fidelity the environment scores candidates at while the policy runs. The networks are
     /// trained under `Fast`, the cheap setting.
     pub rollout_fidelity: ObjectiveFidelity,
@@ -76,6 +80,7 @@ impl InferenceConfig {
         Self {
             steps: DEFAULT_STEPS,
             max_step_deg,
+            probe_scale_deg: None,
             rollout_fidelity: ObjectiveFidelity::Fast,
             report_fidelity: ObjectiveFidelity::Full,
             line_search: DEFAULT_LINE_SEARCH.to_vec(),

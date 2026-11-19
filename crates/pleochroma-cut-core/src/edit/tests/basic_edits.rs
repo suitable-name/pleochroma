@@ -255,3 +255,41 @@ fn set_meta_then_undo_restores_the_old_value() {
     assert!(history.undo(&mut design).unwrap());
     assert_eq!(design, before);
 }
+
+/// `SetRiRangeChoice` then undo and redo moves the choice both ways, and applying it never
+/// forces a re-solve: the masts come back untouched.
+#[test]
+fn set_ri_range_choice_then_undo_and_redo_moves_the_choice_and_keeps_the_masts() {
+    use crate::native::RiRangeChoice;
+
+    let mut design = fresh_design();
+    assert_eq!(design.ri_range_choice, RiRangeChoice::Off);
+    let before = design.clone();
+    let before_solved = design.solve().expect("fresh design must solve");
+    let mut history = History::new();
+    let chosen = RiRangeChoice::Designer {
+        low: 1.63,
+        high: None,
+    };
+
+    let edit = Edit::SetRiRangeChoice { choice: chosen };
+    history
+        .apply(&mut design, edit.clone())
+        .expect("set RI range choice must apply");
+    assert_eq!(design.ri_range_choice, chosen);
+    assert_ne!(design, before, "the choice is authored content");
+    assert_eq!(edit.describe(&design), "Change RI range");
+    let resolved = crate::resolve::resolve_after_edit(&design, &before_solved, &edit)
+        .expect("a range-only edit resolves");
+    assert_eq!(resolved.len(), before_solved.len());
+    for (kept, original) in resolved.iter().zip(&before_solved) {
+        assert_eq!(kept.mast.to_bits(), original.mast.to_bits());
+    }
+
+    assert!(history.undo(&mut design).unwrap());
+    assert_eq!(design, before);
+    assert_eq!(design.ri_range_choice, RiRangeChoice::Off);
+
+    assert!(history.redo(&mut design).unwrap());
+    assert_eq!(design.ri_range_choice, chosen);
+}

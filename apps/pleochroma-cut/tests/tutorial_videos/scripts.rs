@@ -301,10 +301,22 @@ impl Film<'_> {
             }
             ("solving-snapshot-compare", 1) => self.inline_angle("Crown Main", "36")?,
             ("solving-snapshot-compare", 4) => self.film_compare_read_close()?,
-            ("solving-history", 1) => self.inline_angle("Crown Main", "36")?,
-            ("solving-history", 2) => self.inline_angle("Pavilion Main", "41")?,
+            // Steps 2 and 3 ask for the new rows of the History tab: the stage shows the Tier tab
+            // for the edit, so the History tab is brought back to show the rows.
+            ("solving-history", 1) => {
+                self.inline_angle("Crown Main", "36")?;
+                self.film_inspector_tab(4)?;
+            }
+            ("solving-history", 2) => {
+                self.inline_angle("Pavilion Main", "41")?;
+                self.film_inspector_tab(4)?;
+            }
             ("solving-history", 3) => self.history_jump(1)?,
-            ("solving-history", 4) => self.history_jump(0)?,
+            // The step's check reads the Crown Main angle in the tier table: bring that row up.
+            ("solving-history", 4) => {
+                self.history_jump(0)?;
+                self.film_reveal_tier("Crown Main")?;
+            }
             ("solving-history", 5) => self.history_jump(2)?,
             ("solving-history", 6) => self.film_command(CMD_UNDO)?,
             ("solving-history", 7) => {

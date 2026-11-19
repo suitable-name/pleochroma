@@ -359,55 +359,79 @@ impl GemstoneSetAttentionNetwork {
         global_token: &[f32],
         scratch: &mut InferenceScratch,
     ) -> Result<ForwardOutput, ModelError> {
-        // 1. Embed the context token and every tier token fused with it
-        let mut tokens = self.embed(tier_tokens, global_token)?;
+        let tokens = self.encode(tier_tokens, global_token, scratch)?;
         let fractions = weight_fractions(global_token)?;
-
-        // 2. Multi-Head Attention and MLP Transformer layers (pre-LN, residual owned here)
-        self.run_blocks(&mut tokens, scratch)?;
-
-        // 3. Final LayerNorm on every token (context included); the heads read the normalised
-        //    stream
-        for tok in &mut tokens {
-            *tok = self.final_norm.forward(tok)?;
-        }
-
-        // 4. Value and gain heads on the pooled vector: context token + mean of the tier tokens
         let pooled = pool(&tokens);
         let value = head_scalar(&self.critic_head.forward(&pooled)?, "critic head output")?;
         let gain = head_scalar(&self.gain_head.forward(&pooled)?, "gain head output")?;
 
-        // 5. Sensitivity head per tier; the state-independent log std comes from the block of the
-        //    *input* token (entry BLOCK_TYPE_INDEX)
         let bounded = self.log_std_raw.map(bounded_log_std);
-        let mut sensitivities = Vec::with_capacity(tier_tokens.len());
-        let mut log_stds = Vec::with_capacity(tier_tokens.len());
-        for (tok, input) in tokens[1..].iter().zip(tier_tokens) {
-            sensitivities.push(sensitivity_row(&self.sens_head.forward(tok)?)?);
-            let block = input.get(BLOCK_TYPE_INDEX).copied().unwrap_or(0.0);
-            log_stds.push(bounded[block_slot(block)]);
-        }
-
-        // 6. Add a separately learned action residual to the sensitivity direction.
-        let mobile: Vec<bool> = tier_tokens
+        let log_std = tier_tokens
             .iter()
-            .map(|token| token.get(MOBILITY_INDEX).copied().unwrap_or(0.0) > 0.5)
+            .map(|input| {
+                let block = input.get(BLOCK_TYPE_INDEX).copied().unwrap_or(0.0);
+                bounded[block_slot(block)]
+            })
             .collect();
-        let mut mean = compose_mean_masked(&sensitivities, &fractions, &mobile);
-        for ((value, tok), movable) in mean.iter_mut().zip(&tokens[1..]).zip(mobile) {
-            if movable {
-                *value += head_scalar(&self.action_head.forward(tok)?, "action head output")?;
-            }
-        }
+        let (mean, sensitivities) = self.action_heads(&tokens[1..], tier_tokens, &fractions)?;
         Ok(ForwardOutput {
-            policy: GaussianPolicy {
-                mean,
-                log_std: log_stds,
-            },
+            policy: GaussianPolicy { mean, log_std },
             value,
             sensitivities,
             gain,
         })
+    }
+
+    /// Policy means for deterministic actions and externally scaled exploration.
+    ///
+    /// # Errors
+    /// Returns the actor input and layer dimension errors described by [`Self::forward`].
+    pub fn forward_mean_with_scratch(
+        &self,
+        tier_tokens: &[Vec<f32>],
+        global_token: &[f32],
+        scratch: &mut InferenceScratch,
+    ) -> Result<Vec<f32>, ModelError> {
+        let tokens = self.encode(tier_tokens, global_token, scratch)?;
+        let fractions = weight_fractions(global_token)?;
+        Ok(self.action_heads(&tokens[1..], tier_tokens, &fractions)?.0)
+    }
+
+    fn encode(
+        &self,
+        tier_tokens: &[Vec<f32>],
+        global_token: &[f32],
+        scratch: &mut InferenceScratch,
+    ) -> Result<Vec<Vec<f32>>, ModelError> {
+        let mut tokens = self.embed(tier_tokens, global_token)?;
+        self.run_blocks(&mut tokens, scratch)?;
+        for tok in &mut tokens {
+            *tok = self.final_norm.forward(tok)?;
+        }
+        Ok(tokens)
+    }
+
+    fn action_heads(
+        &self,
+        encoded: &[Vec<f32>],
+        tier_tokens: &[Vec<f32>],
+        fractions: &[f32; N_COMPONENTS],
+    ) -> Result<(Vec<f32>, Vec<[f32; N_COMPONENTS]>), ModelError> {
+        let sensitivities = encoded
+            .iter()
+            .map(|tok| sensitivity_row(&self.sens_head.forward(tok)?))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mobile: Vec<bool> = tier_tokens
+            .iter()
+            .map(|token| token.get(MOBILITY_INDEX).copied().unwrap_or(0.0) > 0.5)
+            .collect();
+        let mut mean = compose_mean_masked(&sensitivities, fractions, &mobile);
+        for ((value, tok), movable) in mean.iter_mut().zip(encoded).zip(mobile) {
+            if movable {
+                *value += head_scalar(&self.action_head.forward(tok)?, "action head output")?;
+            }
+        }
+        Ok((mean, sensitivities))
     }
 
     /// The context token followed by one fused token per tier: `[1 + N][d_model]`.
@@ -447,7 +471,7 @@ impl GemstoneSetAttentionNetwork {
     }
 
     /// The pre-LN transformer stack over `tokens` (`[1 + N, d_model]`, context token first), in
-/// place.
+    /// place.
     fn run_blocks(
         &self,
         tokens: &mut [Vec<f32>],

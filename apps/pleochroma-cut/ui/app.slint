@@ -78,6 +78,13 @@ import { TuneModel, TuneTierRow, TuneBand, TuneMetricRow } from "models/tune.sli
 import { CuttingModeModel, CmChip, CmWheelMark, CmWheelScale, CmScheduleRow } from "models/cutting_mode.slint";
 import { CuttingModeScreen } from "components/cutting_mode/cutting_mode_screen.slint";
 import { RenderJobsModel, RenderJobRow } from "models/render_jobs.slint";
+import { JobEditModel } from "models/job_edit.slint";
+import { JobCopyModel, JobCopyPreview } from "models/job_copy.slint";
+import { RiRangeModel } from "models/ri_range.slint";
+import { RiFieldModel } from "models/ri_field.slint";
+import { RiChartModel, RiChartLine, RiChartTick, RiChartChip, RiChartChipRow } from "models/ri_chart.slint";
+import { TiltWindows } from "shared/tilt_windows.slint";
+import { RiBatchModel } from "models/ri_batch.slint";
 import { ExportRunModel } from "models/export_run.slint";
 import { Zoning, MaterialZoneRow } from "models/zoning.slint";
 import { ColorPatternWindow } from "color_pattern_window.slint";
@@ -170,6 +177,13 @@ export {
     VerdictModel, VerdictReasonData,
     // The render queue's global and its row struct -- see ui/models/render_jobs.slint.
     RenderJobsModel, RenderJobRow,
+    // The Edit Job dialog and the Copy to Materials dialog -- see ui/models/job_edit.slint and
+    // ui/models/job_copy.slint.
+    JobEditModel, JobCopyModel, JobCopyPreview,
+    // The RI range chip, the Design Settings field, the RI chart and the library batch -- see
+    // ui/models/ri_range.slint, ri_field.slint, ri_chart.slint and ri_batch.slint.
+    RiRangeModel, RiFieldModel, RiChartModel, RiBatchModel,
+    RiChartLine, RiChartTick, RiChartChip, RiChartChipRow, TiltWindows,
     // The running-export flag and the header indicator's text -- see ui/models/export_run.slint.
     ExportRunModel,
     // The rough color and color zoning state and the material dialog's zone row -- see ui/models/zoning.slint.
@@ -465,6 +479,12 @@ export component MainWindow inherits Window {
                 enabled: !BatchModel.tilt_batch_running;
                 activated => { LibraryModel.regenerate_all_tilt_curves(); }
             }
+            // The traced RI range of every design in "Mine" (`gui::batch::ri_range`).
+            if GuideModel.shows_advanced(): MenuItem {
+                title: "Compute RI Ranges...";
+                enabled: !BatchModel.tilt_batch_running;
+                activated => { RiBatchModel.open_batch(); }
+            }
             if GuideModel.shows_advanced(): MenuItem {
                 title: "Regenerate Both...";
                 enabled: !BatchModel.preview_batch_running && !BatchModel.tilt_batch_running;
@@ -559,7 +579,15 @@ export component MainWindow inherits Window {
         params_floating: win_state.params_floating;
         toast_visible <=> root.toast_visible;
         show_parameters(tab) => { root.show_parameters(tab); }
-        focus_search() => { header_toolbar.focus_search(); }
+        edit_view_entered() => { root.edit_view_entered(); }
+        // Ctrl+F outside the Edit view: what is typed filters the library list, so the list is
+        // unfolded first. Only for now, like `TutorialsModel.show_library`: the saved choice is
+        // left alone, and `WindowState`'s width rule does not fold a list opened inside its band
+        // (it acts only when the rule starts or stops applying).
+        focus_search() => {
+            LibraryModel.panel_collapsed = false;
+            header_toolbar.focus_search();
+        }
 
         // Zero-sized and explicitly positioned: it draws nothing and adds no layout constraint.
         win_state := WindowState {
@@ -599,19 +627,15 @@ export component MainWindow inherits Window {
             header_toolbar := HeaderToolbar {
                 compact: root.width < 1160px;
                 window_height: root.height;
-                // The export indicator was clicked: show the running export's popup again. The
-                // tilt dialog is window-wide; the still export's dialog lives in Live Render,
-                // so that tab is brought up first.
+                // The export indicator was clicked: show the running export's popup again. Both
+                // dialogs are window-wide and float over every page, so neither moves the user
+                // (the same as every other way to open them).
                 show_export_progress => {
                     if TiltVideoExportModel.is_exporting {
                         if !TiltModel.dialog_open {
                             TiltModel.toggle_dialog();
                         }
                     } else if ExportModel.is_exporting {
-                        root.active_tab = 0;
-                        root.active_tab_changed(0);
-                        root.render_view_tab = 0;
-                        root.render_view_tab_changed(0);
                         ExportModel.is_open = true;
                     }
                 }
@@ -668,6 +692,7 @@ export component MainWindow inherits Window {
                         params_edit_extent: win_state.params_edit_extent;
                         guide_parked: win_state.guide_lifted;
                         window_height: root.height;
+                        window_width: root.width;
                         recent_native_files: root.recent_native_files;
                         open_recent_native_file(path) => { root.open_recent_native_file(path); }
                     }

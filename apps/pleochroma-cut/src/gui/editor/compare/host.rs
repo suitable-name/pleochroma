@@ -38,7 +38,7 @@ use super::{
     },
 };
 use crate::{
-    CompareMetricRow, CompareModel, CompareWindow, MainWindow,
+    CompareMetricRow, CompareModel, CompareWindow, MainWindow, TiltWindows,
     gui::solid_preview::preview_state::CameraPose,
 };
 use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel, Weak};
@@ -272,6 +272,16 @@ pub(super) fn set_main_window(ui: &MainWindow) {
         if registered.replace(true) {
             request_frames(TRACED_DEBOUNCE);
         }
+        true
+    });
+    // A new Tilt Average Range shows the finished tilt rows again at once, from the kept
+    // profiles. The sink is first called while it registers, when nothing is live yet.
+    let weak = ui.as_weak();
+    crate::gui::preferences::register_tilt_range_sink(move |_| {
+        if weak.upgrade().is_none() {
+            return false;
+        }
+        represent_tilt();
         true
     });
 }

@@ -16,6 +16,37 @@ pub const MAX_META_TAGS: usize = 1_000;
 /// Upper bound on one tag, in bytes of UTF-8.
 pub const MAX_META_TAG_BYTES: usize = 200;
 
+/// The key of the low end of a stated refractive-index range, in `[meta]`.
+const RI_MIN_KEY: &str = "ri_min";
+/// The key of the high end of a stated refractive-index range, in `[meta]`.
+const RI_MAX_KEY: &str = "ri_max";
+/// The key of who stated the range (`designer` or `estimate`), in `[meta]`.
+const RI_SOURCE_KEY: &str = "ri_range_source";
+/// The value of [`RI_SOURCE_KEY`] for a range the designer stated.
+const RI_SOURCE_DESIGNER: &str = "designer";
+/// The value of [`RI_SOURCE_KEY`] for the range Pleochroma traces when a sheet is written.
+const RI_SOURCE_ESTIMATE: &str = "estimate";
+
+/// What a design says about the refractive-index range its sheet prints.
+///
+/// The range lives in the `[meta]` table's unknown keys (`ri_min`, `ri_max`,
+/// `ri_range_source`), so [`DesignMetadata`] has no field for it and an older reader keeps
+/// the keys as it read them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RiRangeChoice {
+    /// The sheet prints the design's own index and its material, no range.
+    Off,
+    /// The designer's own statement: the low end and, when stated, the high end.
+    Designer {
+        /// The lowest index the design is meant for.
+        low: f64,
+        /// The highest index the design is meant for, when stated.
+        high: Option<f64>,
+    },
+    /// Pleochroma's traced range, computed when the sheet is written. No number is stored.
+    Estimate,
+}
+
 /// The `[meta]` table: per-design descriptive data. See [`super::schema`] for which
 /// fields are stored and which are recomputed.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -94,6 +125,71 @@ impl DesignMetadata {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// The refractive-index range choice stored in the unknown keys `ri_min`, `ri_max` and
+    /// `ri_range_source` (`"designer"` or `"estimate"`).
+    ///
+    /// A source of `estimate` is [`RiRangeChoice::Estimate`] whatever numbers sit beside it.
+    /// Any other source, or none, with a usable `ri_min` is [`RiRangeChoice::Designer`]: a
+    /// hand-written file or an older build states a range without a source. Everything else is
+    /// [`RiRangeChoice::Off`].
+    #[must_use]
+    pub fn ri_range_choice(&self) -> RiRangeChoice {
+        let number = |key: &str| {
+            self.unknown.get(key).and_then(|value| {
+                value.as_float().or_else(|| {
+                    value
+                        .as_integer()
+                        .and_then(|whole| i32::try_from(whole).ok())
+                        .map(f64::from)
+                })
+            })
+        };
+        let source = self
+            .unknown
+            .get(RI_SOURCE_KEY)
+            .and_then(toml::Value::as_str);
+        if source == Some(RI_SOURCE_ESTIMATE) {
+            return RiRangeChoice::Estimate;
+        }
+        match number(RI_MIN_KEY).filter(|low| low.is_finite()) {
+            Some(low) => RiRangeChoice::Designer {
+                low,
+                high: number(RI_MAX_KEY).filter(|high| high.is_finite()),
+            },
+            None => RiRangeChoice::Off,
+        }
+    }
+
+    /// Stores `choice`: [`RiRangeChoice::Off`] removes the three keys, `Designer` writes both
+    /// numbers (the high one only when stated) and the source, `Estimate` writes the source
+    /// only, never a number.
+    pub fn set_ri_range_choice(&mut self, choice: RiRangeChoice) {
+        for key in [RI_MIN_KEY, RI_MAX_KEY, RI_SOURCE_KEY] {
+            self.unknown.remove(key);
+        }
+        match choice {
+            RiRangeChoice::Off => {}
+            RiRangeChoice::Designer { low, high } => {
+                self.unknown
+                    .insert(RI_MIN_KEY.to_string(), toml::Value::Float(low));
+                if let Some(high) = high {
+                    self.unknown
+                        .insert(RI_MAX_KEY.to_string(), toml::Value::Float(high));
+                }
+                self.unknown.insert(
+                    RI_SOURCE_KEY.to_string(),
+                    toml::Value::String(RI_SOURCE_DESIGNER.to_string()),
+                );
+            }
+            RiRangeChoice::Estimate => {
+                self.unknown.insert(
+                    RI_SOURCE_KEY.to_string(),
+                    toml::Value::String(RI_SOURCE_ESTIMATE.to_string()),
+                );
+            }
+        }
     }
 
     fn text_fields(&self) -> [(&'static str, &str); 15] {

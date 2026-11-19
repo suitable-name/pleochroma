@@ -547,7 +547,9 @@ impl Controller {
                     crate::gui::editor::trials::TrialOrigin::TwoTierSweep,
                 );
                 let after = st.current_generation();
+                let choices = super::form::tier_choices(&st.design);
                 drop(st);
+                self.refresh_tier_labels(&ui, choices);
                 {
                     let mut two = self.two.borrow_mut();
                     two.mark_applied(pick.col, pick.row, after);

@@ -272,6 +272,33 @@ fn sentinel_padding_keeps_all_label_masks_zero_and_real_row_order() {
 }
 
 #[test]
+fn mini_batch_uses_its_own_tier_bucket_and_preserves_all_target_values() {
+    let fx = hand_built();
+    let trainer = trainer(4, 0);
+    let mixed = trainer.pack_imitation_padded(&fx.batch(), &[0, 1], 4);
+    let compact = trainer.pack_imitation(&fx.batch(), &[1]);
+    assert_eq!(mixed.mask.dims()[1], 4);
+    let small = mixed.gather_rows(&[1], &trainer.device);
+    assert_eq!(small.mask.dims(), [1, 2]);
+    assert_eq!(
+        host_vec(small.tiers).unwrap(),
+        host_vec(compact.tiers).unwrap()
+    );
+    assert_eq!(
+        host_vec(small.labels.sens_target).unwrap(),
+        host_vec(compact.labels.sens_target).unwrap()
+    );
+    assert_eq!(
+        host_vec(small.labels.action_mask).unwrap(),
+        host_vec(compact.labels.action_mask).unwrap()
+    );
+    assert_eq!(
+        host_vec(small.labels.gain_target).unwrap(),
+        host_vec(compact.labels.gain_target).unwrap()
+    );
+}
+
+#[test]
 fn masked_dummy_rows_preserve_every_loss_and_finite_optimizer_step() {
     let fx = hand_built();
     let mut exact = trainer(4, 17);

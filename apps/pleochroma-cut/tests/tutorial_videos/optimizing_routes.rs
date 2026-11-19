@@ -13,25 +13,17 @@ use std::time::Duration;
 const OPTIMIZE_TIMEOUT: Duration = Duration::from_secs(120);
 
 impl Film<'_> {
-    /// The Optimize tab: opens the Optimize Objective combo and chooses Low Windowing.
+    /// The Optimize tab: clicks the Low Windowing tile under Aim For (the objective is a group
+    /// of tiles, one for each preset).
     pub(super) fn optimize_choose_objective(&mut self) -> Result<(), String> {
         // The previous step opened the Optimize tab; do not click it a second time.
         if self.ui.global::<EditorModel>().get_inspector_tab() != 2 {
             self.film_inspector_tab(2)?;
         }
-        let combo = self
-            .inspector_form_control("Optimize Objective", uiprobe::AccessibleRole::Combobox)?
-            .ok_or("Optimize Objective combo is missing")?;
-        let optimize = self.ui.global::<OptimizeModel>();
-        let labels = optimize.get_preset_labels();
-        let idx = labels
-            .iter()
-            .position(|l| l.as_str() == "Low Windowing")
-            .and_then(|at| i32::try_from(at).ok())
-            .ok_or("Low Windowing objective is unavailable")?;
-        let current = optimize.get_preset_index();
-        self.click_and_invoke(&combo)?;
-        self.select_open_combo(current, idx)?;
+        let tile = self
+            .inspector_form_control("Low Windowing", uiprobe::AccessibleRole::RadioButton)?
+            .ok_or("the Low Windowing tile is missing under Aim For")?;
+        self.click_and_invoke(&tile)?;
         self.verify_optimize_objective("Low Windowing")?;
         pump(60);
         self.hold(pacing::MENU_HOLD)
@@ -43,14 +35,13 @@ impl Film<'_> {
             .ok()
             .and_then(|index| optimize.get_preset_labels().row_data(index))
             .ok_or("Optimize Objective index has no preset")?;
-        let value = self
-            .inspector_form_control("Optimize Objective", uiprobe::AccessibleRole::Combobox)?
+        let lit = self
+            .inspector_form_control(expected, uiprobe::AccessibleRole::RadioButton)?
             .and_then(|spot| spot.handle)
-            .and_then(|handle| handle.accessible_value())
-            .ok_or("Optimize Objective combo has no accessible value")?;
-        if actual.as_str() != expected || value.as_str() != expected {
+            .and_then(|handle| handle.accessible_checked());
+        if actual.as_str() != expected || lit != Some(true) {
             return Err(format!(
-                "Optimize Objective readback mismatch: model={actual:?}, combo={value:?}, expected={expected:?}"
+                "Optimize Objective readback mismatch: model={actual:?}, {expected:?} tile lit={lit:?}"
             ));
         }
         Ok(())
@@ -111,6 +102,18 @@ impl Film<'_> {
     /// The Optimize tab: types a short budget and two candidates to keep, clicks Optimize and
     /// waits for the results.
     pub(super) fn optimize_run_search(&mut self) -> Result<(), String> {
+        // Budget and Candidates are fields of the Run line, which is folded until it is clicked.
+        if self.view().by_label("Search Budget").is_empty() {
+            let run = self
+                .inspector_form_control("Run Settings", uiprobe::AccessibleRole::Button)?
+                .ok_or("the Run line is missing on the Optimize tab")?;
+            self.click_and_invoke(&run)?;
+            pump(80);
+            if self.view().by_label("Search Budget").is_empty() {
+                return Err("the click on the Run line did not open its fields".into());
+            }
+            self.hold(pacing::MENU_HOLD)?;
+        }
         let budget_field = self
             .inspector_form_control("Search Budget", uiprobe::AccessibleRole::TextInput)?
             .ok_or("Search Budget field is not visible")?;
@@ -185,6 +188,14 @@ impl Film<'_> {
         if optimize.get_selected_candidate() != 0 {
             return Err("Candidate 1 was not selected".into());
         }
+        // The candidate's before and after figures and the tiers it would change are under the
+        // list, below the row just clicked: scroll down to the Apply button after them so they
+        // are on screen when the step ends.
+        if let Err(why) =
+            self.inspector_form_control("Apply This Candidate", uiprobe::AccessibleRole::Button)
+        {
+            crate::debug_log::route(&format!("no scroll down to the candidate's details: {why}"));
+        }
         self.hold(pacing::RESULT_HOLD)
     }
 
@@ -198,7 +209,10 @@ impl Film<'_> {
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || !editor.get_optimize_running()) {
             return Err("Apply This Candidate did not finish".into());
         }
-        Ok(())
+        // The step asks for the new angles in the tier table, which the scroll down to the Apply
+        // button left above the picture: let the re-solve land, then scroll back up to it.
+        self.settle_solve_and_render();
+        self.scroll_dock_to_top()
     }
 
     /// Opens the Retarget dialog and chooses `material` as the target material.

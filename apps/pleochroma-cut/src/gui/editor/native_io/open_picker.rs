@@ -16,7 +16,9 @@ use crate::{
         show_toast,
     },
 };
-use pleochroma_cut_core::native::{DesignLoadError, FileKind, LoadedDesign, design_from_str};
+use pleochroma_cut_core::native::{
+    DesignLoadError, FileKind, LoadedDesign, RiRangeChoice, design_from_str,
+};
 use pleochroma_formats::native::design::{DesignFileError, detect_kind};
 use slint::ComponentHandle;
 use std::{
@@ -59,6 +61,9 @@ pub(super) struct ConvertedPick {
     /// The frosting a `.gcs` file states (`.asc` cannot carry it), applied to the design
     /// built from `asc_text`.
     pub(super) frosting: Vec<(usize, pleochroma_formats::gcs::GcsTierFrosting)>,
+    /// The refractive-index range a `.gcs` file states (`ri_min` / `ri_max`; `.asc` cannot carry
+    /// it), or [`RiRangeChoice::Off`]. Becomes the opened design's choice "From File".
+    pub(super) ri_range: RiRangeChoice,
 }
 
 /// Reads and converts a picked `.gem`/`.gcs` file (`path`'s extension picks the
@@ -88,12 +93,18 @@ pub(super) fn read_foreign_design(path: &Path) -> Result<ConvertedPick, String> 
         || format!("design{}", format.dotted_extension()),
         |n| n.to_string_lossy().into_owned(),
     );
+    let ri_range = if matches!(format, ForeignFormat::Gcs) {
+        crate::gui::editor::loading::gcs_bytes_ri_range(&bytes)
+    } else {
+        RiRangeChoice::Off
+    };
     Ok(ConvertedPick {
         source_path: path.to_path_buf(),
         asc_file_name: converted_asc_file_name(&file_name),
         asc_text: converted.asc_text,
         warnings: converted.warnings,
         frosting: converted.frosting,
+        ri_range,
     })
 }
 

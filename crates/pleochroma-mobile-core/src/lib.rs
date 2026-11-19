@@ -19,6 +19,7 @@ pub mod cutting;
 pub mod deep_solve;
 pub mod design_props;
 pub mod design_state;
+pub mod diagnostics;
 pub mod document;
 pub mod hdr;
 pub mod history;

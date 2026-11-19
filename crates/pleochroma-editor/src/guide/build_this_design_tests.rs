@@ -1140,7 +1140,7 @@ fn a_concave_tier_has_its_own_step_between_the_pavilion_and_the_crown() {
     assert!(
         concave
             .actions
-            .contains(&"Theta (deg): 0.0; X: 0.0, Y: 0.15, Z: 0.03".to_owned())
+            .contains(&"Turn (deg): 0.0; Position X: 0.0, Y: 0.15, Z: 0.03".to_owned())
     );
     assert!(
         concave

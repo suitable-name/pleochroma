@@ -29,6 +29,8 @@ mod tests_diamond;
 #[cfg(test)]
 mod tests_garnet_peridot_zircon_benitoite_tanzanite;
 #[cfg(test)]
+mod tests_nanosital;
+#[cfg(test)]
 mod tests_quartz_diamond_opal_synthetics_glass;
 pub mod validate;
 

@@ -130,6 +130,8 @@ pub fn resolve_after_edit(
         | Edit::SetMaterial { .. }
         | Edit::SetRenderEffects { .. }
         | Edit::SetCrystalAxisPlan { .. }
+        // The RI range moves no mast, whatever else the design authors.
+        | Edit::SetRiRangeChoice { .. }
         | Edit::SetMeta { .. }
         | Edit::SetCheaterOffset { .. }
         | Edit::SetTierNote { .. }
@@ -231,6 +233,7 @@ fn batch_needs_full_resolve(
             | Edit::SetMaterial { .. }
             | Edit::SetRenderEffects { .. }
             | Edit::SetCrystalAxisPlan { .. }
+            | Edit::SetRiRangeChoice { .. }
             | Edit::SetMeta { .. }
             | Edit::SetCheaterOffset { .. }
             | Edit::SetTierNote { .. }

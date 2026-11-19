@@ -7,6 +7,7 @@ import { Shell, About } from "../models.slint";
 import { TopBar } from "../shell/top_bar.slint";
 import { PageScroll } from "../shell/page_scroll.slint";
 import { PageColumn } from "fields.slint";
+import { Developer } from "developer.slint";
 import { ListRow } from "../shell/list_row.slint";
 import { Icon } from "../shell/icon.slint";
 
@@ -22,21 +23,34 @@ export component AboutPage inherits Rectangle {
 
         PageScroll {
             PageColumn {
-                VerticalLayout {
-                    padding: Theme.space-xl;
-                    spacing: Theme.space-xs;
+                // The name-and-version block is also the tap target of the developer unlock
+                // (five taps); it looks and reads like plain text.
+                Rectangle {
+                    min-height: Theme.touch;
+                    preferred-height: name-block.preferred-height;
 
-                    Text {
-                        text: About.app-name;
-                        color: Theme.on-surface;
-                        font-size: Theme.text-headline;
-                        font-weight: 500;
+                    name-block := VerticalLayout {
+                        padding: Theme.space-xl;
+                        spacing: Theme.space-xs;
+
+                        Text {
+                            text: About.app-name;
+                            color: Theme.on-surface;
+                            font-size: Theme.text-headline;
+                            font-weight: 500;
+                        }
+
+                        Text {
+                            text: "Version " + About.app-version;
+                            color: Theme.text-secondary;
+                            font-size: Theme.text-body-large;
+                        }
                     }
 
-                    Text {
-                        text: "Version " + About.app-version;
-                        color: Theme.text-secondary;
-                        font-size: Theme.text-body-large;
+                    TouchArea {
+                        clicked => {
+                            Developer.about-tapped();
+                        }
                     }
                 }
 

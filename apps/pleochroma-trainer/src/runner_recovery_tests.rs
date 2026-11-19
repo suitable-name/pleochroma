@@ -66,6 +66,8 @@ fn assert_same_learning_state(a: &TrainingRunner, b: &TrainingRunner) {
         b.rollout_model.export_to_set_attention().unwrap()
     );
     for (left, right) in a.slots.iter().zip(&b.slots) {
+        assert_eq!(left.position, right.position);
+        assert_eq!(left.entry, right.entry);
         assert_eq!(left.obs, right.obs);
         assert_eq!(left.rejected_steps, right.rejected_steps);
         assert_eq!(left.seed, right.seed);
@@ -81,6 +83,47 @@ fn assert_same_learning_state(a: &TrainingRunner, b: &TrainingRunner) {
         };
         assert_eq!(cached(left), cached(right));
     }
+}
+
+#[test]
+fn recovery_restores_the_scheduled_position_independently_of_the_built_design() {
+    let mut run = fixture_runner_with(|cfg| cfg.workers = 2);
+    run.split = crate::runner::tests::corpus_with_failed_start();
+    run.rebuild_slots().unwrap();
+    let original = &run.slots[0];
+    for (saved, expected_start) in [
+        (Some(0), Some(2)),
+        (None, Some(2)),
+        (Some(2), Some(4)),
+        (Some(1), None),
+        (Some(usize::MAX), None),
+    ] {
+        let mut state = SlotState::capture(original).unwrap();
+        assert_eq!(state.scheduled_pos, Some(0));
+        assert_eq!(state.pos, 1);
+        state.scheduled_pos = saved;
+        let encoded = rmp_serde::to_vec_named(&state).unwrap();
+        let restored = rmp_serde::from_slice::<SlotState>(&encoded)
+            .unwrap()
+            .restore(&run.cfg, &run.split, 0);
+        if let Some(expected_start) = expected_start {
+            let restored = restored.unwrap();
+            assert_eq!(restored.entry, 1);
+            assert_eq!(restored.position.next_start(&run.cfg), expected_start);
+            assert_eq!(restored.obs, original.obs);
+        } else {
+            assert!(restored.is_err());
+        }
+    }
+}
+
+#[test]
+fn legacy_worker_cycles_handle_wrap_and_nondivisible_corpora() {
+    assert_eq!(legacy_scheduled_pos(0, 26, 27, 2322), 2321);
+    assert_eq!(legacy_scheduled_pos(5, 1, 6, 8), 5);
+    assert_eq!(legacy_scheduled_pos(4, 1, 6, 8), 3);
+    assert_eq!(legacy_scheduled_pos(3, 11, 12, 4), 3);
+    assert_eq!(legacy_scheduled_pos(6, 3, 4, 7), 6);
 }
 
 fn recovery_continues_algorithm(algo: Algorithm) {
@@ -214,6 +257,36 @@ fn old_rollout_scheduler_revision_migrates_without_discarding_exact_replay() {
 }
 
 #[test]
+fn legacy_custom_scale_replay_keeps_sensitivities_and_drops_unit_scale_targets() {
+    let mut first = small_run(Algorithm::Imitation);
+    first.cfg.line_search = vec![0.5];
+    round(&mut first);
+    let directory = tempfile::tempdir().unwrap();
+    first.save_recovery(directory.path()).unwrap();
+    let path = directory.path().join("runner-state.mpk");
+    let mut state: RunnerState = read_state(&path).unwrap();
+    state.verifies_rollout_scale = false;
+    write_state(&path, &state).unwrap();
+    let mut restored =
+        TrainingRunner::new_for_recovery(first.cfg.clone(), first.split.clone()).unwrap();
+    restored.restore_recovery(directory.path()).unwrap();
+    assert_eq!(restored.aggregate.len(), first.aggregate.len());
+    let batch = restored.aggregate.batch();
+    assert!(
+        batch
+            .sensitivities
+            .iter()
+            .flatten()
+            .flatten()
+            .any(|v| v.is_finite())
+    );
+    assert!(batch.action_targets.iter().flatten().all(|v| v.is_nan()));
+    assert!(batch.oracle_gain.iter().all(|gain| gain.is_nan()));
+    assert!(batch.rejected_actions.iter().all(|rejected| !*rejected));
+    assert!(restored.oracle_cache.is_none());
+}
+
+#[test]
 fn old_imitation_objective_explicitly_migrates_and_retains_learning_state() {
     let mut first = small_run(Algorithm::Imitation);
     round(&mut first);
@@ -228,9 +301,9 @@ fn old_imitation_objective_explicitly_migrates_and_retains_learning_state() {
     restored.restore_recovery(directory.path()).unwrap();
     assert_same_learning_state(&first, &restored);
     assert!(restored.warnings.iter().any(|warning| {
-        warning.contains("objective revision 1 migrated to 2")
-            && warning.contains("optimizer moments and replay were retained")
-            && warning.contains("not a bitwise continuation")
+        warning.contains(&format!(
+            "objective revision 1 migrated to {IMITATION_OBJECTIVE_REVISION}"
+        )) && warning.contains("weights and optimizer moments were retained")
     }));
     // Saving the migrated run records the new objective, so the warning is not repeated on
     // every future resume (the retained warning remains part of the run's history).
@@ -241,6 +314,26 @@ fn old_imitation_objective_explicitly_migrates_and_retains_learning_state() {
         saved.imitation_objective_revision,
         IMITATION_OBJECTIVE_REVISION
     );
+}
+
+#[test]
+fn legacy_ppo_keeps_weights_but_estimates_the_new_return_scale_from_new_steps() {
+    let mut first = small_run(Algorithm::Ppo);
+    round(&mut first);
+    assert!(first.normalizer.samples() > 0);
+    let directory = tempfile::tempdir().unwrap();
+    first.save_recovery(directory.path()).unwrap();
+    let path = directory.path().join("runner-state.mpk");
+    let mut state: RunnerState = read_state(&path).unwrap();
+    state.ppo_return_revision = 0;
+    write_state(&path, &state).unwrap();
+    let mut restored =
+        TrainingRunner::new_for_recovery(first.cfg.clone(), first.split.clone()).unwrap();
+    restored.restore_recovery(directory.path()).unwrap();
+    assert_eq!(restored.normalizer.samples(), 0);
+    assert_eq!(restored.net, first.net);
+    assert_eq!(restored.stats.reward_scale, 1.0);
+    assert_eq!(restored.rng, first.rng);
 }
 
 #[test]

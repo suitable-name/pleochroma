@@ -53,7 +53,7 @@ fn stone_effects() -> Guide {
             "The effects show where light travels through the stone, so the Path-Traced view is where to look.",
         )
         .actions([
-            "Click Path-Traced in the row of view pills above the picture, and give the picture a moment to settle.",
+            "Click Path-Traced in the row of view pills above the picture (it reads Path in a narrow window), and give the picture a moment to settle.",
         ])
         .check("The picture shows the stone lit with traced light, and the pills show Path-Traced as chosen, with Solid chosen as well or on its own.")
         .why("The Solid view is flat-shaded and does not show haze, a frosted girdle or rounded edges. From Solid, the click gives Solid combined with Path-Traced, which shows them; click Solid to turn the flat layer off.")

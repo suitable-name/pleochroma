@@ -304,7 +304,7 @@ and finds the coordinator again if its address changes.
 `--headless` runs the program as before, without ever opening a window: `pleochroma-worker --headless serve ...`,
 `--headless render ...`, `--headless join ...`, `--headless cert ...`. Use it in every service and script.
 
-- **Deprecation.** A command given without `--headless` still runs in 0.12.0, but prints one warning on
+- **Deprecation.** A command given without `--headless` still runs in 0.12.1, but prints one warning on
   standard error: `warning: "serve" without --headless is deprecated; add --headless`. Change scripts, service
   files and shortcuts now. A line with no command, or only `--minimized`, `--config <file>` or the other global flags, opens
   the window.

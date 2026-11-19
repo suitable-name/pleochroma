@@ -2,7 +2,7 @@
 
 ## What You Will Do
 
-Collect still pictures and tilt videos as render jobs, then let the program render them one after another while you keep working, or overnight. You can pause, resume, restart, reorder and cancel jobs at any time. You can also export the jobs as a script and render them on another computer with the command-line tool.
+Collect still pictures and tilt videos as render jobs, then let the program render them one after another while you keep working, or overnight. You can pause, resume, restart, reorder and cancel jobs at any time, edit a waiting job, change its material or copy it to other materials, and load a job's view back into the Live Render. You can also export the jobs as a script and render them on another computer with the command-line tool.
 
 ## Adding a Job
 
@@ -86,7 +86,17 @@ Open it in one of two ways:
 - **File → Render Jobs...**;
 - the **Jobs** button at the top of the main window. It appears while a job is waiting or running, or while a started queue is running. It reads, for example, `Jobs: 3 waiting`, or `Rendering 2 of 5 · 42%` with a thin progress bar while a job renders. Click it to open the window.
 
-Each row shows the job's number, its name, its state and what it renders, then its progress. The states are **Queued**, **Running**, **Paused**, **Done**, **Failed** and **Cancelled**. The list is kept in your library, so the jobs are still there the next time you start the program. The window has a round **?** button that opens this chapter, and **Close**. Closing the window does not stop a job that is rendering.
+Each row shows the job's number, its name, what it renders, then its progress. A long name is cut short in the row; hover it to read the whole name. Two badges name the job's **compute** (**Local Only**, **Remote Only** or **Local + Remote**) and its state. The states are **Queued**, **Running**, **Paused**, **Done**, **Failed** and **Cancelled**; a job saved by a program version this one does not know shows **Unknown**. The kind line of a Ray-Traced job ends with "Ray-Traced". The list is kept in your library, so the jobs are still there the next time you start the program. The window has a round **?** button that opens this chapter, and **Close**. Closing the window does not stop a job that is rendering.
+
+### Compute for Many Jobs at Once
+
+The **Compute** button at the top of the window opens a menu captioned "Compute for waiting, paused and failed jobs". Choose **Local Only**, **Remote Only** or **Local + Remote** and every waiting, paused and failed job takes that choice. For example, send the whole queue to the remote worker before you leave for the night.
+
+- Only the compute choice is stored. No job changes its state: a failed job stays failed until you resume it, and a job that is rendering is left alone.
+- Ray-Traced jobs stay on this computer; the menu says so ("Ray-Traced jobs stay on this computer.").
+- **Remote Only** and **Local + Remote** are dimmed when no remote worker is set up in Settings.
+- A message tells you what happened, for example "5 jobs set to Local + Remote; 1 Ray-Traced job stays local; 1 job had started." A job that changed while the choice was being stored is counted as "had started" and keeps what it had.
+- On a narrow window the queue status beside the button is cut short; hover it for the whole text.
 
 
 ## Starting and Pausing the Queue
@@ -99,18 +109,41 @@ The queue never starts by itself, not even when the program starts. When the las
 
 Only one export runs at a time, whether it is a queue job or a still picture or a tilt video started from its own dialog. While a still picture or video from a dialog is rendering, **Start Queue** is greyed out; while a queue job renders, the Export button and **Start Video Export** are greyed out. Each says why in its hover note. A dialog export can be sent to the background (**Run in Background**) and shows as a chip in the header; click the chip to open its dialog again (Chapter 14). **Add to Queue** is always available.
 
-Only the buttons that make sense for a job's state are shown on its row.
+A row shows at most three buttons and a **...** menu button, so it fits a small window. The buttons depend on the job's state:
+
+| Job state | On the row |
+|---|---|
+| Queued | Pause, Edit..., menu |
+| Paused or Failed | Resume, Edit..., menu |
+| Done | Show, Edit..., menu |
+| Cancelled | Restart, Edit..., menu |
+| Running | Pause, Cancel, menu (a running job cannot be edited) |
+
+The **...** menu opens below its button, or above it when there is no room, and scrolls when the window is very small. It has three groups, and an item appears only when it makes sense for the job's state. The button already on the row is not repeated in the menu.
+
+| Item | What it does |
+|---|---|
+| Run Next | Moves the job to the top, so it is the next one to render. It does not interrupt the job that is rendering. |
+| Move Up / Move Down | Moves the job one place. |
+| Duplicate | Adds a copy of the job, right after it, with its own file name. |
+| Copy to Materials... | Copies the job to other materials (see below). |
+| Load Job View | Shows the job's view in the Live Render (see below). |
+| Restart | Renders the job again from the beginning. |
+| Cancel | Stops the job for good. Restart can still bring it back. |
+| Delete | Removes the job from the list. Files it already wrote stay on disk. |
+
+The row buttons do this:
 
 | Button | What it does |
 |---|---|
-| Run Next | Moves the job to the top, so it is the next one to render. It does not interrupt the job that is rendering. |
-| Up / Down | Moves the job one place. |
 | Pause | Stops this job. The queue goes on with the next one. |
 | Resume | Puts a paused or failed job back in line. A tilt video goes on with its first missing frame. |
 | Restart | Renders the job again from the beginning. |
 | Cancel | Stops the job for good. Restart can still bring it back. |
 | Show | Opens the folder with the finished file. |
-| Delete | Removes the job from the list. Files it already wrote stay on disk. |
+| Edit... | Opens the Edit Render Job dialog (see below). |
+
+A running job's menu holds only **Duplicate** and **Copy to Materials...**. A job in a state this version does not know has no row button and no **Edit...**; its menu offers **Delete** only.
 
 Two more buttons sit at the top of the window.
 
@@ -137,6 +170,108 @@ A paused video keeps its frames on disk until it is finished or you delete the f
 If you close the program while a job renders, the program asks first, in the same dialog it uses for unsaved work. If you go on, the job stops and waits as **Paused**. A tilt video keeps its finished frames. The queue is stopped, so nothing starts by itself when you open the program again.
 
 If the program stops without asking (a crash or a power cut), the job is found as **Paused** the next time the program starts, with a note on its row that the program closed while it was rendering. At most one frame is rendered twice.
+
+## Editing a Job
+
+Press **Edit...** on a row to open **Edit Render Job**. It shows the job's own settings, not the live view and not the export dialog's settings, and it never changes those. Every control is shown in the Simple interface too. The body scrolls between a fixed header, which names the job and its state, and a fixed footer. Return does nothing in this dialog.
+
+### What You Can Change
+
+For a still picture:
+
+- **Compute**: Local Only, Remote Only or Local + Remote, and the transfer. The choice is stored even when the remote worker is not reachable; the dialog then says "The remote is not reachable now; the job uses it when it runs". The remote choices are dimmed only when Settings have no worker at all, or for a Ray-Traced job.
+- **Size**: 1080p, 4K or Custom. For a job made from a product-shot preset, a different aspect shows "The stone was framed for the old aspect. Load Job View to frame it again."
+- **Samples**, **bounces** and **color space**. A value that is not on the dialog's ladder (a job from the command line or an older version) shows as "from job" until you change it.
+- For a Ray-Traced job, the **AA taps** and **Fire**. The samples follow the taps.
+- **Output folder**, **file name** and **label**.
+- **Rename from Template** works the file name out again from the export dialog's name template and the job's own details. It is a button; a name is never changed by itself.
+- **Locate HDR Map...**, when the job's HDR map is missing. A new file is accepted only when it is the same map.
+- **Material** (see below).
+
+The renderer is not editable. The dialog shows "Renderer Path-Traced · fixed for this job" (or Ray-Traced) with the hint "To change it: Load Job View, switch the renderer, then Update Job from This View."
+
+A **tilt video** can change compute, transfer, samples, frame rate, whether the PNG frames are kept, the video name, output folder and label, and also its size, sweep, axes, overlay and material. The frame folder is the output folder plus the video name, so a new folder or a new video name moves it and the video renders from the start; the frames already finished stay in the old folder. A new size, sweep, axes or overlay renders the video from the start too. When the overlay is on and the material or the axes change, the dialog measures the tilt curves of the job's stone again; the footer says "Measuring the tilt curves of this job's stone..." and **Save Changes** waits until it is done.
+
+### The Buttons
+
+- **Save Changes** stores the edit in the job.
+- **Save as New Job** leaves the job as it is and adds the edited version as a new job, with its own file name.
+- **Cancel** closes the dialog and changes nothing.
+
+A line above the buttons always says what **Save Changes** will do, and names the first changed setting that changes the picture. For example:
+
+| Case | The line |
+|---|---|
+| Queued job | "Waiting job: Save changes it in place." |
+| Paused job, nothing edited | "Paused job: Save keeps its finished frames unless the picture changes." |
+| Paused job, the size changed | "Paused job: the size changed, so it renders from the start." |
+| Failed job, new compute, transfer or HDR map | "Failed job: Save puts it back in the queue." |
+| Done job, new label or name | "Done job: a new label or name keeps it done." |
+| Done job, new compute | "Done job: a new compute asks whether to render it again." |
+| Done job, the picture changes | "Done job: Save puts it back in the queue and renders it again. The old file stays on disk." |
+| Tilt video, new samples | "Changing the samples renders the 36 finished frames again." |
+| Tilt video, new folder or video name | "The folder changed, so the video renders from the start. Its finished frames stay in the old folder." |
+
+The numbers in the lines are the real counts.
+
+### What Saving Does
+
+A change that alters the picture is a change of size, samples, bounces, color space, taps, material, and for a video the sweep, axes or overlay. Changing only the label, the file name, the compute or the transfer does not alter it.
+
+| Job when opened | Only label, name, compute or transfer changed | The picture changed |
+|---|---|---|
+| Queued | Saved in place. | Saved in place. |
+| Paused | Saved; a video keeps its finished frames. | Saved; the finished frames of a video are not used, and it renders from the start. |
+| Failed | A new label or name only: saved, the job stays failed. A new compute, transfer or HDR map: the job goes back in the queue, a video keeps its frames (like **Resume**). | The job goes back in the queue and renders from the start. |
+| Done or Cancelled | A new label or name only: saved, the state stays, nothing renders again. A new compute or transfer: the dialog asks "Render this job again?" with **Cancel** (back to the dialog), **Save Only** (stores the choice, the state stays) and **Render Again** (the job goes back in the queue and renders from the start). | The job goes back in the queue and renders from the start. The old result file stays on disk. |
+| Running | There is no **Edit...** button. | |
+
+For a video, "name" in this table means the label only: the video name is part of the frame folder.
+
+A few more rules:
+
+- The saved job keeps its identity, so frames and the job's place in your library stay with it.
+- A label you typed stays. A label the program worked out is worked out again after an edit.
+- If the job changed while the dialog was open (it started, or it was edited elsewhere), nothing is saved and the dialog says "This job changed while you were editing; nothing was changed." **Load the Job Again** drops your edits and shows the job as it is now. **Save as New Job** still works.
+- Every save checks the job and shows the problem in the dialog when there is one.
+- A save never renames a file by itself. A new job (**Save as New Job**, **Duplicate**, a copy to another material) reserves its own file name, so it never overwrites another job's file or a file on disk.
+
+## Changing the Material
+
+The edit dialog has a **Material** row. Choosing another material changes the picture, so the Save rules above apply. The job's stone is drawn again in the new material:
+
+- the stone's width is kept, converted for the new material;
+- the edge rounding is kept;
+- the haze and the crystal axes take the new material's own values;
+- surface finish, abraded edges and the other effects of the design stay as they are;
+- the color zones become those of the new material, or none;
+- a Ray-Traced job keeps its base-color rendering and its effects as they are.
+
+A material you made yourself that no longer exists is refused with a sentence that says so.
+
+### Copy to Materials
+
+**Copy to Materials...** in the row menu makes new jobs of one picture in several materials. The dialog has a search field and a checklist of materials; the job's own material is greyed and marked "this job". A line says what a copy keeps and resets, and a list shows the new jobs with their file names. Tick the materials and press **Copy**.
+
+- Each ticked material becomes a new queued job, placed after the job you copied from. Its label is the source label plus " · Sapphire" (the material's name); when the label already ends in a material name, that name is replaced, not stacked.
+- Each copy's file name is worked out again from the name template with its own material, for example `rb57_sapphire_4k.png`, so it never ends in a number.
+- A tilt video can be copied too. Each copy gets its own frame folder, and, when the video has an overlay, its tilt curves are measured again, one copy after the other. The button reads "Measuring... 2 of 3"; **Cancel** stops before the next copy.
+
+## Load Job View
+
+**Load Job View** in the row menu, or **Load Job View...** in the command palette (Chapter 19), shows the job's own stone in the Live Render with everything the job holds: the stone with its tiers and frosting, the material, exposure, backdrop, lighting, HDR map, camera, Stone Pose, the renderer and the bounces. Use it to look at a job again, or to prepare a new version of it. From the palette, the Render Jobs window opens with the header "Choose a job to load its view"; click a job, or press **Cancel** or Esc to leave the choice.
+
+The window switches to the Live Render to show the job's view, from whichever page you started. A job that cannot be read says so and leaves you where you were. While a tutorial step keeps the view tabs locked, Load Job View is not available, in the row menu as in the palette, and says "Locked by the guide".
+
+- Your design in the editor and the library selection are not touched, and no unsaved-changes question appears.
+- Your own settings and lighting are not changed either; the view is only shown. A job whose HDR map is missing shows the note "The HDR map of this job is missing". An exposure the slider cannot show is shown clamped, with a note.
+- A banner at the top of the picture says "Showing the view of job 3" with the design name and material. For a tilt video, it adds "tilt video, shown face up".
+- **Back to my view** (also **Back to My View** in the palette) returns to your own view and lighting. Run from the Cutting Instructions or Files & Downloads page, the palette command shows the Live Render first, so you see the view come back. The banner also ends by itself when you open a design, select a library row, edit the design, apply a saved lighting, or delete the job.
+- Loading the view of a second job replaces the first.
+
+**Update Job from This View** (also in the palette; run from another page, it shows the Live Render first, so you see the view the job takes) stores the live view into the job: the job's own design and file settings stay, and the stone, camera, lighting, material and renderer become what you see now, at the job's size and bounce limit. It follows the Save rules above, because the picture changes. It is off while the job is rendering, with the reason "This job is rendering. Pause it first.", and it works only while the job's own view is the one on screen. If the job's HDR map is missing and the live view shows another one, the program asks first. For a tilt video it keeps the sweep, axes, frame rate and overlay, and measures the curves again when the overlay is on.
+
+This is also how to change a job's renderer: load its view, switch the renderer, then **Update Job from This View**.
 
 ## Exporting a Script
 

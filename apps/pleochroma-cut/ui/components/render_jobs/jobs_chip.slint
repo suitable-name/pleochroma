@@ -20,6 +20,9 @@ export component JobsChip inherits Rectangle {
 
     chip_text := Text {
         x: 12px;
+        // The header may give the chip less than its preferred width in a small window: the
+        // text elides instead of running out of the chip.
+        width: parent.width - 24px;
         height: 100%;
         text: RenderJobsModel.chip_text;
         font-size: 12px;

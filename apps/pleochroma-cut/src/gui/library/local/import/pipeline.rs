@@ -334,8 +334,9 @@ fn import_summary(
     noted: &[String],
 ) -> String {
     use std::fmt::Write as _;
+    let files = if imported == 1 { "file" } else { "files" };
     let mut summary = if failed.is_empty() {
-        format!("Imported {imported} file(s).")
+        format!("Imported {imported} {files}.")
     } else {
         warn!(
             "Import from {}: {} failed: {:?}",
@@ -344,7 +345,7 @@ fn import_summary(
             failed
         );
         format!(
-            "Imported {imported} file(s); {} skipped ({}).",
+            "Imported {imported} {files}; {} skipped ({}).",
             failed.len(),
             name_preview(failed, "; ")
         )

@@ -91,7 +91,7 @@ fn model_rough() -> Guide {
     .step(
         GuideStep::new(
             "Look from Every Side",
-            "The 3D view shows the rough you are modelling, and it is yours to turn.",
+            "The 3D view shows the rough you are modeling, and it is yours to turn.",
         )
         .actions([
             "Drag the picture with the left mouse button to orbit the rough, and roll the mouse wheel to zoom.",
@@ -128,7 +128,7 @@ fn model_rough() -> Guide {
             "Click Redo, or press Ctrl+Y, to bring the cut back.",
         ])
         .check("The cut row disappears and the picture shows the rough without that cut.")
-        .why("A step is adding or deleting a cut, switching the shape, finishing a size field with Enter, opening a saved plan or New. The planner keeps 100 steps each way. New in the title bar starts again with an empty block.")
+        .why("A step is adding or deleting a cut, switching the shape, finishing a size field with Enter, opening a saved plan or New. The planner keeps 100 steps each way. New Rough in the title bar starts again with an empty block.")
         .goal(event(ROUGH_MODEL_UNDONE), "A model edit undone")
         .allow(VIEWPORT),
     )
@@ -207,7 +207,7 @@ fn results() -> Guide {
             "Under the stone count: the number of saw cuts and an upper estimate of the weight the saw turns to dust.",
             "Each design row lists Weight, Size, Ratios, Volume, Orientation, Fill and Optics.",
             "The summary line above the cards says how many layouts came from how many designs, and how long the plan took.",
-            "The Exclude pill on a design row keeps that design out of every later plan.",
+            "Exclude from Planner, in the ... menu of a design row, keeps that design out of every later plan.",
         ])
         .why("The list is ranked by weight only, ties going to fewer stones, and at most three layouts share one set of designs. Beside the best mix of designs the planner also lists next-best mixes, so there are alternatives to compare. Weights and yields are an estimate for a rough that is clean, after your kerf and allowance.")
         .allow(VIEWPORT),
@@ -218,7 +218,7 @@ fn results() -> Guide {
             "A result names designs from your library, and the library can show just those.",
         )
         .actions([
-            "Click Show All in Library, under the cards, to list every design of the results in the library.",
+            "Click Show in Library, under the cards, to list every design of the results in the library.",
             "Result in Library on one card does the same for that layout alone.",
         ])
         .check("The library list narrows under a banner that names the plan and how many designs it holds.")
@@ -239,28 +239,28 @@ fn saved_plans() -> Guide {
     .step(plan_a_layout())
     .step(
         GuideStep::new(
-            "Tick and Save",
+            "Star and Save",
             "Nothing is saved unless you ask, and you choose which layouts to keep.",
         )
         .actions([
-            "Tick the box at the top left of result 1 and of result 2 (Keep Result N for Saving).",
-            "Click Save Selected (2) in the title bar. Save All in the footer under the cards saves every result instead.",
+            "Click the star at the top left of result 1 and of result 2 to keep them.",
+            "Click Save 2 Starred... in the footer under the cards. Save All... in the same place saves every result instead.",
             "A name row opens above the results with a suggested name. Click Save.",
         ])
-        .check("A line under RESULTS reads Saved 2 results as, followed by the name.")
-        .why("Ctrl+S does the same as Save Selected, and saves every result when none is ticked. A saved plan holds the model and the settings the results were planned for, the material and the weighed carat, and the exact place of every stone.")
+        .check("A line under the Layouts and Saved Plans tabs reads Saved 2 results as, followed by the name.")
+        .why("Ctrl+S does the same as Save Starred, and saves every result when none is starred. A saved plan holds the model and the settings the results were planned for, the material and the weighed carat, and the exact place of every stone.")
         .goal(event(ROUGH_PLAN_SAVED), "Results saved as a plan")
         .allow(VIEWPORT),
     )
     .step(
         GuideStep::new(
             "Open It Again",
-            "Saved Plans in the title bar lists the plans in your library database.",
+            "The Saved Plans tab lists the plans in your library database.",
         )
         .actions([
-            "Click Saved Plans in the title bar, or press Ctrl+O. The list takes the place of the results.",
+            "Click the Saved Plans tab in the right column, or press Ctrl+O. The list takes the place of the results.",
             "Click Open on the plan you just saved.",
-            "If the planner asks whether to replace unsaved layouts, click Replace. The layouts you ticked are safe in the plan.",
+            "If the planner asks whether to replace unsaved layouts, click Replace. The layouts you starred are safe in the plan.",
         ])
         .check("A banner above the results names the saved plan and its date, and the left column holds the plan's rough and settings.")
         .why("Open puts the rough, the settings and the material back as one undo step and shows the layouts as they were saved; nothing is calculated again. Re-Plan in the banner plans again with the model and settings now in the left column. Results that were never saved are never replaced without asking.")
@@ -273,10 +273,10 @@ fn saved_plans() -> Guide {
             "A saved plan can leave the program as a file.",
         )
         .actions([
-            "Click Saved Plans to open the list, then click Export on the plan.",
+            "Click the Saved Plans tab to open the list, then click Export on the plan.",
             "Choose a folder in the Save dialog, keep the suggested name, which ends in .psrd, and click Save.",
         ])
-        .check("A line under the Saved Plans heading says the plan was exported.")
+        .check("A line under the Layouts and Saved Plans tabs says the plan was exported.")
         .why("A .psrd file is plain text. Import..., at the top of the list, reads one back as a new plan, in this program or in another copy of it. Rename changes a plan's name in place, and Delete asks first.")
         .goal(event(ROUGH_PLAN_EXPORTED), "A plan exported")
         .allow(VIEWPORT),
@@ -287,7 +287,7 @@ fn saved_plans() -> Guide {
             "A plan is checked against your library each time it is opened.",
         )
         .actions([
-            "A deleted chip means the design is gone from the library. Its name stops being a link and its stones are drawn as plain grey boxes.",
+            "A deleted chip means the design is gone from the library. Its name stops being a link and its stones are drawn as plain gray boxes.",
             "A changed chip means the design is still there but its shape no longer matches the one the plan was made with. It is drawn with its current shape.",
             "A by title chip means the design's number is gone but one design has the same title and shape, so the planner uses that one. This is how a file from another library finds its designs.",
         ])

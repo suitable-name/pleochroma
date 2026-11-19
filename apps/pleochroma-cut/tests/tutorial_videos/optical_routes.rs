@@ -259,11 +259,18 @@ fn optical_hover_points(film: &Film<'_>) -> Result<Vec<(f32, f32)>, String> {
     if optical_panels.is_empty() {
         return Err("Optical Diagnostics panel is open in the model but not visible".into());
     }
-    let panel_right = optical_panels
-        .iter()
-        .map(Spot::of)
-        .map(|panel| panel.x + panel.w + 8.0)
-        .fold(image_x, f32::max);
+    // The panel sits at the right of the viewport; a panel on the left half would bound the
+    // other side.
+    let image_center = image_x + image_w / 2.0;
+    let mut panel_right = image_x;
+    let mut panel_left = image_x + image_w;
+    for panel in optical_panels.iter().map(Spot::of) {
+        if panel.center().0 < image_center {
+            panel_right = panel_right.max(panel.x + panel.w + 8.0);
+        } else {
+            panel_left = panel_left.min(panel.x);
+        }
+    }
     let mut overlays: Vec<_> = optical_panels.iter().map(Spot::of).collect();
     let guides: Vec<_> = view
         .root
@@ -307,8 +314,8 @@ fn optical_hover_points(film: &Film<'_>) -> Result<Vec<(f32, f32)>, String> {
         .chain(std::iter::once(toolbar.y + toolbar.h))
         .fold(image_y, f32::max);
     overlays.push(toolbar);
-    let left = image_w.mul_add(0.48, image_x).max(panel_right);
-    let right = image_x + image_w - 8.0;
+    let left = image_w.mul_add(0.30, image_x).max(panel_right);
+    let right = (image_x + image_w).min(panel_left) - 8.0;
     let top = image_h.mul_add(0.20, image_y).max(toolbar_bottom + 8.0);
     let bottom = image_h.mul_add(0.76, image_y);
     if right <= left || bottom <= top {

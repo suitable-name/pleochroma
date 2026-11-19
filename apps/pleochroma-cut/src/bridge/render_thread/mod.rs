@@ -77,8 +77,9 @@ mod viewport_cache;
 mod whitted_scanline;
 
 pub use context::{
-    ColorTarget, MaterialOverrides, MaterialSources, PlanesOwner, RenderContext, ViewColor,
-    apply_material_overrides, load_env_map, resolve_material, resolve_material_with_override,
+    ColorTarget, JobDesignNames, JobStone, MaterialOverrides, MaterialSources, PlanesOwner,
+    RenderContext, ViewColor, apply_material_overrides, load_env_map, resolve_material,
+    resolve_material_with_override,
 };
 pub use denoise::{
     DenoiseScratch, FirstHitSnapshot, denoise_and_tonemap_frame, tonemap_running_average,

@@ -552,6 +552,37 @@ pub(super) fn sampled_context(seed: u64) -> (Option<ShapeTarget>, LightingPreset
     )
 }
 
+/// Train-split positions of the scheduled design and the design that built for this seed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct EpisodePosition {
+    pub(super) scheduled: usize,
+    pub(super) selected: usize,
+}
+
+impl EpisodePosition {
+    pub(super) const fn scheduled(pos: usize) -> Self {
+        Self {
+            scheduled: pos,
+            selected: pos,
+        }
+    }
+
+    pub(super) const fn fallback(self, train_len: usize) -> Self {
+        Self {
+            selected: (self.selected + 1) % train_len,
+            ..self
+        }
+    }
+
+    pub(super) const fn next_start(self, cfg: &RunConfig) -> usize {
+        if cfg.corpus_mode {
+            self.scheduled + cfg.effective_workers()
+        } else {
+            0
+        }
+    }
+}
+
 /// One vectorized environment slot: a running episode.
 pub(super) struct Slot {
     /// Seed of this episode, retaining its exact sampled material and scoring context.
@@ -561,8 +592,7 @@ pub(super) struct Slot {
     pub(super) rejected_steps: usize,
     /// Exact label of the most recently scored state in this episode, if any.
     pub(super) label_cache: super::label_cache::LabelCache,
-    /// Position in the train split (corpus mode cycling).
-    pub(super) pos: usize,
+    pub(super) position: EpisodePosition,
     /// Index into the data set's `entries`.
     pub(super) entry: usize,
     pub(super) src: MaterialLabel,

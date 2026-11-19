@@ -55,11 +55,34 @@ pub(in crate::gui::rough_plan) fn locked_stones(
         .collect()
 }
 
+/// The Reasons of the locked stones of result `result`, in the layout's order (the order
+/// [`locked_stones`] lists them in), for [`locks_of`] to give back to the same stones in the
+/// results a re-plan makes.
+#[must_use]
+pub(in crate::gui::rough_plan) fn locked_reasons(
+    layout: &RoughLayout,
+    result: u32,
+    choices: &PlanSettingsOverrides,
+) -> Vec<String> {
+    (0..layout.stones.len())
+        .filter_map(|index| {
+            u32::try_from(index)
+                .ok()
+                .and_then(|stone| choices.stone_choice(result, stone))
+                .filter(|choice| choice.locked)
+                .map(|choice| choice.reason.clone())
+        })
+        .collect()
+}
+
 /// The choices that mark the locked stones a fresh list of results carries: the stones at the end
-/// of every layout beyond its saw plan are the locked ones (see [`locked_tail`]).
+/// of every layout beyond its saw plan are the locked ones (see [`locked_tail`]). `reasons` are
+/// the Reasons the cutter gave those stones before the re-plan, in the same order: a locked stone
+/// keeps its Reason.
 #[must_use]
 pub(in crate::gui::rough_plan) fn locks_of(
     layouts: &[RoughLayout],
+    reasons: &[String],
 ) -> BTreeMap<(u32, u32), StoneChoice> {
     let mut locks = BTreeMap::new();
     for (result, layout) in layouts.iter().enumerate() {
@@ -71,6 +94,10 @@ pub(in crate::gui::rough_plan) fn locks_of(
                     (result, stone),
                     StoneChoice {
                         locked: true,
+                        reason: reasons
+                            .get((stone as usize) - first)
+                            .cloned()
+                            .unwrap_or_default(),
                         ..StoneChoice::default()
                     },
                 );
@@ -290,10 +317,31 @@ mod tests {
     fn the_stones_beyond_the_saw_plan_of_every_result_are_marked_locked() {
         let mut with_lock = sawn();
         append_locked(&mut with_lock, &[stone(0.5), stone(0.7)], Some(100.0));
-        let locks = locks_of(&[sawn(), with_lock]);
+        let locks = locks_of(&[sawn(), with_lock], &[]);
         assert_eq!(locks.keys().copied().collect::<Vec<_>>(), [(1, 2), (1, 3)]);
         assert!(locks.values().all(|choice| choice.locked));
-        assert!(locks_of(&[sawn()]).is_empty());
+        assert!(locks_of(&[sawn()], &[]).is_empty());
+    }
+
+    #[test]
+    fn a_locked_stone_keeps_its_reason_through_a_re_plan() {
+        let mut choices = PlanSettingsOverrides::default();
+        choices.set_stone_choice(
+            0,
+            1,
+            StoneChoice {
+                locked: true,
+                reason: "for the window".to_owned(),
+                ..StoneChoice::default()
+            },
+        );
+        let before = sawn();
+        let reasons = locked_reasons(&before, 0, &choices);
+        assert_eq!(reasons, ["for the window"]);
+        let mut after = sawn();
+        append_locked(&mut after, &[stone(0.5)], Some(100.0));
+        let locks = locks_of(&[after], &reasons);
+        assert_eq!(locks[&(0, 2)].reason, "for the window");
     }
 
     #[test]

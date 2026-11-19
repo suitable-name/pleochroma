@@ -272,7 +272,7 @@ export component PatternCardBody inherits VerticalLayout {
             maximum: row.max;
             step: row.step;
             value: row.value;
-            value_text: row.text + " " + row.unit;
+            value_text: row.unit == "" ? row.text : row.text + " " + row.unit;
             moved(v) => { ColorPatternModel.param_changed(i, v); }
         }
     }

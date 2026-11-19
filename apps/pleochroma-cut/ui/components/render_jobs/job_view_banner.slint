@@ -1,0 +1,176 @@
+import { Theme } from "../../theme.slint";
+import { RenderJobsModel } from "../../models/render_jobs.slint";
+import { KitButton, KitGlass, KitIcon, KitIcons } from "../kit/kit.slint";
+import { WrappedNote } from "../export_dialog/wrapped_note.slint";
+
+// The Load Job View banner: top centre of the live view while `RenderJobsModel.job_view_id >= 0`,
+// mounted from `components/gem_viewport.slint`. It says whose view the live view shows ("Showing the
+// view of job 3", then the design and the material), holds the two actions (Back to my view,
+// Update Job from This View), and lists what Rust noted about the view: a missing HDR map, a value
+// the controls could only show clamped, and while Update is off the reason it is off.
+//
+// Below 800 px of live-view width the banner is compact: the subtitle drops and Update moves to a
+// second line. Notes beyond the first collapse into one line.
+export component JobViewBanner inherits KitGlass {
+    // The most width the banner may take (the host's width less its margins).
+    in property <length> avail: 720px;
+
+    // `avail` is the live view's width less its 24 px of margins.
+    property <bool> compact: root.avail < 776px;
+    // On a window so narrow that the title and Back to my view cannot share a line, Back moves down
+    // beside Update, stacked above it.
+    property <bool> narrow: root.avail < 420px;
+    property <int> note_count: RenderJobsModel.job_view_notes.length;
+    // The rest of the notes on one line (the view has at most three).
+    property <string> more_notes: root.note_count > 1
+        ? RenderJobsModel.job_view_notes[1]
+            + (root.note_count > 2 ? "  " + RenderJobsModel.job_view_notes[2] : "")
+            + (root.note_count > 3 ? "  " + RenderJobsModel.job_view_notes[3] : "")
+        : "";
+    property <bool> has_reason: !RenderJobsModel.job_view_can_update && RenderJobsModel.job_view_update_reason != "";
+
+    width: min(720px, root.avail);
+    height: banner_lay.preferred-height + 16px;
+    background: Theme.surface-info;
+    border-color: Theme.accent-cyan;
+
+    banner_lay := VerticalLayout {
+        x: 8px;
+        y: 8px;
+        width: parent.width - 16px;
+        spacing: 6px;
+
+        // The title, the design and the material, and the actions.
+        HorizontalLayout {
+            spacing: 10px;
+            height: 36px;
+            VerticalLayout {
+                alignment: center;
+                KitIcon { d: KitIcons.eye; size: 16px; ink: Theme.accent-cyan; }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                accessible-role: AccessibleRole.text;
+                accessible-label: RenderJobsModel.job_view_title + (RenderJobsModel.job_view_subtitle != "" ? ". " + RenderJobsModel.job_view_subtitle : "");
+                Text {
+                    text: RenderJobsModel.job_view_title;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    overflow: elide;
+                }
+                if !root.compact && RenderJobsModel.job_view_subtitle != "": Text {
+                    text: RenderJobsModel.job_view_subtitle;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    overflow: elide;
+                }
+            }
+            if !root.narrow: VerticalLayout {
+                alignment: center;
+                KitButton {
+                    text: "Back to my view";
+                    h: 28px;
+                    hint: "Show your own stone and look again.";
+                    clicked => { RenderJobsModel.back_to_my_view(); }
+                }
+            }
+            if !root.compact: VerticalLayout {
+                alignment: center;
+                KitButton {
+                    text: "Update Job from This View";
+                    kind: 1;
+                    h: 28px;
+                    enabled: RenderJobsModel.job_view_can_update;
+                    hint: "Replace what this job renders with the picture on screen now. The design and the file name stay.";
+                    clicked => { RenderJobsModel.update_job_from_view(); }
+                }
+            }
+        }
+
+        // Update on a second line of its own, in the compact banner (with Back above it when even
+        // the title line is too narrow for both).
+        if root.compact: VerticalLayout {
+            spacing: 6px;
+            if root.narrow: HorizontalLayout {
+                alignment: end;
+                height: 28px;
+                KitButton {
+                    text: "Back to my view";
+                    h: 28px;
+                    hint: "Show your own stone and look again.";
+                    clicked => { RenderJobsModel.back_to_my_view(); }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                height: 28px;
+                KitButton {
+                    text: "Update Job from This View";
+                    kind: 1;
+                    h: 28px;
+                    enabled: RenderJobsModel.job_view_can_update;
+                    hint: "Replace what this job renders with the picture on screen now. The design and the file name stay.";
+                    clicked => { RenderJobsModel.update_job_from_view(); }
+                }
+            }
+        }
+
+        // The first note in full.
+        if root.note_count > 0: HorizontalLayout {
+            spacing: 10px;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "Note: " + RenderJobsModel.job_view_notes[0];
+            VerticalLayout {
+                alignment: start;
+                KitIcon { d: KitIcons.warn; size: 16px; ink: Theme.accent-amber; }
+            }
+            WrappedNote {
+                horizontal-stretch: 1;
+                text: RenderJobsModel.job_view_notes[0];
+                font-size: 12px;
+                color: Theme.badge-amber-text;
+                vertical-alignment: top;
+            }
+        }
+
+        // Every other note, on one line.
+        if root.note_count > 1: HorizontalLayout {
+            spacing: 10px;
+            height: 20px;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "More notes: " + root.more_notes;
+            VerticalLayout {
+                alignment: center;
+                KitIcon { d: KitIcons.warn; size: 16px; ink: Theme.accent-amber; }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.more_notes;
+                font-size: 12px;
+                color: Theme.badge-amber-text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        // Why Update is off, while it is.
+        if root.has_reason: HorizontalLayout {
+            spacing: 10px;
+            accessible-role: AccessibleRole.text;
+            accessible-label: RenderJobsModel.job_view_update_reason;
+            VerticalLayout {
+                alignment: start;
+                KitIcon { d: KitIcons.info; size: 16px; ink: Theme.text-secondary; }
+            }
+            WrappedNote {
+                horizontal-stretch: 1;
+                text: RenderJobsModel.job_view_update_reason;
+                font-size: 12px;
+                color: Theme.text-primary;
+                vertical-alignment: top;
+            }
+        }
+    }
+}

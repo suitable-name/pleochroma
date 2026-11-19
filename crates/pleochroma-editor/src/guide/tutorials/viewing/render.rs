@@ -38,7 +38,7 @@ fn open_live_render() -> GuideStep {
         "Live Render is the physically based picture of the stone: the light, the material and the dispersion as they really behave.",
     )
     .actions([
-        "Click Live Render in the places segment in the design header (Live Render, Edit, Cutting Instructions, Files & Downloads).",
+        "Click the Live Render tab in the design header (Live Render, Edit, Cutting Instructions, Files & Downloads).",
     ])
     .check("The Live Render view opens with the mode segment (Solid, Path, Ray) at the top left, the Lighting chip and the view tools at the top right, the FACE-UP figures card on the left and the status pill at the bottom right. It starts on the flat Solid picture; click Path (Path-Traced) for the traced one.")
     .why("The Edit tab's Solid view is quick and flat-shaded, and Live Render starts the same way. Path-Traced is slower and shows color play, so it settles after a moment.")
@@ -118,7 +118,7 @@ fn live_render() -> Guide {
             "Back to the Edit tab",
             "The Edit tab is where you change the design.",
         )
-        .actions(["Click Edit in the places segment of the design header."])
+        .actions(["Click the Edit tab in the design header."])
         .why("Every control is unlocked again."),
     )
 }
@@ -184,7 +184,7 @@ fn design_lighting() -> Guide {
         )
         .actions([
             "Opening a design that has no saved lighting brings your normal lighting back.",
-            "A design you only browse in the catalogue is previewed under your normal lighting, not its saved one.",
+            "A design you only browse in the catalog is previewed under your normal lighting, not its saved one.",
         ])
         .why("Every control is unlocked again."),
     )
@@ -201,7 +201,7 @@ fn custom_material() -> Guide {
     .step(
         GuideStep::new(
             "What a custom material holds",
-            "The built-in list has 39 materials. A custom material is one you describe yourself, for a stone the list does not have.",
+            "The built-in list has 40 materials. A custom material is one you describe yourself, for a stone the list does not have.",
         )
         .actions([
             "Refractive index (nd) and dispersion (the fire, as the spread between the blue and red lines).",
@@ -219,7 +219,7 @@ fn custom_material() -> Guide {
             "The Material Editor opens over the window, so this step carries everything you need.",
         )
         .actions([
-            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material....",
+            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material... to open the Material Editor.",
             "Optionally pick a Load Preset Template, for example Quartz.",
             "Type a Material Name that no built-in material uses, for example Tutorial glass.",
             "Move the Refractive Index (nd) and Dispersion sliders to values you like.",
@@ -259,10 +259,10 @@ fn material_coefficients() -> Guide {
             "Two sliders describe a curve with two numbers: the index at the yellow sodium line and the spread between blue and red. A published fit describes it exactly.",
         )
         .actions([
-            "Sellmeier, 3 terms: n squared is 1 plus three terms; fields B1, B2, B3, C1, C2, C3. Glass catalogues print this form.",
+            "Sellmeier, 3 terms: n squared is 1 plus three terms; fields B1, B2, B3, C1, C2, C3. Glass catalogs print this form.",
             "Sellmeier, 1 term: the same with one term; fields B1 and C1.",
             "Cauchy: n = A + B/λ² + C/λ^4; fields A, B and C.",
-            "The wavelength λ is always in micrometres, so 589 nm is 0.589.",
+            "The wavelength λ is always in micrometers, so 589 nm is 0.589.",
         ])
         .why("The stone is then traced with exactly your curve, on the graphics card and on the processor alike.")
         .highlight("stone_tab")
@@ -274,7 +274,7 @@ fn material_coefficients() -> Guide {
             "The Material Editor opens over the window, so this step carries everything you need.",
         )
         .actions([
-            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material....",
+            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material... to open the Material Editor.",
             "Switch Refractive Index Curve from Simple to Coefficients.",
             "Choose the Sellmeier, 3 terms model, then pick Glass (N-BK7) in Copy From to fill the six fields.",
             "Change one number a little and watch the readout under the fields: nd, nF, nC, the spread and the Abbe number.",
@@ -328,7 +328,7 @@ fn color_pattern() -> Guide {
             "The Material Editor opens over the window, so this step carries everything you need.",
         )
         .actions([
-            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material....",
+            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material... to open the Material Editor.",
             "Pick a Load Preset Template, for example Quartz, and type a Material Name that no built-in material uses, for example Tutorial tourmaline.",
             "Under Color, click Pick..., set a color with Tone, Saturation and Hue (a Saturation of about 40 gives a visible color), wait for Matching... to end and click Apply Color.",
             "Click Save & Apply. The material becomes the design's material.",
@@ -346,7 +346,7 @@ fn color_pattern() -> Guide {
         )
         .actions([
             "In the Stone tab open the Material Menu and click New/Edit Material... again. The editor shows your material and its Color Pattern section.",
-            "Click Add Pattern.... The Color Pattern window opens.",
+            "Click Add Pattern... and the Color Pattern window opens.",
             "Click Start From... in the header. In the gallery under Templates click Watermelon, and wait for Solving colors... to end.",
             "Above the stage click Slice in the Stone | Slice | Crystal switch: a slice of the stone shows the green Rim around the pink Core.",
             "In the Layers panel click the Core card, then move its Size slider to make the core larger or smaller. In the Advanced interface the Shape and its numbers take the place of the Size slider.",
@@ -390,7 +390,7 @@ fn color_pattern() -> Guide {
             "Open New/Edit Material... from the Stone tab's Material Menu and click Edit Pattern... to change the zones. Remove Pattern takes the zones away and keeps the base color.",
             "Start From... in the Color Pattern window opens the gallery. Its Save Current... tile keeps a pattern under a name, and the tile then sits under My Presets and loads it again for another material. The x on a preset tile deletes it.",
             "Add in the Layers panel puts up to four layers on top of the base layer. Upper layers cover lower ones, and the top layer is listed first.",
-            "A stone of a species known for its zoning, such as a sapphire or a tourmaline, also offers Typical Zoning in one click: open the Color pill above the picture (or look in the Stone tab under Color Zoning) and pick a pattern. It uses the stone's own color, or the material's color variants where it has them.",
+            "A stone of a species known for its zoning, such as a sapphire or a tourmaline, also offers Typical Zoning in one click: open the Color pill above the picture (or look in the Stone tab, below the Color Pattern card) and pick a pattern. It uses the stone's own color, or the material's color variants where it has them.",
             "A zone can also take its color from a color variant of the material: pick one in the From variant list of the layer. The Zone Colors From Variants lesson shows it.",
         ])
         .why("Every control is unlocked again."),

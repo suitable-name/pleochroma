@@ -83,8 +83,10 @@ impl RecoverySession {
             crate::runner::GPU_LABEL => "wgpu-cpu-env-v1",
             _ => "cpu-env-v1",
         };
-        self.root
-            .join(format!("validation-v3-{route}-{iteration:08}"))
+        self.root.join(format!(
+            "validation-v{}-{route}-{iteration:08}",
+            crate::runner::EvalReport::REVISION
+        ))
     }
 
     pub(super) const fn is_resumed(&self) -> bool {

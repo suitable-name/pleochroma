@@ -101,6 +101,9 @@ pub(super) fn setup_concave_tier_callbacks(
     // "+ Add Concave Tier": opens the Tier tab on a blank concave form. The mode flag is
     // set before the selection is cleared so the form that appears is the concave one
     // even when the selection was already -1 (a same-value write raises no `changed`).
+    // `show_tier_form` is the reveal every "+ Add Tier" entry uses: the Tier tab, the
+    // inspector and the tier table unfolded, and the tier editor pane of the short
+    // one-pane layout.
     let ui_weak = ui.as_weak();
     ui.global::<EditorModel>().on_add_concave_tier(move || {
         let Some(ui) = ui_weak.upgrade() else {
@@ -108,9 +111,7 @@ pub(super) fn setup_concave_tier_callbacks(
         };
         let model = ui.global::<EditorModel>();
         model.set_inspector_concave_mode(true);
-        model.set_inspector_tab(0);
-        model.set_inspector_collapsed(false);
-        model.set_tier_table_collapsed(false);
+        model.invoke_show_tier_form();
         model.set_selected_tier_index(-1);
     });
 

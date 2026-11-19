@@ -412,6 +412,42 @@ fn the_verified_target_replays_its_measured_gain_at_unit_scale() {
 }
 
 #[test]
+fn custom_line_search_replays_the_verified_gain_after_policy_projection() {
+    // Optical presets expose different improving directions on the same closed starting design.
+    for scales in [&[0.5][..], &[2.0, 0.5][..]] {
+        let mut witnessed = false;
+        for preset in [
+            ObjectivePreset::Balanced,
+            ObjectivePreset::LowWindowing,
+            ObjectivePreset::Brilliance,
+            ObjectivePreset::KeepWeight,
+            ObjectivePreset::LowExtinction,
+        ] {
+            let mut env = fixture_env_with(|cfg| cfg.weights = preset.weights());
+            let label = env.teacher_label(H, scales);
+            let Some(raw) = label.action_target else {
+                continue;
+            };
+            let obs = env.build_observation();
+            let max_step = env.config().max_step_deg;
+            let mut action = crate::model::GaussianPolicy::squash(&raw, max_step);
+            crate::model::GemstoneSetAttentionNetwork::project_actions(
+                &mut action,
+                &obs.tiers,
+                obs.global.target_critical_angle_deg,
+                max_step,
+            );
+            let step = env.step_scaled(&action, scales);
+            assert_eq!(step.info.scale, Some(scales[0] as f32));
+            assert_eq!(Some(step.info.score_delta), label.oracle_gain);
+            witnessed = true;
+            break;
+        }
+        assert!(witnessed, "expected an improving move for {scales:?}");
+    }
+}
+
+#[test]
 fn no_scales_means_no_oracle_step() {
     let env = fixture_env();
     let full = env.teacher_label(H, &DEFAULT_LINE_SEARCH);

@@ -23,18 +23,18 @@ use std::time::Duration;
 // ---------------------------------------------------------------------------------------------
 
 /// One overlay of the main window and how to drive it.
-struct Overlay {
+pub(super) struct Overlay {
     /// Name used in findings.
-    name: &'static str,
+    pub(super) name: &'static str,
     /// Its normal open route (a global's `invoke_*` or, where the route runs through the library
     /// or a data-bound button, the global flag the route sets).
-    open: fn(&MainWindow),
+    pub(super) open: fn(&MainWindow),
     /// Its open flag.
-    is_open: fn(&MainWindow) -> bool,
+    pub(super) is_open: fn(&MainWindow) -> bool,
     /// Closes it behind a failed test so later checks start clean.
-    force_close: fn(&MainWindow),
+    pub(super) force_close: fn(&MainWindow),
     /// Close/cancel buttons, as label prefixes in order of preference; empty: none exists.
-    close_buttons: &'static [&'static str],
+    pub(super) close_buttons: &'static [&'static str],
 }
 
 /// An overlay that is a boolean property of a global: `get` reads it, `set(true)` opens it.
@@ -283,7 +283,7 @@ fn settle_closed(ctx: &mut Ctx<'_>, overlay: &Overlay, how: &str) {
 /// card reaches (a card is centred and at least 16 px from every edge). Not the top-left corner:
 /// the window's menu bar (drawn by Slint where there is no native one) sits above all content in
 /// the top 40 px, so a click there lands on its first menu item.
-fn click_backdrop(app: &HarnessApp) {
+pub(super) fn click_backdrop(app: &HarnessApp) {
     let window = app.ui().window();
     let size = window.size().to_logical(window.scale_factor());
     let at = LogicalPosition::new(6.0, size.height - 6.0);
@@ -301,7 +301,7 @@ fn click_backdrop(app: &HarnessApp) {
 
 /// Opens, sweeps, closes with Esc; opens again and closes with the close button (or, for an
 /// overlay without one, with a click outside its card).
-fn run_overlay(ctx: &mut Ctx<'_>, overlay: &Overlay) {
+pub(super) fn run_overlay(ctx: &mut Ctx<'_>, overlay: &Overlay) {
     if open_overlay(ctx, overlay) {
         ctx.sweep_main_at_sizes(overlay.name);
         ctx.press("Escape");
@@ -335,7 +335,7 @@ fn run_overlay(ctx: &mut Ctx<'_>, overlay: &Overlay) {
     }
 }
 
-fn run_overlays(ctx: &mut Ctx<'_>, overlays: &[Overlay]) {
+pub(super) fn run_overlays(ctx: &mut Ctx<'_>, overlays: &[Overlay]) {
     for overlay in overlays {
         run_overlay(ctx, overlay);
     }
@@ -355,6 +355,7 @@ pub(super) fn dialogs_editor_overlays(ctx: &mut Ctx<'_>) {
     }
     ctx.check_health("template design for the overlays");
     run_overlays(ctx, &editor_overlays());
+    super::job_overlays::run_ri_chart_and_job_dialogs(ctx);
     floating_parameters(ctx);
 }
 
@@ -387,6 +388,7 @@ pub(super) fn dialogs_library_overlays(ctx: &mut Ctx<'_>) {
     }
     dismiss_batch_offers(ctx);
     run_overlays(ctx, &library_overlays());
+    super::job_overlays::run_ri_batch(ctx);
 }
 
 /// The data-free overlays (Shortcuts, Preferences, Command palette, Glossary, Tutorial browser)
@@ -401,7 +403,7 @@ pub(super) fn dialogs_app_overlays(ctx: &mut Ctx<'_>) {
 
 /// Scrolls the scroll area inside the dialog `scope` with the mouse wheel (to the top first, then
 /// down in steps) until a control labelled `label` is enumerable.
-fn scroll_dialog_until_visible(app: &HarnessApp, scope: &str, label: &str) {
+pub(super) fn scroll_dialog_until_visible(app: &HarnessApp, scope: &str, label: &str) {
     let mut delta = 3000.0_f32;
     for _ in 0..20 {
         if app.main_view().has(label) {

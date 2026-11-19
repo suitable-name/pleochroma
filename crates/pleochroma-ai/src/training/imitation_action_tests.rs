@@ -29,6 +29,33 @@ fn action_targets_require_complete_finite_rows_or_explicit_absence() {
 }
 
 #[test]
+fn rejected_proposal_is_directional_evidence_and_never_a_positive_target() {
+    let mut fx = Fixture::blank(1, MAX_TIERS);
+    fx.oracle_gain[0] = 0.0;
+    fx.action_targets[0].fill(0.0);
+    fx.action_targets[0][0] = 1.0;
+    let batch = ImitationBatch {
+        rejected_actions: &[true],
+        ..fx.batch()
+    };
+    assert!(batch.validate(GLOBAL_DIM, TIER_DIM, MAX_TIERS).is_ok());
+    assert_eq!(count_action_samples(&batch, &[0]), 0);
+    let rows = label_rows(&batch, &[0], MAX_TIERS);
+    assert_eq!(rows.rejected, [1.0]);
+    let loss = |x, y| {
+        host_scalar(rejected_direction_loss(
+            matrix(vec![x, y], 1, 2),
+            matrix(vec![0.75, 0.0], 1, 2),
+        ))
+        .unwrap()
+    };
+    assert!((loss(0.75, 0.0) - 0.140625).abs() < 1e-6);
+    assert_eq!(loss(0.25, 0.0), 0.0);
+    assert_eq!(loss(-0.5, 1.0), 0.0);
+    assert_eq!(loss(0.0, -1.0), 0.0);
+}
+
+#[test]
 fn verified_zero_actions_are_supervised_and_immobile_actions_are_masked() {
     let mut fx = Fixture::blank(1, MAX_TIERS);
     fx.action_targets[0].fill(0.0);

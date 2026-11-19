@@ -9,7 +9,7 @@ use super::{
     capture_still::{self, StillArgs},
     capture_video,
     controller::{JobController, install, unix_now, with_controller},
-    rows::{QueueView, RowView},
+    rows::{QueueView, RowView, pick_mode_after_publish},
     script_export,
 };
 use crate::{
@@ -170,6 +170,18 @@ pub fn setup_render_jobs(
         }
     });
 
+    // The header's Compute menu: a bulk change of the stored jobs.
+    model.on_set_waiting_compute(|index| {
+        with_controller(|controller| controller.set_waiting_compute(index));
+    });
+    // Esc or Cancel in the pick-a-job header: leaves pick mode without loading a view.
+    let ui_weak = ui.as_weak();
+    model.on_cancel_pick_view(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            ui.global::<RenderJobsModel>().set_pick_view_mode(false);
+        }
+    });
+
     // The header chip shows waiting jobs from the start.
     with_controller(JobController::refresh);
 }
@@ -196,6 +208,17 @@ fn to_slint(row: &RowView) -> RenderJobRow {
         can_move_up: row.can_move_up,
         can_move_down: row.can_move_down,
         can_show: row.can_show,
+        can_edit: row.can_edit,
+        has_menu: row.has_menu,
+        is_still: row.is_still,
+        compute_label: row.compute_label.as_str().into(),
+        primary_action: row.primary_action,
+        show_cancel: row.show_cancel,
+        can_duplicate: row.can_duplicate,
+        can_copy: row.can_copy,
+        can_load_view: row.can_load_view,
+        label_tooltip: row.label_tooltip.as_str().into(),
+        unknown_state: row.unknown_state,
     }
 }
 
@@ -221,6 +244,14 @@ pub(super) fn publish(ui: &MainWindow, view: &QueueView) {
     model.set_queue_running(view.queue_running);
     model.set_can_start_queue(view.can_start_queue);
     model.set_queue_status(view.queue_status.as_str().into());
+    // The whole line, for the tooltip of its elided form.
+    model.set_queue_status_tooltip(view.queue_status.as_str().into());
+    model.set_has_jobs(view.has_jobs);
+    // Pick mode ends when no job is left to pick or the window was closed another way.
+    let pick = model.get_pick_view_mode();
+    if pick != pick_mode_after_publish(pick, view.has_jobs, model.get_panel_open()) {
+        model.set_pick_view_mode(false);
+    }
     model.set_chip_visible(view.chip_visible);
     model.set_chip_text(view.chip_text.as_str().into());
     model.set_chip_progress(view.chip_progress);
@@ -236,6 +267,8 @@ pub(super) fn publish_script_facts(
     let model = ui.global::<RenderJobsModel>();
     model.set_script_job_count(i32::try_from(unfinished).unwrap_or(i32::MAX));
     model.set_script_remote_label(worker.map_or("", |w| w.address.as_str()).into());
+    // Remote Only and Local + Remote of the Compute menu need a worker.
+    model.set_compute_remote_enabled(worker.is_some());
     // The choice cannot stay on a worker that is no longer set up.
     if worker.is_none() && model.get_script_target_index() != 0 {
         model.set_script_target_index(0);

@@ -29,6 +29,9 @@ impl Search {
     }
 }
 
+/// The component of the items of a variant card's "More for <name>" menu (a popup window).
+const VARIANT_MENU_ITEM: &str = "VariantMenuItem";
+
 /// How many turns `nested_control` scrolls a section's list down before it turns back up.
 const MISSING_DOWN_TURNS: u32 = 16;
 
@@ -431,23 +434,32 @@ pub(in crate::scripts) fn delete_variant(film: &mut Film<'_>, name: &str) -> Res
     }
     let key = matches[0].key.clone();
     // Delete is an item of the card's "More for <name>" menu: open the menu, then press the item
-    // (a popup, so it is looked up in the whole window).
+    // (a popup window: its items report their place inside the popup, so the item is looked up
+    // through `PopupGeometry`, which maps it to the main window).
     click_control(
         film,
         "VariantsSection",
         &format!("More for {name}"),
         uiprobe::AccessibleRole::Button,
     )?;
+    let ui = film.ui;
+    if !pacing::wait_real(pacing::START_TIMEOUT, || {
+        crate::popup_geometry::PopupGeometry::find(ui, VARIANT_MENU_ITEM).is_ok()
+    }) {
+        return Err(format!(
+            "More for {name:?} did not open its menu: {}",
+            crate::popup_geometry::PopupGeometry::find(ui, VARIANT_MENU_ITEM)
+                .err()
+                .unwrap_or_default()
+        ));
+    }
     crate::support::app::pump(80);
     let delete_label = format!("Delete {name}");
-    let delete = crate::targets::role_label(
-        &film.view(),
-        &delete_label,
-        uiprobe::AccessibleRole::Button,
-        None,
-    )
-    .ok_or_else(|| format!("the menu of {name:?} has no {delete_label:?} item"))?;
+    let delete = crate::popup_geometry::PopupGeometry::find(ui, VARIANT_MENU_ITEM)?
+        .control(ui, &delete_label, uiprobe::AccessibleRole::Button)
+        .map_err(|why| format!("the menu of {name:?} has no {delete_label:?} item ({why})"))?;
     film.click_and_invoke(&delete)?;
+    crate::support::app::pump(80);
     if variants.get_form_mode() != 4 {
         return Err("variant Delete did not open confirmation".into());
     }

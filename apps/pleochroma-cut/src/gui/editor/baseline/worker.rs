@@ -11,12 +11,20 @@
 //! lighting the viewport shows.
 
 use crate::gui::editor::material_lookup::{EditorMaterialLookup, resolved_gem_material_for_design};
-use pleochroma::{geometry::meet_solver::SolvedTier, optics::materials::GemMaterial};
+use pleochroma::{
+    color::metrics::{AxisProfile, FinishedStone},
+    geometry::{StoneGeometry, meet_solver::SolvedTier},
+    optics::materials::GemMaterial,
+};
 use pleochroma_cut_core::{
     CANONICAL_LIGHTING_PRESET, Design, MaterialSelection,
     optimize::{CANONICAL_LIGHT_PITCH, CANONICAL_LIGHT_YAW},
 };
-use pleochroma_editor::sweep::{Cancelled, RowMetrics, SweepOptions, SweepScene, score_design};
+use pleochroma_editor::{
+    metric_deltas::{average_axis_profiles, measure_tilt_profiles_finished},
+    solve_policy::{design_to_gpu_planes_from_solved, solve_cancellably},
+    sweep::{Cancelled, RowMetrics, SweepOptions, SweepScene, score_design},
+};
 use std::{
     sync::{
         Arc, Mutex, PoisonError,
@@ -37,7 +45,8 @@ pub(super) struct Job {
     pub material: MaterialSelection,
     /// The custom catalogue materials the selection may name.
     pub custom_materials: Vec<GemMaterial>,
-    /// Also average the tilt performance (a few seconds), for "Measure Tilt".
+    /// Also measure the tilt performance (a few seconds), for "Measure Tilt": the four 181-point
+    /// profiles of each design, which the strip averages over the range in force when it shows them.
     pub tilt: bool,
 }
 
@@ -53,12 +62,17 @@ pub(super) enum Part {
 }
 
 /// What a finished run hands back.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Scored {
-    /// The Baseline's figures.
+    /// The Baseline's figures; their tilt average, when measured, is the all-tilts mean the
+    /// scoring tools use.
     pub baseline: Part,
-    /// The design now's figures.
+    /// The design now's figures, the same way.
     pub design: Part,
+    /// The Baseline's tilt profiles, when "Measure Tilt" ran for it.
+    pub baseline_profiles: Option<Vec<AxisProfile>>,
+    /// The design now's tilt profiles, when "Measure Tilt" ran for it.
+    pub design_profiles: Option<Vec<AxisProfile>>,
 }
 
 /// What a look at a running job finds.
@@ -152,10 +166,6 @@ pub(super) fn start(job: Job) -> Result<RunHandle, String> {
 /// Scores what `job` asks for under the Grading tray.
 fn run(job: &Job, cancel: &AtomicBool) -> Scored {
     let lookup = EditorMaterialLookup::new(&job.custom_materials);
-    let options = SweepOptions {
-        tilt_average: job.tilt,
-        workers: 1,
-    };
     // Each design is scored in the orientation it gives its own stone, so a Baseline cut with
     // another Crystal Axis is compared as it was.
     let score = |design: &Design, solved: Option<&[SolvedTier]>| {
@@ -169,26 +179,93 @@ fn run(job: &Job, cancel: &AtomicBool) -> Scored {
                 CANONICAL_LIGHT_PITCH,
             ),
         };
-        match score_design(design, solved, &scene, &options, cancel) {
-            Ok(metrics) => Part::Scored(metrics),
-            Err(Cancelled) => Part::Cancelled,
-        }
+        score_one(design, solved, &scene, job.tilt, cancel)
     };
     // The Baseline first: a delta is only shown once both sides are scored.
-    let baseline = job
+    let (baseline, baseline_profiles) = job
         .baseline
         .as_ref()
-        .map_or(Part::Skipped, |(design, solved)| {
+        .map_or((Part::Skipped, None), |(design, solved)| {
             score(design, solved.as_deref())
         });
-    let design = if baseline == Part::Cancelled {
-        Part::Cancelled
+    let (design, design_profiles) = if baseline == Part::Cancelled {
+        (Part::Cancelled, None)
     } else {
         job.design
             .as_ref()
-            .map_or(Part::Skipped, |(design, solved)| {
+            .map_or((Part::Skipped, None), |(design, solved)| {
                 score(design, Some(solved.as_slice()))
             })
     };
-    Scored { baseline, design }
+    Scored {
+        baseline,
+        design,
+        baseline_profiles,
+        design_profiles,
+    }
+}
+
+/// Scores one design under `scene`; with `tilt` it also measures the four tilt profiles, the
+/// figure "Measure Tilt" shows, and returns them.
+///
+/// The quick score never averages the tilt itself (Angle Sweep's way): the profiles are measured
+/// here, on the masts of the solve, and the score's tilt average is their all-tilts mean
+/// (`average_axis_profiles`, the figure the scoring tools use). The strip averages the profiles
+/// again over the range in force when it shows them, so a new range never traces a pose.
+fn score_one(
+    design: &Design,
+    solved: Option<&[SolvedTier]>,
+    scene: &SweepScene<'_>,
+    tilt: bool,
+    cancel: &AtomicBool,
+) -> (Part, Option<Vec<AxisProfile>>) {
+    let options = SweepOptions {
+        tilt_average: false,
+        workers: 1,
+    };
+    // A Baseline without masts is solved once here, so the tilt average and the quick score
+    // read the same solve. A design that does not solve is left to `score_design`, which
+    // reports it.
+    let own: Option<Vec<SolvedTier>> = (tilt && solved.is_none())
+        .then(|| solve_cancellably(design, cancel).ok())
+        .flatten();
+    let masts = solved.or(own.as_deref());
+    match score_design(design, masts, scene, &options, cancel) {
+        Ok(Some(mut metrics)) if tilt => {
+            let profiles = masts.and_then(|masts| tilt_profiles(design, masts, scene, cancel));
+            match profiles {
+                Some(profiles) => {
+                    metrics.tilt = Some(average_axis_profiles(&profiles));
+                    (Part::Scored(Some(metrics)), Some(profiles))
+                }
+                None => (Part::Cancelled, None),
+            }
+        }
+        Ok(metrics) => (Part::Scored(metrics), None),
+        Err(Cancelled) => (Part::Cancelled, None),
+    }
+}
+
+/// The four 181-point tilt profiles of `design`, measured on the stone the render shows (concave
+/// tools and frosted facets included); `None` when `cancel` stopped it.
+fn tilt_profiles(
+    design: &Design,
+    solved: &[SolvedTier],
+    scene: &SweepScene<'_>,
+    cancel: &AtomicBool,
+) -> Option<Vec<AxisProfile>> {
+    let planes = design.planes_from_solved(solved);
+    let gpu_planes = design_to_gpu_planes_from_solved(design, solved);
+    let tools = design.tools_for_scoring(&planes);
+    let finishes = design.facet_finishes_from_solved(solved, &gpu_planes);
+    let stone = FinishedStone::new(
+        StoneGeometry {
+            planes: &gpu_planes,
+            tools: &tools,
+        },
+        &finishes,
+    );
+    measure_tilt_profiles_finished(stone, scene.material, scene.environment, &mut |_| {
+        !cancel.load(Ordering::Relaxed)
+    })
 }

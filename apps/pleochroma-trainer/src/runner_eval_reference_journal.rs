@@ -7,7 +7,7 @@ use super::{
     EvalJob, Journal, ObjectiveWeights, Path, PathBuf, RunnerError, encode, failure, stamp,
 };
 
-const REFERENCE_VERSION: u32 = 1;
+const REFERENCE_VERSION: u32 = 2;
 
 #[derive(Serialize)]
 struct ReferenceIdentity {

@@ -9,7 +9,8 @@
 //!
 //! # Schema
 //!
-//! Only [`CHECKPOINT_SCHEMA_VERSION`] is accepted. Older files are refused with
+//! Schema 6 has the same network and omits the training probe displacement. It loads with
+//! the default probe rule (use the rollout step limit). Earlier schemas are refused with
 //! [`WeightError::UnsupportedSchema`] before the network is parsed, because their heads and
 //! input embeddings differ from the current network. The network holds per-tier sensitivity and
 //! residual action heads plus a gain head. The policy mean is composed from the sensitivities and
@@ -30,7 +31,7 @@ use std::{
 };
 
 /// Schema version written by [`Checkpoint::save`] and required by [`Checkpoint::load`].
-pub const CHECKPOINT_SCHEMA_VERSION: u32 = 6;
+pub const CHECKPOINT_SCHEMA_VERSION: u32 = 7;
 
 /// Read before the rest of the file, so a file of another schema is refused by its version
 /// rather than by a missing network field.
@@ -75,6 +76,10 @@ pub struct Checkpoint {
     pub iteration: u64,
     /// Seed of the training run.
     pub seed: u64,
+    /// Probe displacement observed during training, in degrees. Without recorded metadata,
+    /// inference uses the rollout step limit unless the caller supplies a probe displacement.
+    #[serde(default)]
+    pub probe_scale_deg: Option<f64>,
     /// The trained network.
     pub network: GemstoneSetAttentionNetwork,
 }
@@ -99,8 +104,25 @@ impl Checkpoint {
             max_tiers,
             iteration,
             seed,
+            probe_scale_deg: None,
             network,
         }
+    }
+
+    /// Record the effective displacement represented in training observations.
+    #[must_use]
+    pub const fn with_probe_scale_deg(mut self, degrees: f64) -> Self {
+        self.probe_scale_deg = Some(degrees);
+        self
+    }
+
+    pub(crate) fn validate_probe_scale(&self) -> Result<(), WeightError> {
+        if self.probe_scale_deg.is_some_and(|degrees| !crate::env::is_observable_displacement(degrees)) {
+            return Err(WeightError::Invalid(
+                "invalid checkpoint probe displacement".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Write the checkpoint as compact JSON to `<path>.tmp` and then rename it over `path`, so an
@@ -109,6 +131,7 @@ impl Checkpoint {
     /// # Errors
     /// [`WeightError::Io`] / [`WeightError::Json`]; the temporary file is removed on failure.
     pub fn save(&self, path: &Path) -> Result<(), WeightError> {
+        self.validate_probe_scale()?;
         let mut tmp_name: OsString = path
             .file_name()
             .ok_or_else(|| WeightError::Invalid("checkpoint path has no file name".to_owned()))?
@@ -148,13 +171,15 @@ impl Checkpoint {
     pub fn load(path: &Path, expected_obs_layout_version: u32) -> Result<Self, WeightError> {
         let bytes = std::fs::read(path)?;
         let probe: SchemaProbe = serde_json::from_slice(&bytes)?;
-        if probe.schema_version != CHECKPOINT_SCHEMA_VERSION {
+        if !matches!(probe.schema_version, 6 | CHECKPOINT_SCHEMA_VERSION) {
             return Err(WeightError::UnsupportedSchema {
                 expected: CHECKPOINT_SCHEMA_VERSION,
                 got: probe.schema_version,
             });
         }
-        let checkpoint: Self = serde_json::from_slice(&bytes)?;
+        let mut checkpoint: Self = serde_json::from_slice(&bytes)?;
+        checkpoint.schema_version = CHECKPOINT_SCHEMA_VERSION;
+        checkpoint.validate_probe_scale()?;
         if checkpoint.obs_layout_version != expected_obs_layout_version {
             return Err(WeightError::ObsLayoutMismatch {
                 expected: expected_obs_layout_version,
@@ -245,6 +270,37 @@ mod tests {
     }
 
     #[test]
+    fn a_schema_six_file_without_probe_metadata_loads_with_the_default_probe_rule() {
+        let path = temp_path("legacy-probe.json");
+        let mut value = serde_json::to_value(small_checkpoint()).unwrap();
+        value["schema_version"] = serde_json::Value::from(6);
+        value.as_object_mut().unwrap().remove("probe_scale_deg");
+        std::fs::write(&path, value.to_string()).unwrap();
+        let migrated = Checkpoint::load(&path, OBS_LAYOUT_VERSION).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(migrated.schema_version, CHECKPOINT_SCHEMA_VERSION);
+        assert_eq!(migrated.probe_scale_deg, None);
+        assert_eq!(migrated.network, small_checkpoint().network);
+        let config = crate::inference::InferenceConfig {
+            probe_scale_deg: Some(0.0625),
+            ..crate::inference::InferenceConfig::optimizer()
+        };
+        let legacy = crate::inference::RlOptimizerModel::from_checkpoint(migrated, config).unwrap();
+        assert_eq!(legacy.config().probe_scale_deg, Some(0.0625));
+    }
+
+    #[test]
+    fn checkpoint_rejects_overflow_and_underflow_in_the_probe_token() {
+        let mut checkpoint = small_checkpoint();
+        for invalid in [f64::MAX, f64::MIN_POSITIVE, f64::from(f32::from_bits(45))] {
+            checkpoint.probe_scale_deg = Some(invalid);
+            assert!(checkpoint.validate_probe_scale().is_err());
+        }
+        checkpoint.probe_scale_deg = Some(f64::from(f32::from_bits(46)));
+        assert!(checkpoint.validate_probe_scale().is_ok());
+    }
+
+    #[test]
     fn saving_over_an_existing_checkpoint_replaces_the_previous_file() {
         let path = temp_path("replace.json");
         let first = small_checkpoint();
@@ -291,15 +347,19 @@ mod tests {
     }
 
     #[test]
-    fn schema_version_six_is_written_with_the_richer_inputs() {
-        assert_eq!(CHECKPOINT_SCHEMA_VERSION, 6);
-        assert_eq!(small_checkpoint().schema_version, 6);
-        let path = temp_path("schema6.json");
-        small_checkpoint().save(&path).unwrap();
+    fn schema_seven_stores_probe_context_alongside_the_richer_inputs() {
+        assert_eq!(CHECKPOINT_SCHEMA_VERSION, 7);
+        assert_eq!(small_checkpoint().schema_version, 7);
+        let path = temp_path("schema7.json");
+        small_checkpoint()
+            .with_probe_scale_deg(0.125)
+            .save(&path)
+            .unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(value["schema_version"], 6);
+        assert_eq!(value["schema_version"], 7);
+        assert_eq!(value["probe_scale_deg"], 0.125);
         let network = value["network"].as_object().unwrap();
         assert!(network.contains_key("sens_head") && network.contains_key("gain_head"));
         assert!(network.contains_key("action_head"));

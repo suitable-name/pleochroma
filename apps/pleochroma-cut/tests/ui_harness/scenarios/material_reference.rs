@@ -172,6 +172,10 @@ fn sweep_window(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow, label: &str
 fn close_with_escape(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow, check: &str) -> bool {
     press_escape(window.window());
     let closed = open_window().is_none();
+    if closed {
+        // Escape reached `MaterialReferenceModel.close`, whose handler hides the window.
+        coverage::record_callback("MaterialReferenceModel.close");
+    }
     ctx.expect(
         closed,
         check,
@@ -480,6 +484,10 @@ fn check_sort(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
         "mr-sort-column",
         "pressing the Hardness header did not change the sort column",
     );
+    if pressed && column != 0 {
+        // The header's press reached the handler: the sort column is the header's.
+        coverage::record_callback("MaterialReferenceModel.sort_clicked");
+    }
     let first_by_hardness = row_name(&model, 0);
     ctx.expect(
         first_by_hardness != first_by_name,
@@ -522,6 +530,9 @@ fn check_filters(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
             // GAP: the chip is not reachable by label; the callback it fires is driven.
             model.invoke_filter_chosen(index);
             coverage::record_callback("MaterialReferenceModel.filter_chosen");
+        } else {
+            // The chip's press reached the handler: the filter is the chip's.
+            coverage::record_callback("MaterialReferenceModel.filter_chosen");
         }
         pump(200);
         let expected = filter_count(&model, index);
@@ -535,10 +546,10 @@ fn check_filters(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
         );
         if index == 0 {
             ctx.expect(
-                row_count(&model) >= 39,
+                row_count(&model) >= 40,
                 "mr-all-rows",
                 format!(
-                    "the All filter lists {} row(s), expected the 39 built-ins at least",
+                    "the All filter lists {} row(s), expected the 40 built-ins at least",
                     row_count(&model)
                 ),
             );
@@ -618,6 +629,9 @@ fn check_scale(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
             // GAP: the segment is not reachable by label; the callback it fires is driven.
             model.invoke_scale_chosen(bg);
             coverage::record_callback("MaterialReferenceModel.scale_chosen");
+        } else {
+            // The segment's press reached the handler: the dispersion figure is the segment's.
+            coverage::record_callback("MaterialReferenceModel.scale_chosen");
         }
         pump(200);
     }
@@ -649,6 +663,10 @@ fn check_copy(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
         "mr-copy-table",
         "Copy Table put no tab-separated text on the clipboard",
     );
+    if pressed && copied.iter().any(|text| text.contains('\t')) {
+        // The button's press reached the handler: the table is on the clipboard.
+        coverage::record_callback("MaterialReferenceModel.copy_table");
+    }
 }
 
 /// A row's details: open it, the cards, spectrum mode, variants, back.
@@ -666,6 +684,9 @@ fn check_details(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
     if !pressed || model.get_page() != 1 {
         // GAP: the button is not reachable by label; the callback it fires is driven.
         model.invoke_row_opened(model.get_selected());
+        coverage::record_callback("MaterialReferenceModel.row_opened");
+    } else {
+        // The button's press reached the handler: the details page is showing.
         coverage::record_callback("MaterialReferenceModel.row_opened");
     }
     pump(400);
@@ -705,8 +726,9 @@ fn check_details(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
         if !press(&window_view(window), label) {
             // GAP: the segment is not reachable by label; the callback it fires is driven.
             model.invoke_spectrum_mode(mode);
-            coverage::record_callback("MaterialReferenceModel.spectrum_mode");
         }
+        // Either way the handler ran: through the segment or through the callback.
+        coverage::record_callback("MaterialReferenceModel.spectrum_mode");
         pump(250);
     }
     sweep_window(ctx, window, "Material Reference, spectrum modes");
@@ -730,6 +752,9 @@ fn check_details(ctx: &mut Ctx<'_>, window: &MaterialReferenceWindow) {
         );
         // GAP: the button is not reachable by label; the callback it fires is driven.
         model.invoke_back();
+        coverage::record_callback("MaterialReferenceModel.back");
+    } else {
+        // The button's press reached the handler: the table page is showing again.
         coverage::record_callback("MaterialReferenceModel.back");
     }
     pump(300);
@@ -820,10 +845,10 @@ fn reference_window(ctx: &mut Ctx<'_>) {
     };
     let model = window.global::<MaterialReferenceModel>();
     ctx.expect(
-        row_count(&model) >= 39,
+        row_count(&model) >= 40,
         "mr-built-in-rows",
         format!(
-            "the table holds {} row(s), expected the 39 built-ins at least",
+            "the table holds {} row(s), expected the 40 built-ins at least",
             row_count(&model)
         ),
     );

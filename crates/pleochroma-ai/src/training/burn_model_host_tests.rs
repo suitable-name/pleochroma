@@ -163,6 +163,11 @@ fn forward_host_matches_the_pure_twin_on_full_and_padded_samples() {
     }
 
     let out = model.forward_host(&states, &n_tiers).unwrap();
+    let (means, diagnostics) = model
+        .forward_means_host_profiled(&states, &n_tiers)
+        .unwrap();
+    assert_eq!(diagnostics.real_rows, 3);
+    assert_eq!(diagnostics.padded_rows, 4);
     assert_eq!(out.means.len(), 3);
     assert_eq!(out.log_stds.len(), 3);
     assert_eq!(out.values.len(), 3);
@@ -170,6 +175,15 @@ fn forward_host_matches_the_pure_twin_on_full_and_padded_samples() {
         let (policy, value) = net
             .forward(&observation.tier_tokens(), &observation.global_token())
             .unwrap();
+        let pure_mean = net
+            .forward_mean_with_scratch(
+                &observation.tier_tokens(),
+                &observation.global_token(),
+                &mut crate::model::InferenceScratch::default(),
+            )
+            .unwrap();
+        assert_eq!(pure_mean, policy.mean);
+        assert_close(&means[i], &out.means[i], "mean-only forward");
         // Trimmed to the sample's real tiers: the padded ones are dropped, not zeroed.
         assert_eq!(out.means[i].len(), n_tiers[i], "sample {i}");
         assert_eq!(out.log_stds[i].len(), n_tiers[i], "sample {i}");
@@ -196,6 +210,40 @@ fn forward_host_matches_the_pure_twin_on_full_and_padded_samples() {
 }
 
 #[test]
+fn mean_only_preserves_mobility_and_deterministic_degree_steps() {
+    let net = pure_network(23);
+    let model = model_of(&net);
+    let mut obs = observation(1, 3);
+    obs.tiers[0].is_mobile = 0.0;
+    let states = [obs.flatten(MAX_TIERS)];
+    let (means, _) = model.forward_means_host_profiled(&states, &[3]).unwrap();
+    let full = model.forward_host(&states, &[3]).unwrap();
+    assert_eq!(means[0][0], 0.0);
+    assert_close(&means[0], &full.means[0], "masked mean");
+    let (policy, _) = net
+        .forward(&obs.tier_tokens(), &obs.global_token())
+        .unwrap();
+    let mean = net
+        .forward_mean_with_scratch(
+            &obs.tier_tokens(),
+            &obs.global_token(),
+            &mut crate::model::InferenceScratch::default(),
+        )
+        .unwrap();
+    for limit in [0.25, 1.0, 2.75] {
+        let previous = policy.sample(0, true, limit);
+        let deployed = crate::model::GaussianPolicy::squash(&mean, limit);
+        assert!(
+            deployed
+                .deltas_deg
+                .iter()
+                .zip(previous.deltas_deg)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+        );
+    }
+}
+
+#[test]
 fn profiled_forward_preserves_outputs_and_exposes_actual_padded_shapes() {
     let model = model_of(&pure_network(19));
     let (_, states, n_tiers) = batch();
@@ -217,6 +265,9 @@ fn profiled_forward_preserves_outputs_and_exposes_actual_padded_shapes() {
     }
     let (empty, stages) = model.forward_host_profiled(&[], &[]).unwrap();
     assert_eq!(empty, HostPolicyBatch::default());
+    assert_eq!(stages, HostForwardDiagnostics::default());
+    let (means, stages) = model.forward_means_host_profiled(&[], &[]).unwrap();
+    assert!(means.is_empty());
     assert_eq!(stages, HostForwardDiagnostics::default());
 }
 

@@ -74,7 +74,9 @@ pub(super) fn setup_row_cursor_callback(ui: &MainWindow) {
     ui.global::<CuttingTableModel>()
         .on_split_indices(|text| ModelRc::new(VecModel::from(split_indices(&text))));
 
-    // A click on a step's note: the Edit tab with that tier selected.
+    // A click on a step's note: the Edit view with that tier selected and shown in the Tier
+    // form (tier table and inspector unfolded, the tier editor pane), and the viewport given
+    // back to the editor's design (`commands::show_tier`).
     let ui_weak = ui.as_weak();
     ui.global::<CuttingTableModel>().on_open_tier(move |code| {
         let Some(ui) = ui_weak.upgrade() else {
@@ -89,11 +91,7 @@ pub(super) fn setup_row_cursor_callback(ui: &MainWindow) {
             );
             return;
         };
-        editor.set_selected_tier_index(i32::try_from(position).unwrap_or(-1));
-        ui.set_active_tab(0);
-        ui.invoke_active_tab_changed(0);
-        ui.set_render_view_tab(1);
-        ui.invoke_render_view_tab_changed(1);
+        crate::gui::commands::show_tier(&ui, i32::try_from(position).unwrap_or(-1));
     });
 }
 

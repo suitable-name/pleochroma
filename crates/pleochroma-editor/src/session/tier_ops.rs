@@ -364,7 +364,8 @@ impl EditorSession {
     ) -> Result<RemovedTier, RemoveTierError> {
         let (name, facet_count) = self.design.tiers.get(index).map_or_else(
             || (UNNAMED.to_string(), 0),
-            |tier| (display_name(&tier.name), tier.indices.len()),
+            // A tier with no indices (the table, a single-facet culet) is one facet.
+            |tier| (display_name(&tier.name), tier.indices.len().max(1)),
         );
         let dependants = tiers_meeting(&self.design, index);
         if !dependants.is_empty() && !cascade {

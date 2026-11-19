@@ -7,7 +7,7 @@
 //! expected stage.
 
 use super::runtime;
-use crate::{EditorModel, GuideModel, LibraryModel, MainWindow, ParametersModel};
+use crate::{EditorModel, GuideModel, LibraryModel, MainWindow, ParametersModel, gui::commands};
 use pleochroma_editor::guide::{LibraryPanel, StageView, stage_for};
 use slint::ComponentHandle;
 
@@ -168,10 +168,19 @@ pub(super) fn check_stage_alignment(ui: &MainWindow) {
     }
 }
 
+/// Whether a stage that pins no view still needs the 3D tab on screen: its controls are in
+/// the tier editor (inspector, tier table, design settings) or in the Parameters dock, and
+/// both live on that tab only.
+const fn needs_3d_tab(tier_editor_stage: bool, parameters_stage: bool) -> bool {
+    tier_editor_stage || parameters_stage
+}
+
 /// Navigates the application UI to align with the current step's required stage.
 ///
 /// Switches view tabs, toggles library panel visibility, selects inspector tabs,
-/// expands required accordions, opens parameters tabs, and reframes the camera.
+/// expands required accordions, opens parameters tabs, asks for the pane of the short
+/// one-pane layout, and reframes the camera. Nothing is fired for a part that is already
+/// as the stage wants it.
 pub(super) fn apply_stage(ui: &MainWindow) {
     let guide_model = ui.global::<GuideModel>();
     if !guide_model.get_open() {
@@ -189,35 +198,41 @@ pub(super) fn apply_stage(ui: &MainWindow) {
     };
     let wanted = stage_for(&guide, step_index);
 
-    // 1. View transition
+    // 1. View transition, through the helpers the palette and the buttons use: they fire the
+    // tab and view callbacks only when something changes (a second "Show Me Where" must not
+    // re-raise "Live Render opened"), and showing Edit gives the viewport back to the design.
+    // A stage that names no view but has its controls in the inspector or the Parameters dock
+    // still needs the 3D tab, where both live; that tab is never locked by a guide.
+    let tier_editor_stage =
+        wanted.inspector_tab.is_some() || wanted.expand_tier_table || wanted.expand_settings;
     match wanted.view {
-        StageView::Edit => {
-            ui.set_active_tab(0);
-            ui.invoke_active_tab_changed(0);
-            ui.set_render_view_tab(1);
-            ui.invoke_render_view_tab_changed(1);
-        }
+        StageView::Edit => commands::show_edit_view(ui),
         StageView::LiveRender => {
             if guide_model.invoke_allows_view_tabs() {
-                ui.set_active_tab(0);
-                ui.invoke_active_tab_changed(0);
-                ui.set_render_view_tab(0);
-                ui.invoke_render_view_tab_changed(0);
+                commands::show_live_render_view(ui);
             }
         }
-        StageView::Either => {}
+        StageView::Either => {
+            if needs_3d_tab(tier_editor_stage, wanted.parameters_tab.is_some()) {
+                commands::show_tab(ui, commands::TAB_3D);
+            }
+        }
     }
 
     // 2. Library panel
     let library = ui.global::<LibraryModel>();
     match wanted.library {
         LibraryPanel::Hidden => {
-            library.set_panel_collapsed(true);
-            library.invoke_panel_collapsed_changed(true);
+            if !library.get_panel_collapsed() {
+                library.set_panel_collapsed(true);
+                library.invoke_panel_collapsed_changed(true);
+            }
         }
         LibraryPanel::Shown => {
-            library.set_panel_collapsed(false);
-            library.invoke_panel_collapsed_changed(false);
+            if library.get_panel_collapsed() {
+                library.set_panel_collapsed(false);
+                library.invoke_panel_collapsed_changed(false);
+            }
         }
         LibraryPanel::Keep => {}
     }
@@ -234,6 +249,18 @@ pub(super) fn apply_stage(ui: &MainWindow) {
     if wanted.expand_settings {
         editor.set_settings_collapsed(false);
     }
+    // The short one-pane layout shows the 3D view or the tier editor, not both. The pane of
+    // the step's outlined control wins (`Tab3dContent` reads the guide's target when a pane
+    // request arrives); a step without one gets the tier editor when its stage names a part
+    // of it, and otherwise keeps the pane (-1).
+    commands::request_pane(
+        ui,
+        if tier_editor_stage {
+            commands::PANE_TIER_EDITOR
+        } else {
+            -1
+        },
+    );
 
     // 4. Parameters dock
     if let Some(tab) = wanted.parameters_tab {
@@ -242,7 +269,10 @@ pub(super) fn apply_stage(ui: &MainWindow) {
             "render_output" => 2,
             _ => 0,
         };
-        ui.global::<ParametersModel>().invoke_show_tab(idx);
+        let parameters = ui.global::<ParametersModel>();
+        if !parameters.get_open() || parameters.get_active_tab() != idx {
+            parameters.invoke_show_tab(idx);
+        }
     }
 
     // 5. Camera reframe
@@ -257,6 +287,15 @@ pub(super) fn apply_stage(ui: &MainWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stage_without_a_view_needs_the_3d_tab_for_tier_editor_and_parameters_targets() {
+        assert!(needs_3d_tab(true, false));
+        assert!(needs_3d_tab(false, true));
+        assert!(needs_3d_tab(true, true));
+        // A dialog or preference step: wherever the learner is.
+        assert!(!needs_3d_tab(false, false));
+    }
 
     #[test]
     fn capitalize_handles_empty_and_casing() {

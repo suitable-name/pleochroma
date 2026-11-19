@@ -66,8 +66,8 @@ pub use concave::{
 pub use construct::FreshDesignSpec;
 pub use cut_meets::{
     CutMeet, CutMeetAnchor, CutMeets, DEFAULT_SNAP_MAX_MOVE_FRACTION, MEET_TOLERANCE_FRACTION,
-    MeetPickBlock, MeetPickLoss, MeetPickState, MeetTarget, PickCorner, PickedFacet, SnapMove,
-    SnapReport, TierMeetPick, TierMeetPickMap,
+    MeetPickBlock, MeetPickLoss, MeetPickState, MeetPlace, MeetTarget, PickCorner, PickedFacet,
+    SnapMove, SnapReport, TierMeetPick, TierMeetPickMap,
 };
 pub use effects_spec::{EdgeAbrasionEffects, InclusionEffects, StructureEffects};
 pub(crate) use export::meet_name_is_asc_safe;
@@ -309,6 +309,16 @@ pub struct Design {
     /// [`crate::edit::Edit::SetCrystalAxisPlan`]. Carried by the native design file's optional
     /// `[crystal_axis_plan]` table; `.asc` has no field for it.
     pub crystal_axis_plan: Option<crate::crystal_axis::CrystalAxisPlan>,
+    /// Who states the refractive-index range the cutting sheet prints (the RI range field of
+    /// the Design Settings sheet), see [`crate::native::RiRangeChoice`]. `Off` for every design
+    /// that states none, which keeps such a design's file bytes unchanged.
+    ///
+    /// Authored content, so it participates in `PartialEq`; changed only through
+    /// [`crate::edit::Edit::SetRiRangeChoice`], which makes it undoable. The design file does
+    /// not carry this field: the choice is stored in the `[meta]` table (`ri_min`, `ri_max`,
+    /// `ri_range_source`), and the editor copies it between the two when a file is opened and
+    /// when one is written. It moves no mast and no plane.
+    pub ri_range_choice: crate::native::RiRangeChoice,
     /// Keys of a design file this build does not claim (written by a newer build),
     /// kept so an Open followed by a Save does not drop them. `None` for a design
     /// that did not come from a file or whose file had none. Opaque bookkeeping:
@@ -410,6 +420,7 @@ impl PartialEq for Design {
             && self.girdle_diameter_mm == other.girdle_diameter_mm
             && self.render_effects == other.render_effects
             && self.crystal_axis_plan == other.crystal_axis_plan
+            && self.ri_range_choice == other.ri_range_choice
             && self.preform_y_offset == other.preform_y_offset
             && self.cheater_offsets_deg == other.cheater_offsets_deg
             && self.tier_notes == other.tier_notes

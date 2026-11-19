@@ -35,6 +35,55 @@ use std::{
     sync::{Arc, Mutex, atomic::Ordering as AtomicOrdering},
 };
 
+/// `EditorModel.inspector_tab` of the Optimize tab.
+const OPTIMIZE_TAB: i32 = 2;
+
+/// Where the cutter is when an Optimize run lands, for [`landing_shows_optimize_tab`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LandingPlace {
+    /// The 3D tab's Edit view is the page on screen.
+    edit_view_showing: bool,
+    /// The inspector is folded to its header.
+    inspector_collapsed: bool,
+    /// The inspector's tab (`EditorModel.inspector_tab`).
+    inspector_tab: i32,
+    /// A text field of the Edit view has the keyboard focus.
+    text_focus: bool,
+}
+
+/// Whether a run that landed with something to apply puts the inspector on the Optimize tab.
+///
+/// A run takes a while, and the cutter may have gone on to other work. The tab is switched
+/// only where that replaces nothing in use: the Edit view is not on screen (the tab is ready
+/// on return), the inspector is folded, or the Optimize tab is the open one already. It is
+/// never switched while a text field has the focus: a value is being typed. The toast reports
+/// the result in every case.
+#[must_use]
+const fn landing_shows_optimize_tab(place: &LandingPlace) -> bool {
+    !place.text_focus
+        && (!place.edit_view_showing
+            || place.inspector_collapsed
+            || place.inspector_tab == OPTIMIZE_TAB)
+}
+
+/// Puts the inspector on the Optimize tab's Search view, where the candidates and Apply are,
+/// when [`landing_shows_optimize_tab`] allows it. The page and the pane are left alone: a run
+/// that lands does not move the cutter.
+fn show_landed_result(ui: &MainWindow) {
+    let editor = ui.global::<EditorModel>();
+    let place = LandingPlace {
+        edit_view_showing: crate::gui::commands::edit_view_showing(ui),
+        inspector_collapsed: editor.get_inspector_collapsed(),
+        inspector_tab: editor.get_inspector_tab(),
+        text_focus: editor.get_text_focus(),
+    };
+    if landing_shows_optimize_tab(&place) {
+        editor.set_inspector_tab(OPTIMIZE_TAB);
+        editor.set_inspector_collapsed(false);
+        crate::gui::commands::show_optimize_search_view(ui);
+    }
+}
+
 /// The completion handler for [`super::optimize_run::setup_optimize_callback`]'s run.
 ///
 /// It is split out to keep that callback under clippy's function-length lint. `pending_optimize`
@@ -48,8 +97,9 @@ use std::{
 /// available: a worse full-fidelity score is a warning, not a ban.
 ///
 /// A non-stale outcome also toasts, so completion is visible when the Optimize tab is closed. If
-/// a result is waiting for Apply, the inspector switches to the Optimize tab. A stale result gets
-/// its own toast instead (see the `stale` branch below).
+/// a result is waiting for Apply, the inspector is put on the Optimize tab's Search view, unless
+/// that would replace what the cutter is using ([`landing_shows_optimize_tab`]). A stale result
+/// gets its own toast instead (see the `stale` branch below).
 pub(super) fn handle_optimize_outcome(
     ui: &MainWindow,
     outcome: OptimizeRunOutcome,
@@ -142,8 +192,9 @@ pub(super) fn handle_optimize_outcome(
                     "info",
                 );
             } else {
-                // A toast, and the Optimize tab opened when there is something to apply, so
-                // completion is noticed even if the cutter switched tabs during the run.
+                // A toast always, so completion is noticed wherever the cutter is. The Optimize
+                // tab is prepared when there is something to apply, but never swapped in under
+                // a cutter who moved on to other work (`landing_shows_optimize_tab`).
                 show_toast(
                     ui,
                     &format!("Optimize finished: {status}"),
@@ -154,8 +205,7 @@ pub(super) fn handle_optimize_outcome(
                     },
                 );
                 if can_apply {
-                    ui.global::<EditorModel>().set_inspector_tab(2);
-                    ui.global::<EditorModel>().set_inspector_collapsed(false);
+                    show_landed_result(ui);
                 }
                 raise(ui, OPTIMIZE_FINISHED);
             }
@@ -446,6 +496,66 @@ fn run_optimize_preview(preview: &Rc<OptimizePreview>, retries_left: u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cutter on the Edit view, the inspector open on the Tier tab, no field in use.
+    const WORKING_ON_TIERS: LandingPlace = LandingPlace {
+        edit_view_showing: true,
+        inspector_collapsed: false,
+        inspector_tab: 0,
+        text_focus: false,
+    };
+
+    #[test]
+    fn a_landed_run_does_not_replace_the_tab_the_cutter_is_using() {
+        assert!(!landing_shows_optimize_tab(&WORKING_ON_TIERS));
+        assert!(!landing_shows_optimize_tab(&LandingPlace {
+            inspector_tab: 4,
+            ..WORKING_ON_TIERS
+        }));
+    }
+
+    #[test]
+    fn a_landed_run_shows_the_optimize_tab_where_nothing_is_replaced() {
+        // The Optimize tab is the open one already.
+        assert!(landing_shows_optimize_tab(&LandingPlace {
+            inspector_tab: OPTIMIZE_TAB,
+            ..WORKING_ON_TIERS
+        }));
+        // The inspector is folded: unfolding it on the result hides nothing.
+        assert!(landing_shows_optimize_tab(&LandingPlace {
+            inspector_collapsed: true,
+            ..WORKING_ON_TIERS
+        }));
+        // The Edit view is off screen (Live Render, Cutting Instructions, Files): the tab is
+        // ready when the cutter comes back.
+        assert!(landing_shows_optimize_tab(&LandingPlace {
+            edit_view_showing: false,
+            ..WORKING_ON_TIERS
+        }));
+    }
+
+    #[test]
+    fn a_landed_run_never_switches_the_tab_while_a_value_is_being_typed() {
+        for place in [
+            LandingPlace {
+                inspector_tab: OPTIMIZE_TAB,
+                ..WORKING_ON_TIERS
+            },
+            LandingPlace {
+                inspector_collapsed: true,
+                ..WORKING_ON_TIERS
+            },
+            LandingPlace {
+                edit_view_showing: false,
+                ..WORKING_ON_TIERS
+            },
+        ] {
+            assert!(!landing_shows_optimize_tab(&LandingPlace {
+                text_focus: true,
+                ..place
+            }));
+        }
+    }
 
     #[test]
     fn only_a_switched_on_preview_of_a_current_result_shows_the_ghost() {

@@ -114,9 +114,13 @@ for. Examples:
 | Needs a library design with printed proportions | Deep Solve compares against catalogue proportions (Chapter 8). |
 | Select a design in the library first | Load Selected Library Design needs a highlighted design. |
 | Open the Edit tab first | The command only makes sense in the Edit tab. |
-| Not available in the Diagram view | Slice mode needs the 3D picture, not the flat diagram. |
+| Leave the Diagram view first | Slice mode needs the 3D picture, not the flat diagram. |
 | Already using the Simple interface | You are already in the interface the command would switch to. |
 | Switch to the Advanced interface first | The control exists only in the Advanced interface (for example Surface Finish; Chapter 17). |
+| No render jobs yet | Load Job View... needs at least one job in the Render Jobs window (Chapter 23). |
+| No job view is showing | Back to My View works only while a job's view is shown in the Live Render. |
+| The job cannot be updated from this view right now | Update Job from This View needs a job view on screen and the job not rendering. |
+| The material check set cannot be queued right now | Queue Material Check Set needs a design open and the RI chart's conditions met (Chapter 6). |
 | Locked by the guide | A guide or tutorial step has locked this control (Chapters 7 and 22). |
 
 Picking a dimmed command does not close the palette. It shows a short message instead,
@@ -134,6 +138,28 @@ deliberate: a command that opens a dialog (New Design..., Preferences..., Retarg
 would otherwise lose the keyboard focus to the palette's closing. After the command has
 run, keyboard shortcuts such as F5 and Ctrl+Z work again at once, without clicking
 into the window first.
+
+**A command shows you the place where its result appears.** The same rule holds for
+the keys, the menus and the buttons:
+
+- An action whose controls live in one area opens that area. **Add Tier** shows the
+  inspector's Tier tab, **Filter Tiers** puts the cursor in the tier list's filter box,
+  **Optimize** shows the Optimize tab's Search view with the weights it runs with, and a
+  view mode or **Toggle Slice Mode** shows the 3D picture. Whatever is folded on the way
+  (the tier list, the inspector) is unfolded. On a short, narrow window the Edit view
+  shows one pane at a time, **3D View** or **Tier Editor**; the command switches to the
+  pane it needs. **Pick Meet Point** switches to the 3D View for the pick and goes back
+  to the Tier Editor afterwards.
+- A dialog that floats over every page does not move you while it is open (New
+  Design..., Export Render Image..., Edit Instructions as Text..., RI Chart...). When
+  it commits, you are taken to the result if you could not see it otherwise: applying
+  the instructions text from the Files & Downloads tab shows the Edit view.
+- Work that finishes later does not pull you away from what you are doing. When
+  Optimize finishes, a message says so; the inspector switches to the Optimize tab only
+  if it is folded, already on that tab, or the Edit view is not on screen, and never
+  while you are typing in a field.
+- Nothing moves when the result is already on screen, and a guide's lock always wins: a
+  command never takes you to a place the current guide step has locked.
 
 ## What the Palette Offers
 
@@ -161,7 +187,8 @@ of the row.
   the five Auto-solve settings (Off, 150 ms, 300 ms, 1 s, 3 s).
 - **Tools:** Plan Rough..., Angle Sweep... (Chapter 21), Cutting Mode... (Chapter 20), the
   three Regenerate commands for the catalogue's preview images and tilt curves, Show Tilt
-  Performance Chart, New or Edit Gem Material..., Stone Properties..., Lighting & Environment..., Render & Output... (the Parameters dock's three tabs; the Render Settings... entry, kept as an alias, opens the last one), Export Render Image...
+  Performance Chart, New or Edit Gem Material..., Stone Properties..., Lighting & Environment..., Render & Output... (the Parameters dock's three tabs; the Render Settings... entry, kept as an alias, opens the last one), Export Render Image..., and six commands for render jobs and refractive-index ranges:
+  **Load Job View...**, **Back to My View**, **Update Job from This View** (Chapter 23), **RI Chart...**, **Queue Material Check Set** (Chapter 6) and **Compute RI Ranges...**, which computes the stored RI ranges of the library's designs as a batch (Chapter 6).
 - **Help:** User Manual, Help for This Screen (F1), Keyboard Shortcuts, Guide: New Design
   Walkthrough, Tutorials..., Build the Selected Library Design and Welcome Tour
   (Chapter 22).
@@ -190,10 +217,10 @@ list.
 | File | Ctrl+N New, Ctrl+O Open, Ctrl+S Save, Ctrl+Shift+S Save As |
 | History | Ctrl+Z Undo, Ctrl+Y (or Ctrl+Shift+Z) Redo, Ctrl+Shift+K Keep as Trial |
 | Solving | F5 Solve |
-| Tabs | Ctrl+1, Ctrl+2, Ctrl+3 switch the three top-level tabs; Ctrl+E toggles Live Render and Edit |
+| Tabs | Ctrl+1, Ctrl+2, Ctrl+3 switch the three top-level tabs; Ctrl+E toggles Live Render and Edit, and goes to Edit from the other two tabs |
 | Solid viewport | 1, 2, 3, 4 switch the view mode; S toggles Slice mode |
 | Tier list | Up / Down, Home / End, Delete, Ctrl+D, Alt+Up / Alt+Down, F2 |
-| Search | Ctrl+F focuses the search or tier filter |
+| Search | Ctrl+F focuses the library search or, in the Edit view, the tier filter, and unfolds the list it searches |
 | Everywhere | Ctrl+K opens the palette, Ctrl+, opens Preferences, Esc backs out, ? shows the shortcuts |
 
 A key that types a character (a digit, S, ? or a comma) does nothing while you are

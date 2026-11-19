@@ -384,7 +384,7 @@ fn diamond_delta_b_g_is_the_published_0_044() {
 /// The B-G dispersion of every built-in, read off its own curve (the base curve: `n_o`, or
 /// `n_beta` for a biaxial material). Labradorite and Moonstone are built from a B-G figure of
 /// 0.012, so they land on it.
-const BUILT_IN_DELTA_B_G: [(&str, f32); 39] = [
+const BUILT_IN_DELTA_B_G: [(&str, f32); 40] = [
     ("Diamond", 0.0444),
     ("Sapphire", 0.0181),
     ("Ruby", 0.0181),
@@ -424,10 +424,12 @@ const BUILT_IN_DELTA_B_G: [(&str, f32); 39] = [
     ("Labradorite", 0.012),
     ("Moonstone", 0.012),
     ("Titanite (Sphene)", 0.0577),
+    // The manufacturer's 0.015 through the house ratio 0.579 (see the Nanosital entry).
+    ("Nanosital", 0.0149),
 ];
 
 /// Every built-in's B-G dispersion matches the table to 0.0005, and the table covers the
-/// 39 built-ins exactly once each. Against the handbook figures (GG97 Table 1)
+/// 40 built-ins exactly once each. Against the handbook figures (GG97 Table 1)
 /// Diamond, Cubic Zirconia, YAG, GGG, Sapphire and Spinel lie within 0.003; Synthetic Moissanite
 /// and Rutile are the known differences, because their curves are the measured ones and the
 /// handbook prints a rounder figure.

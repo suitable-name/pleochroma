@@ -4,7 +4,9 @@
 // stone, the change between them and a word for it (better / worse / same), coloured
 // with the theme's success and danger tokens. Right: a few plain sentences about what
 // changed, and the "Tilt average" button, which adds three rows with the means over four
-// axes and 181 tilts (a few seconds on a worker thread, with a Cancel while it runs).
+// axes, tilted up to the Preferences range each way (±90° by default), under the caption
+// "Tilt average to ±90°" (a few seconds on a
+// worker thread, with a Cancel while it runs).
 //
 // Everything comes from the `CompareModel` global of the window it is placed in; Rust
 // fills it (`gui::editor::compare::metrics`). The strip sizes itself from its rows, and
@@ -13,6 +15,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { CompareModel } from "../models/compare.slint";
+import { TiltWindows } from "../shared/tilt_windows.slint";
 import { ActionButton } from "chip_toggle.slint";
 
 // A column heading of the figures table, with its plain-language tooltip.
@@ -90,35 +93,55 @@ component MetricTable inherits VerticalLayout {
 
     if root.with_header: MetricHeader { }
 
-    for row in CompareModel.metric_rows: Rectangle {
-        height: 18px;
+    for row[i] in CompareModel.metric_rows: VerticalLayout {
+        spacing: 0px;
 
-        accessible-role: AccessibleRole.list-item;
-        accessible-label: row.label + ": " + row.before + " before, " + row.after + " after, change " + row.change + ", " + row.verdict;
+        // The caption of the three tilt rows, which are always the last three once they are in.
+        if CompareModel.tilt_done && i == CompareModel.metric_rows.length - 3: Text {
+            height: 18px;
+            text: "Tilt average " + TiltWindows.displayed;
+            font-size: 10px;
+            font-weight: 700;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            accessible-role: AccessibleRole.text;
+        }
 
-        Tooltip { text: @markdown("\{row.label}: \{row.before} before, \{row.after} after. \{row.verdict}. The figures are a table-up estimate. See the glossary."); }
+        row_rect := Rectangle {
+            height: 18px;
+            // The three tilt rows are the last three once they are in.
+            property <bool> is_tilt: CompareModel.tilt_done && i >= CompareModel.metric_rows.length - 3;
+            property <string> note: self.is_tilt
+                ? "The mean over four tilt axes, tilted up " + TiltWindows.displayed_plain + " each way. See the glossary."
+                : "The figures are a table-up estimate. See the glossary.";
 
-        HorizontalLayout {
-            spacing: 6px;
-            Text { horizontal-stretch: 1; text: row.label; font-size: 11px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
-            Text { width: 58px; text: row.before; font-size: 11px; color: Theme.text-secondary; horizontal-alignment: right; vertical-alignment: center; }
-            Text { width: 58px; text: row.after; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; horizontal-alignment: right; vertical-alignment: center; }
-            Text {
-                width: 62px;
-                text: row.change;
-                font-size: 11px;
-                font-weight: 700;
-                color: row.tone == 1 ? Theme.success : (row.tone == 2 ? Theme.danger : Theme.text-secondary);
-                horizontal-alignment: right;
-                vertical-alignment: center;
-            }
-            Text {
-                width: 44px;
-                text: row.verdict;
-                font-size: 10px;
-                color: row.tone == 1 ? Theme.success : (row.tone == 2 ? Theme.danger : Theme.text-muted);
-                horizontal-alignment: left;
-                vertical-alignment: center;
+            accessible-role: AccessibleRole.list-item;
+            accessible-label: row.label + ": " + row.before + " before, " + row.after + " after, change " + row.change + ", " + row.verdict;
+
+            Tooltip { text: @markdown("\{row.label}: \{row.before} before, \{row.after} after. \{row.verdict}. \{row_rect.note}"); }
+
+            HorizontalLayout {
+                spacing: 6px;
+                Text { horizontal-stretch: 1; text: row.label; font-size: 11px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+                Text { width: 58px; text: row.before; font-size: 11px; color: Theme.text-secondary; horizontal-alignment: right; vertical-alignment: center; }
+                Text { width: 58px; text: row.after; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; horizontal-alignment: right; vertical-alignment: center; }
+                Text {
+                    width: 62px;
+                    text: row.change;
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: row.tone == 1 ? Theme.success : (row.tone == 2 ? Theme.danger : Theme.text-secondary);
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                Text {
+                    width: 44px;
+                    text: row.verdict;
+                    font-size: 10px;
+                    color: row.tone == 1 ? Theme.success : (row.tone == 2 ? Theme.danger : Theme.text-muted);
+                    horizontal-alignment: left;
+                    vertical-alignment: center;
+                }
             }
         }
     }
@@ -190,7 +213,7 @@ component MetricSummary inherits VerticalLayout {
             width: 120px;
             height: 24px;
             text: "Tilt Average";
-            hint: "Measure both stones over four tilt axes and 181 tilts. It takes a few seconds on a background thread and adds three rows to the table.";
+            hint: "Measure both stones over four tilt axes, tilted up " + TiltWindows.displayed_plain + " each way. It takes a few seconds on a background thread and adds three rows to the table.";
             fill: Theme.surface-control;
             hover_fill: Theme.surface-control-hover;
             enabled: CompareModel.tilt_available;
@@ -200,7 +223,7 @@ component MetricSummary inherits VerticalLayout {
 
     if CompareModel.metric_rows.length > 0: Text {
         text: (CompareModel.tilt_done
-            ? "Table up under the viewport lighting. Tilt rows are means over four axes and 181 tilts."
+            ? "Table up under the viewport lighting. Tilt rows are means over four axes, tilted up " + TiltWindows.displayed_plain + " each way, under the Grading tray with a 16° head shadow."
             : "Table up under the viewport lighting, each side in its own material.")
             + (CompareModel.has_aset ? " The zones and Contrast do not depend on the lighting." : "");
         font-size: 11px;
@@ -215,7 +238,7 @@ export component CompareMetricsStrip inherits Rectangle {
     property <bool> has_rows: CompareModel.metric_rows.length > 0;
     property <bool> narrow: root.width < 650px;
     // Rows, the zones row and its legend.
-    property <length> table_height: (CompareModel.metric_rows.length + 1 + (CompareModel.has_aset ? 2 : 0)) * 18px + (CompareModel.has_aset ? 2px : 0px);
+    property <length> table_height: (CompareModel.metric_rows.length + 1 + (CompareModel.has_aset ? 2 : 0) + (CompareModel.tilt_done ? 1 : 0)) * 18px + (CompareModel.has_aset ? 2px : 0px);
     property <length> content_height: root.has_rows ? (root.narrow ? root.table_height + 228px : max(root.table_height + 16px, 150px)) : 80px;
     height: min(root.content_height, root.height_budget);
     border-radius: Theme.radius-sm;

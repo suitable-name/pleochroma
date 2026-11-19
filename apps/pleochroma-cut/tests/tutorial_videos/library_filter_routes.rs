@@ -165,6 +165,22 @@ impl Film<'_> {
                 library.get_ri_filter_max()
             ));
         }
+        // The next step sorts the list that is left, so some designs have to match: when the
+        // handle was dragged past every design's index, it is pulled back, half way each time.
+        let mut at = end.0;
+        for _ in 0..4 {
+            if pacing::wait_real(Duration::from_secs(3), || library.get_matched_count() > 0) {
+                break;
+            }
+            let back = (at + start.0) / 2.0;
+            self.gesture((at, start.1), (back, start.1), None, false, false)?;
+            at = back;
+        }
+        if library.get_matched_count() == 0 {
+            return Err(
+                "the Refractive Index filter matched no design even after being eased back".into(),
+            );
+        }
         self.hold(Duration::from_secs(1))?;
         self.close_library_filters_outside_popup()
     }

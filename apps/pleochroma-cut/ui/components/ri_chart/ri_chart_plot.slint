@@ -1,0 +1,291 @@
+// The RI chart's plot: four lines on one percent scale over the refractive index, the shaded
+// range, the windowing limit, and the built-in materials as ticks under the plot. It shares the
+// Angle Sweep chart's look (`sweep_dialog/sweep_chart.slint`): the plot frame, the grid, the
+// dash-cut lines and the small axis words come from the same tokens. Unlike the sweep it draws
+// no pointer readout and scales every line to the same 0 to 100 percent, because the limit and
+// the range need one common scale.
+//
+// Rust draws everything from `RiChartModel` (positions in percent of the plot, path data, the
+// tick rows); this file only places it. The dashed lines arrive already cut into dashes.
+import { Theme } from "../../theme.slint";
+import { RiChartModel } from "../../models/ri_chart.slint";
+
+// The figure shown by a line (0 windowing tilted, 1 windowing table up, 2 brilliance, 3 extinction,
+// 4 the uncalibrated high end of the range). Windowing, brilliance and extinction share the sweep's
+// and the tilt graph's colors; table-up windowing takes the orange of the notice token so the two
+// windowing lines stay apart.
+global RiChartStyle {
+    public pure function line_color(series: int) -> color {
+        return series == 0 ? Theme.accent-amber
+            : series == 1 ? Theme.notice-accent
+            : series == 2 ? Theme.accent-cyan
+            : series == 3 ? Theme.chart-extinction
+            : Theme.success;
+    }
+
+    public pure function line_width(series: int) -> length {
+        return series == 4 ? 1px : 1.5px;
+    }
+
+    // The label rows under the plot; a tick's label sits in one of them.
+    out property <length> row_height: 13px;
+    out property <int> label_rows: 4;
+}
+
+// One line's entry above the plot: a color sample and the name. Not a toggle.
+component LegendPill inherits Rectangle {
+    in property <string> text;
+    in property <color> tone;
+    in property <bool> dashed;
+
+    height: 22px;
+    width: label.preferred-width + 32px;
+    border-radius: 11px;
+    background: Theme.tint-neutral;
+    border-width: 1px;
+    border-color: root.tone;
+
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    if !root.dashed: Rectangle {
+        x: 9px;
+        y: (parent.height - self.height) / 2;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: root.tone;
+    }
+    // Two dashes, the pattern of the line itself.
+    if root.dashed: Rectangle {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: 4px;
+        height: 2px;
+        background: root.tone;
+    }
+    if root.dashed: Rectangle {
+        x: 14px;
+        y: (parent.height - self.height) / 2;
+        width: 4px;
+        height: 2px;
+        background: root.tone;
+    }
+    label := Text {
+        x: 23px;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        font-size: 10px;
+        font-weight: 600;
+        color: Theme.text-primary;
+    }
+}
+
+export component RiChartPlot inherits VerticalLayout {
+    // The plot's own height; the dialog sets it from its size.
+    in property <length> plot_h: 170px;
+    // The dialog is too narrow for the legend in one row.
+    in property <bool> compact: false;
+    spacing: 6px;
+
+    // Tells Rust the plot's pixel size (for the dash length and the tick labels) and to redraw.
+    function report_size() {
+        if RiChartModel.plot_width != plot.width || RiChartModel.plot_height != plot.height {
+            RiChartModel.plot_width = plot.width;
+            RiChartModel.plot_height = plot.height;
+            RiChartModel.plot_resized();
+        }
+    }
+
+    // Which lines the chart draws. The tilt is the one of the small-tilt poses (10 degrees).
+    // One row when there is room, two when the dialog is narrow.
+    if !root.compact: HorizontalLayout {
+        vertical-stretch: 0;
+        spacing: 6px;
+        Text {
+            text: "Lines:";
+            font-size: 10px;
+            font-weight: 700;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+        LegendPill { text: "Windowing, Tilted 10°"; tone: RiChartStyle.line_color(0); }
+        LegendPill { text: "Windowing, Table Up"; tone: RiChartStyle.line_color(1); dashed: true; }
+        LegendPill { text: "Brilliance, Tilted 10°"; tone: RiChartStyle.line_color(2); }
+        LegendPill { text: "Extinction, Tilted 10°"; tone: RiChartStyle.line_color(3); }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    if root.compact: VerticalLayout {
+        vertical-stretch: 0;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 6px;
+            Text {
+                text: "Lines:";
+                font-size: 10px;
+                font-weight: 700;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            LegendPill { text: "Windowing, Tilted 10°"; tone: RiChartStyle.line_color(0); }
+            LegendPill { text: "Windowing, Table Up"; tone: RiChartStyle.line_color(1); dashed: true; }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            LegendPill { text: "Brilliance, Tilted 10°"; tone: RiChartStyle.line_color(2); }
+            LegendPill { text: "Extinction, Tilted 10°"; tone: RiChartStyle.line_color(3); }
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+
+    plot := Rectangle {
+        height: root.plot_h;
+        vertical-stretch: 0;
+        background: Theme.chart-bg;
+        border-width: 1px;
+        border-color: Theme.chart-border;
+        border-radius: Theme.radius-sm;
+        clip: true;
+
+        accessible-role: AccessibleRole.image;
+        accessible-label: "RI chart";
+        accessible-description: RiChartModel.summary_text;
+
+        // Rust cuts the dashed lines into dashes of a fixed pixel length, so it needs the size.
+        init => { root.report_size(); }
+        changed width => { root.report_size(); }
+        changed height => { root.report_size(); }
+
+        // The range: shaded from its low end to its high end (to the right edge while the range
+        // is open ended or its high end is not calibrated).
+        if RiChartModel.band_low_x >= 0: Rectangle {
+            x: plot.width * RiChartModel.band_low_x / 100;
+            y: 0px;
+            width: max(0px, plot.width * (RiChartModel.band_high_x - RiChartModel.band_low_x) / 100);
+            height: plot.height;
+            background: Theme.accent-emerald.transparentize(0.86);
+        }
+
+        // Reference lines at 25, 50 and 75 percent of the scale (a quarter, half and three
+        // quarters of the height from the bottom).
+        Rectangle { y: plot.height * 0.25; width: 100%; height: 1px; background: Theme.chart-grid; }
+        Rectangle { y: plot.height * 0.5; width: 100%; height: 1px; background: Theme.chart-grid-mid; }
+        Rectangle { y: plot.height * 0.75; width: 100%; height: 1px; background: Theme.chart-grid; }
+        Text { x: 6px; y: plot.height * 0.25 - 12px; text: "75 %"; font-size: 9px; color: Theme.text-muted; }
+        Text { x: 6px; y: plot.height * 0.5 - 12px; text: "50 %"; font-size: 9px; color: Theme.text-muted; }
+        Text { x: 6px; y: plot.height * 0.75 - 12px; text: "25 %"; font-size: 9px; color: Theme.text-muted; }
+
+        // The design's own index.
+        if RiChartModel.current_x >= 0: Rectangle {
+            x: plot.width * RiChartModel.current_x / 100 - 0.5px;
+            y: 0px;
+            width: 1px;
+            height: plot.height;
+            background: Theme.text-muted;
+        }
+        if RiChartModel.current_x >= 0: Text {
+            x: plot.width * RiChartModel.current_x / 100 + 4px + self.width + 2px <= plot.width
+                ? plot.width * RiChartModel.current_x / 100 + 4px
+                : plot.width * RiChartModel.current_x / 100 - 4px - self.width;
+            y: 17px;
+            text: RiChartModel.current_text;
+            font-size: 9px;
+            color: Theme.text-muted;
+        }
+
+        // The windowing limit.
+        if RiChartModel.limit_y >= 0: Rectangle {
+            y: plot.height * RiChartModel.limit_y / 100;
+            width: 100%;
+            height: 1px;
+            background: Theme.accent-amber.transparentize(0.45);
+        }
+        if RiChartModel.limit_y >= 0: Text {
+            x: plot.width - self.width - 6px;
+            y: plot.height * RiChartModel.limit_y / 100 - 13px;
+            text: RiChartModel.limit_text;
+            font-size: 9px;
+            color: Theme.accent-amber;
+        }
+
+        for line in RiChartModel.lines: Path {
+            x: 0px;
+            y: 0px;
+            width: plot.width;
+            height: plot.height;
+            fit: fill;
+            commands: line.commands;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            stroke: RiChartStyle.line_color(line.series);
+            stroke-width: RiChartStyle.line_width(line.series);
+            fill: transparent;
+        }
+
+        // The low end of the range: a bright line and its label.
+        if RiChartModel.band_low_x >= 0: Rectangle {
+            x: plot.width * RiChartModel.band_low_x / 100 - 1px;
+            y: 0px;
+            width: 2px;
+            height: plot.height;
+            background: Theme.text-primary;
+        }
+        if RiChartModel.band_low_x >= 0: Text {
+            x: plot.width * RiChartModel.band_low_x / 100 + 5px;
+            y: 2px;
+            text: RiChartModel.low_text;
+            font-size: 9px;
+            font-weight: 700;
+            color: Theme.success;
+        }
+        // The high end while it is not calibrated: the dashed line comes with `lines`; its label
+        // sits left of it and says so.
+        if RiChartModel.high_x >= 0: Text {
+            x: max(6px, plot.width * RiChartModel.high_x / 100 - 5px - self.width);
+            y: 2px;
+            text: RiChartModel.high_text;
+            font-size: 9px;
+            font-weight: 700;
+            color: Theme.success;
+        }
+    }
+
+    // The built-in materials as ticks, names only, staggered over the label rows; a name that
+    // would crowd another is left to the chips. A longer tick leads down to a lower row.
+    ticks_strip := Rectangle {
+        height: RiChartStyle.label_rows * RiChartStyle.row_height + 8px;
+        vertical-stretch: 0;
+        for tick in RiChartModel.ticks: Rectangle {
+            x: ticks_strip.width * tick.x / 100 - 0.5px;
+            y: 0px;
+            width: 1px;
+            height: tick.row < 0 ? 5px : 6px + tick.row * RiChartStyle.row_height;
+            // The leader is faint: the name beside it carries the state.
+            background: tick.state == 2 ? Theme.accent-cyan : Theme.text-disabled;
+        }
+        for tick in RiChartModel.ticks: Text {
+            visible: tick.row >= 0;
+            x: min(ticks_strip.width * tick.x / 100 + 3px, ticks_strip.width - self.width);
+            y: 4px + tick.row * RiChartStyle.row_height;
+            text: tick.label;
+            font-size: 9px;
+            font-weight: tick.state == 2 ? 700 : 400;
+            color: tick.state == 2 ? Theme.accent-cyan : (tick.state == 1 ? Theme.text-secondary : Theme.text-muted);
+        }
+    }
+
+    // The ends of the index axis.
+    HorizontalLayout {
+        vertical-stretch: 0;
+        Text { text: RiChartModel.axis_low; font-size: 9px; color: Theme.text-muted; }
+        Text {
+            horizontal-stretch: 1;
+            text: "Refractive Index (RI)";
+            font-size: 9px;
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+        }
+        Text { text: RiChartModel.axis_high; font-size: 9px; color: Theme.text-muted; horizontal-alignment: right; }
+    }
+}

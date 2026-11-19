@@ -50,7 +50,7 @@ const DEFAULT_UPDATES_PER_ROUND: usize = 64;
 ///
 /// Reported in [`ImitationMetrics::objective_revision`]. Bump it whenever the loss changes, so
 /// losses of different objectives are not compared as if they were one.
-pub const IMITATION_OBJECTIVE_REVISION: u32 = 3;
+pub const IMITATION_OBJECTIVE_REVISION: u32 = 4;
 
 /// Hyperparameters of the imitation trainer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -170,6 +170,9 @@ pub struct ImitationBatch<'a> {
     /// An entirely NaN row means no action label. Inactive tiers are masked, including padding;
     /// verified zeros on mobile tiers are supervised so unrelated coordinates do not drift.
     pub action_targets: &'a [Vec<f32>],
+    /// A true row records a rejected rollout proposal in `action_targets`. Empty means all
+    /// finite actions are positive demonstrations (including replay from earlier trainers).
+    pub rejected_actions: &'a [bool],
     /// Per sample: the score drop of the oracle step (points), NaN = none.
     pub oracle_gain: &'a [f32],
 }
@@ -179,6 +182,12 @@ impl ImitationBatch<'_> {
     #[must_use]
     pub const fn len(&self) -> usize {
         self.states.len()
+    }
+
+    /// Whether the raw proposal in this row was tried and rejected.
+    #[must_use]
+    pub fn is_rejected_action(&self, row: usize) -> bool {
+        self.rejected_actions.get(row).copied().unwrap_or(false)
     }
 
     /// Whether the batch holds no samples.
@@ -222,6 +231,11 @@ impl ImitationBatch<'_> {
     /// Every parallel slice holds one entry per state.
     fn validate_lengths(&self) -> Result<(), TrainError> {
         let n = self.states.len();
+        if !self.rejected_actions.is_empty() && self.rejected_actions.len() != n {
+            return Err(TrainError::ShapeMismatch(
+                "rejected action flags disagree with replay rows".into(),
+            ));
+        }
         let fields = [
             ("n_tiers", self.n_tiers.len()),
             ("free_tiers", self.free_tiers.len()),
@@ -280,6 +294,13 @@ impl ImitationBatch<'_> {
             )));
         }
         let actions = &self.action_targets[i];
+        if self.is_rejected_action(i)
+            && (self.oracle_gain[i] != 0.0 || !actions.iter().all(|v| v.is_finite()))
+        {
+            return Err(mismatch(
+                "rejected action requires a measured proposal and a bounded teacher miss".into(),
+            ));
+        }
         if !(actions.iter().all(|v| v.is_nan()) || actions.iter().all(|v| v.is_finite())) {
             return Err(TrainError::NonFinite(format!(
                 "sample {i}: `action_targets` must be entirely finite or entirely NaN"
@@ -307,6 +328,9 @@ pub struct ImitationMetrics {
     /// Counted once per call, including verified zero coordinates, independently of loss weight.
     #[serde(default)]
     pub action_samples: usize,
+    /// Distinct selected rows with a measured rejection on a moving, actionable coordinate.
+    #[serde(default)]
+    pub rejected_action_samples: usize,
     /// Mean Huber loss of the predicted gain.
     pub gain_loss: f32,
     /// Mean pre-clip global gradient L2 norm.
@@ -363,6 +387,12 @@ pub struct ImitationStageDiagnostics {
     pub max_minibatch_rows: usize,
     /// Largest tier width uploaded, including masked tier padding.
     pub max_padded_tiers: usize,
+    /// Gathered attention score entries per head, including the global token and padding.
+    #[serde(default)]
+    pub attention_pairs_per_head: u64,
+    /// Entries per head avoided by narrowing the prepared tier axis at gather time.
+    #[serde(default)]
+    pub avoided_attention_pairs_per_head: u64,
 }
 
 /// Loss/gradient aggregates and cumulative host timings for one imitation call.
@@ -415,6 +445,8 @@ fn add_stats(sum: &mut UpdateStats, m: &UpdateStats) {
     sum.packing_ms += m.packing_ms;
     sum.update_ms += m.update_ms;
     sum.stages.gather_ms += m.stages.gather_ms;
+    sum.stages.attention_pairs_per_head += m.stages.attention_pairs_per_head;
+    sum.stages.avoided_attention_pairs_per_head += m.stages.avoided_attention_pairs_per_head;
     sum.stages.forward_loss_submit_ms += m.stages.forward_loss_submit_ms;
     sum.stages.loss_readback_ms += m.stages.loss_readback_ms;
     sum.stages.backward_optimizer_ms += m.stages.backward_optimizer_ms;
@@ -501,10 +533,11 @@ fn count_action_samples(batch: &ImitationBatch<'_>, indices: &[usize]) -> usize 
     indices
         .iter()
         .filter(|&&i| {
-            batch.action_targets[i]
-                .iter()
-                .enumerate()
-                .any(|(k, action)| is_actionable_tier(batch, i, k) && action.is_finite())
+            !batch.is_rejected_action(i)
+                && batch.action_targets[i]
+                    .iter()
+                    .enumerate()
+                    .any(|(k, action)| is_actionable_tier(batch, i, k) && action.is_finite())
         })
         .count()
 }
@@ -524,6 +557,7 @@ struct LabelTensors {
     /// `[batch, 1]`
     gain_target: Tensor<2>,
     gain_mask: Tensor<2>,
+    rejected: Tensor<2>,
 }
 
 /// One mini-batch on the training device.
@@ -535,6 +569,8 @@ struct PackedImitation {
     /// Real-tier mask (attention keys, value pooling), `[batch, max_tiers]`.
     mask: Tensor<2>,
     labels: LabelTensors,
+    /// Real tier counts in the same local row order as the prepared tensors.
+    real_tiers: Vec<usize>,
     /// Per-row label support, used to skip optimizer steps without any target.
     row_has_labels: Vec<bool>,
     /// A zero-feature row with zero tier/label masks, reserved for mini-batch padding.
@@ -551,19 +587,41 @@ impl PackedImitation {
         let index_len = index_values.len();
         let indices =
             Tensor::<1, Int>::from_data(TensorData::new(index_values, [index_len]), device);
+        let mut real_tiers: Vec<_> = rows.iter().map(|&row| self.real_tiers[row]).collect();
+        let prepared_width = self.mask.dims()[1];
+        let width = super::burn_model_host::tier_bucket(
+            real_tiers.iter().copied().max().unwrap_or(1),
+            prepared_width,
+        );
+        real_tiers.resize(index_len, 0);
+        // A tall stone elsewhere in the upload must not enlarge this mini-batch's attention.
+        fn gather_tiers<const D: usize>(
+            src: &Tensor<D>,
+            indices: &Tensor<1, Int>,
+            width: usize,
+        ) -> Tensor<D> {
+            let src = if src.dims()[1] == width {
+                src.clone()
+            } else {
+                src.clone().narrow(1, 0, width)
+            };
+            src.select(0, indices.clone())
+        }
         let mut row_has_labels: Vec<_> = rows.iter().map(|&row| self.row_has_labels[row]).collect();
         row_has_labels.resize(index_len, false);
         Self {
-            tiers: self.tiers.clone().select(0, indices.clone()),
+            real_tiers,
+            tiers: gather_tiers(&self.tiers, &indices, width),
             globals: self.globals.clone().select(0, indices.clone()),
-            mask: self.mask.clone().select(0, indices.clone()),
+            mask: gather_tiers(&self.mask, &indices, width),
             labels: LabelTensors {
-                sens_target: self.labels.sens_target.clone().select(0, indices.clone()),
-                sens_mask: self.labels.sens_mask.clone().select(0, indices.clone()),
-                action_target: self.labels.action_target.clone().select(0, indices.clone()),
-                action_mask: self.labels.action_mask.clone().select(0, indices.clone()),
+                sens_target: gather_tiers(&self.labels.sens_target, &indices, width),
+                sens_mask: gather_tiers(&self.labels.sens_mask, &indices, width),
+                action_target: gather_tiers(&self.labels.action_target, &indices, width),
+                action_mask: gather_tiers(&self.labels.action_mask, &indices, width),
                 gain_target: self.labels.gain_target.clone().select(0, indices.clone()),
-                gain_mask: self.labels.gain_mask.clone().select(0, indices),
+                gain_mask: self.labels.gain_mask.clone().select(0, indices.clone()),
+                rejected: self.labels.rejected.clone().select(0, indices),
             },
             row_has_labels,
             dummy_row: None,
@@ -576,12 +634,11 @@ mod loss;
 use loss::*;
 
 impl BurnTrainer {
-    /// Conservative prepared-input capacity using the trainer's largest supported tier width.
-    fn imitation_row_capacity(&self) -> usize {
-        let row_values = self.model.d_global
-            + self.max_tiers * self.model.d_tier
-            + self.max_tiers * (2 * N_COMPONENTS + 3)
-            + 2;
+    /// Payload capacity using the tier bucket that this group could actually upload.
+    fn imitation_row_capacity(&self, max_real_tiers: usize) -> usize {
+        let width = super::burn_model_host::tier_bucket(max_real_tiers, self.max_tiers);
+        let row_values =
+            self.model.d_global + width * self.model.d_tier + width * (2 * N_COMPONENTS + 3) + 3;
         let bytes_per_row = row_values.saturating_mul(std::mem::size_of::<f32>());
         (PREPARED_ROUND_BUDGET_BYTES / bytes_per_row.max(1)).max(1)
     }
@@ -625,6 +682,7 @@ impl BurnTrainer {
         rows.action_mask.resize(b * mt, 0.0);
         rows.gain_target.resize(b, 0.0);
         rows.gain_mask.resize(b, 0.0);
+        rows.rejected.resize(b, 0.0);
         rows.sample_has_labels.resize(b, false);
         let dev = &self.device;
         PackedImitation {
@@ -650,7 +708,9 @@ impl BurnTrainer {
                 ),
                 gain_target: Tensor::<2>::from_data(TensorData::new(rows.gain_target, [b, 1]), dev),
                 gain_mask: Tensor::<2>::from_data(TensorData::new(rows.gain_mask, [b, 1]), dev),
+                rejected: Tensor::<2>::from_data(TensorData::new(rows.rejected, [b, 1]), dev),
             },
+            real_tiers: idx.iter().map(|&i| batch.n_tiers[i]).collect(),
             row_has_labels: rows.sample_has_labels,
             dummy_row: (b > idx.len()).then_some(idx.len()),
         }
@@ -674,7 +734,11 @@ impl BurnTrainer {
         if !packed.row_has_labels.iter().any(|&has| has) {
             return Ok(MinibatchOutcome::Unlabelled);
         }
+        let pairs = |width: usize| packed.row_has_labels.len() as u64 * (width as u64 + 1).pow(2);
+        let attended = pairs(packed.mask.dims()[1]);
         let mut stages = ImitationStageDiagnostics {
+            attention_pairs_per_head: attended,
+            avoided_attention_pairs_per_head: pairs(prepared.mask.dims()[1]) - attended,
             gather_ms: gather.elapsed().as_secs_f32() * 1000.0,
             max_minibatch_rows: packed.row_has_labels.len(),
             ..ImitationStageDiagnostics::default()
@@ -758,7 +822,13 @@ impl BurnTrainer {
         let padded_rows = prepared_row_count(
             selected_rows.len(),
             needs_dummy,
-            self.imitation_row_capacity(),
+            self.imitation_row_capacity(
+                selected_rows
+                    .iter()
+                    .map(|&i| batch.n_tiers[i])
+                    .max()
+                    .unwrap_or(1),
+            ),
         );
         let prepared = self.pack_imitation_padded(batch, selected_rows, padded_rows);
         sum.packing_ms += packing_started.elapsed().as_secs_f64() as f32 * 1000.0;
@@ -814,7 +884,8 @@ impl BurnTrainer {
         let mb_size = config.mini_batch_size.min(total);
         // Preserve the configured batch size even when a single batch itself exceeds the nominal
         // bound; otherwise memory windows are capped by available rows under the bound.
-        let capacity = self.imitation_row_capacity();
+        let capacity =
+            self.imitation_row_capacity(batch.n_tiers.iter().copied().max().unwrap_or(1));
         // A power-of-two upload bucket must fit the payload bound, including a sentinel when
         // a tail mini-batch needs padding. An oversized configured batch remains one batch.
         let bucket_capacity = if capacity.is_power_of_two() {
@@ -909,6 +980,16 @@ impl BurnTrainer {
             cosine: sum.cosine / denom,
             action_loss: sum.action_loss / denom,
             action_samples: count_action_samples(batch, &selected_indices),
+            rejected_action_samples: selected_indices
+                .iter()
+                .filter(|&&i| {
+                    batch.is_rejected_action(i)
+                        && batch.action_targets[i]
+                            .iter()
+                            .enumerate()
+                            .any(|(k, &v)| v != 0.0 && is_actionable_tier(batch, i, k))
+                })
+                .count(),
             gain_loss: sum.gain_loss / denom,
             grad_norm: sum.grad_norm / denom,
             labelled_tiers: count_labelled_tiers(batch, &selected_indices),

@@ -35,7 +35,7 @@ use crate::{
     gui::{
         editor::{
             callbacks::solve_actions::clear_analysis_results,
-            guide, loading,
+            guide, landing, loading,
             stall_guard::stall_guard,
             state::{EditorState, PendingUnsavedAction, gear_choice_to_teeth},
             templates::GalleryDialog,
@@ -340,6 +340,18 @@ pub(super) fn do_new_design_create(
     // one event-loop tick: the empty-state card grid must give way to the new
     // design, even an Empty one with zero tiers.
     push_has_design(ui, &state.borrow());
+    // The new design is worked on in the Edit view, so the cutter is taken there from whichever
+    // page Create was pressed on (the dialog floats over all of them). Asked for before the
+    // guide hears of the design: a design a guide launched must leave the page to the guide,
+    // and that launch ends inside `guide::notify`. The view itself changes after the refresh
+    // above, which may wait one turn of the event loop (see `landing`).
+    let generation = state.borrow().current_generation();
+    landing::design_landed(
+        ui,
+        generation,
+        landing::Landing::ShowEditView,
+        landing::Refresh::MayBeDeferred,
+    );
     // The worked-example guide's first step completes on exactly this: a design
     // was created. Only this success path reaches here, never a rejected form.
     guide::notify(ui, guide::NEW_DESIGN_CREATED);

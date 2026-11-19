@@ -114,6 +114,7 @@ fn imitation_continues_the_identical_next_update_with_moments_and_shuffle() {
         score_slopes: &slopes,
         action_targets: &targets,
         oracle_gain: &gains,
+        rejected_actions: &[],
     };
     let config = ImitationConfig {
         updates_per_round: 3,

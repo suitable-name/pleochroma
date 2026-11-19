@@ -96,7 +96,9 @@ pub struct Key {
     /// stone as oriented.
     axis: [u32; 3],
     c_axis_on: bool,
+    /// The lighting rig (metrics only: the tilt sweep is scored under the tilt standard).
     preset: String,
+    /// The light position (metrics only, as `preset`).
     light: [u32; 2],
     /// [`crate::hdr::HdrState::identity`] (metrics only).
     hdr: usize,
@@ -112,8 +114,9 @@ pub struct Key {
 impl Key {
     /// The key of `kind` for the app as it stands, `None` while no solve is current.
     ///
-    /// The tilt sweep ignores inclusions, edge rounding, the HDR map and its turn, so those
-    /// parts of its key stay zero and changing them does not stale its curves. It does honour
+    /// The tilt sweep ignores inclusions, edge rounding, the lighting rig, the light position,
+    /// the HDR map and its turn (it is scored under the tilt standard), so those parts of its
+    /// key stay empty and changing them does not stale its curves. It does honour
     /// the crystal orientation (the axis and the Second Axis), so those are part of the tilt
     /// key too. The frosting is part of both keys: the metrics pass scores the frosted stone
     /// as the tilt sweep does.
@@ -144,11 +147,19 @@ impl Key {
                 },
             ],
             c_axis_on: settings.c_axis_override,
-            preset: settings.lighting,
-            light: [
-                settings.light_yaw_deg.to_bits(),
-                settings.light_pitch_deg.to_bits(),
-            ],
+            preset: if metrics {
+                settings.lighting
+            } else {
+                String::new()
+            },
+            light: if metrics {
+                [
+                    settings.light_yaw_deg.to_bits(),
+                    settings.light_pitch_deg.to_bits(),
+                ]
+            } else {
+                [0, 0]
+            },
             hdr: if metrics { state.hdr.identity() } else { 0 },
             hdr_turn: if metrics {
                 [

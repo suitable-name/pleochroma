@@ -28,6 +28,8 @@ one place.
 | A dialog titled "This Design Is Not a Closed Solid" appears when saving or exporting | The design does not currently solve to a closed solid, and you are about to write a file anyway. | Click **Cancel** and fix the design first, or **Save Anyway** (**Export Anyway**) to write it with a `NOT A CLOSED SOLID` header stamp so the file itself carries the warning (Chapter 11). |
 | Save writes a **draft** even though every block has an anchor tier | The design has more facet planes than the solver can verify (currently more than 400 total planes) -- the masts it would otherwise produce are untrustworthy placeholders, so the app saves a draft instead, the same as a design with no anchor tiers yet (Chapter 11). | Reduce the design's total plane count (fewer indices per tier, or split the design) and save again once it solves within the limit. |
 | The cutting sheet row reads only `Cut to depth 2.81 mm.` | When that tier is cut, its facets reach no corner of the stone cut so far, so the sheet names no meet point. The sheet names only corners that already exist at that step (Chapter 11). | Nothing is wrong with the design's shape. Cut the tier to the printed depth by measurement, or press **Snap to Meets** in the verdict's list (Chapter 5) to move such depths onto the nearest corner, then check the stone (the snap can cut small tiers away) and the optics. |
+| The verdict says "About 22 % of the stone leaks light straight out of the bottom when the stone is tilted by 10° (windowing). Table up it is about 9 %." | The windowing Check takes the larger of the table-up figure and the figure with the stone tilted by 10° on its four profile axes (the figures here are only an example). Here the tilted reading is the larger one, so the sentence names the tilt and gives the table-up figure too. The tilted figure comes from a calculation that runs a moment after a solve, so the sentence can appear or change a moment after the solve lands. | A pavilion that is fine table up can still leak when the stone is tilted a little. Check the pavilion angles against the material's critical angle (Chapter 6); the Stone tab's RI chip and the RI chart show how low an index the design works in. |
+| The cutting sheet row reads `Cut to level girdle.` or `Meet P1 at centerpoint` | These are the short wordings of the sheet: the first for a crown or pavilion tier whose facets all end on the girdle line the earlier tiers set, the second for a tier whose facets meet at the axis of the stone (Chapter 11, "Meet Points on the Sheet"). | Nothing to fix. A tier that cuts into the girdle keeps its "Meet ..." list, and the verdict says "The girdle is not level". |
 | The verdict says "The girdle is not level" | Facets cut into the girdle line and thin the girdle in places, so it is thinner there than elsewhere (Chapter 5). | Move the named tiers' depth or angle until they stop at the girdle line, or keep the design if the setting will hide it. |
 
 ## Rendering and Remote-Worker Problems
@@ -140,10 +142,10 @@ a full backtrace; attach that too if it exists.
   a stone with tools, a rough or ground surface, or Tray Reflection fall back to the classic
   estimator and are as noisy as before.- **The live margin estimate under an angle field ignores custom materials.**
   Export Edited .asc, Save, the cutting sheet, the Solid view's windowing-risk
-  hatch and the MARGIN badge all resolve a custom catalogue material's own RI
+  hatch and a tier row's margin mark all resolve a custom catalogue material's own RI
   (Chapter 6), but the small estimate shown while you type an angle uses the
   built-in materials only. For a design whose Material names a custom catalogue
-  material with no RI override, it can differ a little from the MARGIN badge until
+  material with no RI override, it can differ a little from the row's margin mark until
   you commit the angle. Set an explicit RI override matching the custom
   material's own value if you notice this (Chapter 6).
 - **Deep Solve never modifies the design.** It is a read-only diagnostic

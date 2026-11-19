@@ -22,7 +22,7 @@
 use super::{
     config::InferenceConfig,
     error::InferenceError,
-    policy::{check_network, network_from_file, network_of, run_policy},
+    policy::{check_network, network_of, run_policy},
     report::{DesignReport, angle_changes, mast_changes, report_design_with_settings},
 };
 use crate::{
@@ -67,8 +67,9 @@ impl RlOptimizerModel {
     /// its network does not fit the current observation layout.
     pub fn from_checkpoint(
         checkpoint: Checkpoint,
-        config: InferenceConfig,
+        mut config: InferenceConfig,
     ) -> Result<Self, InferenceError> {
+        config.probe_scale_deg = config.probe_scale_deg.or(checkpoint.probe_scale_deg);
         Ok(Self {
             network: network_of(checkpoint, TrainingMode::Optimizer)?,
             config,
@@ -82,10 +83,10 @@ impl RlOptimizerModel {
     /// [`InferenceError::Weights`] for an unreadable or damaged file, another schema or
     /// observation layout version, a retarget checkpoint, or a network that does not fit.
     pub fn load(path: &Path, config: InferenceConfig) -> Result<Self, InferenceError> {
-        Ok(Self {
-            network: network_from_file(path, TrainingMode::Optimizer)?,
+        Self::from_checkpoint(
+            Checkpoint::load(path, crate::env::OBS_LAYOUT_VERSION)?,
             config,
-        })
+        )
     }
 
     /// The settings of every [`Self::optimize`] call.
@@ -126,6 +127,7 @@ impl RlOptimizerModel {
             OptimizerEnvConfig {
                 max_steps: config.steps,
                 max_step_deg: config.max_step_deg,
+                probe_scale_deg: config.probe_scale_deg.unwrap_or(config.max_step_deg),
                 weights,
                 fidelity: config.rollout_fidelity,
                 lighting: config.lighting,
@@ -146,13 +148,31 @@ impl RlOptimizerModel {
             config.stall_steps,
         )?;
 
-        let gem = &env.source_material().gem;
-        let end = env.current_design();
+        env.optimizer_result(config.report_fidelity, run.evaluations)
+    }
+}
+
+impl OptimizerEnv {
+    /// Measure the episode endpoints and certify the changes that deployment would return.
+    ///
+    /// # Errors
+    /// Returns an error if either endpoint cannot be scored or the adopted result fails
+    /// exact materialization or meet preservation.
+    pub fn optimizer_result(
+        &self,
+        report_fidelity: pleochroma_cut_core::ObjectiveFidelity,
+        evaluations: usize,
+    ) -> Result<OptimizeResult, InferenceError> {
+        let design = self.base_design();
+        let config = self.config();
+        let weights = config.weights;
+        let gem = &self.source_material().gem;
+        let end = self.current_design();
         let before = report_design_with_settings(
             design,
             gem,
             &weights,
-            config.report_fidelity,
+            report_fidelity,
             config.lighting,
             config.shape_target,
         )?;
@@ -165,7 +185,7 @@ impl RlOptimizerModel {
                 end,
                 gem,
                 &weights,
-                config.report_fidelity,
+                report_fidelity,
                 config.lighting,
                 config.shape_target,
             )?;
@@ -179,10 +199,10 @@ impl RlOptimizerModel {
             Some(adopted) => Some(
                 stamp_proposal(
                     design,
-                    env.current_design(),
+                    end,
                     &adopted.changes,
                     &adopted.masts,
-                    &env.preservation_baseline(),
+                    &self.preservation_baseline(),
                 )
                 .map_err(InferenceError::Preservation)?,
             ),
@@ -192,7 +212,7 @@ impl RlOptimizerModel {
         Ok(build_result(
             before,
             adopted,
-            run.evaluations,
+            evaluations,
             stamp,
             config.lighting,
             tone_goal,
@@ -422,6 +442,7 @@ mod tests {
             OptimizerEnvConfig {
                 max_steps: config.steps,
                 max_step_deg: config.max_step_deg,
+                probe_scale_deg: config.probe_scale_deg.unwrap_or(config.max_step_deg),
                 weights,
                 fidelity: config.rollout_fidelity,
                 lighting: config.lighting,
@@ -653,6 +674,20 @@ mod tests {
             0,
             tier.init_network(2),
         )
+    }
+
+    #[test]
+    fn probe_displacement_survives_in_memory_and_file_loading() {
+        let checkpoint = checkpoint_of(TrainingMode::Optimizer).with_probe_scale_deg(0.03125);
+        let direct =
+            RlOptimizerModel::from_checkpoint(checkpoint.clone(), InferenceConfig::optimizer())
+                .unwrap();
+        let path = checkpoint_file(TrainingMode::Optimizer, "probe-displacement");
+        checkpoint.save(&path).unwrap();
+        let loaded = RlOptimizerModel::load(&path, InferenceConfig::optimizer()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(direct.config().probe_scale_deg, Some(0.03125));
+        assert_eq!(direct.config(), loaded.config());
     }
 
     /// Writes a checkpoint of `mode` to a file of its own in the temp directory.

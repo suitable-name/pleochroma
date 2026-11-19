@@ -10,6 +10,7 @@ use super::{
     details::SheetDetails,
     summary::{CARAT_CAVEAT, StoneSummary},
 };
+use crate::ri_range::{RiSource, RiStatement, range_text};
 use pleochroma::{
     geometry::meet_solver::{Block, SolvedTier, classify_blocks},
     optics::materials::GemMaterial,
@@ -229,25 +230,51 @@ pub(super) fn material_label(design: &Design, n_d: f64) -> Option<String> {
 /// What a Design Data cell prints when there is nothing to print: never a guess.
 pub const NO_VALUE: &str = "-";
 
+/// The line break inside a Design Data value that prints on two lines.
+///
+/// The HTML sheet writes it as a `<br>`, the text sheet as a line indented under the value, and
+/// the PDF as a second line of the cell at the block's own size.
+pub const LINE_BREAK: char = '\n';
+
+/// The "RI range" value: whoever stated the range decides how it prints, and the material always
+/// stays on the row.
+///
+/// With no statement it is the design's own index with its material (`1.768 (Sapphire)`), one
+/// line. With a statement it is two lines joined by [`LINE_BREAK`]: the range as
+/// [`range_text`] words it (`1.63 and up`), then the material and the design's own index in
+/// brackets, `(Sapphire 1.768)` for the designer's own range and
+/// `(Pleochroma estimate; Sapphire 1.768)` for the estimate. A material that is only a guess
+/// keeps its question mark (`(Quartz? 1.540)`); with no material it is the index alone.
+fn ri_range_value(design: &Design, n_d: f64, statement: Option<RiStatement>) -> String {
+    let material = material_label(design, n_d);
+    let Some(statement) = statement else {
+        return material.map_or_else(
+            || format!("{n_d:.3}"),
+            |material| format!("{n_d:.3} ({material})"),
+        );
+    };
+    let own = material.map_or_else(
+        || format!("{n_d:.3}"),
+        |material| format!("{material} {n_d:.3}"),
+    );
+    let second = match statement.source {
+        RiSource::Designer => format!("({own})"),
+        RiSource::Estimate => format!("(Pleochroma estimate; {own})"),
+    };
+    format!("{}{LINE_BREAK}{second}", range_text(&statement))
+}
+
 /// The Design Data rows as `(label, value)`, the template's five rows in its order:
 ///
-/// - RI range: `1.43 to 2.62` when a range is given, else the design's own index with its
-///   material (`1.540 (Quartz?)`);
+/// - RI range: the stated range with its source and the material on a second line, else the
+///   design's own index with its material (`1.540 (Quartz?)`), see `ri_range_value`;
 /// - Size range: `4 - 12.5 mm` when a range is given, else the design's own size (its girdle
 ///   diameter, `6.5 mm`), else `-` -- a range is never invented;
 /// - Symmetry: `8-fold, mirror` or `8-fold`;
 /// - Index gear: `96 Index`;
 /// - Shape: the given shape, else `-`.
 fn design_data(design: &Design, n_d: f64, details: &SheetDetails) -> Vec<(String, String)> {
-    let ri = details.ri_range.map_or_else(
-        || {
-            material_label(design, n_d).map_or_else(
-                || format!("{n_d:.3}"),
-                |material| format!("{n_d:.3} ({material})"),
-            )
-        },
-        |(low, high)| format!("{low:.2} to {high:.2}"),
-    );
+    let ri = ri_range_value(design, n_d, details.ri_range);
     let size = details.size_range_mm.map_or_else(
         || {
             design
@@ -354,7 +381,8 @@ pub struct SheetLayout {
     pub facets: FacetData,
     /// Size Data.
     pub sizes: SizeData,
-    /// Design Data as `(label, value)`: the template's five rows (see `design_data`).
+    /// Design Data as `(label, value)`: the template's five rows (see `design_data`). A value
+    /// may hold one [`LINE_BREAK`]: the "RI range" row with a stated range prints on two lines.
     pub design_data: Vec<(String, String)>,
     /// The girdle diameter and carat estimate lines, as `(label, value)`; empty when the design
     /// has neither. The text sheet prints them after Design Data; the template itself has no
@@ -594,7 +622,15 @@ impl SheetLayout {
 
         out.push_str("\nDesign Data\n");
         for (label, value) in self.design_data.iter().chain(&self.extras) {
-            let _ = writeln!(out, "  {label}: {value}");
+            // A value on two lines keeps its second line under the first, past the label.
+            let indent = " ".repeat(label.chars().count() + 4);
+            for (position, text) in value.split(LINE_BREAK).enumerate() {
+                if position == 0 {
+                    let _ = writeln!(out, "  {label}: {text}");
+                } else {
+                    let _ = writeln!(out, "{indent}{text}");
+                }
+            }
         }
 
         // How the rough must sit, for a stone whose crystal axis is set; nothing otherwise.

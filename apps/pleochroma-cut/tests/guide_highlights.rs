@@ -194,3 +194,48 @@ fn ray_traced_guide_target_has_a_real_viewport_pill_and_video_route() {
     assert!(toolbar.contains("SolidPreviewModel.toggle_ray();"));
     assert!(targets.contains("4 => \"Ray-Traced\""));
 }
+
+#[test]
+fn the_new_render_job_layout_keeps_the_outlines_of_the_jobs_lessons() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/components/render_jobs");
+    let read = |name: &str| {
+        fs::read_to_string(root.join(name))
+            .unwrap_or_else(|error| panic!("cannot read {name}: {error}"))
+    };
+    let row = read("job_row.slint");
+    let panel = read("jobs_panel.slint");
+    // The row's Resume button stays on the row (not in the "..." menu), so the lesson can point
+    // at it, and the panel keeps the queue buttons the lessons name.
+    assert!(is_drawn("job_resume_button", &[row]));
+    for target in [
+        "start_queue_button",
+        "pause_queue_button",
+        "export_script_button",
+    ] {
+        assert!(
+            is_drawn(target, std::slice::from_ref(&panel)),
+            "jobs_panel.slint no longer draws an outline for {target}"
+        );
+    }
+    // The menu and the dialogs are new surfaces that no lesson outlines; they must not claim a
+    // target the catalog does not list.
+    for name in [
+        "job_row_menu.slint",
+        "job_edit_dialog.slint",
+        "copy_materials.slint",
+        "job_view_banner.slint",
+    ] {
+        let source = read(name);
+        for line in source.lines().filter(|l| l.contains("highlight_target ==")) {
+            let target = line
+                .split("highlight_target == \"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .unwrap_or_default();
+            assert!(
+                HIGHLIGHT_TARGETS.contains(&target),
+                "{name} draws an outline for {target}, which is not in HIGHLIGHT_TARGETS"
+            );
+        }
+    }
+}

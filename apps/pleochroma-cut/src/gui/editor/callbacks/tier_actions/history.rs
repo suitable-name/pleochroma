@@ -23,6 +23,7 @@ use crate::{
         solid_preview::preview_state::SolidPreviewState,
     },
 };
+use pleochroma_cut_core::Edit;
 use pleochroma_editor::{EditChange, session::TierIndexMap};
 
 /// What one move along the history (an Undo, a Redo, or the History tab's jump over any
@@ -134,6 +135,31 @@ pub(in crate::gui::editor) fn refresh_after_history_move(
         BTreeSet::new(),
         true,
     );
+    // An open Design Settings sheet shows the RI range the design holds after the move.
+    crate::gui::editor::ri_range::field::refresh(ui, state);
+}
+
+/// Whether `edit` is the RI range choice alone: a step that moves no geometry, so its Undo and
+/// Redo need no re-solve and no new preview, and leave a finished solve current.
+fn is_range_only(edit: &Edit) -> bool {
+    matches!(edit, Edit::SetRiRangeChoice { .. })
+}
+
+/// What an Undo or Redo of the RI range choice owes the display: the panel without a re-solve,
+/// the Design Settings sheet, and the Undo and Redo state. The solid preview is untouched, since
+/// the range has no look.
+///
+/// `generation_before` is the generation the move started from; a Deep Solve verdict or an
+/// Optimize result that was current stays current ([`EditorState::keep_results_current`]).
+fn refresh_after_range_move(
+    ui: &MainWindow,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    state: &mut EditorState,
+    generation_before: u64,
+) {
+    state.keep_results_current(generation_before);
+    refresh_editor_panel_stale(ui, render_ctx, state, &BTreeSet::new());
+    crate::gui::editor::ri_range::field::refresh(ui, state);
 }
 
 /// [`refresh_after_history_move`] for a move whose row renumbering is known: the selected
@@ -176,7 +202,12 @@ pub(in crate::gui::editor) fn setup_undo_callback(
         };
         super::viewport_material::flush_pending_effects_commit();
         let mut st = state.borrow_mut();
+        let range_only = st.history.peek_undo().is_some_and(is_range_only);
+        let generation_before = st.current_generation();
         match st.undo_mapped() {
+            Ok(Some(_)) if range_only => {
+                refresh_after_range_move(&ui, &render_ctx, &mut st, generation_before);
+            }
             Ok(Some((change, renumbering))) => {
                 refresh_after_renumbering_move(
                     &ui,
@@ -214,7 +245,12 @@ pub(in crate::gui::editor) fn setup_redo_callback(
         };
         super::viewport_material::flush_pending_effects_commit();
         let mut st = state.borrow_mut();
+        let range_only = st.history.peek_redo().is_some_and(is_range_only);
+        let generation_before = st.current_generation();
         match st.redo_mapped() {
+            Ok(Some(_)) if range_only => {
+                refresh_after_range_move(&ui, &render_ctx, &mut st, generation_before);
+            }
             Ok(Some((change, renumbering))) => {
                 // As in `setup_undo_callback`: the blast radius is unknown, and the row follows
                 // its tier.

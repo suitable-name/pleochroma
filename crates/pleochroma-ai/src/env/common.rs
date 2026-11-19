@@ -234,9 +234,9 @@ impl CoreSettings {
         if self.max_steps == 0 {
             return Err(EnvError::InvalidConfig("max_steps must be at least 1"));
         }
-        if !(self.max_step_deg.is_finite() && self.max_step_deg > 0.0) {
+        if !super::is_observable_displacement(self.max_step_deg) {
             return Err(EnvError::InvalidConfig(
-                "max_step_deg must be finite and positive",
+                "max_step_deg must produce a finite positive policy token",
             ));
         }
         if !self.terminal_score.is_finite() {
@@ -247,9 +247,9 @@ impl CoreSettings {
                 "min_girdle_ratio must lie in 0..=1",
             ));
         }
-        if !self.probe_scale_deg.is_finite() || self.probe_scale_deg <= 0.0 {
+        if !super::is_observable_displacement(self.probe_scale_deg) {
             return Err(EnvError::InvalidConfig(
-                "probe_scale_deg must be finite and positive",
+                "probe_scale_deg must produce a finite positive policy token",
             ));
         }
         if [

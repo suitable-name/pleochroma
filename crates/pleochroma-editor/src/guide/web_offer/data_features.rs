@@ -35,7 +35,7 @@ fn deep_solve() -> GuideOverlay {
         .step(
             StepOverlay::of("What Deep Solve checks")
                 .line(
-                    "Deep Solve is a slow, separate check: does this design's geometry reproduce the proportions printed in the catalogue?",
+                    "Deep Solve is a slow, separate check: does this design's geometry reproduce the proportions printed in the catalog?",
                     "Deep Solve is a slow, separate check: does this design's geometry reproduce the proportions printed for it? Its button is in the Optimize tab, below the tier table.",
                 )
                 .line(
@@ -43,15 +43,19 @@ fn deep_solve() -> GuideOverlay {
                     "It needs a design with printed proportions: type them in Design Settings under Printed Proportions, or open a file that carries them. A new design or a template has none, and the button is dim. The line under the Deep Solve heading says why.",
                 )
                 .sub(
-                    "the Adopt button in the tier table's ACTIONS group",
+                    "Adopt in the row's \u{2026} menu, Actions for Tier N",
                     "the Adopt button in the tier table",
+                )
+                .sub(
+                    "click Add Anchor in the \u{2026} menu of that block's row",
+                    "click Add Anchor on that block's row",
                 )
                 .sub(
                     "(the status strip says so)",
                     "(the status box under the tier table says so)",
                 )
                 .line(
-                    "If the button is dim, use Skip Step: this lesson only reads the result of a run. Load a catalogue design from the Library, adopt a tier, and start the lesson again to run it.",
+                    "If the button is dim, use Skip Step: this lesson only reads the result of a run. Load a catalog design from the Library, adopt a tier, and start the lesson again to run it.",
                     "If the button is dim, use Skip Step: this lesson only reads the result of a run. Open a design with printed proportions, adopt a tier, and start the lesson again to run it.",
                 ),
         )
@@ -200,7 +204,7 @@ fn library_import() -> GuideOverlay {
 fn library_search() -> GuideOverlay {
     GuideOverlay::new("library-search")
         .step(
-            StepOverlay::of("The catalogue")
+            StepOverlay::of("The catalog")
                 .line(
                     "The Catalog panel on the left lists every design that matches your search and filters.",
                     "The design library lists every design that matches your search and filters.",
@@ -291,7 +295,7 @@ fn library_filters() -> GuideOverlay {
                     "The chip is lit while it is active, and the list shortens.",
                 )
                 .line(
-                    "Each slider spans the range your catalogue really has. RI Match centres a tolerance band on a refractive index, and Use Current Material takes the one in the viewport. Tilt Performance filters narrow by windowing, extinction or brilliance.",
+                    "Each slider spans the range your catalog really has. RI Match centers a tolerance band on a refractive index, and Use Current Material takes the one in the viewport. Tilt Performance filters narrow by windowing, extinction or brilliance.",
                     "Show Ignored, the other chip, does the opposite: it adds the designs you marked Ignored in the detail pane back to the list.",
                 )
                 .goal(
@@ -311,7 +315,7 @@ fn library_filters() -> GuideOverlay {
                     "The designs added first are at the top.",
                 )
                 .line(
-                    "The other orders are Catalogue Order, Title and Recently Edited.",
+                    "The other orders are Catalog Order, Title and Recently Edited. Sorting works on the designs the filters leave. If the list is empty, no design matches the shape you chose in step 1: choose All Shapes to see the order.",
                     "The other orders are Recently Added (the default), Recently Edited and Title A-Z.",
                 )
                 .allow_add(OPEN_LIBRARY),
@@ -445,7 +449,7 @@ mod tests {
                 "Catalog (",
                 "Catalog list",
                 "Catalog panel",
-                "Catalogue Order",
+                "Catalog Order",
                 "Filters button",
                 "Reset Filters",
                 "slider",

@@ -704,7 +704,10 @@ fn criterion_5_wysiwyg_for_50_random_recipes_per_host() {
 /// `resolve::budget_bands`) measure dE00 0.09-0.46. Beryl's all-elements recipe includes two Mn
 /// chromophores (red beryl 0.1-0.35 wt% MnO is a strong absorber at 560 nm), so its rays carry
 /// 14 (ordinary) and 13 (extraordinary) bands. Its merges measure up to dE00 1.74 for that
-/// near-opaque stone at 5 mm (Cr + V + Fe + Mn at once), so its bound is 2.
+/// near-opaque stone at 5 mm (Cr + V + Fe + Mn at once), so its bound is 2. Nanosital's
+/// all-elements recipe holds seven chromophores and 25 bands (the narrow Er3+, Nd3+ and Pr3+
+/// lines among them; Nd3+ at 800 and 878 nm lies beyond the rendered range); its bound of 2 is
+/// beryl's, set before a measured run.
 const BAND_DROP_ALLOW_LIST: &[(&str, f64)] = &[
     ("beryl", 2.0),
     ("corundum", 1.0),
@@ -712,6 +715,7 @@ const BAND_DROP_ALLOW_LIST: &[(&str, f64)] = &[
     ("cubic_zirconia", 1.0),
     ("garnet_pyralspite", 1.0),
     ("glass_silicate", 1.0),
+    ("nanosital", 2.0),
     ("spinel", 1.0),
 ];
 

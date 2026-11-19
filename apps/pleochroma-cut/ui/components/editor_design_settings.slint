@@ -5,6 +5,7 @@ import { EditorModel } from "../models/editor.slint";
 import { GuideModel } from "../models/guide.slint";
 import { HelpTopics } from "../models/help.slint";
 import { DesignSettingsModel } from "../models/design_settings.slint";
+import { RiFieldModel } from "../models/ri_field.slint";
 import { ParametersModel } from "../models/parameters.slint";
 import { MaterialChip, PreviewBadge } from "material_chip.slint";
 // The material is shown here as a read-only chip (`MaterialChip`, with the amber "Previewing"
@@ -79,6 +80,80 @@ component SheetField inherits Rectangle {
                 return accept;
             }
             reject
+        }
+    }
+}
+
+// The four sources of the RI range, as one segmented row like `ChoiceSeg`, but with a segment that
+// can be greyed out on its own (From File, when the file states no range) and a hover that says why.
+component RiSourceSeg inherits Rectangle {
+    in property <[string]> labels;
+    in property <[string]> reader_labels;
+    // One flag and one hover text per segment (same length as `labels`).
+    in property <[bool]> segment_enabled;
+    in property <[string]> segment_hints;
+    in property <int> picked;
+    in property <bool> enabled: true;
+    in property <string> group_label;
+    callback selected(int);
+
+    height: 32px;
+    border-radius: 8px;
+    background: Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: root.group_label;
+
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for name[i] in root.labels: Rectangle {
+            property <bool> live: root.enabled && (i < root.segment_enabled.length ? root.segment_enabled[i] : true);
+            horizontal-stretch: 1;
+            min-width: 0px;
+            border-radius: 7px;
+            background: i == root.picked ? Theme.bg-elevated : ((touch.has-hover && self.live) ? Theme.bg-card-hover : transparent);
+            border-width: fs.has-focus ? 2px : 0px;
+            border-color: Theme.accent-cyan-hover;
+            accessible-role: AccessibleRole.radio-button;
+            accessible-label: i < root.reader_labels.length ? root.reader_labels[i] : name;
+            accessible-description: i < root.segment_hints.length ? root.segment_hints[i] : "";
+            accessible-checkable: true;
+            accessible-checked: i == root.picked;
+            accessible-enabled: self.live;
+            accessible-action-default => {
+                if self.live {
+                    root.selected(i);
+                }
+            }
+            if i < root.segment_hints.length && root.segment_hints[i] != "": Tooltip {
+                text: @markdown("\{root.segment_hints[i]}");
+            }
+            fs := FocusScope {
+                enabled: root.enabled && (i < root.segment_enabled.length ? root.segment_enabled[i] : true);
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        root.selected(i);
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            Text {
+                text: name;
+                font-size: 12px;
+                font-weight: i == root.picked ? 700 : 500;
+                color: !parent.live ? Theme.text-disabled : (i == root.picked ? Theme.text-primary : Theme.text-secondary);
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            touch := TouchArea {
+                enabled: root.enabled && (i < root.segment_enabled.length ? root.segment_enabled[i] : true);
+                mouse-cursor: pointer;
+                clicked => { root.selected(i); }
+            }
         }
     }
 }
@@ -294,6 +369,8 @@ export component EditorDesignSettings inherits Rectangle {
         EditorModel.printed_cw_text = root.a_cw;
         EditorModel.printed_pw_text = root.a_pw;
         EditorModel.printed_hw_text = root.a_hw;
+        // The RI range boxes go back to what the design stores.
+        RiFieldModel.refresh_requested();
         root.cancel_symmetry();
     }
     // X: keeps what the open field holds.
@@ -305,6 +382,7 @@ export component EditorDesignSettings inherits Rectangle {
         root.take_snapshots();
         root.symmetry_pending = false;
         root.order_other = false;
+        RiFieldModel.refresh_requested();
         sheet.show();
     }
     function close_sheet() {
@@ -346,6 +424,7 @@ export component EditorDesignSettings inherits Rectangle {
     changed tracked_form_reset_pulse => {
         root.symmetry_pending = false;
         root.take_snapshots();
+        RiFieldModel.refresh_requested();
     }
 
     // The panel: one line.
@@ -637,6 +716,124 @@ export component EditorDesignSettings inherits Rectangle {
                                 }
                             }
                             Rectangle { horizontal-stretch: 1; }
+                        }
+                        // The RI range the cutting sheet prints: off, the one the file states, the
+                        // Pleochroma estimate (traced when the sheet is written), or your own.
+                        VerticalLayout {
+                            spacing: 6px;
+                            SheetRow {
+                                label: "RI range";
+                                RiSourceSeg {
+                                    horizontal-stretch: 1;
+                                    enabled: root.unlocked;
+                                    labels: ["Off", "From File", "Estimate", "Type"];
+                                    reader_labels: ["RI Range Off", "RI Range From File", "RI Range Pleochroma Estimate", "RI Range Typed by Hand"];
+                                    segment_enabled: [true, RiFieldModel.file_states_range, true, true];
+                                    segment_hints: [
+                                        "The cutting sheet prints the design's own index, with no range.",
+                                        RiFieldModel.file_states_range ? "The range the designer stated in the file." : "This design's file states no RI range.",
+                                        "Pleochroma traces the range at this design's angles when the sheet is written.",
+                                        "Type the range yourself."
+                                    ];
+                                    picked: RiFieldModel.source_index;
+                                    group_label: "RI Range Source";
+                                    selected(index) => { RiFieldModel.source_chosen(index); }
+                                }
+                            }
+                            if RiFieldModel.source_index == 3: SheetRow {
+                                label: "";
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 2px;
+                                    Text {
+                                        text: "Lowest RI";
+                                        font-size: 10px;
+                                        color: Theme.text-muted;
+                                        accessible-role: AccessibleRole.text;
+                                    }
+                                    SheetField {
+                                        enabled: root.unlocked;
+                                        text <=> RiFieldModel.typed_low;
+                                        placeholder: "1.63";
+                                        reader_label: "Lowest RI";
+                                        hint: "The lowest refractive index the design works in, as you state it. It is printed plain on the cutting sheet.";
+                                        commit => { RiFieldModel.typed_edited(); }
+                                        escaped => { root.discard_edits(); root.close_sheet(); }
+                                    }
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 2px;
+                                    Text {
+                                        text: "Highest RI (optional)";
+                                        font-size: 10px;
+                                        color: Theme.text-muted;
+                                        accessible-role: AccessibleRole.text;
+                                    }
+                                    SheetField {
+                                        enabled: root.unlocked;
+                                        text <=> RiFieldModel.typed_high;
+                                        placeholder: "and up";
+                                        reader_label: "Highest RI, optional";
+                                        hint: "The highest refractive index the design works in. Leave it empty for a range that reads \"and up\".";
+                                        commit => { RiFieldModel.typed_edited(); }
+                                        escaped => { root.discard_edits(); root.close_sheet(); }
+                                    }
+                                }
+                            }
+                            Text {
+                                text: RiFieldModel.source_index == 0 ? "Off: the cutting sheet prints the design's own index, with no range."
+                                    : (RiFieldModel.source_index == 1 ? "The range the designer stated in the file (.gcs ri_min / ri_max, or the design file). Printed as stated."
+                                    : (RiFieldModel.source_index == 2 ? "Pleochroma estimate: traced at this design's angles, table up and tilted by 10\u{b0}. Not test-cut. The sheet says so on the row."
+                                    : "Your own statement: printed plain, without a label."));
+                                font-size: 10px;
+                                color: Theme.text-muted;
+                                wrap: word-wrap;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            if RiFieldModel.error != "": Text {
+                                text: RiFieldModel.error;
+                                font-size: 11px;
+                                color: Theme.danger;
+                                wrap: word-wrap;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            // What the cutting sheet's "RI range" row prints now.
+                            Rectangle {
+                                border-radius: 6px;
+                                background: Theme.bg-input;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                accessible-role: AccessibleRole.text;
+                                accessible-label: "RI range on the cutting sheet: " + RiFieldModel.preview;
+                                HorizontalLayout {
+                                    padding: 8px;
+                                    spacing: 10px;
+                                    Text {
+                                        text: "RI range";
+                                        font-size: 11px;
+                                        color: Theme.text-muted;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        min-width: 0px;
+                                        text: RiFieldModel.preview;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: Theme.text-primary;
+                                        wrap: word-wrap;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                            Text {
+                                text: "Saved in the design. The next cutting sheet prints this choice.";
+                                font-size: 10px;
+                                color: Theme.text-muted;
+                                wrap: word-wrap;
+                                accessible-role: AccessibleRole.text;
+                            }
                         }
 
                         Rectangle { height: 1px; background: Theme.border-subtle; }

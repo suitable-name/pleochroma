@@ -224,7 +224,7 @@ fn rescue_omits_measured_gradient_actions_without_refilling_its_budget() {
     let probes = vec![TierProbe::default(); count];
     let mut slopes = vec![None; count];
     slopes[env.movable_tier_indices()[0]] = Some(-1.0);
-    let measured = env.core.gradient_actions(h, &slopes, &[0.5, 0.25]);
+    let measured = env.core.gradient_actions(h, &slopes, &[1.0, 0.5, 0.25]);
     let original = env.core.rescue_candidates(h, &probes, &[]);
     let fresh = env.core.rescue_candidates(h, &probes, &measured);
     assert!(
@@ -260,10 +260,10 @@ fn rescue_keeps_the_same_winner_when_spare_pool_threads_are_used() {
     let mut parallel = None;
     let serial_evaluations = env
         .core
-        .rescue_actions(h, &probes, &[], &|| false, &mut serial);
-    let parallel_evaluations = env
-        .core
-        .rescue_actions(h, &probes, &[], &|| true, &mut parallel);
+        .rescue_actions(h, &probes, &[], 1.0, &|| false, &mut serial);
+    let parallel_evaluations =
+        env.core
+            .rescue_actions(h, &probes, &[], 1.0, &|| true, &mut parallel);
     assert_eq!(parallel_evaluations, serial_evaluations);
     assert_eq!(parallel, serial);
 }

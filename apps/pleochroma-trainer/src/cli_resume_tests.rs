@@ -439,9 +439,9 @@ fn only_validation_journals_before_the_latest_finished_one_are_pruned() {
         "validation-v3-{}-00000010",
         pleochroma_ai::env::CUDA_ENVIRONMENT_MATH
     ));
-    let finished = journal("validation-v3-cpu-env-v1-00000020");
+    let finished = journal("validation-v4-cpu-env-v1-00000020");
     let finished_wgpu = journal("validation-v3-wgpu-cpu-env-v1-00000020");
-    let pending = journal("validation-v3-cpu-env-v1-00000030");
+    let pending = journal("validation-v4-cpu-env-v1-00000030");
     let references = journal("reference-cases-v1");
     assert!(storage::prune_validation_journals(&root, 20).is_empty());
     assert!(!older.exists() && !older_cuda.exists());

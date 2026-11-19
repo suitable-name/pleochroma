@@ -3,7 +3,7 @@
 //! [`super::materials`].
 
 use super::{
-    PlanesOwner, RenderContext,
+    JobDesignNames, JobStone, PlanesOwner, RenderContext,
     materials::{resolve_material, resolve_material_with_override},
 };
 use pleochroma::{geometry::cuts::StandardGemCuts, optics::materials::GemMaterial};
@@ -385,6 +385,113 @@ fn the_editors_material_survives_a_library_selection_and_comes_back() {
     // The row resolves no material and refuses, as a Library selection may.
     ctx.material_name.clear();
     ctx.material_unresolved = Some("no material".to_string());
+    assert!(ctx.claim_active_planes(
+        Arc::new(Vec::new()),
+        None,
+        PlanesOwner::Editor { generation: 2 },
+    ));
+    assert_eq!(ctx.material_name, "Sapphire");
+    assert!(ctx.material_unresolved.is_none());
+    assert!(ctx.editor_material_stash.is_none());
+}
+
+// ---- PlanesOwner::Job / claim_job_geometry ---------------------------------------
+
+fn a_job_stone(frosted: Vec<u32>) -> JobStone {
+    JobStone {
+        planes: Arc::new(StandardGemCuts::emerald_cut()),
+        tools: Arc::new(Vec::new()),
+        placements: Vec::new(),
+        frosted,
+        effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        design: JobDesignNames {
+            title: "Job design".to_string(),
+            designer: "Cutter".to_string(),
+            shape: "Emerald".to_string(),
+            ri: "1.77".to_string(),
+        },
+    }
+}
+
+#[test]
+fn a_job_claim_takes_the_slot_and_puts_the_frosted_planes_back() {
+    let mut ctx = RenderContext::default();
+    assert!(ctx.claim_job_geometry(5, a_job_stone(vec![0, 2])));
+    assert_eq!(ctx.planes_owner, PlanesOwner::Job { job_id: 5 });
+    assert_eq!(ctx.active_frosted.as_slice(), [0, 2]);
+    assert_eq!(
+        ctx.active_planes.len(),
+        StandardGemCuts::emerald_cut().len()
+    );
+    assert_eq!(ctx.design_gear, None);
+    assert_eq!(
+        ctx.job_design.as_ref().map(|d| d.title.as_str()),
+        Some("Job design")
+    );
+}
+
+#[test]
+fn a_job_claim_restores_the_effects_the_claim_cleared() {
+    let mut ctx = RenderContext::default();
+    let mut stone = a_job_stone(Vec::new());
+    stone.effects.facet_surfaces = vec![1, 2, 3];
+    assert!(ctx.claim_job_geometry(5, stone));
+    assert_eq!(ctx.scene_effects.facet_surfaces, vec![1, 2, 3]);
+}
+
+#[test]
+fn another_owner_clears_the_job_design_names() {
+    let mut ctx = RenderContext::default();
+    assert!(ctx.claim_job_geometry(5, a_job_stone(Vec::new())));
+    assert!(ctx.claim_active_planes(
+        Arc::new(Vec::new()),
+        None,
+        PlanesOwner::Editor { generation: 1 },
+    ));
+    assert!(ctx.job_design.is_none());
+}
+
+#[test]
+fn a_late_editor_solve_cannot_replace_a_job_stone_silently() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let generation = Arc::new(AtomicU64::new(7));
+    let mut ctx = RenderContext {
+        editor_generation: Some(Arc::clone(&generation)),
+        ..RenderContext::default()
+    };
+    assert!(ctx.claim_job_geometry(5, a_job_stone(Vec::new())));
+    assert_eq!(ctx.catalogue_over_generation, Some(7));
+    // A background solve that started at generation 7 or earlier finishes now: its caller
+    // asks `library_took_over_since` and leaves the job stone alone.
+    assert!(ctx.library_took_over_since(7));
+    assert!(ctx.library_took_over_since(4));
+    // The editor's next edit is a newer generation and takes the slot back on purpose.
+    generation.store(8, Ordering::Relaxed);
+    assert!(!ctx.library_took_over_since(8));
+    assert!(ctx.claim_active_planes(
+        Arc::new(Vec::new()),
+        None,
+        PlanesOwner::Editor { generation: 8 },
+    ));
+    assert_eq!(ctx.catalogue_over_generation, None);
+    assert!(!ctx.library_took_over_since(7));
+}
+
+#[test]
+fn the_editors_material_survives_a_job_view_and_comes_back() {
+    let mut ctx = RenderContext::default();
+    assert!(ctx.claim_active_planes(
+        Arc::new(Vec::new()),
+        None,
+        PlanesOwner::Editor { generation: 1 },
+    ));
+    "Sapphire".clone_into(&mut ctx.material_name);
+    assert!(ctx.claim_job_geometry(5, a_job_stone(Vec::new())));
+    // The job view writes its own material.
+    "Ruby".clone_into(&mut ctx.material_name);
+    ctx.material_unresolved = Some("job material".to_string());
+    // A second job replaces the first without taking a new snapshot of the editor material.
+    assert!(ctx.claim_job_geometry(6, a_job_stone(Vec::new())));
     assert!(ctx.claim_active_planes(
         Arc::new(Vec::new()),
         None,

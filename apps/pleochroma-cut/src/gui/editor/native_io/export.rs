@@ -18,6 +18,7 @@ use crate::{
     gui::{
         editor::{
             cut_sheet::{SheetFormat, current_date_text, write_cutting_sheet_with},
+            ri_range::details_then,
             state::EditorState,
         },
         optics::crystal_optics::stored_default_orientation_of,
@@ -26,9 +27,8 @@ use crate::{
     },
 };
 use pleochroma::geometry::meet_solver::SolvedTier;
-use pleochroma_cut_core::Design;
+use pleochroma_cut_core::{Design, native::RiRangeChoice};
 use pleochroma_editor::{
-    cut_sheet::SheetDetails,
     files::{cutting_sheet_file_name, cutting_sheet_pdf_file_name},
     guide::viewing_events as events,
 };
@@ -125,7 +125,8 @@ fn export_cutting_sheet(
                 st.design.clone(),
                 suggested_file_name(&st),
                 st.generation.load(Ordering::Relaxed),
-                st.file_extras.metadata.clone(),
+                // The `[meta]` with the design's own RI range choice, which Undo moves.
+                st.file_extras_for_write().metadata,
             )
         };
         let render_ctx = Arc::clone(render_ctx);
@@ -156,10 +157,6 @@ fn export_cutting_sheet(
                     // The material's stored default axis, from its library row: the
                     // baked axes cannot show a default of tilt 0.
                     let stored_default = stored_default_orientation_of(&db, &design);
-                    // Empty file fields fall back to the design's `.asc` header lines;
-                    // the date is the export month and year.
-                    let details =
-                        SheetDetails::from_metadata(&design, &file_metadata, &current_date_text());
                     let kind = match format {
                         SheetFormat::Html => PickKind::SaveCuttingSheet {
                             default_name: cutting_sheet_file_name(&base_name),
@@ -168,36 +165,51 @@ fn export_cutting_sheet(
                             default_name: cutting_sheet_pdf_file_name(&base_name),
                         },
                     };
-                    pick_file(ui, kind, move |ui, dest_path| {
-                        // A dismissed dialog is the cutter's own cancel -- no toast.
-                        let Some(dest_path) = dest_path else {
-                            return;
-                        };
-                        let dest_path = format.path_for(dest_path);
-                        let ui_weak = ui.as_weak();
-                        std::thread::spawn(move || {
-                            let result = write_cutting_sheet_with(
-                                &design,
-                                &solved,
-                                &dest_path,
-                                &custom_materials,
-                                stored_default,
-                                &details,
-                            );
-                            let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
-                                Ok(()) => {
-                                    show_toast(
-                                        &ui,
-                                        &format!("Wrote cutting sheet to {}", dest_path.display()),
-                                        "success",
+                    // Empty file fields fall back to the design's `.asc` header lines; the date
+                    // is the export month and year. The RI range row is settled first: a design
+                    // on the Pleochroma estimate waits for the traced range (or Cancel).
+                    let details_design = Arc::clone(&design);
+                    details_then(
+                        ui,
+                        &details_design,
+                        &file_metadata,
+                        &current_date_text(),
+                        move |ui, details| {
+                            pick_file(ui, kind, move |ui, dest_path| {
+                                // A dismissed dialog is the cutter's own cancel -- no toast.
+                                let Some(dest_path) = dest_path else {
+                                    return;
+                                };
+                                let dest_path = format.path_for(dest_path);
+                                let ui_weak = ui.as_weak();
+                                std::thread::spawn(move || {
+                                    let result = write_cutting_sheet_with(
+                                        &design,
+                                        &solved,
+                                        &dest_path,
+                                        &custom_materials,
+                                        stored_default,
+                                        &details,
                                     );
-                                    // A tutorial step may wait for the sheet.
-                                    raise(&ui, events::SHEET_EXPORTED);
-                                }
-                                Err(message) => show_toast(&ui, &message, "error"),
+                                    let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
+                                        Ok(()) => {
+                                            show_toast(
+                                                &ui,
+                                                &format!(
+                                                    "Wrote cutting sheet to {}",
+                                                    dest_path.display()
+                                                ),
+                                                "success",
+                                            );
+                                            // A tutorial step may wait for the sheet.
+                                            raise(&ui, events::SHEET_EXPORTED);
+                                        }
+                                        Err(message) => show_toast(&ui, &message, "error"),
+                                    });
+                                });
                             });
-                        });
-                    });
+                        },
+                    );
                 });
             },
         );
@@ -316,6 +328,10 @@ impl ScheduleFormat {
 /// keeps them, a `.asc` has no notation for them and ignores the list. An empty list writes
 /// the text a design without frosting always got.
 ///
+/// `ri_range` is the design's RI range choice: a `.gcs` states a designer's range in its
+/// `<info>` element, and writes nothing for Off or the Pleochroma estimate (an estimate is never
+/// put into a file). A `.asc` has no place for a range and ignores it.
+///
 /// # Errors
 ///
 /// A toast-ready message naming the format and the writer's error.
@@ -323,12 +339,13 @@ pub(super) fn schedule_file_text_with_frosting(
     schedule: &pleochroma_formats::asc::AscSchedule,
     format: ScheduleFormat,
     frosting: &[(usize, pleochroma_formats::gcs::GcsTierFrosting)],
+    ri_range: RiRangeChoice,
 ) -> Result<String, String> {
     match format {
         ScheduleFormat::Asc => pleochroma_formats::asc::to_asc_string(schedule)
             .map_err(|e| format!("Cannot write this schedule as .asc: {e}")),
         ScheduleFormat::Gcs => {
-            pleochroma_formats::gcs::to_gcs_string_with_frosting(schedule, frosting)
+            pleochroma_formats::gcs::to_gcs_string_with_ri_range(schedule, frosting, ri_range)
                 .map_err(|e| format!("Cannot write this schedule as .gcs: {e}"))
         }
     }
@@ -391,6 +408,8 @@ fn export_edited_schedule(
         // export that material's own `n_D`, not the legacy schedule RI
         // `to_asc_schedule` alone would fall back to.
         let custom_materials = snapshot_custom_materials(render_ctx);
+        // The RI range a `.gcs` states; a `.asc` has no place for it.
+        let ri_range = state.borrow().design.ri_range_choice;
         // `to_asc_schedule_with` solves every tier's mast and can fail. A `MissingAnchor`
         // is the "add a Scale Reference tier" problem the validation banner already shows,
         // so it becomes a toast rather than a schedule with fabricated masts.
@@ -459,7 +478,7 @@ fn export_edited_schedule(
                             default_file_name,
                             format,
                             omitted,
-                            frosting,
+                            (frosting, ri_range),
                         ),
                         StatusDecision::NeedsConfirm(message) => {
                             // One dialog for both questions, so the cutter is never asked twice.
@@ -489,7 +508,7 @@ fn export_edited_schedule(
                                         &schedule,
                                         default_file_name,
                                         format,
-                                        &frosting,
+                                        (frosting.as_slice(), ri_range),
                                     );
                                 },
                             );
@@ -543,18 +562,35 @@ fn finish_export_after_notice(
     default_file_name: String,
     format: ScheduleFormat,
     omitted: Option<(&'static str, String)>,
-    frosting: Vec<(usize, pleochroma_formats::gcs::GcsTierFrosting)>,
+    (frosting, ri_range): (
+        Vec<(usize, pleochroma_formats::gcs::GcsTierFrosting)>,
+        RiRangeChoice,
+    ),
 ) {
     match omitted {
         // Nothing is lost, so no question is asked.
-        None => finish_export_schedule(ui, &schedule, default_file_name, format, &frosting),
+        None => finish_export_schedule(
+            ui,
+            &schedule,
+            default_file_name,
+            format,
+            (frosting.as_slice(), ri_range),
+        ),
         Some((title, notice)) => ask_write_confirm(
             ui,
             title,
             format!("{notice}\n\nExport anyway?"),
             "Export Anyway",
             None,
-            move |ui| finish_export_schedule(ui, &schedule, default_file_name, format, &frosting),
+            move |ui| {
+                finish_export_schedule(
+                    ui,
+                    &schedule,
+                    default_file_name,
+                    format,
+                    (frosting.as_slice(), ri_range),
+                );
+            },
         ),
     }
 }
@@ -594,9 +630,12 @@ fn finish_export_schedule(
     schedule: &pleochroma_formats::asc::AscSchedule,
     default_file_name: String,
     format: ScheduleFormat,
-    frosting: &[(usize, pleochroma_formats::gcs::GcsTierFrosting)],
+    (frosting, ri_range): (
+        &[(usize, pleochroma_formats::gcs::GcsTierFrosting)],
+        RiRangeChoice,
+    ),
 ) {
-    let text = match schedule_file_text_with_frosting(schedule, format, frosting) {
+    let text = match schedule_file_text_with_frosting(schedule, format, frosting, ri_range) {
         Ok(text) => text,
         Err(message) => {
             show_toast(ui, &message, "error");

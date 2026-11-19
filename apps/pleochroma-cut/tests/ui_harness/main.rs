@@ -81,7 +81,22 @@ fn main() -> ExitCode {
                 .allow(&allow_list())
                 .gate_when(GateRule::Armed)
                 .label_props(&["reader_label", "slider_label"])
-                .reader_props(&["reader_label", "slider_label"])
+                // The properties that carry a site's accessible name, in the order the gate
+                // tries them (the first literal a site sets wins over its `text`). The kit's
+                // menu rows, bar buttons and place segments announce `label`, the toolbar
+                // toggles and lighting menu rows `name`, `MachineSlider` `accessible`, and
+                // `SizeRow` / `DegreeField` name their field with `field_label`. The two that
+                // name the FIELD come first: a site that also sets `label` or `name` uses it as
+                // its visible caption. `label` comes before `reader_label` for `PrintedChip`,
+                // whose chip announces "Printed " + `label` (its `reader_label` is the field's).
+                .reader_props(&[
+                    "accessible",
+                    "field_label",
+                    "label",
+                    "reader_label",
+                    "slider_label",
+                    "name",
+                ])
                 .callback_hint(
                     "add a table row in scenarios/coverage/ or an allow-list entry with a reason",
                 ),

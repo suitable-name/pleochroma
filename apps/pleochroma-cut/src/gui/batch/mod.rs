@@ -20,6 +20,7 @@ pub mod regenerate_all;
 pub mod remote_backoff;
 pub mod remote_dispatch;
 pub mod remote_lanes_setting;
+pub mod ri_range;
 #[cfg(test)]
 pub(super) mod test_records;
 pub mod tilt;

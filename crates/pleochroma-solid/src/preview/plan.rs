@@ -120,7 +120,9 @@ pub fn build_planned_frame_themed(
     let overlay = facet_map.overlay_flags(&design, n_d, selected_tier, pending_tiers);
     let unsolvable_status = match &plan.freshness {
         live_update::Freshness::Unsolvable(err) => {
-            Some(format!("Preview cannot be solved: {err}."))
+            let text = err.to_string();
+            let text = text.trim_end_matches('.');
+            Some(format!("Preview cannot be solved: {text}."))
         }
         _ => None,
     };

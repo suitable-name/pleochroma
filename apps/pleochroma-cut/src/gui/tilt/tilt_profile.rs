@@ -27,11 +27,12 @@
 //! a value that may be mid-update, at the cost of one redundant positive-half sweep of axis 0
 //! (~12% of the ~724 raytrace evaluations per run).
 //!
-//! Reads `RenderContext::active_planes`/`material_name`/`custom_materials`/
-//! `lighting_preset`/`light_yaw`/`light_pitch` directly -- the same inputs
-//! `bridge::render_thread::metrics::compute_or_reuse_metrics` keys its own cache on,
-//! minus camera yaw/pitch (irrelevant here since this always sweeps the full axis at
-//! four fixed azimuths).
+//! The curves are scored under the tilt standard
+//! ([`pleochroma_cut_core::optimize::canonical_environment`]: the grading preset at the canonical
+//! light pose with the default 16-degree head shadow), never under the viewport's lighting, light
+//! pose, head-shadow size or HDR map. So the curves of two designs compare, they equal the
+//! library's stored curves for the same stone, and changing the view does not re-launch a sweep.
+//! The cache key is therefore only the stone and its resolved material.
 //!
 //! The sweep honours frosting: the scene snapshot's `facet_finishes` (the frosted-girdle toggle
 //! and the design's authored frosting, empty for a polished stone) go to the sweep as a
@@ -45,20 +46,15 @@ use crate::{
     gui::optics::curve_path::full_axis_curve_path, settings::SettingsPersister,
 };
 use pleochroma::{
-    color::metrics::{
-        FinishedStone, PROFILE_AZIMUTHS_DEG, evaluate_all_axes_profiles_finished_threaded,
-        evaluate_full_axis_profile_at_azimuth_finished_threaded,
-    },
+    color::metrics::{FinishedStone, evaluate_all_axes_profiles_finished_threaded},
     geometry::{
         plane::GpuFacetPlane,
         tool::{StoneGeometry, ToolPrimitive},
     },
-    optics::{
-        materials::GemMaterial,
-        raytracer::{FacetFinish, LightingPreset},
-    },
+    optics::{materials::GemMaterial, raytracer::FacetFinish},
     render_setup::hash_geometry,
 };
+use pleochroma_cut_core::optimize::canonical_environment;
 use pleochroma_solid::preview::StoneGeometryBuf;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::{
@@ -70,42 +66,20 @@ use std::{
 };
 
 /// Cheap identity for "would recomputing the four full-axis sweeps produce a different
-/// result" -- the same fields `pleochroma::color::metrics::MetricsCacheKey` keys on,
-/// minus camera yaw/pitch (irrelevant here, see this module's doc comment).
+/// result": the stone and its resolved material. The lighting is the fixed tilt standard, so no
+/// view setting is part of it (see this module's doc comment).
 #[derive(Clone, PartialEq)]
 struct AxesCacheKey {
-    /// The selected lighting preset: the same stone scores differently under another.
-    lighting_preset: LightingPreset,
-    light_yaw: f32,
-    light_pitch: f32,
     /// The fully resolved material (`resolve_material`'s output), not its display name:
     /// `GemMaterial`'s field-by-field `PartialEq` makes an edit to a custom material's optics
     /// under the same name a cache-key change.
     material: GemMaterial,
     planes_hash: u64,
-    head_shadow_bits: u32,
-    hdr_identity: HdrIdentity,
-    /// The HDR map's orientation itself: `[yaw.to_bits(), u32::from(follows_camera)]`, all zero
-    /// without a map. Turning the map or flipping its camera switch re-scores the curves; an
-    /// orbit does not, because each axis is scored at its own camera yaw (a map that turns with
-    /// the camera is sampled at the axis azimuth, not at the viewport's yaw).
-    hdr_orientation_bits: [u32; 2],
 }
 
-#[derive(Clone)]
-struct HdrIdentity(Option<Arc<pleochroma::renderer::env_map::EnvironmentMap>>);
-impl PartialEq for HdrIdentity {
-    fn eq(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
-            (None, None) => true,
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-            _ => false,
-        }
-    }
-}
 /// Whether a fresh four-axis sweep for `requested` is needed, given what was last launched
 /// (`current`). `true` means the ~1.36s sweep must run; `false` means the `graph_*_extra_axes`
-/// data already describes exactly this material, light and geometry. Kept pure so it is testable.
+/// data already describes exactly this material and geometry. Kept pure so it is testable.
 #[must_use]
 fn should_recompute_axes(current: Option<&AxesCacheKey>, requested: &AxesCacheKey) -> bool {
     current != Some(requested)
@@ -134,46 +108,27 @@ fn stone_key(geom: StoneGeometry<'_>, finishes: &[FacetFinish]) -> u64 {
 
 /// One metric's curve for every `PROFILE_AZIMUTHS_DEG` axis, in axis order: four rows, each a
 /// full 181-point ±90° profile.
-type AxisCurveRows = Vec<[f32; 181]>;
+pub(in crate::gui) type AxisCurveRows = Vec<[f32; 181]>;
 
-/// Sweeps all four [`PROFILE_AZIMUTHS_DEG`] axes, each a full 181-point ±90° profile,
+/// Sweeps all four [`pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG`] axes, each a full
+/// 181-point ±90° profile,
 /// returning `(brilliance, extinction, windowing)` rows in axis order.
 ///
 /// `stone` carries the facet finishes of the stone on screen (the frosted-girdle toggle and the
 /// design's authored frosting), so the curves describe the frosted stone the viewport shows.
-fn sweep_all_axes(
+/// Scored under the tilt standard ([`canonical_environment`]), whatever the viewport shows.
+pub(in crate::gui) fn sweep_all_axes(
     stone: FinishedStone<'_>,
     material: &GemMaterial,
-    lighting_preset: LightingPreset,
-    light_yaw: f32,
-    light_pitch: f32,
-    head_shadow: f32,
-    hdr: Option<(
-        &pleochroma::renderer::env_map::EnvironmentMap,
-        pleochroma::renderer::env_map::HdrOrientation,
-    )>,
 ) -> (AxisCurveRows, AxisCurveRows, AxisCurveRows) {
     // The sweep itself lives in `pleochroma::color::metrics` (the browser app's Worker
     // runs the same one); this only splits its axes into the dialog's three row sets.
-    // Scored under the selected preset at the current light pose, the lighting the
-    // viewport renders with.
-    if let Some((map, orientation)) = hdr.filter(|(_, orientation)| orientation.follows_camera) {
-        // A map that turns with the camera is seen from each axis's own camera yaw (its
-        // azimuth), as the hover preview and the tilt-video frames see it.
-        return sweep_axes_following_hdr(stone, material, map, orientation);
-    }
-    let environment = hdr.map_or_else(
-        || {
-            lighting_preset
-                .studio(1.0, light_yaw, light_pitch)
-                .with_head_shadow(head_shadow)
-        },
-        |(map, orientation)| {
-            pleochroma::optics::raytracer::EnvironmentSource::hdr(map)
-                .with_hdr_rotation(orientation.rotation_for(0.0))
-        },
+    let axes = evaluate_all_axes_profiles_finished_threaded(
+        stone,
+        material,
+        canonical_environment(),
+        None,
     );
-    let axes = evaluate_all_axes_profiles_finished_threaded(stone, material, environment, None);
     let mut brilliance_rows: AxisCurveRows = Vec::with_capacity(axes.len());
     let mut extinction_rows: AxisCurveRows = Vec::with_capacity(axes.len());
     let mut windowing_rows: AxisCurveRows = Vec::with_capacity(axes.len());
@@ -181,35 +136,6 @@ fn sweep_all_axes(
         brilliance_rows.push(axis.brilliance);
         extinction_rows.push(axis.extinction);
         windowing_rows.push(axis.windowing);
-    }
-    (brilliance_rows, extinction_rows, windowing_rows)
-}
-
-/// [`sweep_all_axes`] for an HDR map that turns with the camera: one threaded sweep per
-/// [`PROFILE_AZIMUTHS_DEG`] axis, the map turned for that axis's own azimuth as camera yaw.
-fn sweep_axes_following_hdr(
-    stone: FinishedStone<'_>,
-    material: &GemMaterial,
-    map: &pleochroma::renderer::env_map::EnvironmentMap,
-    orientation: pleochroma::renderer::env_map::HdrOrientation,
-) -> (AxisCurveRows, AxisCurveRows, AxisCurveRows) {
-    let mut brilliance_rows: AxisCurveRows = Vec::with_capacity(PROFILE_AZIMUTHS_DEG.len());
-    let mut extinction_rows: AxisCurveRows = Vec::with_capacity(PROFILE_AZIMUTHS_DEG.len());
-    let mut windowing_rows: AxisCurveRows = Vec::with_capacity(PROFILE_AZIMUTHS_DEG.len());
-    for azimuth_deg in PROFILE_AZIMUTHS_DEG {
-        let environment = pleochroma::optics::raytracer::EnvironmentSource::hdr(map)
-            .with_hdr_rotation(orientation.rotation_for(azimuth_deg.to_radians()));
-        let (brilliance, extinction, windowing) =
-            evaluate_full_axis_profile_at_azimuth_finished_threaded(
-                stone,
-                material,
-                azimuth_deg,
-                environment,
-                None,
-            );
-        brilliance_rows.push(brilliance);
-        extinction_rows.push(extinction);
-        windowing_rows.push(windowing);
     }
     (brilliance_rows, extinction_rows, windowing_rows)
 }
@@ -340,28 +266,7 @@ fn request_axes_for_stone(
     let tools = Arc::new(scene.tools);
     let facet_finishes = Arc::new(scene.facet_finishes);
     let material = scene.material;
-    let lighting_preset = scene.lighting_preset;
-    let light_yaw = scene.light_yaw;
-    let light_pitch = scene.light_pitch;
-    let head_shadow = scene.head_shadow_deg;
-    let hdr = scene.env_map;
-    // The map's orientation (all zero for a studio scene). Not turned by the viewport's yaw:
-    // the sweep scores each axis at its own camera yaw, so an orbit changes nothing here.
-    let hdr_orientation = scene.hdr_orientation;
     let key = AxesCacheKey {
-        head_shadow_bits: head_shadow.to_bits(),
-        hdr_identity: HdrIdentity(hdr.clone()),
-        hdr_orientation_bits: if hdr.is_some() {
-            [
-                hdr_orientation.yaw.to_bits(),
-                u32::from(hdr_orientation.follows_camera),
-            ]
-        } else {
-            [0, 0]
-        },
-        lighting_preset,
-        light_yaw,
-        light_pitch,
         material: material.clone(),
         // `hash_geometry` is `hash_planes` for a planar stone, so its keys are unchanged; a
         // frosted stone's finishes are mixed in (`stone_key`), so frosting a facet or toggling
@@ -417,16 +322,10 @@ fn request_axes_for_stone(
 
     spawn_tilt_profile_sweep(
         SweepRequest {
-            head_shadow,
-            hdr,
-            hdr_orientation,
             planes,
             tools,
             finishes: facet_finishes,
             material,
-            lighting_preset,
-            light_yaw,
-            light_pitch,
             key,
         },
         SweepBookkeeping {
@@ -442,19 +341,12 @@ fn request_axes_for_stone(
 /// The per-sweep inputs of [`spawn_tilt_profile_sweep`], bundled to keep its signature short;
 /// see [`SweepBookkeeping`] for the rest.
 struct SweepRequest {
-    head_shadow: f32,
-    hdr: Option<Arc<pleochroma::renderer::env_map::EnvironmentMap>>,
-    /// How the viewport turns `hdr`; read only with a map.
-    hdr_orientation: pleochroma::renderer::env_map::HdrOrientation,
     planes: Arc<Vec<GpuFacetPlane>>,
     /// The concave tools cut out of `planes`; empty for a planar stone.
     tools: Arc<Vec<ToolPrimitive>>,
     /// The per-facet finishes of the stone on screen; empty when no facet is frosted.
     finishes: Arc<Vec<FacetFinish>>,
     material: GemMaterial,
-    lighting_preset: LightingPreset,
-    light_yaw: f32,
-    light_pitch: f32,
     /// The exact [`AxesCacheKey`] this sweep was launched for -- stamped into
     /// [`SweepBookkeeping::completed_key`] once the sweep actually lands, so a
     /// later staleness check (`request_axes_for_stone`'s own
@@ -488,16 +380,10 @@ fn spawn_tilt_profile_sweep(
     ui_weak_bg: slint::Weak<MainWindow>,
 ) {
     let SweepRequest {
-        head_shadow,
-        hdr,
-        hdr_orientation,
         planes,
         tools,
         finishes,
         material,
-        lighting_preset,
-        light_yaw,
-        light_pitch,
         key,
     } = request;
     let SweepBookkeeping {
@@ -516,11 +402,6 @@ fn spawn_tilt_profile_sweep(
                 &finishes,
             ),
             &material,
-            lighting_preset,
-            light_yaw,
-            light_pitch,
-            head_shadow,
-            hdr.as_deref().map(|map| (map, hdr_orientation)),
         );
 
         let brilliance_paths: Vec<SharedString> = brilliance_rows

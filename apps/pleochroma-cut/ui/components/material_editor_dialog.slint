@@ -424,7 +424,8 @@ export component MaterialEditorDialog inherits Rectangle {
 
                     body_col := VerticalLayout {
                         spacing: 14px;
-                        padding-right: 12px;
+                        // Clear of the scrollbar, which overlays the right edge of the content.
+                        padding-right: 20px;
 
                 // Base template selector and material name
                 // (`material_editor/template_selector.slint`).

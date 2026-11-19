@@ -41,6 +41,18 @@ pub const GLOBAL_DIM: usize = GlobalFeature::FEATURE_DIM;
 /// Width of one tier token.
 pub const TIER_DIM: usize = TierFeature::FEATURE_DIM;
 
+/// Feature shared by the probe displacement and the action limit in the global token.
+const fn displacement_token(degrees: f32) -> f32 {
+    degrees / 90.0
+}
+
+/// Whether a configured displacement stays positive and finite after conversion to a policy token.
+#[must_use]
+pub const fn is_observable_displacement(degrees: f64) -> bool {
+    let token = displacement_token(degrees as f32);
+    token.is_finite() && token > 0.0
+}
+
 /// Index of the first of seven global objective coefficients in the stable prefix.
 pub const WEIGHT_FRACTION_INDEX: usize = 34;
 /// Tier-token index of mobility (`1.0` movable, `0.0` otherwise).
@@ -456,8 +468,8 @@ impl GlobalFeature {
             self.shape_target_table_pct / 100.0,
             self.shape_target_ratio,
             self.shape_weight,
-            self.probe_scale_deg / 90.0,
-            self.action_step_deg / 90.0,
+            displacement_token(self.probe_scale_deg),
+            displacement_token(self.action_step_deg),
             self.fidelity,
             self.yield_available,
             self.shape_target_available,

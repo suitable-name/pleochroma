@@ -145,16 +145,28 @@ pub fn metered_exposure(
     light_yaw: f32,
     light_pitch: f32,
 ) -> f32 {
+    exposure * metered_exposure_factor(preset, light_yaw, light_pitch)
+}
+
+/// The factor [`metered_exposure`] multiplies the compensation by: `1.0` for the UV lamps and
+/// for a rig whose reading cannot be used.
+///
+/// A frozen scene holds the metered exposure, so dividing it by this factor gives the
+/// compensation the live exposure control showed (the exact inverse of [`metered_exposure`] for
+/// the same rig and light pose). A loaded HDR map is unmetered and has no factor: its exposure is
+/// the control's value as it is.
+#[must_use]
+pub fn metered_exposure_factor(preset: LightingPreset, light_yaw: f32, light_pitch: f32) -> f32 {
     if matches!(
         preset,
         LightingPreset::UvLamp365 | LightingPreset::UvLamp395
     ) {
-        return exposure;
+        return 1.0;
     }
     let paper = TRAY_ALBEDO_WHITE * rig_irradiance_over_pi(preset, light_yaw, light_pitch);
     if paper.is_finite() && paper > 1e-4 {
-        exposure * (METERED_PAPER_RADIANCE / paper)
+        METERED_PAPER_RADIANCE / paper
     } else {
-        exposure
+        1.0
     }
 }

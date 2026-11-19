@@ -144,6 +144,7 @@ const EDITOR_MAIN_SHARED: &[Row] = rows!(MainWindow, Main, Editor, false;
     SweepModel.invoke_heat_key(Default::default());
     SweepModel.invoke_heat_pointer(Default::default(), Default::default(), Default::default());
     SweepModel.invoke_mode_changed();
+    SweepModel.invoke_plot_resized();
     SweepModel.invoke_refine();
     SweepModel.invoke_run();
     SweepModel.invoke_run_2d();

@@ -36,6 +36,15 @@ pub(super) mod stage_nav;
 pub(in crate::gui::editor) use pleochroma_editor::guide::NEW_DESIGN_CREATED;
 pub(in crate::gui::editor) use progress::{check_design_progress, check_progress, notify};
 
+/// Whether a guide has asked for its starting design (a new one, or a library one) and is
+/// still waiting for it. The design then lands for the guide, which shows its own first
+/// step's stage when it opens, so the landing itself leaves the page alone
+/// (`gui::editor::landing`).
+#[must_use]
+pub(in crate::gui::editor) fn launch_pending() -> bool {
+    runtime::launch_pending()
+}
+
 use super::state::EditorState;
 use crate::{MainWindow, bridge::library::source::LibrarySource};
 use pleochroma_editor::guide::Guide;

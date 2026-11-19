@@ -35,7 +35,8 @@ pub use codec::{
 };
 pub use effects_tables::{InclusionEffectsTable, StructureEffectsTable};
 pub use meta::{
-    DesignMetadata, MAX_META_TAG_BYTES, MAX_META_TAGS, MAX_META_TEXT_BYTES, is_iso8601_utc, is_uuid,
+    DesignMetadata, MAX_META_TAG_BYTES, MAX_META_TAGS, MAX_META_TEXT_BYTES, RiRangeChoice,
+    is_iso8601_utc, is_uuid,
 };
 pub use path::{
     DESIGN_ACCEPT, DESIGN_EXTENSION, DESIGN_EXTENSION_DOTTED, DESIGN_FILE_DESCRIPTION,

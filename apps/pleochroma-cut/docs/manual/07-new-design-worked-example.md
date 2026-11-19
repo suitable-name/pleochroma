@@ -205,7 +205,8 @@ girdle band.
 4. **Indices**: `0, 12, 24, 36, 48, 60, 72, 84`.
 5. Click **Add This Tier**.
 
-Check the tier table's own CODE column (just left of ANGLE; Chapter 3) reads
+Check the tier code at the start of this row in the tier table (just before the
+angle; Chapter 3) reads
 **G1** for this row before moving on -- that is your confirmation the girdle classified
 the way you intended.
 
@@ -224,10 +225,10 @@ meets alone: it needs one stated number in each block.
    main angle at this general RI range -- expect to refine this). Type the
    plain number: the **P** in the name you give in item 3 puts the tier on the
    pavilion side, below the girdle. Check the
-   tier list's MARGIN column (Chapter 6) once this tier exists. With no
+   margin mark at the right end of the row (Chapter 6) once this tier exists. With no
    material selected yet, the design's effective RI is still its legacy
    default (1.54), whose critical angle is 40.5 degrees, so `40.0` sits just
-   below it: the P1 row reads **-0.5°** in red (Windows). That is expected
+   below it: the mark at the right end of the P1 row reads **window -0.5°** in red. That is expected
    for now; Step 6 picks a real material and fixes it.
 2. **Meets**: **Exact Scale Value**, typing `0.56`. This is the anchor of
    the pavilion block. At 40.0 degrees it puts the culet, the point at the
@@ -299,10 +300,10 @@ blank deeper first, in the inspector's Preform tab.
 
 Open the **Stone** tab of the Parameters dock (View menu, or Ctrl+Alt+1; Chapter 6) and
 set **Material** to, say, `Diamond`. It applies at once, as one undo step. Watch the **Effective RI**/
-**Critical Angle** readouts update, and re-check the pavilion tier's MARGIN
-column at the new (higher) RI -- diamond's critical angle (~24.4 degrees) is
-much smaller than the legacy 1.54 default's (40.5 degrees), so the P1 row
-turns from red to green and reads **+15.6°** (Safe). If you picked a lower-RI
+**Critical Angle** readouts update, and re-check the pavilion tier's margin
+mark at the new (higher) RI -- diamond's critical angle (~24.4 degrees) is
+much smaller than the legacy 1.54 default's (40.5 degrees), so the mark at the right end
+of the P1 row turns from red to green and reads **+15.6°** (Safe). If you picked a lower-RI
 material instead, you might see it stay at Marginal or Windows; adjust the
 pavilion angle if so, per Chapter 6's retargeting walkthrough.
 
@@ -330,10 +331,12 @@ pavilion angle if so, per Chapter 6's retargeting walkthrough.
 
 ## Step 8: Check the Orbits
 
-For each multi-index tier (girdle, pavilion mains, crown mains), check the
-**ORBIT** column reads `orbit x8`. If it instead reads something like `6/8
-orbit` in bold amber, an index position is missing or inconsistent --
-compare the tier's Indices field against the intended list.
+For each multi-index tier (girdle, pavilion mains, crown mains), read the
+small line under the tier's index positions in the tier list. A complete orbit
+is not listed, so the line shows no orbit count. If it shows a count such as
+`6/8 orbit`, an index position is missing or inconsistent --
+compare the tier's Indices field against the intended list, or, in the Advanced
+interface, choose **Complete Orbit** in the row's "..." menu.
 
 ## Step 9: Optional -- Yield and Rendering
 

@@ -24,7 +24,7 @@ component LightingChip inherits Rectangle {
     height: 30px;
     width: chip_lay.preferred-width;
     border-radius: 8px;
-    background: root.open ? Theme.bg-elevated : (chip_touch.has-hover ? Theme.bg-card-hover : Theme.glass-edge);
+    background: root.open ? Theme.bg-elevated : (chip_touch.has-hover ? Theme.bg-card-hover : (Theme.high-contrast ? Theme.bg-card : Theme.glass-edge));
     // The open tutorial step may outline this chip (a cyan, 2px border).
     border-width: chip_focus.has-focus || GuideModel.highlight_target == "lighting_combo" ? 2px : 0px;
     border-color: chip_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
@@ -77,6 +77,8 @@ component LightingChip inherits Rectangle {
 // The one accent button of the toolbar. While an export runs it reads "Exporting..." and brings
 // that export's progress window back.
 component ExportButton inherits Rectangle {
+    // The word beside the icon; off on a very narrow view (the accessible name stays).
+    in property <bool> show_text: true;
     callback clicked();
 
     property <bool> enabled: !ExportRunModel.running || ExportModel.is_exporting;
@@ -125,7 +127,7 @@ component ExportButton inherits Rectangle {
             alignment: center;
             KitIcon { d: KitIcons.export; size: 15px; ink: root.enabled ? Theme.text-on-accent : Theme.text-disabled; }
         }
-        Text {
+        if root.show_text: Text {
             text: root.text;
             font-size: 13px;
             font-weight: 700;
@@ -146,8 +148,15 @@ component ExportButton inherits Rectangle {
 // `ProblemBanner`. `menu` is which menu `gem_viewport.slint` has open (0 none, 1 rig, 2 view).
 //
 // Simple mode hides the Tilt Curve button (`GuideModel.shows_advanced()`).
+//
+// A view too narrow for all of it (`gem_viewport.slint` decides) sets `tight`, which drops the
+// texts of View and Export, and below that mounts the toolbar twice with `part`: 1 is lighting,
+// camera and analysis, 2 is Export and Help, each on a row of its own.
 export component GemViewportToolbarActions inherits KitGlass {
     in property <bool> narrow: false;
+    in property <bool> tight: false;
+    // 0 the whole toolbar, 1 lighting, camera and analysis only, 2 Export and Help only.
+    in property <int> part: 0;
     in-out property <int> menu: 0;
 
     width: tools.preferred-width + 12px;
@@ -159,7 +168,7 @@ export component GemViewportToolbarActions inherits KitGlass {
         spacing: 4px;
         alignment: center;
 
-        VerticalLayout {
+        if root.part != 2: VerticalLayout {
             alignment: center;
             LightingChip {
                 show_name: !root.narrow;
@@ -167,7 +176,7 @@ export component GemViewportToolbarActions inherits KitGlass {
                 clicked => { root.menu = root.menu == 1 ? 0 : 1; }
             }
         }
-        VerticalLayout { alignment: center; ToolDivider { } }
+        if root.part != 2: VerticalLayout { alignment: center; ToolDivider { } }
 
         // The camera buttons.
         if !root.narrow: VerticalLayout {
@@ -214,22 +223,23 @@ export component GemViewportToolbarActions inherits KitGlass {
                 clicked => { ViewportModel.set_view(6); }
             }
         }
-        if root.narrow: VerticalLayout {
+        if root.narrow && root.part != 2: VerticalLayout {
             alignment: center;
             ToolToggle {
                 icon: KitIcons.camera;
                 text: "View";
                 name: "View";
+                show_text: !root.tight;
                 hint: "Camera buttons: Reset Camera, Front, Top and Turn 90°.";
                 on: root.menu == 2;
                 clicked => { root.menu = root.menu == 2 ? 0 : 2; }
             }
         }
-        VerticalLayout { alignment: center; ToolDivider { } }
+        if root.part != 2: VerticalLayout { alignment: center; ToolDivider { } }
 
         // Analysis. Tilt Curve is an advanced tool: hidden in Simple mode, and locked with the
         // other advanced actions while a guide runs.
-        if GuideModel.shows_advanced(): VerticalLayout {
+        if GuideModel.shows_advanced() && root.part != 2: VerticalLayout {
             alignment: center;
             ToolToggle {
                 icon: KitIcons.chart;
@@ -248,7 +258,7 @@ export component GemViewportToolbarActions inherits KitGlass {
         }
         // Opens the Optical Diagnostics panel. Path-Traced only: the diagnostics overlay the
         // traced picture.
-        if ViewportModel.live_view_mode == 1: VerticalLayout {
+        if ViewportModel.live_view_mode == 1 && root.part != 2: VerticalLayout {
             alignment: center;
             ToolToggle {
                 icon: KitIcons.target;
@@ -260,15 +270,16 @@ export component GemViewportToolbarActions inherits KitGlass {
                 clicked => { OpticalModel.panel_open = !OpticalModel.panel_open; }
             }
         }
-        VerticalLayout { alignment: center; ToolDivider { } }
+        if root.part == 0: VerticalLayout { alignment: center; ToolDivider { } }
 
-        VerticalLayout {
+        if root.part != 1: VerticalLayout {
             alignment: center;
             ExportButton {
+                show_text: !root.tight || root.part == 2;
                 clicked => { ExportModel.is_open = !ExportModel.is_open; }
             }
         }
-        VerticalLayout {
+        if root.part != 1: VerticalLayout {
             alignment: center;
             HelpButton {
                 topic: HelpTopics.live-render;

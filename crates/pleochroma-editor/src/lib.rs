@@ -82,6 +82,7 @@ pub mod optimize_view;
 pub mod printed_proportions;
 pub mod raw_text;
 pub mod retarget;
+pub mod ri_range;
 pub mod scratch;
 pub mod session;
 pub mod slider_ranges;

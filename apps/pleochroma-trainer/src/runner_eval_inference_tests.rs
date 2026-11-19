@@ -22,7 +22,7 @@ fn request(tiers: usize, marker: f32) -> (Request, Receiver<PolicyResult>) {
         Request {
             state,
             tiers,
-            reply,
+            reply: Reply::Policy(reply),
         },
         result,
     )
@@ -52,15 +52,19 @@ fn ready_cases_are_batched_bounded_padded_and_routed_to_their_original_callers()
     }
     drop(send);
     let mut batch_sizes = Vec::new();
-    serve(&receive, |states, counts| {
-        batch_sizes.push(states.len());
-        let padded = counts.iter().copied().max().unwrap();
-        for (row, &n) in states.iter().zip(counts) {
-            assert_eq!(row.len(), GLOBAL_DIM + padded * TIER_DIM);
-            assert!(row[GLOBAL_DIM + n * TIER_DIM..].iter().all(|&x| x == 0.0));
-        }
-        Ok(output(states, counts))
-    })
+    serve(
+        &receive,
+        |states, counts| {
+            batch_sizes.push(states.len());
+            let padded = counts.iter().copied().max().unwrap();
+            for (row, &n) in states.iter().zip(counts) {
+                assert_eq!(row.len(), GLOBAL_DIM + padded * TIER_DIM);
+                assert!(row[GLOBAL_DIM + n * TIER_DIM..].iter().all(|&x| x == 0.0));
+            }
+            Ok(output(states, counts))
+        },
+        |_, _| panic!("sampled PPO requires deviations"),
+    )
     .unwrap();
     assert_eq!(batch_sizes, [MAX_BATCH, 1]);
     for (i, (tiers, reply)) in replies.into_iter().enumerate() {
@@ -82,10 +86,14 @@ fn failed_backend_notifies_the_batch_and_disconnects_queued_cases_without_fallba
     drop(send);
     let worker = thread::spawn(move || {
         let mut calls = 0;
-        let error = serve(&receive, |_, _| {
-            calls += 1;
-            Err("CUDA failed".into())
-        })
+        let error = serve(
+            &receive,
+            |_, _| {
+                calls += 1;
+                Err("CUDA failed".into())
+            },
+            |_, _| panic!("sampled PPO requires deviations"),
+        )
         .unwrap_err();
         assert_eq!(calls, 1);
         assert_eq!(error, "CUDA failed");
@@ -118,4 +126,41 @@ fn malformed_and_nonfinite_device_results_are_fatal() {
     let mut nonfinite = valid;
     nonfinite.log_stds[1][2] = f32::NAN;
     assert!(check_output(&nonfinite, &counts).is_err());
+}
+
+#[test]
+fn deterministic_requests_use_only_means_and_mixed_requests_keep_sampled_deviations() {
+    for mixed in [false, true] {
+        let (send, receive) = mpsc::sync_channel(2);
+        let (mean, result) = mpsc::sync_channel(1);
+        send.send(Request {
+            state: vec![1.0; GLOBAL_DIM + TIER_DIM],
+            tiers: 1,
+            reply: Reply::Mean(mean),
+        })
+        .unwrap();
+        let (sample, sample_result) = request(2, 4.0);
+        if mixed {
+            send.send(sample).unwrap();
+        }
+        drop(send);
+        serve(
+            &receive,
+            |states, counts| {
+                assert!(mixed);
+                Ok(output(states, counts))
+            },
+            |states, counts| {
+                assert!(!mixed);
+                Ok(output(states, counts).means)
+            },
+        )
+        .unwrap();
+        assert_eq!(result.recv().unwrap().unwrap(), [1.0]);
+        if mixed {
+            let policy = sample_result.recv().unwrap().unwrap();
+            assert_eq!(policy.mean, [4.0, 4.0]);
+            assert_eq!(policy.log_std, [-0.5, -0.5]);
+        }
+    }
 }

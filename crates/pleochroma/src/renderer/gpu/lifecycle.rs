@@ -14,9 +14,12 @@
 //!
 //! Not compiled for wasm32: one thread, and the browser owns the device.
 
-use std::sync::{
-    Arc, Condvar, Mutex, PoisonError,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc, Condvar, Mutex, PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 /// A turn-taking lock whose guard is `Send`, so an async acquisition can hold it across its
@@ -54,6 +57,26 @@ impl Gate {
         drop(busy);
         Turn { gate: Some(self) }
     }
+
+    /// Whether the turn stayed taken for the whole `wait`; never takes it.
+    fn busy_for(&self, wait: Duration) -> bool {
+        let (busy, result) = self
+            .freed
+            .wait_timeout_while(
+                self.busy.lock().unwrap_or_else(PoisonError::into_inner),
+                wait,
+                |busy| *busy,
+            )
+            .unwrap_or_else(PoisonError::into_inner);
+        drop(busy);
+        let timed_out = result.timed_out();
+        if !timed_out {
+            // `Turn::drop` signals one waiter; this check may have taken that signal, so pass it
+            // on to a thread that really waits for the turn.
+            self.freed.notify_one();
+        }
+        timed_out
+    }
 }
 
 /// The gate of the process.
@@ -88,6 +111,11 @@ pub(in crate::renderer::gpu) fn enter() -> Turn {
         return Turn { gate: None };
     }
     GATE.enter()
+}
+
+/// Whether the process-wide turn stayed taken for the whole `wait`; never takes it.
+pub(in crate::renderer::gpu) fn busy_for(wait: Duration) -> bool {
+    GATE.busy_for(wait)
 }
 
 /// What the clones of one context share for its teardown.
@@ -211,7 +239,7 @@ impl Drop for TeardownEnd {
 
 #[cfg(test)]
 mod tests {
-    use super::{Gate, pair_on};
+    use super::{Duration, Gate, pair_on};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A gate of its own, so the tests do not meet the GPU tests of the same process.
@@ -244,6 +272,17 @@ mod tests {
         });
         assert_eq!(most.load(Ordering::SeqCst), 1);
         assert!(!busy(gate));
+    }
+
+    #[test]
+    fn a_gate_is_busy_for_the_wait_only_while_a_turn_is_taken() {
+        let gate = leaked_gate();
+        assert!(!gate.busy_for(Duration::from_millis(20)));
+        assert!(!busy(gate), "the check took the turn");
+        let turn = gate.enter();
+        assert!(gate.busy_for(Duration::from_millis(20)));
+        drop(turn);
+        assert!(!gate.busy_for(Duration::from_millis(20)));
     }
 
     #[test]

@@ -19,8 +19,8 @@ use std::{
 };
 
 use crate::platform::{
-    AppDirs, DocumentsCallback, IncomingCallback, OpenRequest, OutgoingFile, PickedFile, Platform,
-    PlatformError, SaveCallback, SaveOutcome,
+    AppDirs, DeviceFacts, DocumentsCallback, ExitInfo, IncomingCallback, OpenRequest, OutgoingFile,
+    PickedFile, Platform, PlatformError, SaveCallback, SaveOutcome,
 };
 
 /// A directory path under the system temp directory that no other call (in this process
@@ -37,6 +37,19 @@ pub fn unique_temp_dir(tag: &str) -> PathBuf {
         "pleochroma-mobile-{tag}-{}-{nanos}-{n}",
         std::process::id()
     ))
+}
+
+/// One call to [`Platform::compose_email`], as the mock recorded it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposedEmail {
+    /// The recipient.
+    pub to: String,
+    /// The subject line.
+    pub subject: String,
+    /// The body text.
+    pub body: String,
+    /// The one attachment.
+    pub attachment: OutgoingFile,
 }
 
 /// What the credential-vault calls report while the mock has no vault (the trait's own
@@ -63,6 +76,14 @@ struct Recorded {
     vault_missing: bool,
     /// Whether [`Platform::forget_remote_credentials`] fails and leaves the bundle in place.
     forget_fails: bool,
+    /// Every [`Platform::compose_email`] call.
+    emails: Vec<ComposedEmail>,
+    /// What [`Platform::compose_email`] answers with an error, if set.
+    email_error: Option<PlatformError>,
+    /// What [`Platform::device_facts`] reports.
+    facts: DeviceFacts,
+    /// What [`Platform::last_exit`] reports, whatever the time asked.
+    exit: Option<ExitInfo>,
 }
 
 /// A [`Platform`] that answers from scripted responses and records every call. See the
@@ -174,6 +195,28 @@ impl MockPlatform {
     #[must_use]
     pub fn keep_screen_on_history(&self) -> Vec<bool> {
         self.lock().keep_screen_on.clone()
+    }
+
+    /// Sets what [`Platform::device_facts`] reports (empty is the default).
+    pub fn set_device_facts(&self, facts: DeviceFacts) {
+        self.lock().facts = facts;
+    }
+
+    /// Sets what [`Platform::last_exit`] reports (`None` is the default). The mock answers with
+    /// it when its timestamp is later than the time asked.
+    pub fn set_last_exit(&self, exit: Option<ExitInfo>) {
+        self.lock().exit = exit;
+    }
+
+    /// Makes [`Platform::compose_email`] fail with this error (`None` makes it succeed again).
+    pub fn set_email_error(&self, error: Option<PlatformError>) {
+        self.lock().email_error = error;
+    }
+
+    /// Every [`Platform::compose_email`] call so far, oldest first.
+    #[must_use]
+    pub fn composed_emails(&self) -> Vec<ComposedEmail> {
+        self.lock().emails.clone()
     }
 
     /// Every address passed to [`Platform::open_url`], oldest first.
@@ -299,6 +342,36 @@ impl Platform for MockPlatform {
         Ok(())
     }
 
+    fn device_facts(&self) -> DeviceFacts {
+        self.lock().facts.clone()
+    }
+
+    fn last_exit(&self, after_ms: i64) -> Option<ExitInfo> {
+        self.lock()
+            .exit
+            .clone()
+            .filter(|exit| exit.timestamp_ms > after_ms)
+    }
+
+    fn compose_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+        attachment: OutgoingFile,
+    ) -> Result<(), PlatformError> {
+        let mut state = self.lock();
+        state.emails.push(ComposedEmail {
+            to: to.to_owned(),
+            subject: subject.to_owned(),
+            body: body.to_owned(),
+            attachment,
+        });
+        let error = state.email_error.clone();
+        drop(state);
+        error.map_or(Ok(()), Err)
+    }
+
     fn set_incoming_handler(&self, handler: IncomingCallback) {
         self.lock().incoming = Some(Arc::from(handler));
     }
@@ -399,6 +472,54 @@ mod tests {
         assert_eq!(mock.clipboard_texts(), vec!["copied".to_owned()]);
         assert_eq!(mock.keep_screen_on_history(), vec![true, false]);
         assert_eq!(mock.opened_urls(), vec!["https://example.org".to_owned()]);
+    }
+
+    #[test]
+    fn compose_email_is_recorded_and_can_fail() {
+        let mock = MockPlatform::default();
+        mock.compose_email("to@x.y", "Subject", "Body", file("logs.zip"))
+            .expect("compose");
+        let sent = mock.composed_emails();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].to, "to@x.y");
+        assert_eq!(sent[0].subject, "Subject");
+        assert_eq!(sent[0].body, "Body");
+        assert_eq!(sent[0].attachment.suggested_name, "logs.zip");
+        assert!(mock.shared_files().is_empty(), "it is not a share");
+
+        mock.set_email_error(Some(PlatformError::new("no mail app")));
+        assert_eq!(
+            mock.compose_email("a", "b", "c", file("x.zip")),
+            Err(PlatformError::new("no mail app"))
+        );
+        assert_eq!(mock.composed_emails().len(), 2);
+    }
+
+    #[test]
+    fn device_facts_and_last_exit_are_settable() {
+        use crate::platform::ExitReason;
+
+        let mock = MockPlatform::default();
+        assert_eq!(mock.device_facts(), DeviceFacts::default());
+        assert_eq!(mock.last_exit(0), None);
+        mock.set_device_facts(DeviceFacts {
+            model: "KB1001".to_owned(),
+            ..DeviceFacts::default()
+        });
+        assert_eq!(mock.device_facts().model, "KB1001");
+        mock.set_last_exit(Some(ExitInfo {
+            reason: ExitReason::Anr,
+            description: "anr".to_owned(),
+            timestamp_ms: 500,
+            pid: 7,
+            trace_file: None,
+        }));
+        assert_eq!(mock.last_exit(499).map(|exit| exit.pid), Some(7));
+        assert_eq!(
+            mock.last_exit(500),
+            None,
+            "only an exit later than the time asked"
+        );
     }
 
     #[test]

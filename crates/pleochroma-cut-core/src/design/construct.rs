@@ -4,7 +4,7 @@
 //! and [`Design::from_asc_schedule`]'s doc comment for the "pin every tier" import policy.
 
 use super::{ConstraintTier, Design, ScheduleMeta};
-use crate::{material::MaterialSelection, preform::PreformSpec};
+use crate::{material::MaterialSelection, native::RiRangeChoice, preform::PreformSpec};
 use pleochroma::geometry::meet_solver::{MeetConstraint, meet_tier_inputs_from_asc};
 use pleochroma_formats::asc::AscSchedule;
 use std::collections::BTreeMap;
@@ -65,6 +65,7 @@ impl Design {
             tier_meet_picks: BTreeMap::new(),
             render_effects: super::render_effects::StoneRenderEffects::default(),
             crystal_axis_plan: None,
+            ri_range_choice: RiRangeChoice::Off,
             file_extras: None,
         }
     }
@@ -103,6 +104,7 @@ impl Design {
             tier_meet_picks: BTreeMap::new(),
             render_effects: super::render_effects::StoneRenderEffects::default(),
             crystal_axis_plan: None,
+            ri_range_choice: RiRangeChoice::Off,
             file_extras: None,
         }
     }
@@ -223,6 +225,7 @@ impl Design {
             tier_meet_picks: BTreeMap::new(),
             render_effects: super::render_effects::StoneRenderEffects::default(),
             crystal_axis_plan: None,
+            ri_range_choice: RiRangeChoice::Off,
             file_extras: None,
         }
     }

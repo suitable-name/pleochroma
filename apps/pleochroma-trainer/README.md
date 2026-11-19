@@ -1,5 +1,7 @@
 # pleochroma-trainer
 
+The [A100 optimization blueprint](A100_OPTIMIZATION_BLUEPRINT.md) gives native-corpus benchmark commands, correctness criteria and the order of the throughput experiments.
+
 Standalone Slint GUI and headless CLI for training the two `pleochroma-ai` policies. Training is
 not wired into the editor, web app, mobile app, or worker services. A trained checkpoint must be
 integrated separately. The GUI and CLI share the trainer loop and model format.
@@ -20,13 +22,13 @@ preservation gate do not depend on the device; checkpoints remain backend-indepe
 Objective and optimizer settings in effect (plan and acceptance criteria:
 [`docs/ai-training-implementation-plan.md`](../../docs/ai-training-implementation-plan.md)):
 
-- **Reward equals objective.** The silhouette-drift reward term is charged only when the episode
-  defines a shape target, so PPO optimizes the function it reports. PPO runs from before this rule
-  should use a fresh output prefix.
-- **Per-sample sensitivity loss** (imitation objective revision 3). The sensitivity Huber term is
-  averaged per sample, like the action, direction and gain terms, so designs with more tiers do not
-  carry more gradient weight. Revision-2 recoveries keep their weights, optimizer and replay and log
-  a migration warning; loss histories across the revisions are not directly comparable.
+- **Shape in PPO.** The score carries the configured shape objective. The default PPO reward
+  adds zero separate silhouette-drift weight. Rejection costs, step costs, clipping and the
+  terminal bonus still influence its return. The deployed horizon has zero successor value.
+- **Imitation objective revision 4.** The sensitivity Huber term averages supported samples.
+  The action objective uses verified teacher demonstrations and measured rollout proposals
+  from fresh zero-gain searches. Resume retains compatible observations, labels, weights
+  and Adam moments. Compare deployment scores when the loss revision changes.
 - **`--weight-decay <X>`** adds L2 decay to the shared Adam optimizer (both algorithms, default
   `0` = off). It is part of the recovery identity, so a resume cannot change it silently.
 - **Bounded optical coalescing** for sparse Fast batches, from
@@ -88,6 +90,15 @@ The split seed is recorded. `--fixture` is a smoke test that deliberately shares
 the same fixture across splits; it is not evidence of generalization and cannot produce a
 best-validation checkpoint.
 
+Each completed iteration's exported `diagnostics` records the distinct training entries that
+actually supplied a step (`stepped_entries`) and their connected source/geometry families
+(`stepped_families`). A rejected action still counts as a step. When an environment fails to
+build, a step counts toward the replacement entry. In imitation mode, `fresh_label_entries`
+counts entries whose fresh informative label survived insertion into replay. Cache hits do
+not add label coverage, and subsequent evictions can change replay membership. PPO keeps
+teacher probes as diagnostics, so its `fresh_label_entries` is zero. Counts restart each
+round. Older telemetry reads as zero for these fields.
+
 Use a fresh output prefix when switching to a native corpus, or for a native run that froze
 unspecified materials or used the default physical size. Recovery refuses a
 changed loaded corpus so saved episodes cannot silently resume under different material/size
@@ -132,9 +143,9 @@ replay entries. `diagnostics.labels_added` reports those entries separately.
 Imitation training restarts an episode after eight consecutive rejected actions by default.
 `--max-rejected-steps N` changes this sampling limit; zero disables it. Acceptance resets the
 streak. This spends collection on new states rather than an entire episode stuck on one
-design. It does not relax meet preservation, claim the stone is optimal, or shorten held-out
-evaluation or PPO episodes. More fresh labels can cost more CPU time per step; the intended
-benefit is more distinct supervised states, not a guaranteed increase in raw steps/second.
+design. The deterministic validation policy uses the deployment limit of eight consecutive
+rejections independently of this training setting. PPO collection follows its environment
+horizon. Restarting imitation episodes can increase the number of distinct states labelled.
 
 Environment slots are capped by rollout size and are scheduled on one persistent bounded Rayon
 pool. Line searches start serial while enough slots remain to occupy the pool. As slots finish,
@@ -159,7 +170,8 @@ the legacy unsafe bucket), exact unchanged proposals, new replay labels, cached 
 and stalled episode restarts. Proposal diagnostics describe the accepted candidate or the
 first attempted scale when all scales fail; they do not enumerate every speculative candidate.
 
-Training and validation fidelity are separate CLI settings. Validation uses a fixed cohort;
+Training and diagnostic rollout fidelity are separate CLI settings. Checkpoint selection
+always uses the host Fast policy and its certified Full endpoint. Validation uses a fixed cohort.
 `--objective-sweep` evaluates each selected design under all seven named objectives. Coverage
 reports show missing objectives and spectrum materials rather than implying that a small random
 cohort covered every material. `--classical-baseline N` optionally runs the public coordinate
@@ -237,7 +249,15 @@ Ctrl-C (SIGINT) or SIGTERM stops a CLI run cleanly: the current iteration finish
 saved, and the process exits with code 130 and the `--resume` command to continue. A second
 signal exits at once. Best-validation checkpoints are kept per validation identity
 (`*-best-validation-v3.<identity hash>.json`), so a resume on another device never overwrites
-the best model of the original one.
+the best model of the original one. Selection minimizes the complete held-out cohort's
+mean certified Full endpoint score (`val_deployed_score`). Each case runs the default
+Fast inference policy on the same host model and geometry as the editor, stops after
+eight consecutive rejected steps, and keeps the starting
+design unless the proposal scores strictly better at Full fidelity. Per-case records include
+both Full scores and the deployment step and evaluation counts. A custom diagnostic
+rollout fidelity, step size, line search or accelerator produces a separate trajectory. The diagnostic
+scores and sampled, noise and oracle references keep their own fields. Older runs have
+no deployed score and retain their previous best weights under their original identity.
 
 Numbered model-only checkpoints remain available for inference and warm starts. The exact
 `--save-weights` path receives final weights; when omitted, it defaults to `<save-stats stem>.ckpt.json`
@@ -247,8 +267,10 @@ validation/test results in `<stats-stem>-evaluations.json`.
 Older model-only checkpoints cannot restore optimizer, replay or environment state. Use
 `--warm-start PATH` with the desired training flags to begin a new run from those weights; its
 iteration counter, optimizer, replay, RNG and reward scale start fresh. Choose new output names.
-Model checkpoints still use schema v6 and observation layout v7; schema 5 and earlier are
-incompatible with the larger embeddings. Do not alter schema or layout identifiers to force a load.
+Model checkpoint schema 7 records the effective probe displacement used in the layout 7
+observation. Schema 6 weights also load. For a schema 6 run with a custom probe size,
+set `InferenceConfig::probe_scale_deg` explicitly. Otherwise inference uses its rollout
+step limit, matching the trainer default. Schema 5 and earlier have incompatible embeddings. Do not alter schema or layout identifiers to force a load.
 
 Replay rows retain each observation's global features and real tier tokens, omitting only zero
 padding. `--label-capacity` limits the row count; `--label-memory-mib` limits retained host
@@ -299,7 +321,7 @@ live sidecar and terminal output if a task stops completing. Compare a separate 
 `--device cpu`, or explicit `--device cuda` when built with CUDA support. Native CUDA also accelerates the teacher's optical evaluations and supported projection residuals; WGPU does not. Once phase timings are available, increase collection and neural
 batch sizes separately; the large examples below are workload choices, not throughput guarantees.
 
-### Current training commands (layout 7 / schema 6)
+### Current training commands (layout 7 / schema 7)
 
 Checkpoints of schema 5 and earlier cannot be warm-started into these larger embeddings.
 Omit `--workers` initially: the default is three episode slots per available CPU core, all sharing
@@ -371,8 +393,9 @@ DIAGRAM_DB_PATH=/notebooks/facet_diagrams.sqlite ./pleochroma-trainer-cli \
 
 For optimizer fine-tuning, change `--mode`, the compatible `--warm-start` checkpoint and both output
 names to optimizer. This fine-tuning command deliberately starts a new run: replay, optimizer and RNG states start anew.
-Full validation/test run the entire policy episode with Full scoring, not just the endpoint;
-the automatic Full teacher-reference pass is omitted. Final `--eval-test` visits the entire held-out
+Full validation and test diagnostics score every policy step at Full fidelity. These cases
+also run the default host Fast policy and measure its certified Full endpoint for the deployment
+metric. Automatic teacher references are limited to Fast validation. Final `--eval-test` visits the entire held-out
 test split and can be lengthy. The four-design fine-tuning cohort above is only a progress check;
 use a broader cohort for a quality assessment. Preserve the final test split for model selection's end.
 
@@ -663,9 +686,12 @@ age of its whole task, so time preparing geometry is not reported as time waitin
 The action Huber loss balances moving and stationary coordinates within each
 verified teacher action, then averages samples. `--cosine-coeff`
 weights a bounded vector disagreement penalty with a useful gradient at a zero prediction; raw
-cosine remains a diagnostic. Metrics identify this loss as
-`imitation_objective_revision: "balanced-action-vector-v2"`; total losses from
-older objective definitions are not directly comparable.
+cosine remains a diagnostic. If a fresh teacher search finds zero gain, the rollout adds
+evidence about the proposal it actually executed. Accepted proposals provide positive targets.
+Rejected proposals supply a one-sided preference for abstaining over repeating that proposal.
+Old replay rows without measured rollout evidence keep their original masks. The gain target
+continues to describe the bounded teacher search. Telemetry records the objective revision
+(`balanced-action-vector-v4` for this loss). Compare certified endpoints across revisions.
 
 Validation selects distinct connected design families before additional material
 contexts. Reports distinguish entries, families, and objective cases. Imitation
@@ -678,9 +704,10 @@ original reference computation, not time spent in the current validation pass.
 Generalization-gap eligibility counts families rather than repeated objective
 cases. It is a stratified diagnostic, not an unbiased population estimate.
 
-Evaluation journals and best-validation selection use revision 3. Changed cohort
-or physics settings start a new best-score comparison; older evaluation records
-remain in the history. Recovery from an older CUDA revision keeps learned
+Evaluation snapshots, journal directories and best-score identities use evaluation revision 4.
+The best-weights filename retains its `best-validation-v3` prefix and includes the identity
+hash. A changed cohort, backend or scoring revision starts a separate best-score comparison.
+Earlier evaluation records remain in history. Recovery from an older CUDA revision keeps learned
 weights, optimizer state, RNG and episodes, but rebuilds derived teacher labels
 and reference caches. Compare deterministic held-out improvements against sampled,
 zero-mean and oracle improvements before concluding that a lower training loss

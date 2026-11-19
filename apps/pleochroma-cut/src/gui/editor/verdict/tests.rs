@@ -5,12 +5,13 @@
 use super::{
     FIX_RUNNING, OUT_OF_DATE, SLOT, Slot, advance_baseline, failure_text, pending_fix,
     present::{ReasonRow, rows_of},
-    work::compute,
+    work::{compute, current_inputs, remember_inputs},
 };
 use pleochroma::optics::LightingPreset;
 use pleochroma_cut_core::{ConstraintTier, Design, Edit, PreformSpec, ScheduleMeta, TierFrosting};
 use pleochroma_editor::verdict::{
     FixAction, Level, Reason, ReasonKind, SolveFacts, VanishEntry, VanishSnapshot, Verdict,
+    VerdictInputs, WINDOWING_CHECK_READS_TILT, evaluate,
 };
 
 fn brilliant() -> Design {
@@ -306,4 +307,52 @@ fn the_baseline_is_frozen_while_a_handle_drag_runs() {
         None,
         "the same set does not raise it twice"
     );
+}
+
+/// The inputs of a solved Sapphire brilliant, measured.
+fn measured_inputs() -> VerdictInputs {
+    let mut design = brilliant();
+    design.material.name = Some("Sapphire".to_string());
+    let solved = design.solve().expect("every tier is pinned");
+    compute(
+        &design,
+        Some(&solved),
+        1.76,
+        LightingPreset::RingLights,
+        Some(&[]),
+    )
+}
+
+#[test]
+fn the_tilt_reading_changes_nothing_while_the_check_ignores_the_tilt() {
+    let inputs = measured_inputs();
+    assert!(inputs.optics.is_some(), "a named material is measured");
+    let plain = evaluate(&inputs);
+    if !WINDOWING_CHECK_READS_TILT {
+        for tilt in [0.0, 14.0, 45.0] {
+            let with_tilt = inputs.clone().with_small_tilt_windowing(Some(tilt));
+            assert_eq!(
+                evaluate(&with_tilt),
+                plain,
+                "a tilt of {tilt} % moves nothing"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_range_lands_on_the_verdict_it_belongs_to_and_on_no_other() {
+    let inputs = measured_inputs();
+    let design = brilliant();
+    show(verdict_of(Vec::new()), &design, true);
+    // Request 1 is the verdict on screen (`show` set the slot's serial to 1).
+    remember_inputs(1, &inputs);
+    assert_eq!(current_inputs(), Some(inputs.clone()));
+
+    // A newer request, or an edit, makes the remembered inputs foreign.
+    remember_inputs(2, &inputs);
+    assert!(current_inputs().is_none(), "another request's inputs");
+    remember_inputs(1, &inputs);
+    show(verdict_of(Vec::new()), &design, false);
+    assert!(current_inputs().is_none(), "an out-of-date verdict");
 }

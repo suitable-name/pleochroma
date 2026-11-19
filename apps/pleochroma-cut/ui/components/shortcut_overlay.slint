@@ -100,13 +100,16 @@ export component ShortcutOverlay inherits Rectangle {
                             // chords wrap inside it.
                             Rectangle {
                                 width: 150px;
-                                min-height: 22px;
+                                // 5 px above and below the text, so a wrapped chord does not touch the border.
+                                min-height: max(22px, key_text.preferred-height + 10px);
                                 background: Theme.bg-input;
                                 border-radius: Theme.radius-sm;
                                 border-width: 1px;
                                 border-color: Theme.border-subtle;
-                                Text {
+                                key_text := Text {
+                                    x: 8px;
                                     width: parent.width - 16px;
+                                    height: parent.height;
                                     text: item.keys;
                                     font-size: 10px;
                                     font-weight: 600;

@@ -2,13 +2,18 @@
 //! dismiss) and the selection-index bookkeeping helpers shared across this module
 //! group.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use pleochroma_editor::view_model::live_margin::angle_live_margin;
 use slint::{ComponentHandle, Model, ModelRc, SharedString};
 
 use crate::{
     EditorModel, EditorTierItem, MainWindow,
+    bridge::render_thread::RenderContext,
     gui::editor::state::{EditorState, tier_matches_filter},
 };
 
@@ -43,18 +48,18 @@ fn tier_name_taken(tiers: &ModelRc<EditorTierItem>, name: &str) -> bool {
 /// The bar itself is [`angle_live_margin`], shared with the web inspector: the same
 /// functions a saved row's MARGIN cell uses, so a value typed but not yet saved reads the
 /// identical bar. `text` may be a number, arithmetic (`41.5+0.3`) or a relation
-/// (`=P1-2`, read as the angle it would give). It uses the design's plain
-/// [`pleochroma_cut_core::Design::effective_refractive_index`] (built-in materials only,
-/// no custom-catalogue lookup) rather than threading `RenderContext` through for this
-/// preview-only path -- the authoritative "Eff. RI"/critical-angle readouts elsewhere
-/// already use the full custom-material-aware value; this is a live estimate while typing,
-/// not the figure of record. Text that is not an angle, a zero angle, or a crown angle with
-/// no pavilion tier in the design to estimate against, clears the bar (`level = -1`).
+/// (`=P1-2`, read as the angle it would give). It uses the same custom-material-aware
+/// [`pleochroma_cut_core::Design::effective_refractive_index_with`] as the tier rows' margin
+/// cells, so a saved row and the bar never differ by the index. Text that is not an angle, a
+/// zero angle, or a crown angle with no pavilion tier in the design to estimate against,
+/// clears the bar (`level = -1`).
 pub(in crate::gui::editor) fn setup_angle_live_preview_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
+    render_ctx: &Arc<Mutex<RenderContext>>,
 ) {
     let state = Rc::clone(state);
+    let render_ctx = Arc::clone(render_ctx);
     let ui_weak = ui.as_weak();
     ui.global::<EditorModel>()
         .on_angle_live_preview(move |text: SharedString| {
@@ -64,7 +69,13 @@ pub(in crate::gui::editor) fn setup_angle_live_preview_callback(
             let model = ui.global::<EditorModel>();
             let margin = {
                 let st = state.borrow();
-                let n_d = st.design.effective_refractive_index();
+                // The index the tier rows' margin cells use (`refresh_design_settings`: a custom
+                // material is looked up by name), so a saved row and the bar read the same.
+                let n_d = {
+                    let ctx = RenderContext::lock(&render_ctx);
+                    st.design
+                        .effective_refractive_index_with(&ctx.custom_materials)
+                };
                 angle_live_margin(&st.design, n_d, &text)
             };
             if let Some(bar) = margin {

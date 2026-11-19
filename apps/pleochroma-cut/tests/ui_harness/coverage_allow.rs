@@ -79,6 +79,10 @@ pub const ALLOW: &[(&str, &str)] = &[
         "long job: render_jobs::controller renders the next queued job",
     ),
     (
+        "RiBatchModel.start",
+        "long job: batch::ri_range::wiring starts the RI range batch, which traces every design of the library on the render thread",
+    ),
+    (
         "LibraryModel.compute_missing_tilt_curves",
         "long job: renders a tilt curve for every library design that lacks one",
     ),
@@ -100,8 +104,16 @@ pub const ALLOW: &[(&str, &str)] = &[
         "long job: the button calls RenderJobsModel.start_queue (see above); denied in the Render Jobs states (overlay_states::DENY_JOBS)",
     ),
     (
-        "components/render_jobs/job_row.slint|JobRowCard|\"Run Next\"",
-        "long job: the button calls RenderJobsModel.run_next (see above); denied in the Render Jobs states (overlay_states::DENY_JOBS)",
+        "components/render_jobs/job_row_menu.slint|JobRowMenu|\"Run Next\"",
+        "long job: the row menu's item calls RenderJobsModel.run_next (see above); denied in the Render Jobs states (overlay_states::DENY_JOBS) and never pressed by coverage_reach:render jobs",
+    ),
+    (
+        "components/ri_range_batch_dialog.slint|RiRangeBatchDialog|\"Compute\"",
+        "long job: the button calls RiBatchModel.start (see above), which traces every design of the library; the dialog's passes close it with Not Now or Cancel only (dialogs/job_overlays.rs)",
+    ),
+    (
+        "components/gem_viewport/problem_banner.slint|ProblemBanner|\"Recompute\"",
+        "long job: Recompute on the Live Render banner calls EditorModel.solve for the open design, like the stale badge below; the banner's state denies the label (states_popups::DENY_RECOMPUTE) and EditorModel.solve has a direct-invoke row",
     ),
     (
         "components/filter_panel.slint|FilterPanel|compute_now_touch",
@@ -298,16 +310,8 @@ pub const ALLOW: &[(&str, &str)] = &[
     ),
     // ---- Material Reference window (scenarios/material_reference.rs) ----
     (
-        "material_reference_window.slint|*",
-        "a secondary window: only the material_reference_window scenario reaches it (opened from Help > Material Reference... or the Stone tab's Material Details... button), pressing its headers, chips, switch, buttons and Escape by label and sweeping both pages at the default and the minimum size; the field-touch pass does not touch it",
-    ),
-    (
         "components/material_reference/*",
-        "parts of the Material Reference window (see material_reference_window.slint above)",
-    ),
-    (
-        "components/kit/table.slint|*",
-        "KitSortHeader and KitTableRow are used by the Material Reference window only (see above)",
+        "the pages of the Material Reference window, a secondary window (material_reference_window.slint itself holds no control, and the kit's sort headers and table rows are sites of these files): only the material_reference_window scenario reaches it (opened from Help > Material Reference... or the Stone tab's Material Details... button), pressing its headers, chips, switch, buttons and Escape by label and sweeping both pages at the default and the minimum size; the field-touch pass does not touch it",
     ),
     (
         "MaterialReferenceModel.duplicate_as_custom",
@@ -328,6 +332,10 @@ pub const ALLOW: &[(&str, &str)] = &[
     (
         "components/material_editor/color_pattern_section.slint|*",
         "the section's buttons open the Color Pattern window or remove the stored pattern (Zoning.add_pattern, Zoning.edit_pattern, Zoning.remove_pattern above)",
+    ),
+    (
+        "components/parameters_panel/parts.slint|SliderRow|text-link-link-text",
+        "not reachable from any UI: the link shows while SliderRow.link_text is set, and no SliderRow site sets link_text or handles link_clicked (the optional link has no user left)",
     ),
     #[cfg(not(feature = "physical-color"))]
     (

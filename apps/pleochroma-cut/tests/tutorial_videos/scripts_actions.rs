@@ -453,7 +453,7 @@ impl Film<'_> {
     pub(crate) fn press_label(&mut self, label: &str) -> Result<(), String> {
         let view = self.view();
         let spots = distinct(
-            view.by_label(label)
+            targets::without_guide_text(&view, view.by_label(label))
                 .iter()
                 .map(Spot::of)
                 .filter(|spot| spot.usable(view.size))

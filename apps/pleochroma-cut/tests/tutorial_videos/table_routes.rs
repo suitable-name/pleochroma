@@ -1,19 +1,23 @@
 //! Filmed routes of the tier table's own controls that the tiers lessons teach: the Quick Add
-//! buttons of the bar above the table and the ANGLE cell's key and wheel nudges.
+//! items of the Add Tier menu above the table and the angle cell's key and wheel nudges.
 //!
 //! A Tier form edit that lands on the same value is a different gesture, so none of these sets a
 //! value through the form, and every route requires the visible result before it returns.
 //!
-//! It also holds the sideways wheel turns of the table itself: the default dock is narrower than a
-//! row, so the data columns scroll sideways. The row buttons (Adopt, Pin, Remove, ...) sit in the
-//! pinned ACTIONS group at the right edge, which stays on view without scrolling, so the turns
-//! are normally zero. Every route that clicks one of those buttons still goes through
-//! `Film::reveal_table_button`, which looks first and only turns the table if a button is not
-//! yet on view.
+//! It also holds the tier menus. A row's actions (Adopt, Pin, Add Anchor, Delete, ...) are items
+//! of the row's "Actions for Tier N" menu; Table, Girdle, Culet and Concave Tier are items of the
+//! "More Ways to Add a Tier" menu beside Add Tier; Adopt All and Select are items of the "Tier
+//! List Menu". Each menu is a popup window, whose items report their place inside the popup, so
+//! every item is looked up through `PopupGeometry`, which maps it to the main window.
+//!
+//! A row fits the dock's width, so the table does not scroll sideways. `Film::reveal_table_button`
+//! keeps its sideways wheel turns as a fallback for a control that is not on view.
 
 use crate::{
     debug_log,
     director::Film,
+    pacing,
+    popup_geometry::PopupGeometry,
     support::app::pump,
     targets::{self, Query, Spot},
 };
@@ -29,6 +33,9 @@ const TOOLBAR_COMPONENT: &str = "TierTableToolbar";
 
 /// The component of the tier table, which holds every ANGLE cell.
 const TABLE_COMPONENT: &str = "EditorTierTable";
+
+/// The component every tier menu (a row's, Add Tier's and the list's) draws its items on.
+const MENU_SURFACE: &str = "TierMenuSurface";
 
 /// What one key press or one wheel notch moves an angle by, in degrees.
 const NUDGE_DEGREES: f64 = 0.1;
@@ -148,6 +155,31 @@ impl Film<'_> {
         Ok(Spot::of(&rows[0]))
     }
 
+    /// The zero-based indices of the tier rows that are in the tree now. Rows scrolled out of the
+    /// table leave the tree, so these are the rows on view (and one touching each edge).
+    pub(crate) fn tier_rows_on_view(&self) -> Vec<i32> {
+        let view = self.view();
+        let Some(table) = view
+            .root
+            .query_descendants()
+            .match_inherits(TABLE_COMPONENT)
+            .find_first()
+        else {
+            return Vec::new();
+        };
+        table
+            .query_descendants()
+            .match_accessible_role(uiprobe::AccessibleRole::ListItem)
+            .find_all()
+            .into_iter()
+            .filter_map(|row| {
+                let label = row.accessible_label()?;
+                let number = label.as_str().strip_prefix("Tier ")?.split(',').next()?;
+                number.parse::<i32>().ok().map(|number| number - 1)
+            })
+            .collect()
+    }
+
     /// Resolves a control inside the exact accessible tier row; never matches a neighboring row.
     pub(crate) fn tier_row_control(
         &self,
@@ -216,14 +248,59 @@ impl Film<'_> {
             .map(|control| Spot::of(&control))
             .ok_or_else(|| format!("{menu_label:?}: the row's menu button is missing"))?;
         self.click_and_invoke(&button)?;
+        self.open_tier_menu_item(&menu_label, label)
+    }
+
+    /// Opens the "More Ways to Add a Tier" menu beside Add Tier and returns its item `label`
+    /// ("+ Add Concave Tier", "Table", "Girdle", "Culet", ...).
+    pub(crate) fn add_tier_menu_item(&mut self, label: &str) -> Result<Spot, String> {
+        self.toolbar_menu_item("More Ways to Add a Tier", label)
+    }
+
+    /// Opens the "Tier List Menu" above the table and returns its item `label` ("Adopt All" or
+    /// "Select").
+    pub(crate) fn tier_list_menu_item(&mut self, label: &str) -> Result<Spot, String> {
+        self.toolbar_menu_item("Tier List Menu", label)
+    }
+
+    /// Clicks the menu button `menu` of the bar above the tier table and returns the item `label`
+    /// of the menu it opens.
+    fn toolbar_menu_item(&mut self, menu: &str, label: &str) -> Result<Spot, String> {
+        let button = targets::role_label(
+            &self.view(),
+            menu,
+            uiprobe::AccessibleRole::Button,
+            Some(TOOLBAR_COMPONENT),
+        )
+        .ok_or_else(|| format!("{menu:?}: the menu button above the tier table is missing"))?;
+        self.click_and_invoke(&button)?;
+        self.open_tier_menu_item(menu, label)
+    }
+
+    /// The item `label` of the tier menu `menu` that was just opened, in main-window coordinates.
+    /// The exact name is tried first ("Pin" also starts other names), then `label` as a prefix
+    /// ("Remove this tier" of "Remove this tier (Delete).").
+    fn open_tier_menu_item(&mut self, menu: &str, label: &str) -> Result<Spot, String> {
+        let ui = self.ui;
+        if !pacing::wait_real(pacing::START_TIMEOUT, || {
+            PopupGeometry::find(ui, MENU_SURFACE).is_ok()
+        }) {
+            return Err(format!(
+                "{menu:?} did not open its menu: {}",
+                PopupGeometry::find(ui, MENU_SURFACE)
+                    .err()
+                    .unwrap_or_default()
+            ));
+        }
         pump(80);
-        // Exact name first ("Pin" also starts "Pin Tier #1" elsewhere), then a prefix.
-        let view = self.view();
-        targets::role_label(&view, label, uiprobe::AccessibleRole::Button, None)
-            .or_else(|| {
-                targets::role_label_start(&view, label, uiprobe::AccessibleRole::Button, None)
+        self.hold(pacing::MENU_HOLD)?;
+        let popup = PopupGeometry::find(ui, MENU_SURFACE)?;
+        let role = uiprobe::AccessibleRole::Button;
+        popup.control(ui, label, role).or_else(|exact| {
+            popup.control_start(ui, label, role).map_err(|prefix| {
+                format!("{menu:?}: the menu has no {label:?} item ({exact}; {prefix})")
             })
-            .ok_or_else(|| format!("{menu_label:?}: the menu has no {label:?} item"))
+        })
     }
 
     /// Turns the wheel over the tier table until `find` names a button that is on view, and
@@ -292,13 +369,14 @@ impl Film<'_> {
         Ok(())
     }
 
-    /// Films clicking the Quick Add button `label` (Girdle, Table or Culet) of the bar above the
-    /// tier table, and requires exactly one new tier of that name.
+    /// Films the Quick Add item `label` (Girdle, Table or Culet) of the Add Tier menu above the
+    /// tier table (the chevron beside Add Tier opens it), and requires exactly one new tier of
+    /// that name.
     pub(super) fn quick_add_tier(&mut self, label: &str) -> Result<(), String> {
         let editor = self.ui.global::<EditorModel>();
         let before = editor.get_tiers().row_count();
-        let button = self.scoped_button(TOOLBAR_COMPONENT, label)?;
-        self.click_and_invoke(&button)?;
+        let item = self.add_tier_menu_item(label)?;
+        self.click_and_invoke(&item)?;
         pump(80);
         let tiers = editor.get_tiers();
         let named = tiers

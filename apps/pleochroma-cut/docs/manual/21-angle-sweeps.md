@@ -70,9 +70,10 @@ number of processor cores; it is a guide, not a promise.
 
 The check box **Also Average the Tilt Performance (Slower)** adds three more figures to
 every angle: the brilliance, windowing and extinction of the Tilt Performance graph
-(Chapter 2), averaged over all four tilt axes and every tilt angle. They answer a
+(Chapter 2), averaged over all four tilt axes and all tilts to ±90°. They answer a
 different question from the quick figures: how the stone behaves as it is tilted, not
-only straight down on the table. They cost about a second and a half of work for every
+only straight down on the table. The Tilt Average Range preference (Chapter 17) does not
+change them: the sweep always rates all tilts to ±90°. They cost about a second and a half of work for every
 angle, so a long sweep takes much longer with this on, and the time estimate says so.
 
 ## Running a Sweep
@@ -199,7 +200,7 @@ A grid holds at most **900 angle pairs** (30 by 30). Over that, the line says so
 to look closely at a small area.
 
 **Tilt averages.** The same check box as in One Tier mode, **Also Average the Tilt
-Performance (Slower)**, adds the tilt figures for every pair. They cost about a second
+Performance (Slower)**, adds the tilt figures for every pair, again over all tilts to ±90°. They cost about a second
 and a half of work per pair, so above 100 pairs the form asks once: "This sweep takes
 about 3 minutes with Tilt Averages. Run it?" with **Run Anyway** and **Cancel**.
 

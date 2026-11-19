@@ -280,7 +280,7 @@ fn viewport_states() -> Vec<State> {
 /// Selects Lower Girdle, makes it meet the named facets Pavilion Main and Girdle (so the tier
 /// form shows its Meet Point row) and, once the solve is over, writes the row's state, chip and
 /// note the way Rust does for a tier with that pick state.
-fn meet_point_row(a: &HarnessApp, state: i32, chip: &str, note: &str) {
+pub(super) fn meet_point_row(a: &HarnessApp, state: i32, chip: &str, note: &str) {
     inspector(a, 0);
     wait_settled(a);
     let editor = a.ui().global::<EditorModel>();
@@ -669,6 +669,22 @@ fn tier_form_states() -> Vec<State> {
                     4,
                     "corner lost",
                     "The picked corner no longer exists: its facets no longer meet in one point. Lower Girdle meets the shallowest point of Pavilion Main and Girdle until you pick again.",
+                );
+            },
+        },
+        State {
+            // A picked tier whose solve has not landed (`MeetPickRowState::Solving`, code 5): the
+            // chip reads "Solving..." in the plain tone and the button stays "Pick...".
+            name: "Tier form, Meet Point row, solving",
+            base: Base::Design,
+            scope,
+            deny: NONE,
+            open: |a| {
+                meet_point_row(
+                    a,
+                    5,
+                    "Solving\u{2026}",
+                    "The design is being solved. This row shows how the picked corner stands when the solve is done.",
                 );
             },
         },

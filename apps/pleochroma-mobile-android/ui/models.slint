@@ -8,7 +8,7 @@
 
 // Destination indices match `pleochroma_mobile_core::layout::Destination::index`.
 // More sub-page indices (`Shell.more-page`): 0 menu, 1 preferences, 2 about,
-// 3 licenses, 4 remote, 5 help.
+// 3 licenses, 4 remote, 5 help, 6 developer, 7 log viewer.
 export global Shell {
     // 0 compact, 1 medium, 2 expanded (`WindowClass::index`), computed in Rust from the
     // width the UI reports through `width-changed`.
@@ -24,6 +24,8 @@ export global Shell {
     in property <bool> design-empty: true;
 
     in-out property <int> more-page: 0;
+    // Where the Developer page (more-page 6) was opened from: 0 More, 2 About. Back goes there.
+    in-out property <int> developer-return: 0;
 
     // Detent of the one active bottom sheet: 0 peek, 1 half, 2 full. A page binds its
     // `Sheet.detent` to this two-way so the Back handler can collapse a full sheet.
@@ -56,6 +58,9 @@ export global Shell {
     in-out property <bool> info-visible: false;
     in-out property <string> info-title: "";
     in-out property <string> info-body: "";
+    // An optional second action of the info sheet (empty: only "Got It"). Rust answers it in
+    // `info-action-clicked`; the sheet closes itself.
+    in-out property <string> info-action: "";
 
     callback destination-selected(int);
     callback width-changed(length);
@@ -65,6 +70,7 @@ export global Shell {
     callback open-design();
     callback import-files();
     callback request-back();
+    callback info-action-clicked();
 
     // Switches destination; tapping the active More item again returns to the menu.
     public function select-destination(index: int) {
@@ -97,6 +103,15 @@ export global Shell {
     public function show-info(title: string, body: string) {
         info-title = title;
         info-body = body;
+        info-action = "";
+        info-visible = true;
+    }
+
+    // The info sheet with a second action beside "OK" (the Last Start sheet's "Details").
+    public function show-info-with-action(title: string, body: string, action: string) {
+        info-title = title;
+        info-body = body;
+        info-action = action;
         info-visible = true;
     }
 }

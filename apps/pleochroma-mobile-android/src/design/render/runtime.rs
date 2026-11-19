@@ -63,6 +63,8 @@ thread_local! {
     static POLL_MS: Cell<u64> = const { Cell::new(0) };
     /// A remote failure is on show and was already passed to the rediscovery.
     static FAILURE_SEEN: Cell<bool> = const { Cell::new(false) };
+    /// The GPU probe held renders back at the last maintenance.
+    static PROBE_HELD: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Remembers the window and the state for the timers. Call once on the UI thread.
@@ -85,6 +87,7 @@ pub(super) fn shutdown() {
     GOVERN.with(Timer::stop);
     POLL_MS.with(|ms| ms.set(0));
     FAILURE_SEEN.with(|seen| seen.set(false));
+    PROBE_HELD.with(|held| held.set(false));
     let runtime = RUNTIME.with(|cell| cell.borrow_mut().take());
     drop(runtime);
 }
@@ -164,6 +167,11 @@ pub(super) fn maintain(window: &AppWindow, shared: &Shared) {
         } else {
             None
         };
+        // The probe ended: the start it held back (and remembered) runs now.
+        let held = app.render.held_by_probe();
+        if PROBE_HELD.with(|was| was.replace(held)) && !held {
+            app.render.resume_after_probe();
+        }
         super::samples::apply(&mut app);
         let outcome = if remote_blocked {
             Maintain::Idle

@@ -185,14 +185,14 @@ component AddTierSplit inherits Rectangle {
                     label: "Add Tier";
                     hint: "Open the Tier tab in Add mode to author a new tier.";
                     enabled: root.body_enabled;
-                    activated => { add_menu.close(); root.add(); }
+                    activated => { root.add(); add_menu.close(); }
                 }
                 TierMenuItem {
                     text: "Concave Tier";
                     label: "+ Add Concave Tier";
                     hint: GuideModel.allows_concave_tier() ? "Open the Tier tab in Add mode for a concave tier -- a facet cut with a\ntool (cylinder, cone, circle, disc or sphere) instead of a flat lap." : GuideModel.locked_hint;
                     enabled: GuideModel.allows_concave_tier();
-                    activated => { add_menu.close(); root.add_concave(); }
+                    activated => { root.add_concave(); add_menu.close(); }
                 }
                 TierMenuSeparator { }
                 TierMenuCaption { text: "QUICK ADD"; }
@@ -201,21 +201,21 @@ component AddTierSplit inherits Rectangle {
                     label: "Table";
                     hint: root.quick_enabled ? "Add a Table tier (0\u{b0}, pinned to an exact scale value) --\na starting anchor for the crown. See the glossary." : GuideModel.locked_hint;
                     enabled: root.quick_enabled && !EditorModel.tier_name_taken(EditorModel.tiers, "Table");
-                    activated => { add_menu.close(); root.add_table(); }
+                    activated => { root.add_table(); add_menu.close(); }
                 }
                 TierMenuItem {
                     text: "Girdle";
                     label: "Girdle";
                     hint: root.quick_enabled ? "Add a Girdle tier (90\u{b0}, pinned to an exact scale value = half-width) --\n90\u{b0} is required for a real girdle band. See the glossary." : GuideModel.locked_hint;
                     enabled: root.quick_enabled && !EditorModel.tier_name_taken(EditorModel.tiers, "Girdle");
-                    activated => { add_menu.close(); root.add_girdle(); }
+                    activated => { root.add_girdle(); add_menu.close(); }
                 }
                 TierMenuItem {
                     text: "Culet";
                     label: "Culet";
                     hint: root.quick_enabled ? "Add a Culet tier (a flat pavilion facet, pinned to an exact scale\nvalue) -- a starting anchor for the pavilion. See the glossary." : GuideModel.locked_hint;
                     enabled: root.quick_enabled && !EditorModel.tier_name_taken(EditorModel.tiers, "Culet");
-                    activated => { add_menu.close(); root.add_culet(); }
+                    activated => { root.add_culet(); add_menu.close(); }
                 }
                 TierMenuSeparator { }
                 TierMenuItem {
@@ -223,7 +223,7 @@ component AddTierSplit inherits Rectangle {
                     label: "Girdle Facet Preset (90\u{b0}, Scale = 1)";
                     hint: root.body_enabled ? "Open Add mode with a real girdle facet filled in: angle 90\u{b0} and\nMeets set to the exact scale value 1. Name and Indices stay as they are." : GuideModel.locked_hint;
                     enabled: root.body_enabled;
-                    activated => { add_menu.close(); root.add_girdle_preset(); }
+                    activated => { root.add_girdle_preset(); add_menu.close(); }
                 }
             }
         }
@@ -378,7 +378,7 @@ export component TierTableToolbar inherits VerticalLayout {
                             label: "Adopt All";
                             hint: GuideModel.allows_tier_table() ? "Adopt every tier's imported meet at once, as one Undo step. See the glossary." : GuideModel.locked_hint;
                             enabled: GuideModel.allows_tier_table();
-                            activated => { list_menu.close(); EditorModel.adopt_all(); }
+                            activated => { EditorModel.adopt_all(); list_menu.close(); }
                         }
                         // Shows the tick-box column, where a plain click adds or removes a row: the
                         // same group Ctrl+click and Shift+click build.
@@ -388,7 +388,7 @@ export component TierTableToolbar inherits VerticalLayout {
                             hint: GuideModel.allows_tier_table() ? "Show a tick box column for choosing several tiers at once -- the\nsame group Ctrl+click and Shift+click build, without needing\nthe modifier key. From the keyboard, press Space on a row." : GuideModel.locked_hint;
                             enabled: GuideModel.allows_tier_table();
                             checked: root.select_mode;
-                            activated => { list_menu.close(); root.select_mode = !root.select_mode; }
+                            activated => { root.select_mode = !root.select_mode; list_menu.close(); }
                         }
                     }
                 }
@@ -402,8 +402,7 @@ export component TierTableToolbar inherits VerticalLayout {
         AddTierSplit {
             add => {
                 EditorModel.selected_tier_index = -1;
-                EditorModel.inspector_tab = 0;
-                EditorModel.inspector_collapsed = false;
+                EditorModel.show_tier_form();
             }
             add_concave => { EditorModel.add_concave_tier(); }
             add_table => { EditorModel.save_tier(-1, "0", 2, "0.32", "Table", ""); }
@@ -412,8 +411,7 @@ export component TierTableToolbar inherits VerticalLayout {
             add_girdle_preset => {
                 EditorModel.girdle_preset_pending = true;
                 EditorModel.selected_tier_index = -1;
-                EditorModel.inspector_tab = 0;
-                EditorModel.inspector_collapsed = false;
+                EditorModel.show_tier_form();
             }
         }
         // Toggles the "Generate steps..."/"Mirror to other block" panel below.

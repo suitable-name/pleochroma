@@ -76,7 +76,7 @@ from a flat row in a few ways:
 
 - The **MEETS** column shows a **Tool** badge instead of a meet constraint; hover
   it to see the tool line (tool, θ, displacement, D/W, motion).
-- MAST and MARGIN read `-`, and SOLVE reads *Tool cut*: a concave tier has no mast,
+- The row shows no margin mark and its solve method reads *Tool cut*: a concave tier has no mast,
   no solve strategy and no critical-angle margin of its own.
 - The **angle cell is read-only** — edit a concave tier's angle in the inspector.
 - Pin, Detach, Adopt, Add Anchor and Complete orbit are not offered, and a click

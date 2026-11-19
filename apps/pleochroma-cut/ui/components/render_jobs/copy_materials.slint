@@ -1,0 +1,338 @@
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { JobCopyModel } from "../../models/job_copy.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { TipButton } from "../compact_controls.slint";
+import { IconButton } from "../icon_button.slint";
+
+// One row of the checklist: a material with a check box. The material of the source job is
+// greyed and marked "this job"; it cannot be ticked.
+component MaterialRow inherits Rectangle {
+    in property <string> name;
+    in property <bool> ticked;
+    in property <bool> is_source;
+    callback chosen();
+
+    height: 34px;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: root.is_source ? Theme.border-subtle
+        : (root.ticked || row_focus.has-focus ? Theme.accent-cyan : Theme.border-subtle);
+    background: root.is_source ? transparent
+        : (row_touch.has-hover ? Theme.surface-raised : Theme.surface-sunken);
+    accessible-role: AccessibleRole.checkbox;
+    accessible-label: root.is_source ? root.name + ", this job" : root.name;
+    accessible-checked: root.ticked;
+    accessible-enabled: !root.is_source;
+    accessible-action-default => { if !root.is_source { root.chosen(); } }
+
+    row_focus := FocusScope {
+        enabled: !root.is_source;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.chosen();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    row_touch := TouchArea {
+        enabled: !root.is_source;
+        mouse-cursor: root.is_source ? MouseCursor.default : MouseCursor.pointer;
+        clicked => {
+            row_focus.focus();
+            root.chosen();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+
+        Rectangle {
+            width: 16px;
+            height: 16px;
+            y: (root.height - self.height) / 2 - 1px;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: root.is_source ? Theme.border-subtle
+                : (root.ticked ? Theme.accent-cyan : Theme.border-dialog);
+            background: root.ticked && !root.is_source ? Theme.accent-cyan : transparent;
+
+            if root.ticked && !root.is_source: Path {
+                width: 100%;
+                height: 100%;
+                viewbox-width: 16;
+                viewbox-height: 16;
+                commands: "M 3.5 8.5 L 6.8 11.5 L 12.5 4.5";
+                stroke: Theme.text-on-accent;
+                stroke-width: 2px;
+                fill: transparent;
+            }
+        }
+
+        Text {
+            text: root.name;
+            font-size: 12px;
+            font-weight: root.is_source ? 400 : 600;
+            color: root.is_source ? Theme.text-disabled : Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+            min-width: 0px;
+        }
+
+        if root.is_source: Text {
+            text: "this job";
+            font-size: 11px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// The Copy to Materials dialog (Render Jobs window > the "..." menu of a row), mounted from
+// `components/app/global_dialogs.slint` while `JobCopyModel.open`. It names the source job, lists
+// the materials to tick (with a search field), says what each copy resets, and lists the new jobs
+// with their own file names. The header and the footer (Cancel, Copy) stay in place; the body
+// scrolls, and the checklist has a capped height, so the footer shows at 640 x 480. While a tilt
+// video's copies are being made the Copy button reads "Measuring... 2 of 3" and Cancel stops
+// before the next copy.
+export component CopyMaterialsDialog inherits Rectangle {
+    background: Theme.overlay-backdrop;
+
+    // A click on the backdrop closes the dialog, except while copies are being made.
+    TouchArea {
+        clicked => {
+            if !JobCopyModel.busy {
+                JobCopyModel.cancel();
+            }
+        }
+    }
+
+    Rectangle {
+        width: min(480px, parent.width - 24px);
+        height: min(parent.height - 24px, 660px);
+        background: Theme.surface-dialog;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.modal-shadow;
+        clip: true;
+
+        // Swallows clicks so they never reach the backdrop's TouchArea.
+        TouchArea {}
+
+        VerticalLayout {
+            // Fixed header.
+            Rectangle {
+                height: 52px;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 12px;
+                    alignment: space-between;
+                    Text {
+                        text: "Copy to Materials";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    IconButton {
+                        icon: @image-url("../../icons/close.svg");
+                        hint: "Close this dialog and copy nothing.";
+                        width: 26px;
+                        height: 26px;
+                        y: (parent.height - self.height) / 2;
+                        clicked => { JobCopyModel.cancel(); }
+                    }
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Theme.border-subtle;
+                }
+            }
+
+            // Scrolling body.
+            ScrollView {
+                vertical-stretch: 1;
+                min-height: 80px;
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 6px;
+                    alignment: start;
+
+                    Text {
+                        text: "From job " + JobCopyModel.job_id;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Theme.text-secondary;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    Text {
+                        text: JobCopyModel.source_label;
+                        font-size: 13px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    Text {
+                        text: JobCopyModel.source_summary;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+
+                    Text {
+                        text: "Materials";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Theme.text-secondary;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    LineEdit {
+                        text <=> JobCopyModel.query;
+                        placeholder-text: "Search materials";
+                        accessible-label: "Search Materials";
+                        accessible-description: "Narrows the list of materials below.";
+                        font-size: 12px;
+                        enabled: !JobCopyModel.busy;
+                        edited(text) => { JobCopyModel.query_changed(text); }
+                        changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                    }
+
+                    // The checklist has a capped height and scrolls by itself.
+                    Rectangle {
+                        height: JobCopyModel.choice_names.length == 0
+                            ? 36px
+                            : min(checklist.preferred-height + 2px, 190px);
+                        accessible-role: AccessibleRole.list;
+                        accessible-label: "Materials";
+
+                        ScrollView {
+                            checklist := VerticalLayout {
+                                alignment: start;
+                                spacing: 4px;
+                                padding-right: 2px;
+                                for name[index] in JobCopyModel.choice_names: MaterialRow {
+                                    name: name;
+                                    ticked: JobCopyModel.choice_ticked[index];
+                                    is_source: name == JobCopyModel.source_material;
+                                    chosen => { JobCopyModel.toggle(name); }
+                                }
+                            }
+                        }
+
+                        if JobCopyModel.choice_names.length == 0: Text {
+                            text: JobCopyModel.materials.length == 0
+                                ? "No materials are available."
+                                : "No material matches \"" + JobCopyModel.query + "\".";
+                            font-size: 12px;
+                            color: Theme.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accessible-role: AccessibleRole.text;
+                        }
+                    }
+
+                    Text {
+                        text: JobCopyModel.reset_note;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+
+                    if JobCopyModel.message != "": Text {
+                        text: JobCopyModel.message;
+                        font-size: 12px;
+                        color: Theme.danger;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.border-subtle;
+                    }
+
+                    Text {
+                        text: JobCopyModel.preview.length == 0
+                            ? "Tick a material to copy this job to it."
+                            : (JobCopyModel.preview.length == 1
+                                ? "1 new job, queued after this one"
+                                : JobCopyModel.preview.length + " new jobs, queued after this one");
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.accent-cyan;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    for entry in JobCopyModel.preview: VerticalLayout {
+                        spacing: 1px;
+                        Text {
+                            text: entry.label;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.text-primary;
+                            wrap: word-wrap;
+                            accessible-role: AccessibleRole.text;
+                        }
+                        Text {
+                            text: entry.file_name;
+                            font-size: 11px;
+                            color: Theme.text-secondary;
+                            overflow: elide;
+                            accessible-role: AccessibleRole.text;
+                        }
+                    }
+                }
+            }
+
+            // Fixed footer.
+            Rectangle {
+                height: 56px;
+                Rectangle {
+                    y: 0px;
+                    height: 1px;
+                    background: Theme.border-subtle;
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    spacing: 8px;
+                    alignment: end;
+
+                    TipButton {
+                        text: "Cancel";
+                        hint: JobCopyModel.busy
+                            ? "Stop after the copy that is being made. The copies already made stay in the queue."
+                            : "Close this dialog and copy nothing.";
+                        clicked => { JobCopyModel.cancel(); }
+                    }
+                    TipButton {
+                        text: JobCopyModel.busy ? JobCopyModel.busy_text : "Copy";
+                        hint: JobCopyModel.busy
+                            ? "The copies are being made."
+                            : (JobCopyModel.picked.length == 0
+                                ? "Tick at least one material."
+                                : "Add one new job for each ticked material, after this job.");
+                        primary: true;
+                        enabled: !JobCopyModel.busy && JobCopyModel.picked.length > 0;
+                        clicked => { JobCopyModel.copy(JobCopyModel.picked); }
+                    }
+                }
+            }
+        }
+    }
+}

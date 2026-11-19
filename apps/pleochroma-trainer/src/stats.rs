@@ -75,6 +75,9 @@ pub struct EvaluationSnapshot {
     pub fidelity: String,
     #[serde(default)]
     pub evaluation_revision: u32,
+    /// Mean certified Full score under the default deployment rollout for a complete cohort.
+    #[serde(default)]
+    pub mean_deployed_score: Option<f32>,
     #[serde(default)]
     pub distinct_entries: usize,
     #[serde(default)]
@@ -123,6 +126,15 @@ pub struct TrainingDiagnostics {
     pub labels_reused: usize,
     /// Imitation episodes restarted at the consecutive rejection limit before their normal end.
     pub stalled_episodes: usize,
+    /// Distinct loaded training entries that supplied a completed environment step.
+    #[serde(default)]
+    pub stepped_entries: usize,
+    /// Connected source/geometry families represented among the stepped entries.
+    #[serde(default)]
+    pub stepped_families: usize,
+    /// Distinct entries with a fresh informative label retained at replay insertion.
+    #[serde(default)]
+    pub fresh_label_entries: usize,
 }
 
 /// A single recorded metrics point across training iterations.
@@ -177,10 +189,12 @@ pub struct IterationMetricPoint {
     pub extinction: f32,
     /// Volumetric yield percentage (0-100).
     pub yield_pct: f32,
-    /// Latest validation score (deterministic policy, lower is better); `None` until the first
-    /// validation pass.
+    /// Latest diagnostic rollout score (deterministic policy, lower is better).
     #[serde(default)]
     pub val_score: Option<f32>,
+    /// Full endpoint score used for checkpoint selection, absent in legacy history.
+    #[serde(default)]
+    pub val_deployed_score: Option<f32>,
     /// Latest validation brilliance; `None` until the first validation pass.
     #[serde(default)]
     pub val_brilliance: Option<f32>,
@@ -272,10 +286,12 @@ pub struct IterationMetricPoint {
     /// Mean Huber loss on verified squashed actions (0 in PPO runs and older files).
     #[serde(default)]
     pub action_loss: f32,
-    /// Selected unique samples supporting the action loss; 0 distinguishes missing action
-    /// supervision from a measured zero loss. Older files read as 0.
+    /// Selected unique samples with positive action supervision. Older files read as zero.
     #[serde(default)]
     pub action_samples: usize,
+    /// Selected unique samples carrying an observed rejected action.
+    #[serde(default)]
+    pub rejected_action_samples: usize,
     /// Mean Huber loss of the predicted oracle gain in this iteration's update (0 in PPO runs
     /// and in older files).
     #[serde(default)]
@@ -480,10 +496,13 @@ pub struct TrainingRunStats {
     pub final_extinction: f32,
     /// Final achieved volumetric yield.
     pub final_yield_pct: f32,
-    /// Latest validation score on the unseen validation split; `None` when no validation ran.
+    /// Latest diagnostic rollout score on the unseen validation split; absent without a successful case.
     /// (Older files hold `0.0` for "none" and read back as `Some(0.0)`.)
     #[serde(default)]
     pub val_score: Option<f32>,
+    /// Full endpoint score used for checkpoint selection, absent for incomplete cohorts.
+    #[serde(default)]
+    pub val_deployed_score: Option<f32>,
     /// Mean train-episode score drop (sampled actions) minus the mean validation score drop of
     /// the sampled validation episodes, so both sides carry the same exploration noise; files
     /// written before the sampled validation pass compared against the deterministic drop

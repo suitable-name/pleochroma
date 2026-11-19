@@ -10,7 +10,7 @@ use std::{
 };
 
 use pleochroma_ai::{
-    env::EnvExecution,
+    env::{EnvExecution, StepRejection},
     model::{GaussianPolicy, Prng},
 };
 
@@ -21,6 +21,7 @@ use super::{
     pool,
     rollout::{MAX_PENDING_WORK, PendingStep, SlotOutcome, step_slot},
     teacher::labels_pass,
+    types::LabelSummary,
 };
 
 const ACTION_STREAM: u64 = 0x4C55_4E41_5F41_4354;
@@ -114,9 +115,15 @@ fn restore_owned_slots(
 struct Record {
     slot_index: usize,
     local_step: usize,
-    pending: PendingStep,
-    outcome: SlotOutcome,
-    ended: bool,
+    entry: usize,
+    replay_sample: Option<LabelledSample>,
+    label: Option<LabelSummary>,
+    reused_label: bool,
+    evaluations: u8,
+    reward: f32,
+    rejection: Option<StepRejection>,
+    unchanged: bool,
+    closed: bool,
     stalled: bool,
     probe_interval: Option<(f32, f32)>,
     summary: Option<EpisodeSummary>,
@@ -204,22 +211,19 @@ fn build_stream_slot(
     split: &DatasetSplit,
     execution: Option<&Arc<EnvExecution>>,
     focus_entry: usize,
-    mut start: usize,
+    start: usize,
     seed: u64,
 ) -> Result<(Slot, Vec<String>), String> {
     let mut warnings = Vec::new();
     let mut last_error = None;
+    let (mut position, mut entry) =
+        super::scheduled_entry(cfg.corpus_mode, &split.train, focus_entry, start)
+            .map_err(|error| error.to_string())?;
     for _ in 0..split.train.len() {
-        let (pos, entry) = if cfg.corpus_mode {
-            let pos = start % split.train.len();
-            (pos, split.train[pos])
-        } else {
-            (0, focus_entry)
-        };
         let cost = split.entries[entry].design.tiers.len() as u64;
         let built = pool::run_indexed_ranked(&[cost], 1, |_| {
             let _active = pool::SharedActiveGuard::enter(true);
-            build_slot(cfg, split, pos, entry, seed, execution)
+            build_slot(cfg, split, position, entry, seed, execution)
         })
         .pop()
         .expect("one build result");
@@ -229,7 +233,8 @@ fn build_stream_slot(
                 let title = &split.entries[entry].title;
                 last_error = Some(error.to_string());
                 warnings.push(format!("{}'{title}': {error}", super::SKIPPED_PREFIX));
-                start = pos + 1;
+                position = position.fallback(split.train.len());
+                entry = split.train[position.selected];
             }
             Err(error) => {
                 return Err(format!(
@@ -284,49 +289,39 @@ fn merged_probe_seconds(records: &[Record], max_elapsed: f32) -> f32 {
 
 fn commit_records(
     runner: &mut TrainingRunner,
-    records: &mut [Record],
+    mut records: Vec<Record>,
     rollout: &mut RolloutStats,
     rollout_elapsed: f32,
     cancelled: bool,
 ) {
-    canonical_slot_order(records, |record| (record.slot_index, record.local_step));
-    rollout.label_secs = merged_probe_seconds(records, rollout_elapsed);
+    canonical_slot_order(&mut records, |record| {
+        (record.slot_index, record.local_step)
+    });
+    rollout.label_secs = merged_probe_seconds(&records, rollout_elapsed);
     for record in records {
-        let SlotOutcome {
-            step,
-            label,
-            fresh_label,
-        } = &record.outcome;
-        rollout.evaluations += usize::from(step.info.evaluations);
-        rollout.diagnostics.unchanged_proposals += usize::from(step.info.unchanged);
-        rollout.diagnostics.labels_reused += usize::from(label.is_some() && !fresh_label);
-        let label = label.clone().filter(|label| rollout.record_label(label));
-        if let Some(label) = label
-            && *fresh_label
-        {
-            runner.aggregate.push(LabelledSample::new(
-                record.pending.state.clone(),
-                record.pending.free.clone(),
-                &label,
-            ));
-            rollout.diagnostics.labels_added += 1;
+        rollout.record_step_entry(record.entry, &runner.split);
+        rollout.evaluations += usize::from(record.evaluations);
+        rollout.diagnostics.unchanged_proposals += usize::from(record.unchanged);
+        rollout.diagnostics.labels_reused += usize::from(record.reused_label);
+        if let Some(label) = record.label {
+            rollout.record_label_summary(label);
+        }
+        if let Some(sample) = record.replay_sample {
+            runner.aggregate.push(sample);
+            if !runner.aggregate.is_empty() {
+                rollout.record_retained_label(record.entry);
+            }
         }
         rollout.steps += 1;
-        rollout.reward_sum += step.reward;
-        rollout.count_rejection(step.info.rejection);
+        rollout.reward_sum += record.reward;
+        rollout.count_rejection(record.rejection);
         if record.slot_index == 0 {
-            if !record.ended {
-                let optics = super::Optics::from_global(&step.observation.global);
-                runner.stats.current = Some(optics);
-            }
-            runner.stats.solid_closed = step.info.is_closed;
+            runner.stats.solid_closed = record.closed;
         }
-        if record.ended {
+        if let Some(summary) = record.summary {
             rollout.diagnostics.stalled_episodes += usize::from(record.stalled);
-            if let Some(summary) = record.summary.take() {
-                rollout.episodes_improved += usize::from(summary.improvement() > 0.0);
-                rollout.finished.push(summary);
-            }
+            rollout.episodes_improved += usize::from(summary.improvement() > 0.0);
+            rollout.finished.push(summary);
         }
     }
     if cancelled {
@@ -499,7 +494,7 @@ impl Coordinator<'_> {
             }
             counts.push(slot.obs.tiers.len());
         }
-        let (batch, profile) = match self.model.forward_host_profiled(&states, &counts) {
+        let (means, profile) = match self.model.forward_means_host_profiled(&states, &counts) {
             Ok(result) => result,
             Err(error) => {
                 self.fatal = Some(error.to_string());
@@ -517,25 +512,17 @@ impl Coordinator<'_> {
         diagnostics.forward_submit_ms += profile.forward_submit_ms;
         diagnostics.readback_ms += profile.readback_ms;
         diagnostics.unpacking_ms += profile.unpacking_ms;
-        if batch.means.len() != selected.len()
-            || batch.log_stds.len() != selected.len()
-            || batch.values.len() != selected.len()
-        {
+        if means.len() != selected.len() {
             self.fatal = Some("batched inference returned an unexpected row count".into());
             return;
         }
         self.stats.rollout_forward_ms += started.elapsed().as_secs_f32() * 1_000.0;
-        for (row, (&index, state)) in selected.iter().zip(states).enumerate() {
+        for ((&index, state), mean) in selected.iter().zip(states).zip(means) {
             let slot = self.slots[index].take().expect("forwarded slot is ready");
             let free = slot.obs.free_tier_mask();
-            let policy = GaussianPolicy {
-                mean: batch.means[row].clone(),
-                log_std: batch.log_stds[row].clone(),
-            };
             let local_step = self.next_steps[index];
             let mut rng = stream_rng(self.seed, ACTION_STREAM, self.iteration, index, local_step);
-            let raw =
-                super::imitation::explore_raw(&policy.mean, &free, self.cfg.explore_std, &mut rng);
+            let raw = super::imitation::explore_raw(&mean, &free, self.cfg.explore_std, &mut rng);
             let max_step = slot.env.max_step_deg();
             let mut action = GaussianPolicy::squash(&raw, max_step);
             super::GemstoneSetAttentionNetwork::project_actions(
@@ -581,25 +568,31 @@ impl Coordinator<'_> {
     }
 
     fn finish_step(&mut self, mut done: Done, send: &mpsc::SyncSender<WorkItem>) {
-        done.slot.obs = done.outcome.step.observation.clone();
-        done.slot.rejected_steps = if done.outcome.step.info.rejection.is_some() {
+        let SlotOutcome {
+            step,
+            label,
+            fresh_label,
+        } = done.outcome;
+        done.slot.obs = step.observation;
+        done.slot.rejected_steps = if step.info.rejection.is_some() {
             done.slot.rejected_steps.saturating_add(1)
         } else {
             0
         };
-        let stalled = !done.outcome.step.terminated
-            && !done.outcome.step.truncated
+        let stalled = !step.terminated
+            && !step.truncated
             && self.cfg.max_rejected_steps > 0
             && done.slot.rejected_steps >= self.cfg.max_rejected_steps;
-        let ended = done.outcome.step.terminated || done.outcome.step.truncated || stalled;
-        let optics = super::Optics::from_global(&done.outcome.step.observation.global);
-        let episode_summary = ended.then(|| summary(&done.slot, optics));
+        let ended = step.terminated || step.truncated || stalled;
+        let episode_summary = ended.then(|| {
+            summary(
+                &done.slot,
+                super::Optics::from_global(&done.slot.obs.global),
+            )
+        });
+        let entry = done.slot.entry;
         if ended {
-            let start = if self.cfg.corpus_mode {
-                done.slot.pos + self.cfg.effective_workers()
-            } else {
-                0
-            };
+            let start = done.slot.position.next_start(self.cfg);
             let job = BuildWork {
                 slot_index: done.slot_index,
                 local_step: done.local_step,
@@ -619,12 +612,26 @@ impl Coordinator<'_> {
         } else {
             self.slots[done.slot_index] = Some(done.slot);
         }
+        let label_summary = label.as_ref().map(LabelSummary::from);
+        let replay_sample = label
+            .as_ref()
+            .filter(|_| fresh_label && label_summary.is_some_and(|summary| summary.informative))
+            .map(|label| {
+                LabelledSample::new(done.pending.state, done.pending.free, label)
+                    .with_rollout_evidence(&done.pending.raw, step.info.scale.is_some())
+            });
         self.records.push(Record {
             slot_index: done.slot_index,
             local_step: done.local_step,
-            pending: done.pending,
-            outcome: done.outcome,
-            ended,
+            entry,
+            replay_sample,
+            label: label_summary,
+            reused_label: label_summary.is_some() && !fresh_label,
+            evaluations: step.info.evaluations,
+            reward: step.reward,
+            rejection: step.info.rejection,
+            unchanged: step.info.unchanged,
+            closed: step.info.is_closed,
             stalled,
             probe_interval: done.probe_interval,
             summary: episode_summary,
@@ -857,7 +864,7 @@ pub(super) fn collect(
     run_coordinators(&worker, &mut coordinator, keep_going);
     let Coordinator {
         slots,
-        mut records,
+        records,
         mut warnings,
         stopped,
         fatal,
@@ -879,7 +886,7 @@ pub(super) fn collect(
     let mut rollout = RolloutStats::default();
     commit_records(
         runner,
-        &mut records,
+        records,
         &mut rollout,
         started.elapsed().as_secs_f32(),
         stopped || fatal.is_some(),
@@ -899,6 +906,22 @@ pub(super) fn collect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streamed_respawn_keeps_its_schedule_when_a_design_fails() {
+        let split = crate::runner::tests::corpus_with_failed_start();
+        use pleochroma_ai::model::{ModelTier, TrainingMode};
+        let mut cfg = RunConfig::new(TrainingMode::Optimizer, ModelTier::Small);
+        cfg.workers = 2;
+        let (fallback, warnings) = build_stream_slot(&cfg, &split, None, 0, 4, 7).unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(fallback.entry, 1);
+        let (next, warnings) =
+            build_stream_slot(&cfg, &split, None, 0, fallback.position.next_start(&cfg), 9)
+                .unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(next.entry, 2);
+    }
 
     #[test]
     fn unexpected_job_panic_reports_lost_slot_and_prevents_partial_restore() {

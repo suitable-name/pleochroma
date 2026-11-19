@@ -124,14 +124,22 @@ export struct DataRow {
     missing: bool,
 }
 
+// One design of "Your designs that work here". `id` is the library entry id; `range` is the traced
+// range as it prints ("RI 1.63 and up (estimate)").
+export struct DesignRow {
+    id: int,
+    title: string,
+    range: string,
+}
+
 export global MaterialReferenceModel {
     // ---- table page ----
 
     // The visible rows: filtered, searched and sorted by Rust.
     in-out property <[RefRow]> rows;
-    // "39 built-in materials and 2 of your own. Click a column heading ..."
+    // "40 built-in materials and 2 of your own. Click a column heading ..."
     in-out property <string> subtitle;
-    // "41 materials, hardest first. Values are typical ..." (and a copy confirmation).
+    // "42 materials, hardest first. Values are typical ..." (and a copy confirmation).
     in-out property <string> footer;
     // The sorted column: 0 Material, 1 Crystal System, 2 Optic Character, 3 RI, 4 Biref., 5 Disp.,
     // 6 SG, 7 Hardness, 8 Toughness, 9 Cleavage.
@@ -211,6 +219,14 @@ export global MaterialReferenceModel {
     // A design is open: "Use for Design" is offered.
     in-out property <bool> can_use_for_design: false;
 
+    // Your designs that work here: the "Mine" designs whose stored RI range holds this material's
+    // index, at most 12 (`design_more` is how many more there are). `design_state`: 0 the list,
+    // 1 no RI range is computed yet (the section offers "Compute RI Ranges..."), 2 ranges exist
+    // but none of them holds this material.
+    in-out property <[DesignRow]> design_rows;
+    in-out property <int> design_more: 0;
+    in-out property <int> design_state: 1;
+
     // ---- callbacks ----
 
     // A column heading was clicked (the column number of `sort_column`).
@@ -231,6 +247,10 @@ export global MaterialReferenceModel {
     // A variant row was clicked.
     callback variant_selected(int);
     callback use_variant(int);
+    // A design of "Your designs that work here" was clicked: its library entry id.
+    callback design_clicked(int);
+    // The section's "Compute RI Ranges..." button.
+    callback compute_ri_ranges();
     // The Absorption / Transmission segment (0 or 1).
     callback spectrum_mode(int);
     // Escape: hide the window.

@@ -117,6 +117,16 @@ pub(super) fn setup_render_callbacks(
         settings_store,
         &solid.mesh_bounding_radius,
     );
+    // Editing queued jobs (Edit Render Job, Duplicate) and Copy to Materials.
+    crate::gui::render_jobs::edit::setup(ui, db, render_ctx, settings_store);
+    crate::gui::render_jobs::edit::copy::setup(ui, db, render_ctx, settings_store);
+    // Load Job View, Update Job from This View, and the material check set.
+    crate::gui::render_jobs::view::setup(ui, db, render_ctx, settings_store);
+    crate::gui::render_jobs::view::update::setup(ui, db, render_ctx, settings_store);
+    crate::gui::render_jobs::check_set::setup(ui, db, render_ctx, settings_store);
+    // The Stone tab's RI range chip and the RI chart.
+    crate::gui::editor::ri_range::setup(ui, db, render_ctx, settings_store);
+    crate::gui::editor::ri_chart::setup(ui, db, render_ctx, settings_store);
     optics::custom_materials::setup_custom_material_callbacks(ui, render_ctx, db);
     library::clipboard::setup_copy_callbacks(ui);
     crate::gui::export_run::setup_export_run_callbacks(ui);
@@ -380,6 +390,7 @@ pub(super) fn setup_remote_and_batch(
     // Tilt-curve batch. Unlike the preview batch, it is never scanned at startup, because
     // its cost per catalogue is much higher.
     batch::tilt::setup_tilt_batch_callbacks(ui, db, render_ctx, settings_store);
+    batch::ri_range::setup(ui, db, render_ctx, settings_store);
     remote_rendering_timer
 }
 

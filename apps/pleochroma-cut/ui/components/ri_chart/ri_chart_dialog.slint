@@ -1,0 +1,206 @@
+// The RI chart dialog (the "RI Chart..." entry of the material card and the command palette, and
+// the traced chip on the Stone tab), mounted from `components/app/global_dialogs.slint` while
+// `RiChartModel.open`. It has Angle Sweep's look (`components/sweep_dialog.slint`): the same card,
+// header, buttons and chart frame, with the refractive index on the x axis.
+//
+// The state lives in `models/ri_chart.slint`; `gui::editor::ri_chart` fills it. The card is sized
+// from the window, never from its content, so the window's minimum size does not grow with it;
+// the body between the header and the footer scrolls when the window is short.
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { RiChartModel } from "../../models/ri_chart.slint";
+import { IconButton } from "../icon_button.slint";
+import { SweepButton } from "../sweep_dialog/sweep_button.slint";
+import { RiChartPlot } from "ri_chart_plot.slint";
+
+// One "Works in" chip: the material and its RI. The design's own material is outlined in cyan.
+component WorksChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> current;
+
+    height: 24px;
+    width: chip_label.preferred-width + 20px;
+    border-radius: 12px;
+    background: Theme.surface-chip;
+    border-width: 1px;
+    border-color: root.current ? Theme.accent-cyan : Theme.border-dialog;
+
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    chip_label := Text {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 700;
+        color: root.current ? Theme.accent-cyan : Theme.text-primary;
+    }
+}
+
+export component RiChartDialog inherits Rectangle {
+    background: Theme.overlay-backdrop;
+
+    TouchArea {
+        clicked => { RiChartModel.open = false; }
+    }
+
+    card := Rectangle {
+        width: min(root.width - 48px, 1000px);
+        height: min(root.height - 48px, 780px);
+        background: Theme.surface-dialog;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.modal-shadow;
+        clip: true;
+
+        // Swallows clicks so they never reach the backdrop's TouchArea.
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 10px;
+
+            // 1. Header
+            HorizontalLayout {
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("../../icons/bar-chart.svg");
+                            colorize: Theme.text-primary;
+                            width: 15px;
+                            height: 15px;
+                        }
+                    }
+                    Text {
+                        text: "RI Chart";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+                IconButton {
+                    icon: @image-url("../../icons/close.svg");
+                    hint: "Close the chart. Escape does the same.";
+                    tint: Theme.text-muted;
+                    width: 24px;
+                    height: 24px;
+                    clicked => { RiChartModel.open = false; }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+            // 2. The chart and what it says
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    width: max(1px, card.width - 32px - 14px);
+                    spacing: 8px;
+                    alignment: start;
+
+                    if RiChartModel.ready: Text {
+                        text: RiChartModel.intro_text;
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    if RiChartModel.ready: RiChartPlot {
+                        plot_h: max(130px, min(230px, card.height * 0.3));
+                        compact: card.width < 720px;
+                    }
+                    if RiChartModel.ready: Text {
+                        text: RiChartModel.summary_text;
+                        font-size: 11px;
+                        color: Theme.text-primary;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    if RiChartModel.ready: Rectangle { height: 1px; background: Theme.surface-raised; }
+                    if RiChartModel.ready: Text {
+                        text: RiChartModel.works_heading;
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    if RiChartModel.ready: VerticalLayout {
+                        spacing: 6px;
+                        for chip_row in RiChartModel.chip_rows: HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            for chip in chip_row.chips: WorksChip {
+                                text: chip.text;
+                                current: chip.current;
+                            }
+                        }
+                        if RiChartModel.more_text != "": Text {
+                            text: RiChartModel.more_text;
+                            font-size: 11px;
+                            color: Theme.text-secondary;
+                            wrap: word-wrap;
+                            accessible-role: AccessibleRole.text;
+                            accessible-description: RiChartModel.more_hint;
+                            Tooltip { text: @markdown("\{RiChartModel.more_hint}"); }
+                        }
+                    }
+                    if RiChartModel.ready: Text {
+                        text: RiChartModel.outside_text;
+                        font-size: 11px;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+
+                    // No range yet: still computing, or none for this design.
+                    if !RiChartModel.ready: Text {
+                        text: RiChartModel.computing ? "Computing the RI range..." : RiChartModel.message;
+                        font-size: 12px;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                        horizontal-alignment: center;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+            // 3. Footer
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: RiChartModel.status_text;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                SweepButton {
+                    text: "Queue Material Check Set";
+                    hint: RiChartModel.can_queue_check_set
+                        ? "Queue still renders of this design in its own material, Quartz and Cubic Zirconia, to compare them by eye."
+                        : "Open a design first: the check set renders the open design.";
+                    enabled: RiChartModel.can_queue_check_set;
+                    clicked => { RiChartModel.queue_check_set(); }
+                }
+                SweepButton {
+                    text: "Close";
+                    hint: "Close the chart. Escape does the same.";
+                    clicked => { RiChartModel.open = false; }
+                }
+            }
+        }
+    }
+}

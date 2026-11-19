@@ -54,7 +54,7 @@ export component UndoRedoGroup inherits HorizontalLayout {
     }
 }
 
-// The solve state as the Solve button: "Solved · 47 ms", amber "Solved · 1 check", "Not solved",
+// The solve state as the Solve button: "Solved", amber "Solved · 1 check", "Not solved",
 // "Failed", and while it runs "Solving..." with a Cancel in the same slot. One model for what was
 // three signals (the green word, the amber badge and the amber dot).
 //
@@ -86,7 +86,8 @@ component SolveState inherits Rectangle {
         : root.failed ? "Failed"
         : root.check_chip ? "Solved"
         : root.checks > 0 ? "Solved · " + root.checks + (root.checks == 1 ? " check" : " checks")
-        : (EditorModel.last_solve_duration_ms > 0 && GuideModel.shows_advanced() && !root.compact ? "Solved · " + EditorModel.last_solve_duration_ms + " ms" : "Solved");
+        // The solve time is in the status strip ("· 47 ms"); showing it here too said it twice.
+        : "Solved";
     property <string> icon: root.running ? ""
         : root.needs_solve ? KitIcons.reset
         : (root.failed || root.amber) ? KitIcons.warn
@@ -126,7 +127,8 @@ component SolveState inherits Rectangle {
     }
 
     // A fixed slot: the longer wording ("Solved · 12 checks") and the Cancel never change it.
-    width: 176px;
+    // 196 px: the check chip is up to about 75 px ("262 checks") and "Solved" keeps its room beside it.
+    width: 196px;
     height: 32px;
     border-radius: 8px;
     background: root.needs_solve && EditorModel.auto_solve_budget_ms == 0 ? Theme.accent-cyan-surface : Theme.bg-card-hover;
@@ -167,7 +169,7 @@ component SolveState inherits Rectangle {
         }
         HorizontalLayout {
             padding-left: 10px;
-            padding-right: root.running ? 58px : (root.check_chip ? 70px : 6px);
+            padding-right: root.running ? 58px : (root.check_chip ? 80px : 6px);
             spacing: 7px;
             VerticalLayout {
                 alignment: center;
@@ -427,6 +429,13 @@ export component SolveGroup inherits HorizontalLayout {
             : "";
     }
     property <string> deep_hint: GuideModel.allows_advanced() ? EditorModel.deep_solve_hint + root.busy_suffix("Deep Solve") : GuideModel.locked_hint;
+
+    // The Deep Solve and Cancel buttons swap while the pointer may rest on the slot: the one
+    // that goes away never sees its hover end, so the hover strip is cleared on the swap.
+    property <bool> deep_running_seen: EditorModel.deep_solve_running;
+    changed deep_running_seen => {
+        EditorModel.hover_hint = "";
+    }
 
     SolveState { compact: root.compact; }
 

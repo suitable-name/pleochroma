@@ -37,6 +37,15 @@ pub(in crate::gui) use palette::setup_command_palette;
 pub(in crate::gui) use run::{
     add_tier, enter_live_render_view, set_solid_view_mode, show_edit_view, show_inspector_tab,
 };
+// The navigation helpers, for the commit points of actions outside the palette (a tier shown
+// from the Cutting Instructions, "Show Me Where", Edit as Text, the Optimize landing), so
+// every "show this area" goes through one implementation.
+pub(in crate::gui) use run::{
+    PANE_TIER_EDITOR, TAB_3D, TAB_FILES, edit_view_showing, request_pane, show_live_render_view,
+    show_optimize_search_view, show_tab, show_tier,
+};
+// Reveals at the commit points of the library import and the Material Editor's save.
+pub(in crate::gui) use run::{open_stone_properties, show_library_panel};
 // Read by the shortcut table's test, which checks every shortcut shown in the palette is a
 // real row of that table.
 #[cfg(test)]

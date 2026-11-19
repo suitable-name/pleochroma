@@ -25,11 +25,14 @@ pub mod headless;
 
 mod capture_still;
 mod capture_video;
+pub(in crate::gui) mod check_set;
 pub(crate) mod controller;
 pub(crate) mod convert;
+pub(in crate::gui) mod edit;
 pub(crate) mod execute;
 mod rows;
 mod script_export;
+pub(in crate::gui) mod view;
 mod wiring;
 
 pub(crate) use controller::{stop_for_app_close, work_at_risk};
@@ -39,6 +42,8 @@ pub(crate) use wiring::setup_render_jobs;
 mod estimator_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_check_set;
 #[cfg(test)]
 mod tests_hdr_exposure;
 #[cfg(test)]

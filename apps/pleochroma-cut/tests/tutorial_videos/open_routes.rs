@@ -259,9 +259,9 @@ impl Film<'_> {
     /// opened, and the sideways turns taken (always 0 now; the caller still passes them to
     /// `unturn_table`).
     ///
-    /// The row must show at least 60% of its height in the
-    /// dock-clipped viewport, and the control most of its bounds, clear of both overlay
-    /// scrollbars. Vertical wheel turns reveal the row, re-queried after each turn.
+    /// The row must show at least 60% of its height in the dock-clipped viewport. Vertical wheel
+    /// turns reveal the row, which is looked up again after each turn; a row out of view is not
+    /// in the tree, and the wheel then turns towards it by the numbers of the rows on view.
     fn row_chip_for_row(&mut self, row_prefix: &str, label: &str) -> Result<(Spot, usize), String> {
         let row_index = row_prefix
             .strip_prefix("Tier ")
@@ -273,7 +273,16 @@ impl Film<'_> {
         let mut last_row_y: Option<f32> = None;
         for _ in 0..40 {
             let viewport = self.safe_tier_table_viewport()?;
-            let row = self.tier_row_spot(row_index)?;
+            let Ok(row) = self.tier_row_spot(row_index) else {
+                // A row out of view is not in the tree: turn the wheel towards it, by the numbers
+                // of the rows that are on view, and look again.
+                let on_view = self.tier_rows_on_view();
+                let above = on_view.iter().min().is_some_and(|first| *first > row_index);
+                self.wheel_over(&viewport, if above { 100.0 } else { -100.0 })?;
+                pump(60);
+                last_row_y = None;
+                continue;
+            };
             let inside = (row.y + row.h).min(viewport.y + viewport.h) - row.y.max(viewport.y);
             if row.h > 0.0 && inside >= 0.6 * row.h {
                 debug_check("tier row visible share", &true, &true);

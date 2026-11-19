@@ -8,9 +8,14 @@
 //! is geometry (the planes, the solid mesh, the manufacturability checks, a few milliseconds)
 //! and, when the design names a material, one fast table-up optical measurement (about 2 ms,
 //! the same one the Retarget dialog's table uses).
+//!
+//! The windowing Check also reads the 10 degree tilt: the RI range worker
+//! (`gui::editor::ri_range`) traces it at the design's own index, and [`apply_small_tilt`] feeds
+//! it into the verdict on screen when it lands, so the Check updates in place and nothing is
+//! measured twice.
 
-use super::finish;
-use crate::MainWindow;
+use super::{SLOT, finish, present, services};
+use crate::{MainWindow, gui::editor::ri_range};
 use pleochroma::{
     geometry::meet_solver::SolvedTier,
     optics::{LightingPreset, materials::GemMaterial, raytracer::FacetFinish},
@@ -20,12 +25,21 @@ use pleochroma_editor::{
     material_lookup::{EditorMaterialLookup, resolved_gem_material_for_design},
     retarget::metrics::measure_column_with_finishes,
     solve_policy::design_to_gpu_planes_from_solved,
-    verdict::{SolveFacts, VanishSnapshot, VerdictInputs, axis_fact, gather, vanish_snapshot},
+    verdict::{
+        SolveFacts, VanishSnapshot, VerdictInputs, axis_fact, evaluate, gather, vanish_snapshot,
+    },
 };
 use std::{
+    cell::RefCell,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::Arc,
 };
+
+thread_local! {
+    /// The inputs of the latest verdict that landed, with the request's serial, so the RI range
+    /// can be added to them without measuring again.
+    static LAST_INPUTS: RefCell<Option<(u64, VerdictInputs)>> = const { RefCell::new(None) };
+}
 
 /// Everything a worker needs, bundled so the debounce timer can hold it until it fires.
 pub(super) struct Job {
@@ -101,8 +115,24 @@ fn design_finishes(design: &Design, solved: &[SolvedTier]) -> Vec<FacetFinish> {
 /// What a worker hands back: the verdict's inputs and the facets that vanish in the design.
 pub(super) type Outcome = (VerdictInputs, VanishSnapshot);
 
+/// Hands the design of `job` to the RI range worker: the hint shows at once and the trace starts
+/// once changes pause. Called on the UI thread, wherever the verdict's worker starts.
+fn hand_to_ri_range(job: &Job) {
+    let Some(ui) = job.ui_weak.upgrade() else {
+        return;
+    };
+    // The library row of the design; an editor that is borrowed right now has none to give.
+    let entry_id = services().and_then(|services| {
+        let editor = services.editor.try_borrow().ok()?;
+        editor.source_entry_id
+    });
+    ri_range::note_solved(&job.design, job.solved.as_deref(), job.n_d, entry_id);
+    ri_range::design_changed(&ui);
+}
+
 /// Runs `job` on a worker thread; the result comes back through [`finish`] on the UI thread.
 pub(super) fn spawn(job: Job) {
+    hand_to_ri_range(&job);
     std::thread::spawn(move || {
         let Job {
             design,
@@ -128,7 +158,56 @@ pub(super) fn spawn(job: Job) {
             (inputs, vanished)
         }));
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            if let Ok((inputs, _)) = &outcome {
+                remember_inputs(serial, inputs);
+            }
             finish(&ui, serial, had_solution, outcome.ok());
+            // The range of this design may have landed before its verdict did.
+            apply_small_tilt(&ui);
         });
     });
+}
+
+/// Keeps the inputs of the verdict that answers request `serial`.
+pub(super) fn remember_inputs(serial: u64, inputs: &VerdictInputs) {
+    LAST_INPUTS.with(|cell| *cell.borrow_mut() = Some((serial, inputs.clone())));
+}
+
+/// The inputs of the verdict on screen, when they describe the design as it stands.
+pub(super) fn current_inputs() -> Option<VerdictInputs> {
+    let (serial, inputs) = LAST_INPUTS.with(|cell| cell.borrow().clone())?;
+    SLOT.with(|cell| {
+        let slot = cell.borrow();
+        (slot.current && slot.serial == serial).then_some(inputs)
+    })
+}
+
+/// Adds the RI range worker's 10 degree windowing mean to the verdict on screen and shows the
+/// Check again when it changed (while `WINDOWING_CHECK_READS_TILT` is off it never does).
+///
+/// Called when the range lands and when a verdict lands; does nothing until both exist for the
+/// same design.
+pub(in crate::gui::editor) fn apply_small_tilt(ui: &MainWindow) {
+    let Some(range) = ri_range::latest() else {
+        return;
+    };
+    let Some(inputs) = current_inputs() else {
+        return;
+    };
+    if inputs.solve != SolveFacts::Closed {
+        return;
+    }
+    let inputs = inputs.with_small_tilt_windowing(Some(range.own_small_tilt_windowing_pct()));
+    let verdict = evaluate(&inputs);
+    let changed = SLOT.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.verdict.as_ref() == Some(&verdict) {
+            return false;
+        }
+        slot.verdict = Some(verdict.clone());
+        true
+    });
+    if changed {
+        present::push_verdict(ui, &verdict);
+    }
 }

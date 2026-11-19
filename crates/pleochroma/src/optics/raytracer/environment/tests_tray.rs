@@ -2,7 +2,7 @@
 //! radiance is the albedo times the rig's irradiance over pi, and As Lit (`tray = 0`) never
 //! moves (the bit guard is `tests_pins.rs`).
 
-use super::*;
+use super::{tray::metered_exposure_factor, *};
 use crate::{optics::studio_rig::StudioRig, render_setup::Backdrop};
 
 const LAMBDAS: [f32; 3] = [450.0, 550.0, 650.0];
@@ -328,6 +328,40 @@ fn the_meter_shows_white_paper_alike_under_every_rig() {
     // The grading dome is the reference every rig is metered to: its own reading is 1.
     let iso = metered_exposure(1.0, LightingPreset::IsoHemisphere, 0.84, 1.2);
     assert!((iso - 1.0).abs() < 0.002, "iso {iso}");
+}
+
+/// The metering factor is `metered_exposure` at a compensation of 1, bit for bit, it is 1 for the
+/// UV lamps, and dividing a metered exposure by it gives the compensation back, which is how a
+/// frozen scene's exposure is shown on the live control again.
+#[test]
+fn the_metering_factor_is_the_exact_inverse_of_the_meter() {
+    for preset in LightingPreset::ALL {
+        for (yaw, pitch) in [
+            (0.84f32, 72.0f32.to_radians()),
+            (5.24, 25.0f32.to_radians()),
+        ] {
+            let factor = metered_exposure_factor(preset, yaw, pitch);
+            assert_eq!(
+                factor.to_bits(),
+                metered_exposure(1.0, preset, yaw, pitch).to_bits(),
+                "{preset:?}"
+            );
+            if matches!(
+                preset,
+                LightingPreset::UvLamp365 | LightingPreset::UvLamp395
+            ) {
+                assert_eq!(factor.to_bits(), 1.0f32.to_bits(), "{preset:?}");
+            }
+            for compensation in [0.2f32, 0.75, 1.0, 1.337, 5.0] {
+                let metered = metered_exposure(compensation, preset, yaw, pitch);
+                let back = metered / factor;
+                assert!(
+                    (back - compensation).abs() <= compensation * 1e-6,
+                    "{preset:?} at {compensation}: {back}"
+                );
+            }
+        }
+    }
 }
 
 /// Dragging the light by a degree must not make the surround flicker.

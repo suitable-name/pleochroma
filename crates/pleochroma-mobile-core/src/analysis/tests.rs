@@ -86,6 +86,33 @@ fn the_map_turn_is_part_of_the_metrics_key_only() {
     );
 }
 
+/// The lighting rig and the light position are inputs of the metrics, not of the tilt sweep
+/// (which is scored under the tilt standard): moving the light stales the metrics only.
+#[test]
+fn the_light_is_part_of_the_metrics_key_only() {
+    let (mut state, _mock) = solved_state();
+    let metrics = Key::new(&state, Kind::Metrics).expect("a solve is current");
+    let tilt = Key::new(&state, Kind::Tilt).expect("a solve is current");
+
+    nudge_light(&mut state);
+    assert_ne!(
+        Key::new(&state, Kind::Metrics).expect("a solve is current"),
+        metrics
+    );
+    assert_eq!(
+        Key::new(&state, Kind::Tilt).expect("a solve is current"),
+        tilt
+    );
+
+    let name = crate::design_props::lighting_rows()[1].name.clone();
+    crate::design_props::set_lighting(&mut state, &name).expect("a real rig");
+    assert_eq!(
+        Key::new(&state, Kind::Tilt).expect("a solve is current"),
+        tilt,
+        "another rig does not stale the tilt curves"
+    );
+}
+
 fn synthetic_axis(azimuth_deg: f32, offset: f32) -> TiltAxisData {
     let curve = |scale: f32| -> Vec<f32> {
         (0..TILT_POINTS)
@@ -293,8 +320,13 @@ fn a_running_sweep_is_cancelled_when_its_inputs_change() {
     assert!(!supersede_stale(&state), "nothing changed yet");
     assert!(state.analysis.tilt_busy());
 
-    nudge_light(&mut state);
-    assert!(supersede_stale(&state), "the light moved under the sweep");
+    // The light is no input of the sweep (it is scored under the tilt standard), so the
+    // frosted girdle stands in for an input that changes under it.
+    assert_eq!(
+        crate::design_props::set_frosted_girdle(&mut state, true),
+        Ok(true)
+    );
+    assert!(supersede_stale(&state), "the stone changed under the sweep");
     assert!(!state.analysis.tilt_busy());
     // The worker winds down; nothing is stored for the cancelled sweep.
     std::thread::sleep(Duration::from_millis(50));

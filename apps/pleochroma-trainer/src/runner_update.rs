@@ -69,6 +69,7 @@ pub(super) struct OwnedImitationBatch {
     score_slopes: Vec<Vec<f32>>,
     action_targets: Vec<Vec<f32>>,
     oracle_gain: Vec<f32>,
+    rejected_actions: Vec<bool>,
 }
 
 impl OwnedImitationBatch {
@@ -121,6 +122,10 @@ impl OwnedImitationBatch {
                 .iter()
                 .map(|&i| batch.score_slopes[i].clone())
                 .collect(),
+            rejected_actions: selected
+                .iter()
+                .map(|&i| batch.is_rejected_action(i))
+                .collect(),
             oracle_gain: selected.iter().map(|&i| batch.oracle_gain[i]).collect(),
             action_targets: selected
                 .iter()
@@ -139,6 +144,7 @@ impl OwnedImitationBatch {
             score_slopes: &self.score_slopes,
             action_targets: &self.action_targets,
             oracle_gain: &self.oracle_gain,
+            rejected_actions: &self.rejected_actions,
         }
     }
 }
@@ -170,7 +176,7 @@ const fn replay_row_bytes(batch: &ImitationBatch<'_>, index: usize) -> usize {
         )
         .saturating_add(6 * std::mem::size_of::<Vec<u8>>())
         .saturating_add(2 * std::mem::size_of::<usize>())
-        .saturating_add(std::mem::size_of::<f32>())
+        .saturating_add(std::mem::size_of::<f32>() + std::mem::size_of::<bool>())
 }
 
 /// An owned PPO batch (the borrowed [`TrainBatch`] cannot cross to the update thread).
@@ -759,8 +765,16 @@ impl TrainingRunner {
             .copied()
             .max()
             .map_or(0, |last| last + 1);
-        let observations: Vec<_> = self.slots[..used].iter().map(|slot| &slot.obs).collect();
-        let last_values = self.bootstrap_values(&observations)?;
+        let mut continues = vec![false; used];
+        for (&worker, end) in self.buffer.worker_ids.iter().zip(&self.buffer.ends) {
+            continues[worker] = matches!(end, pleochroma_ai::training::EpisodeEnd::Continue);
+        }
+        let live: Vec<_> = (0..used).filter(|&worker| continues[worker]).collect();
+        let observations: Vec<_> = live.iter().map(|&worker| &self.slots[worker].obs).collect();
+        let mut last_values = vec![0.0; used];
+        for (worker, value) in live.into_iter().zip(self.bootstrap_values(&observations)?) {
+            last_values[worker] = value;
+        }
         // The rewards enter GAE divided by the running std of the discounted return (the stored
         // steps keep the raw reward), so the critic regresses on O(1) targets.
         let reward_scale = self.normalizer.scale();

@@ -141,6 +141,20 @@ pub(in crate::gui::rough_plan) fn locked_for_plan(host: &Host) -> Vec<PlacedSton
     }
 }
 
+/// The Reasons the cutter gave the stones [`locked_for_plan`] returns, in the same order, so the
+/// plan's new results can give them back to those stones.
+pub(in crate::gui::rough_plan) fn locked_reasons_for_plan(host: &Host) -> Vec<String> {
+    let selected = host.window.global::<RoughPlanModel>().get_selected_result();
+    let Ok(result) = usize::try_from(selected) else {
+        return Vec::new();
+    };
+    let session = host.session.borrow();
+    match (session.run.layouts.get(result), u32::try_from(result).ok()) {
+        (Some(layout), Some(result)) => layouts::locked_reasons(layout, result, &session.overrides),
+        _ => Vec::new(),
+    }
+}
+
 /// Registers the stone menu's callback.
 pub(super) fn setup(host: &Rc<Host>) {
     let model = host.window.global::<RoughPlanModel>();

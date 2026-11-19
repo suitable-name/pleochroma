@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider roots: only cache/share/ is ever exposed to other apps. -->
+<!-- FileProvider roots: only cache/share/ and cache/mail/ are ever exposed to other apps.
+     mail/ is separate from share/ because every share empties its own folder. -->
 <paths>
     <cache-path
         name="share"
         path="share/" />
+    <cache-path
+        name="mail"
+        path="mail/" />
 </paths>

@@ -541,8 +541,8 @@ fn step_with(completion: &str) -> &'static Step {
         .unwrap_or_else(|| panic!("no step completes on {completion:?}"))
 }
 
-/// What the learner sees in the P1 row's MARGIN cell: its text and the colour word its risk
-/// level draws in (`tier_table_row.slint`: green safe, amber marginal, red windows).
+/// What the learner sees in the margin mark at the right end of the P1 row: its text and the
+/// colour word its risk level draws in (`tier_table_row.slint`: green safe, amber marginal, red windows).
 fn p1_margin_cell(design: &Design) -> (String, &'static str) {
     let rows = tier_items_stale(design, design.effective_refractive_index());
     let row = rows
@@ -567,7 +567,7 @@ const fn colour_of(risk: Risk) -> &'static str {
     }
 }
 
-/// The pavilion and material steps describe the P1 MARGIN cell the tier table shows, whose
+/// The pavilion and material steps describe the P1 margin mark the tier table shows, whose
 /// colour follows the windowing rule. With no material the design uses its default index 1.54
 /// (critical angle 40.5 degrees), and a -40 degree pavilion reads a few tenths of a degree
 /// below it, in red; Diamond turns it green.
@@ -587,7 +587,7 @@ fn the_pavilion_and_material_steps_describe_the_margin_the_tier_table_shows() {
     );
     assert!(
         pavilion.check.contains(&text) && pavilion.check.contains(colour),
-        "step {:?} asks for a MARGIN cell that does not read {text} in {colour}: {}",
+        "step {:?} asks for a margin mark that does not read {text} in {colour}: {}",
         pavilion.title,
         pavilion.check
     );
@@ -617,7 +617,7 @@ fn the_pavilion_and_material_steps_describe_the_margin_the_tier_table_shows() {
     assert_eq!(colour, "green", "Diamond makes the walkthrough's P1 Safe");
     assert!(
         material.check.contains(&text) && material.check.contains(colour),
-        "step {:?} asks for a MARGIN cell that does not read {text} in {colour}: {}",
+        "step {:?} asks for a margin mark that does not read {text} in {colour}: {}",
         material.title,
         material.check
     );

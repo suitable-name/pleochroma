@@ -47,6 +47,38 @@ fn meta_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<RenderJobMeta> {
     })
 }
 
+/// The state and progress a job row had when an editor was seeded from it.
+///
+/// [`Database::update_render_job`] writes only while the row still matches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpectedRow {
+    /// The `state` column the editor saw.
+    pub state: String,
+    /// The `frames_done` column the editor saw.
+    pub frames_done: i64,
+}
+
+/// The values an edit writes into an existing job row. The `kind` never changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdatedJob {
+    /// Name the job list shows. Must not be empty.
+    pub label: String,
+    /// One-line detail text for lists.
+    pub summary: String,
+    /// The PNG path (still) or the frame folder (tilt video).
+    pub output_path: String,
+    /// Frames the job renders in total.
+    pub frames_total: i64,
+    /// Version number of the snapshot format.
+    pub snapshot_version: i64,
+    /// The job file as JSON text.
+    pub snapshot: String,
+    /// A new state, one of [`RENDER_JOB_STATES`]; `None` keeps the state.
+    pub new_state: Option<String>,
+    /// Sets `frames_done` to 0 and clears the result and the start time.
+    pub reset_progress: bool,
+}
+
 impl Database {
     /// Appends a job to the end of the queue in state `queued`, returning its new
     /// `job_id`. Both `created_at` and `updated_at` are `now` (Unix seconds).
@@ -221,6 +253,74 @@ impl Database {
                 params![now, id],
             )
             .with_context(|| format!("Failed to reset render job {id}"))
+    }
+
+    /// Rewrites the editable columns of job `id` while its row still has the state and
+    /// `frames_done` in `expected`. Returns `false` when no row matched: the job changed or
+    /// was deleted meanwhile, and nothing was written.
+    ///
+    /// The `kind` column is never written. `updated_at` is the database clock. A
+    /// `new_state` also sets `error_text` to `NULL` and the finish time as
+    /// [`Database::set_render_job_state`] does; `reset_progress` zeroes `frames_done` and
+    /// clears the result and the start time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the label is empty, if `new_state` is not one of
+    /// [`RENDER_JOB_STATES`], or if the underlying `UPDATE` fails.
+    pub fn update_render_job(
+        &self,
+        id: i64,
+        expected: &ExpectedRow,
+        job: &UpdatedJob,
+    ) -> Result<bool> {
+        if job.label.is_empty() {
+            anyhow::bail!("a render job needs a label");
+        }
+        if let Some(state) = job.new_state.as_deref()
+            && !RENDER_JOB_STATES.contains(&state)
+        {
+            anyhow::bail!("unknown render job state '{state}'");
+        }
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE render_jobs
+                 SET label = ?1, summary = ?2, output_path = ?3, frames_total = ?4,
+                     snapshot_version = ?5, snapshot = ?6,
+                     state = COALESCE(?7, state),
+                     error_text = CASE WHEN ?7 IS NULL THEN error_text ELSE NULL END,
+                     finished_at = CASE
+                         WHEN ?7 IS NULL THEN finished_at
+                         WHEN ?7 IN ('done', 'failed', 'cancelled')
+                             THEN CAST(strftime('%s', 'now') AS INTEGER)
+                         ELSE NULL
+                     END,
+                     started_at = CASE
+                         WHEN ?7 = 'running' THEN CAST(strftime('%s', 'now') AS INTEGER)
+                         WHEN ?8 = 1 THEN NULL
+                         ELSE started_at
+                     END,
+                     frames_done = CASE WHEN ?8 = 1 THEN 0 ELSE frames_done END,
+                     result_path = CASE WHEN ?8 = 1 THEN NULL ELSE result_path END,
+                     updated_at = CAST(strftime('%s', 'now') AS INTEGER)
+                 WHERE job_id = ?9 AND state = ?10 AND frames_done = ?11",
+                params![
+                    job.label,
+                    job.summary,
+                    job.output_path,
+                    job.frames_total,
+                    job.snapshot_version,
+                    job.snapshot,
+                    job.new_state,
+                    i64::from(job.reset_progress),
+                    id,
+                    expected.state,
+                    expected.frames_done
+                ],
+            )
+            .with_context(|| format!("Failed to update render job {id}"))?;
+        Ok(changed > 0)
     }
 
     /// Renumbers the queue: each id in `ids` gets `position = index + 1`, in one

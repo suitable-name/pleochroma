@@ -12,8 +12,11 @@ import { KitButton, KitGlass, KitIcon, KitIcons } from "../kit/kit.slint";
 // from the solve's own message (`EditorModel.status_text`). The toolbar never changes shape for it:
 // the banner floats and the host moves the rows below it down by `banner_height`.
 export global ProblemBannerState {
-    // Shown while the solve failed (the solid cannot be built) or the verdict has a Problem.
-    out property <bool> shown: EditorModel.enabled && !EditorModel.solve_running && (EditorModel.solve_state == "failed" || VerdictModel.level == 2);
+    // Shown while the solve failed (the solid cannot be built) or the verdict has a Problem. A
+    // verdict marked out of date (an Undo or an edit since it was worked out) no longer describes
+    // the design, so it does not hold the banner up; the next verdict brings it back if it still
+    // applies.
+    out property <bool> shown: EditorModel.enabled && !EditorModel.solve_running && (EditorModel.solve_state == "failed" || (VerdictModel.level == 2 && !VerdictModel.stale));
     // The tier row the first Problem reason is about, or -1.
     out property <int> tier: VerdictModel.reasons.length > 0 && VerdictModel.reasons[0].level >= 2 ? VerdictModel.reasons[0].tier : -1;
     out property <string> words: VerdictModel.reasons.length > 0 && VerdictModel.reasons[0].level >= 2 ? VerdictModel.reasons[0].text : EditorModel.status_text;
@@ -47,6 +50,9 @@ export component EditProblemBanner inherits KitGlass {
             font-size: 12px;
             color: Theme.text-primary;
             vertical-alignment: center;
+            // Two lines fit the banner's 44px, so a long reason wraps in a narrow viewport
+            // instead of ending in "...".
+            wrap: word-wrap;
             overflow: elide;
         }
         if root.tier >= 0: VerticalLayout {

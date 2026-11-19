@@ -216,16 +216,19 @@ pub fn optimize_status_text(outcome: &OptimizeOutcome) -> String {
     let polish_note = polish_note(outcome);
     if outcome.changes.is_empty() {
         format!(
-            "Optimize found no improving move in {} evaluation(s) -- this design's \
+            "Optimize found no improving move in {} evaluation{}. This design's \
              free tiers were already at (or very near) a local optimum for these \
              weights.{cancelled_note}{polish_note}",
-            outcome.evaluations
+            outcome.evaluations,
+            if outcome.evaluations == 1 { "" } else { "s" }
         )
     } else {
         format!(
-            "Optimize changed {} tier(s) in {} evaluation(s).{cancelled_note}{polish_note}",
+            "Optimize changed {} tier{} in {} evaluation{}.{cancelled_note}{polish_note}",
             outcome.changes.len(),
-            outcome.evaluations
+            if outcome.changes.len() == 1 { "" } else { "s" },
+            outcome.evaluations,
+            if outcome.evaluations == 1 { "" } else { "s" }
         )
     }
 }
@@ -244,8 +247,14 @@ const fn cancelled_note(outcome: &OptimizeOutcome) -> &'static str {
 fn polish_note(outcome: &OptimizeOutcome) -> String {
     if outcome.polish_evaluations > 0 {
         format!(
-            " (polish: +{:.2} in {} evaluation(s))",
-            outcome.polish_improvement, outcome.polish_evaluations
+            " (polish: +{:.2} in {} evaluation{})",
+            outcome.polish_improvement,
+            outcome.polish_evaluations,
+            if outcome.polish_evaluations == 1 {
+                ""
+            } else {
+                "s"
+            }
         )
     } else {
         String::new()

@@ -115,7 +115,7 @@ fn keep_trials() -> Guide {
         )
         .actions([
             "The VS BASELINE card at the left of the Edit viewport shows the figures of the design against the Baseline (in the Advanced interface; Simple shows the figures alone).",
-            "Click Keep as Trial in the header of that card, or press Ctrl+Shift+K.",
+            "Click Keep as Trial in the header of that card, or press Ctrl+Shift+K. A narrow view folds the card to one line: click the arrow at its right end to open it.",
         ])
         .check("a toast says Kept as Trial 1.")
         .why("Trials live in this session only: they are not saved with the design. A Baseline is set when a design opens, so the strip compares from the start.")
@@ -158,7 +158,7 @@ fn keep_trials() -> Guide {
             "At the top of the tab, click Trials. Steps and Variants are the other views.",
         ])
         .check("a table with a Baseline line and the two trials under it, each with five figures.")
-        .why("Each figure shows its value and the signed change since the Baseline. Green is better than the figure's noise threshold, red is worse and grey is about the same, so a single small nudge often reads grey. The best value of each column has an outline.")
+        .why("Each figure shows its value and the signed change since the Baseline. Green is better than the figure's noise threshold, red is worse and gray is about the same, so a single small nudge often reads gray. The best value of each column has an outline.")
         .goal(
             Goal::All(vec![
                 Goal::InspectorTab(4),
@@ -178,7 +178,7 @@ fn keep_trials() -> Guide {
             "Click the row of Trial 1. The stone shows that trial while it is picked; a click on the picked row puts the design back.",
             "Click Restore under the table.",
         ])
-        .check("Crown Main reads 34.50 again, and a toast says Restored Trial 1.")
+        .check("a toast says Restored Trial 1, and Crown Main reads 34.50 again in the tier table (scroll the table to the Crown group if it is out of view).")
         .why("Restore is one undo step, named Restore Trial 1 in the Steps view, and a restored trial is not kept as a new one. A trial of a design that is no longer open cannot be restored.")
         .goal(
             Goal::All(vec![
@@ -214,7 +214,7 @@ fn keep_trials() -> Guide {
             "Record Every Change keeps one trial for every change you make, at most one a second. Undo and Redo never add one.",
             "Sort orders the table by a figure, best first. A star keeps a trial when the list is full: it holds 50, and the oldest unstarred trial drops first.",
         ])
-        .why("A trial scored in another material shows its figures grey until you press Re-score Trials.")
+        .why("A trial scored in another material shows its figures gray until you press Re-score Trials.")
         .allow(TOOLS_EDIT),
     )
 }
@@ -238,7 +238,7 @@ fn tune_by_hand() -> Guide {
             "At the top of the tab, click Tune. Search is the other view.",
         ])
         .check("a list headed Tiers (Tuning Order) with the pavilion main first.")
-        .why("The order is the pavilion main, the crown main, the other crown tiers and then the other pavilion tiers. A tier whose angle follows a relation is greyed and says what it follows, a girdle tier has no angle to tune, and the table and the culet are not listed.")
+        .why("The order is the pavilion main, the crown main, the other crown tiers and then the other pavilion tiers. A tier whose angle follows a relation is grayed out and says what it follows, a girdle tier has no angle to tune, and the table and the culet are not listed.")
         .goal(
             Goal::All(vec![
                 Goal::InspectorTab(2),

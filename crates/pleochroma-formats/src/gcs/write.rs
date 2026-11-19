@@ -5,7 +5,10 @@ use super::{
     polytope::{HalfSpace, PolytopeError, polytope_faces},
     tier::normal_from_index_angle,
 };
-use crate::asc::{AscSchedule, AscTier};
+use crate::{
+    asc::{AscSchedule, AscTier},
+    native::design::RiRangeChoice,
+};
 use std::fmt;
 
 /// Everything that can stop [`to_gcs_string`].
@@ -180,14 +183,27 @@ fn line(out: &mut String, depth: usize, text: &str) {
 /// The `<info>` element from the schedule's headers and footnotes: H1 → `title`,
 /// H2 → `header2`, the rest joined by `"; "` → `header3`; F1..F3 → `footer1..3`,
 /// the rest joined → `footer4`.
-fn info_line(schedule: &AscSchedule) -> String {
+///
+/// `ri_range` adds `ri_min` and `ri_max` for [`RiRangeChoice::Designer`] only: an estimate
+/// is Pleochroma's own tracing and never goes into a file another program reads.
+fn info_line(schedule: &AscSchedule, ri_range: RiRangeChoice) -> String {
     let joined = |items: &[String]| Some(items.join("; ")).filter(|s| !s.is_empty());
     let headers = &schedule.headers;
     let footnotes = &schedule.footnotes;
+    let (ri_min, ri_max) = match ri_range {
+        RiRangeChoice::Designer { low, high } if low.is_finite() => (
+            Some(low.to_string()),
+            high.filter(|high| high.is_finite())
+                .map(|high| high.to_string()),
+        ),
+        _ => (None, None),
+    };
     let fields = [
         ("title", Some(headers.first().cloned().unwrap_or_default())),
         ("header2", headers.get(1).cloned()),
         ("header3", joined(headers.get(2..).unwrap_or_default())),
+        ("ri_min", ri_min),
+        ("ri_max", ri_max),
         ("footer1", footnotes.first().cloned()),
         ("footer2", footnotes.get(1).cloned()),
         ("footer3", footnotes.get(2).cloned()),
@@ -321,6 +337,23 @@ pub fn to_gcs_string_with_frosting(
     schedule: &AscSchedule,
     frosting: &[(usize, GcsTierFrosting)],
 ) -> Result<String, GcsWriteError> {
+    to_gcs_string_with_ri_range(schedule, frosting, RiRangeChoice::Off)
+}
+
+/// [`to_gcs_string_with_frosting`] for a design whose designer stated a refractive-index range.
+///
+/// Only [`RiRangeChoice::Designer`] is written, as the `<info>` attributes `ri_min` and (when
+/// stated) `ri_max`. `Off` and `Estimate` write nothing: an estimate is never put into a `.gcs`.
+/// With `Off` the text is exactly [`to_gcs_string_with_frosting`]'s.
+///
+/// # Errors
+///
+/// The same as [`to_gcs_string`].
+pub fn to_gcs_string_with_ri_range(
+    schedule: &AscSchedule,
+    frosting: &[(usize, GcsTierFrosting)],
+    ri_range: RiRangeChoice,
+) -> Result<String, GcsWriteError> {
     let gear = schedule.gear_teeth_abs();
     if gear == 0 {
         return Err(GcsWriteError::ZeroGear);
@@ -365,7 +398,7 @@ pub fn to_gcs_string_with_frosting(
     );
     line(&mut out, 2, "<color r=\"1\" g=\"1\" b=\"1\"/>");
     line(&mut out, 1, "</render>");
-    line(&mut out, 1, &info_line(schedule));
+    line(&mut out, 1, &info_line(schedule, ri_range));
     line(&mut out, 0, "</GemCutStudio>");
     Ok(out)
 }

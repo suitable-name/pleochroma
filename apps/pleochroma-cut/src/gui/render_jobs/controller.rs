@@ -15,6 +15,7 @@
 use super::{
     execute::{ExecContext, execute_job_catching},
     rows::{LiveProgress, queue_view},
+    view::session::{EndReason, active_job, end},
     wiring,
 };
 use crate::{
@@ -57,10 +58,16 @@ pub(super) fn unix_now() -> i64 {
         })
 }
 
+mod bulk;
+mod facts;
 mod plan;
 mod stop_after;
 
 pub use plan::{after_finish, next_job};
+// Used by the tests of the Jobs window's rows.
+#[cfg(test)]
+pub(super) use bulk::{BulkOutcome, apply_bulk_compute};
+use facts::{FactsCache, read_facts};
 
 /// The job that renders now.
 struct Running {
@@ -96,6 +103,8 @@ pub struct JobController {
     live: RefCell<Option<LiveProgress>>,
     /// The database rows as last read, so a progress tick rebuilds the window without a query.
     metas: RefCell<Vec<RenderJobMeta>>,
+    /// Where each job computes and whether it is Ray-Traced, read once per job id.
+    facts: RefCell<FactsCache>,
 }
 
 thread_local! {
@@ -139,6 +148,28 @@ pub fn work_at_risk() -> Option<String> {
         .map(|_| WORK_AT_RISK.to_string())
 }
 
+/// Whether job `id` is the one that renders now.
+pub(in crate::gui) fn is_running(id: i64) -> bool {
+    with_controller(|controller| {
+        controller
+            .state
+            .borrow()
+            .current
+            .as_ref()
+            .is_some_and(|run| run.job_id == id)
+    })
+    .unwrap_or(false)
+}
+
+/// A save, a copy or a bulk change touched job `id`: drops its cached facts and shows the rows
+/// again.
+pub(in crate::gui) fn job_changed(_ui: &MainWindow, id: i64) {
+    let _ = with_controller(|controller| {
+        controller.facts.borrow_mut().forget(id);
+        controller.refresh();
+    });
+}
+
 /// Stops the running job because the app is closing. It is written as Paused at once, as
 /// the event loop will not deliver the run's own ending.
 pub fn stop_for_app_close() {
@@ -165,6 +196,7 @@ impl JobController {
             }),
             live: RefCell::new(None),
             metas: RefCell::new(Vec::new()),
+            facts: RefCell::new(FactsCache::new()),
         }
     }
 
@@ -232,11 +264,53 @@ impl JobController {
             .iter()
             .filter(|meta| JobState::parse(&meta.state).is_none_or(|state| !state.is_terminal()))
             .count();
+        self.sync_facts(&metas);
         *self.metas.borrow_mut() = metas;
+        self.end_view_of_unlisted_job();
         self.apply_view();
         if let Some(ui) = self.ui.upgrade() {
             let worker = self.settings_store.snapshot().settings.remote_worker();
             wiring::publish_script_facts(&ui, unfinished, worker.as_ref());
+        }
+    }
+
+    /// Ends the view of a render job that is no longer listed.
+    ///
+    /// One hook for every way a job goes: Delete, Clear Finished, an unknown-state row and the
+    /// start-up prune all end in a refresh whose list lacks the job.
+    fn end_view_of_unlisted_job(&self) {
+        let Some(id) = active_job() else {
+            return;
+        };
+        let listed = self.metas.borrow().iter().any(|meta| meta.job_id == id);
+        if listed {
+            return;
+        }
+        if let Some(ui) = self.ui.upgrade() {
+            end(&ui, EndReason::JobDeleted);
+        }
+    }
+
+    /// Drops the cached facts of jobs that are no longer listed and reads the ones of new jobs
+    /// (one `get_render_job` each, outside every borrow). Showing the rows never decodes a
+    /// snapshot.
+    fn sync_facts(&self, metas: &[RenderJobMeta]) {
+        let listed: Vec<i64> = metas.iter().map(|meta| meta.job_id).collect();
+        let missing = self.facts.borrow_mut().retain_listed(&listed);
+        for id in missing {
+            let read = self.db().get_render_job(id);
+            match read {
+                Ok(Some(row)) => {
+                    let facts = read_facts(&row.snapshot);
+                    self.facts.borrow_mut().insert(id, facts);
+                }
+                // Deleted since the list was read, or the database did not answer: ask again
+                // at the next refresh.
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!("Render job {id} could not be read for its row: {error}");
+                }
+            }
         }
     }
 
@@ -246,8 +320,9 @@ impl JobController {
             let metas = self.metas.borrow();
             let live = self.live.borrow();
             let state = self.state.borrow();
+            let facts = self.facts.borrow();
             (
-                queue_view(&metas, state.queue_running, live.as_ref()),
+                queue_view(&metas, state.queue_running, live.as_ref(), facts.map()),
                 state.current.is_some(),
             )
         };
@@ -566,6 +641,9 @@ impl JobController {
 
     /// A row button: applies what the state machine says the command does.
     pub fn command(&self, id: i64, command: JobCommand) {
+        if id <= 0 {
+            return;
+        }
         let metas = self.load_metas();
         let Some(meta) = metas.iter().find(|meta| meta.job_id == id) else {
             self.refresh();
@@ -646,6 +724,40 @@ impl JobController {
         }
     }
 
+    /// The header's Compute menu: stores `index` (0 Local Only, 1 Remote Only, 2 Local +
+    /// Remote) in every waiting, paused and failed job. It never changes a job's state, and the
+    /// toast counts what was skipped.
+    pub fn set_waiting_compute(&self, index: i32) {
+        let Some(choice) = bulk::choice_of_index(index) else {
+            return;
+        };
+        let worker = self.settings_store.snapshot().settings.remote_worker();
+        if choice != ComputeChoice::Local && worker.is_none() {
+            self.toast("Set up a remote worker in Settings first.", "info");
+            return;
+        }
+        let metas = self.load_metas();
+        let running = self.state.borrow().current.as_ref().map(|run| run.job_id);
+        let outcome = {
+            let db = self.db();
+            bulk::apply_bulk_compute(&db, &metas, choice, running)
+        };
+        {
+            let mut facts = self.facts.borrow_mut();
+            for id in &outcome.written {
+                facts.set_compute(*id, choice);
+            }
+        }
+        let clean = outcome.ray_local + outcome.had_started + outcome.refused == 0;
+        let kind = if outcome.set() > 0 && clean {
+            "success"
+        } else {
+            "info"
+        };
+        self.toast(&bulk::bulk_message(choice, &outcome), kind);
+        self.refresh();
+    }
+
     /// Start Queue: render the waiting jobs from the top down.
     pub fn start_queue(&self) {
         let waiting = self
@@ -719,6 +831,9 @@ impl JobController {
 
     /// Show: open the folder of what job `id` wrote (a video folder opens itself).
     pub fn show_result(&self, id: i64) {
+        if id <= 0 {
+            return;
+        }
         let result_path = self
             .load_metas()
             .into_iter()

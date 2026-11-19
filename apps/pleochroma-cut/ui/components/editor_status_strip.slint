@@ -20,6 +20,10 @@ import { KitIcon, KitIcons } from "kit/kit.slint";
 // own doc comment), and a Cancel button when `item.cancellable`.
 component ActivityChip inherits Rectangle {
     in property <ActivityItem> item;
+    // The most width the label and the elapsed time may take; a longer text is cut with an
+    // ellipsis. 0px: a strip too narrow for any text, where the chip is the dot and the cancel
+    // button (the strip's solver state already says "Solving"). The cancel button keeps its name.
+    in property <length> text_max: 260px;
 
     width: layout.preferred-width;
     height: layout.preferred-height;
@@ -51,12 +55,14 @@ component ActivityChip inherits Rectangle {
             opacity: item.progress < 0 ? (root.pulse_on ? 1.0 : 0.3) : 1.0;
         }
 
-        Text {
-            text: item.label + " -- " + Math.max(0, (ActivityModel.now_ms - item.started_ms) / 1000) + "s";
+        if root.text_max > 0px: Text {
+            text: item.label + " -- " + Math.round(Math.max(0, (ActivityModel.now_ms - item.started_ms) / 1000) * 10) / 10 + "s";
             font-size: 10px;
             font-weight: 700;
             color: Theme.bg-darkest;
             vertical-alignment: center;
+            overflow: elide;
+            max-width: root.text_max;
         }
 
         // A real completion fraction (Optimize's evaluation count, say) draws as
@@ -122,6 +128,22 @@ export component EditorStatusStrip inherits Rectangle {
     // placeholder.
     in property <length> window_height: 900px;
 
+    // What a narrow strip leaves out, lowest priority first, so that "Details" and "?" at its
+    // right end stay inside the window (720px wide at the least, less the pane switch beside the
+    // strip in a short window):
+    //  * under 820px the "Saved: ..." chip (the Details popup has the path),
+    //  * under 760px the facet count and the solve time,
+    //  * under 640px the design's name (the window title has it) and the tier count,
+    //  * under 560px the text of an activity chip (its dot and Cancel stay),
+    //  * under 400px the state word beside the state mark (the mark and the screen reader's
+    //    name keep it), the divider and the "?" (F1 still opens the manual).
+    // The activity chip's text gets what the fixed parts leave, between 60px and 260px.
+    property <bool> saved_shown: EditorModel.last_saved_label != "" && root.width >= 820px;
+    property <bool> name_shown: root.width >= 640px;
+    property <bool> tight: root.width < 400px;
+    property <length> activity_text_max: root.width < 560px ? 0px
+        : Math.max(60px, Math.min(260px, root.width - 630px - (EditorModel.is_dirty ? 70px : 0px) - (root.saved_shown ? 120px : 0px)));
+
     property <bool> has_manuf: EditorModel.manufacturability_warnings.length > 0;
     property <bool> has_preform_warn: EditorModel.preform_fit_warning != "";
     // Deep Solve counts as a strip message only while it is running or has a status. Its
@@ -143,7 +165,7 @@ export component EditorStatusStrip inherits Rectangle {
     // stays empty then instead of saying it a second time.
     property <string> strip_text: EditorModel.solve_running ? (ActivityModel.busy ? "" : EditorModel.status_text)
         : root.has_validation_problem ? EditorModel.status_text
-        : root.has_manuf ? (EditorModel.manufacturability_warnings.length + " manufacturability warning(s)")
+        : root.has_manuf ? (EditorModel.manufacturability_warnings.length + (EditorModel.manufacturability_warnings.length == 1 ? " manufacturability warning" : " manufacturability warnings"))
         : root.has_preform_warn ? EditorModel.preform_fit_warning
         : root.has_solved_message ? (root.closed_solid ? "Closed solid" : EditorModel.status_text)
         : root.has_deep_solve ? EditorModel.deep_solve_status
@@ -210,7 +232,7 @@ export component EditorStatusStrip inherits Rectangle {
         // (`gui::editor::state::design_label_text`). Always shown first, so a
         // cutter never has to guess which design the tier table/status
         // messages to its right belong to.
-        Text {
+        if root.name_shown: Text {
             text: EditorModel.design_label;
             font-size: 11px;
             font-weight: 600;
@@ -246,8 +268,8 @@ export component EditorStatusStrip inherits Rectangle {
                     }
                     // The word only when something needs saying: "Solved" is the command bar's
                     // solve button, and the check says it here too.
-                    if root.solver_state_label != "Solved": Text { text: root.solver_state_label; font-size: 10px; font-weight: 700; color: root.solver_state_color; vertical-alignment: center; }
-                    Text {
+                    if root.solver_state_label != "Solved" && !root.tight: Text { text: root.solver_state_label; font-size: 10px; font-weight: 700; color: root.solver_state_color; vertical-alignment: center; }
+                    if root.name_shown: Text {
                         text: EditorModel.tiers.length + (EditorModel.tiers.length == 1 ? " tier" : " tiers");
                         font-size: 10px;
                         color: Theme.text-muted;
@@ -287,7 +309,7 @@ export component EditorStatusStrip inherits Rectangle {
             }
         }
 
-        VerticalLayout {
+        if !root.tight: VerticalLayout {
             alignment: center;
             Rectangle { width: 1px; height: 14px; background: Theme.border-subtle; }
         }
@@ -335,7 +357,7 @@ export component EditorStatusStrip inherits Rectangle {
             alignment: center;
             HorizontalLayout {
                 spacing: 6px;
-                for a in ActivityModel.activities: ActivityChip { item: a; }
+                for a in ActivityModel.activities: ActivityChip { item: a; text_max: root.activity_text_max; }
             }
         }
 
@@ -358,7 +380,7 @@ export component EditorStatusStrip inherits Rectangle {
 
         // Where the last Save or Export wrote. Click to reveal it in the file manager. Always
         // shown: a saved file is a fact, not a message. The full path is in the Details popup.
-        if EditorModel.last_saved_label != "": VerticalLayout {
+        if root.saved_shown: VerticalLayout {
             alignment: center;
             Rectangle {
                 width: saved_layout.preferred-width;
@@ -464,7 +486,7 @@ export component EditorStatusStrip inherits Rectangle {
         }
 
         // The manual page on the status strip.
-        VerticalLayout {
+        if !root.tight: VerticalLayout {
             alignment: center;
             HelpButton {
                 topic: HelpTopics.status-strip;

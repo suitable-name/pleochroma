@@ -241,7 +241,7 @@ mod tests {
         let count = concave.concave_tiers.len();
         let text = format_deep_solve_report(&report, false, &concave);
         assert!(
-            text.contains(&format!("flat stone; {count} concave tier(s)")),
+            text.contains(&format!("flat stone; {count} concave tier")),
             "{text}"
         );
     }

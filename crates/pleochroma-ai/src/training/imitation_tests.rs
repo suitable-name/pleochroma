@@ -132,6 +132,7 @@ impl Fixture {
             score_slopes: &self.score_slopes,
             action_targets: &self.action_targets,
             oracle_gain: &self.oracle_gain,
+            rejected_actions: &[],
         }
     }
 

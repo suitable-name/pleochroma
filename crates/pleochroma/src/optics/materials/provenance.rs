@@ -44,7 +44,7 @@ const COLORLESS: &str = "Colorless: no chromophore, empty band set, zero absorpt
     wavelength";
 
 /// One record per built-in material, keyed by the material's name.
-static RECORDS: [(&str, OpticsProvenance); 39] = [
+static RECORDS: [(&str, OpticsProvenance); 40] = [
     (
         "Diamond",
         OpticsProvenance {
@@ -505,6 +505,21 @@ Winter 2024) and Cr:Al2O3 \
             absorption: "Rossman, Caltech Mineral Spectroscopy Server, Titanite1478 \
                 (yellow-green, Madagascar, 3.91 mm, E par b and E par c), a digitised figure; \
                 beta is E par b as measured; gamma and alpha are estimated from E par c",
+            absorption_estimated: true,
+        },
+    ),
+    (
+        "Nanosital",
+        OpticsProvenance {
+            dispersion: "n_d = 1.620, the centre of the measured RI 1.60-1.63 of Soonthorntantikul, \r
+                Vertriest & Avakyan, Glass-ceramics as imitation gemstones, Gems & Gemology 62(2), \r
+                164-176 (2026); the dispersion is the manufacturer's B-G figure 0.015 (Russian \r
+                Jeweller, 2016), not measured independently, converted to F-C with the ratio 0.579 \r
+                into a 2-parameter Cauchy curve. A manufactured glass-ceramic imitation, not a \r
+                mineral",
+            absorption: "Cobalt blue: the three Co2+ bands at 545, 585 and 625 nm of the blue \r
+                glass-ceramics in Gems & Gemology 62(2) (2026), figure 8; widths and strengths are \r
+                the estimated Co Blue of the silicate glass host (0.06 wt% CoO)",
             absorption_estimated: true,
         },
     ),

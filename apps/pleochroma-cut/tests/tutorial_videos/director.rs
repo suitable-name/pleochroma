@@ -253,6 +253,10 @@ impl Film<'_> {
                 self.adopt_for_deep_solve()?;
             }
         }
+        // A solve the setup armed ends before the first step's "before" picture, so that picture
+        // is the quiet design and not a solve in progress. (The guide is not open yet: no goal can
+        // be met by it.)
+        self.settle_solve_and_render();
         self.open_and_start(guide)?;
         let shown = snap(self.ui).total;
         let total = usize::try_from(shown)
@@ -368,6 +372,12 @@ impl Film<'_> {
         goal: Option<&Goal>,
     ) -> Result<(), String> {
         let result = self.step_inner(guide, n, total, goal);
+        if result.is_ok() {
+            // The picture after the step shows its finished result: no solve still running, no
+            // empty or half-converged traced view, no camera still moving.
+            self.settle_solve_and_render();
+            self.settle_camera();
+        }
         debug_log::end_step(self.ui, self.cfg, n, &result);
         result
     }
@@ -431,6 +441,7 @@ impl Film<'_> {
             // The goal already held when the step was shown (the app did it by itself): running
             // its recipe again would be a second activation of the same action.
             debug_log::route("the goal already held when the step was shown; nothing to do");
+            self.show_reading_target(n);
             self.hold(pacing::RESULT_HOLD)?;
             self.advance_step(n)?;
         } else if self.explicit_script(n)? {
@@ -449,13 +460,30 @@ impl Film<'_> {
             self.press_next()?;
         } else if now.offers_perform || step_perform.is_some() {
             self.perform_step(n, step_perform, &label)?;
+            // The stone's new size is known only once its solve has landed: fit after that.
+            self.settle_solve_and_render();
             self.frame(CameraFocus::Keep, false, true)?;
         } else {
             self.without_recipe(n, goal, &label)?;
+            self.settle_solve_and_render();
             self.frame(CameraFocus::Keep, false, true)?;
         }
         self.verify_advanced(n, total)?;
         self.health(&label)
+    }
+
+    /// A reading step whose goal the app met by itself still has to show what it asks the viewer
+    /// to read: scrolls the control into view as a learner would. A failure to scroll is only a
+    /// note, as the step itself needs nothing from it.
+    fn show_reading_target(&mut self, n: usize) {
+        // Solve and read again: the Proportions group lies below the Preform tab's sliders.
+        if self.id == "solving-preform" && n == 3 {
+            // The solve has to land first: the group reads dashes until then.
+            self.settle_solve_and_render();
+            if let Err(why) = self.scroll_inspector(-3000.0) {
+                debug_log::route(&format!("no scroll down to the Proportions group: {why}"));
+            }
+        }
     }
 
     /// The chapter, the caption cues and the reading hold of step `n`.
@@ -491,15 +519,27 @@ impl Film<'_> {
     /// Glides the cursor to the control the step is about and rests there. An unknown target
     /// is a note, and a target not on screen after staging is a finding.
     fn point_at(&mut self, target: &str) -> Result<(), String> {
+        if target == "verdict_badge" {
+            // The badge appears (or stops being dimmed) only once a worker thread has worked the
+            // verdict out; mock time alone does not give it that time.
+            self.settle_verdict();
+        }
         let mut resolved = targets::resolve(&self.view(), target);
-        // Below the fold of a scrolled panel: scroll it into view as a user would, then ask again.
-        if matches!(resolved, Resolved::NotOnScreen) && self.film_reveal_target(target)? {
+        // Below the fold of a scrolled panel, or in a menu or a card that is folded away: bring it
+        // into view as a user would, then ask again.
+        let revealed =
+            matches!(resolved, Resolved::NotOnScreen) && self.film_reveal_target(target)?;
+        if revealed {
             resolved = targets::resolve(&self.view(), target);
         }
         match resolved {
             Resolved::Found(spot) => {
                 self.glide_to(spot.center())?;
-                self.hold(pacing::TARGET_HOLD)
+                self.hold(pacing::TARGET_HOLD)?;
+                if revealed {
+                    self.film_conceal_target(target)?;
+                }
+                Ok(())
             }
             Resolved::Unmapped => {
                 self.note_once(

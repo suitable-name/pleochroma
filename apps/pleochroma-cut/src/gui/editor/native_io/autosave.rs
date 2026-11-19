@@ -134,7 +134,8 @@ fn run_autosave_tick(ui: &MainWindow, state: &Rc<RefCell<EditorState>>, db: &Arc
             st.asc_filename.clone(),
             st.printed_proportions,
             st.history.description_log().to_vec(),
-            st.file_extras.clone(),
+            // With the design's RI range choice in its `[meta]`, as a Save writes it.
+            st.file_extras_for_write(),
         )
     };
     let custom_material = custom_material_snapshot_for_save(&design, db);

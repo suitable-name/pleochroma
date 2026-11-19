@@ -627,6 +627,9 @@ export component EditorInspector inherits Rectangle {
                 visible: EditorModel.inspector_tab != 4;
                 width: 100%;
                 height: 100%;
+                // The content is as wide as the view minus the scroll bar, so it does not stay at the
+                // no-scroll-bar width and run under the bar once a long list makes the tab scroll.
+                content-width: self.visible-width;
                 inspector_body := VerticalLayout {
                     // The least height this content needs, reported to the root (see `body_content_h`).
                     // Both handlers: `init` for a value that is already final, `changed` for a later one.

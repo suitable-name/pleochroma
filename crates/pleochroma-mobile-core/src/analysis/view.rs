@@ -155,10 +155,7 @@ pub(super) fn tilt_view(state: &AppState) -> TiltView {
         AnalysisStatus::Stale => {
             "These curves are from before the last change. Run the sweep again.".to_owned()
         }
-        AnalysisStatus::Current => {
-            "Scored under the lighting rig at the current light; an HDR map is not used here."
-                .to_owned()
-        }
+        AnalysisStatus::Current => pleochroma_web_core::solve::tilt_lighting_note().to_owned(),
         AnalysisStatus::Failed => format!(
             "The sweep failed: {}",
             slots.error.as_deref().unwrap_or("unknown error")

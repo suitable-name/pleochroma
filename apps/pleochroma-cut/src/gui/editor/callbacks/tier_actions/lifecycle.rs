@@ -19,7 +19,7 @@ use crate::{
     gui::{
         editor::{
             callbacks::solve_actions::clear_analysis_results,
-            loading,
+            landing, loading,
             material_lookup::{EditorMaterialLookup, nearest_built_in_material},
             native_io::{self, AfterSave, do_open_native},
             stall_guard::stall_guard,
@@ -266,6 +266,18 @@ fn apply_loaded_design(
         ui.global::<EditorModel>()
             .set_material_suggestion_text("".into());
     }
+    // The design that landed is worked on in the Edit view, so the cutter is taken there from
+    // whichever page the load was started on, also when the load took a while and the page
+    // changed meanwhile. A design a guide launched leaves the page to the guide. The view
+    // changes after the refresh above, which may wait one turn of the event loop (see
+    // `landing`). Noted before a planned stone is applied below, which is an edit of its own.
+    let generation = state.borrow().current_generation();
+    landing::design_landed(
+        ui,
+        generation,
+        landing::Landing::ShowEditView,
+        landing::Refresh::MayBeDeferred,
+    );
     // A stone the Rough Planner asked to open (`planned_stone`) is applied as one undoable edit
     // when the design it was computed for is the one that landed. Any other load drops it.
     if let Some(request) = planned_stone::take_for(source_entry_id) {

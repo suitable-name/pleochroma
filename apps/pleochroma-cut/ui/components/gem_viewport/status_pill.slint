@@ -57,7 +57,7 @@ export component StatusPill inherits KitGlass {
                 width: 28px;
                 height: 28px;
                 border-radius: 14px;
-                background: root.pause_displayed ? Theme.accent-amber : (pause_touch.has-hover ? Theme.bg-card-hover : Theme.glass-edge);
+                background: root.pause_displayed ? Theme.accent-amber : (pause_touch.has-hover ? Theme.bg-card-hover : (Theme.high-contrast ? Theme.bg-card : Theme.glass-edge));
                 border-width: pause_focus.has-focus ? 2px : 0px;
                 border-color: Theme.accent-cyan-hover;
                 opacity: pause_touch.enabled ? 1.0 : 0.7;

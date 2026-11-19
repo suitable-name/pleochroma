@@ -5,7 +5,7 @@ The phone and tablet app: a touch-first [Slint](https://slint.dev) UI over
 Kotlin `NativeActivity` shim. The same UI also runs in a desktop window for development
 (the desktop preview, below).
 
-**Status.** Version 0.12.0 (versionCode 10), public on
+**Status.** Version 0.12.1 (versionCode 14), public on
 [Google Play](https://play.google.com/store/apps/details?id=com.indicatrixsuite.mobile). Anyone can also build the app and install it on their own
 Android phone or tablet: a debug APK from Android Studio or from `gradlew assembleDebug` plus
 `adb install` (see "Build and run"). The same UI also runs in a desktop window with the
@@ -50,7 +50,7 @@ apps/pleochroma-mobile-android/
   android/                    the Gradle project (Kotlin side, manifest, cargo-ndk task)
 ```
 
-Package and application id: `com.indicatrixsuite.mobile`. versionName 0.12.0, versionCode 10,
+Package and application id: `com.indicatrixsuite.mobile`. versionName 0.12.1, versionCode 14,
 minSdk 28, targetSdk 37, compileSdk 37, ABI `arm64-v8a`.
 
 ## One-time setup (Windows)
@@ -127,6 +127,65 @@ adb logcat -s pleochroma slint
 `pleochroma` carries the app's own `log` output, the `tracing` events of the shared
 crates (default level `info`) and Rust panics with a backtrace (addresses only in release
 builds, which are stripped). `slint` is Slint's own tag.
+
+## Developer options
+
+Developer options are hidden and last for one app session only. On **More > About**, tap the
+app name and version block five times, each tap within 2 seconds of the previous one. From the
+third tap a toast counts the taps left; the fifth opens the page. While they are on, **Developer**
+is the last row of the APP group on More. After any app start they are locked again. Back goes
+from the log viewer to the page, and from the page to About or More, wherever it was opened.
+
+- **Tracer log.** A switch. While it is on, the app writes what the renderer and the graphics
+  card do to `files/logs/tracer-<date>-<time>.log` (UTF-8, one line per event with the time
+  since the app started, flushed per line). The file is created the first time the switch goes
+  on in a session; switching off and on again appends to it. At 8 MB the file ends with "log
+  size limit reached", the switch turns off, and switching on again continues in
+  `tracer-<date>-<time>-2.log`. If the device storage is full the switch turns off and a toast
+  says so. The log holds facet counts, the material class and the built-in material name or
+  "custom", never a design title, designer, library entry, file name or path, remote address or
+  name, pairing data, credential, clipboard text or panic message (a panic line carries its
+  source location and thread; only locations in graphics code add the message). Logcat stays at
+  `info`.
+- **Logs.** The list shows tracer, crash, interrupted and probe logs, newest first. Select all
+  ticks the text logs; **E-mail selected** and **Delete selected** work on the ticked files,
+  **Delete all logs** on every file. The file being written shows a lock: it can be e-mailed, and
+  deletes skip it until the switch is off. At most the 10 newest tracer logs and 20 MB in total
+  are kept; the app prunes at start.
+- **E-mail.** The app zips the ticked logs with `device.txt` (model, SoC, GPU, driver, Android
+  version, RAM; no account, no `ANDROID_ID`, no serial) in memory, writes the zip to
+  `cache/mail/` and opens your mail app addressed to pleochroma@gussek.eu with the subject
+  "Pleochroma logs · version · device · GPU". Nothing is sent until you send it. More than 15 MB
+  is refused: select fewer logs. Mail files older than one hour are deleted at start.
+- **GPU probe.** Builds every shader of both renderers on its own thread and traces one tiny
+  picture with each, in 8 groups, and writes `probe-<date>-<time>.log` whether or not the tracer
+  log is on. It stops the live render first; no render or export starts until it ends. Cancel is
+  checked between stages; it is off while an export runs.
+- **Crash notes.** The app always keeps a one-line note of the graphics step in progress
+  (`files/logs/gpu-steps`). At the next start it compares the note with Android's record of why
+  the last process ended (API 30+; API 28 and 29 compare two starts in a row). A crash in a
+  graphics step writes `crash-<date>-<time>.log`, saves the ANR text or the native crash
+  snapshot, and makes Ray-Traced use the CPU until you choose Device GPU by hand, update the app
+  or the system changes. A **Last Start** sheet says so, with **Details** to open the log. Other
+  endings write an `interrupted-` log and change nothing.
+- **Crash snapshot.** A native crash can leave `crash-snapshot-<date>-<time>.pb`, Android's
+  binary tombstone (at most 2 MB). It holds memory and register snippets of the app, which can
+  include design text, so it is not part of Select all and has its own tick box; it opens in no
+  viewer and leaves the device only by e-mail.
+- **Debug builds** also show a **Crash in a GPU step** row for testing the notes.
+- **Device transfer.** `logs/` and `diagnostics.toml` are excluded from device-to-device
+  transfer (`data_extraction_rules.xml`); backup is off.
+
+### Shader cache and its guard
+
+On devices whose graphics card offers pipeline caches, compiled Path-Traced shaders are kept in
+`cache/gpu-pipelines` (Android may clear the cache folder; the next start is only slower). After
+a confirmed crash while loading, creating or saving the cache, the next start deletes the folder
+and runs without it. A second such crash under the same app version and system build switches the
+cache off for that pair; a new app version or system build clears the guard. The render
+settings and Render Details say which of the four states applies: on, off for this start, off on
+this device, or not offered by the graphics card. A crash in the cache never marks the engine,
+so Ray-Traced keeps the GPU.
 
 ## Desktop preview
 

@@ -46,7 +46,7 @@
 //! This split permits probe-level scheduling without losing coordinate improvements when
 //! central differences cancel or a simultaneous gradient move is infeasible. A separate
 //! behavior target teaches such moves without falsifying sensitivity labels. Every target
-//! uses exactly the raw action measured by the teacher, at unit execution scale.
+//! uses the raw action measured at the first usable rollout scale.
 //! [`assemble_label`] and [`OracleOutcome`] are the slope-only interfaces, without a target.
 
 use super::{
@@ -110,7 +110,8 @@ pub struct TeacherLabel {
     pub tiers: Vec<Option<TierSensitivity>>,
     /// Pre-squash raw action of a verified improving candidate, one entry per tier.
     ///
-    /// Apply with `action_from_direction` at the environment step limit and unit scale.
+    /// Apply with `action_from_direction` at the environment step limit and the same ordered
+    /// line search supplied to the teacher. Its first usable scale reproduces the measured move.
     /// `None` means the bounded search found no improving action, not proof of optimality.
     pub action_target: Option<Vec<f32>>,
     /// Score drop of the best measured target (points, >= 0), `None` when no search
@@ -119,7 +120,7 @@ pub struct TeacherLabel {
     /// Nominal gradient-search scale, or one for a coordinate or paired target; `None` without
     /// a winner.
     ///
-    /// This is provenance only: replay `action_target` at unit scale, not this scale.
+    /// This records candidate provenance. Replay uses the configured rollout line search.
     pub oracle_scale: Option<f32>,
     /// Candidate evaluations spent on probes, gradient scales and bounded rescue.
     pub evaluations: usize,
@@ -282,7 +283,8 @@ impl EnvCore {
     /// composition of `probe_tier` and `teacher_label_from_probes_adaptive`.
     ///
     /// Pure: nothing changes and no step is counted. Cost is at most two evaluations per
-    /// free tier plus `scales.len()` plus eight rescue attempts. Invalid `h_deg` returns an
+    /// free tier plus `scales.len()` plus eight rescue attempts. A non-unit first scale also
+    /// requires up to one coordinate recheck per free tier. Invalid `h_deg` returns an
     /// empty label. Identity candidates and pre-scoring refusals cost no evaluations.
     pub(crate) fn teacher_label(&self, h_deg: f64, scales: &[f64]) -> TeacherLabel {
         let mut probes = vec![TierProbe::default(); self.current_design.tiers.len()];

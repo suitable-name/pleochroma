@@ -194,7 +194,7 @@ below is reported as "about the same" instead of as a gain or a loss.
 | Contrast | 4 points |
 | Fire | 5 % of the before value, and at least half an index point |
 | Yield | 0.1 points (a volume ratio, so only float noise in the carved volume) |
-| Tilt averages (below) | 1 point (an average of 724 poses is much steadier) |
+| Tilt averages (below) | 1 point (an average of 724 poses is much steadier; fewer with a narrower range) |
 
 **The sentences** run from the most important change to the least: first brilliance,
 windowing and extinction ("The after design is brighter face-up (+4 %) and shows
@@ -218,14 +218,24 @@ the same face-up pass as the other figures, but they stay the same under every r
 A Retarget or Optimize that keeps brilliance can still lose contrast; the Contrast row
 shows it.
 
-**Tilt Average.** The button next to the sentences adds the average over four
-directions and 181 tilt angles for both stones (1,448 measurements, a few seconds).
+**Tilt Average.** The button next to the sentences measures four directions and 181
+tilt angles for both stones (1,448 measurements, a few seconds) and averages them.
 It runs in the background; the button turns into **Cancel** with the percent done,
 and closing the window or opening another comparison stops it. When it finishes,
-three rows are added (tilt brilliance, windowing and extinction) and one more
-sentence, "Averaged over all tilts, ...". Fire, scintillation and contrast are not part of a
-tilt sweep. These averages use the viewport lighting, so they can differ a little
-from the curves in the Tilt Performance dialog, which has its own lighting.
+a caption, "Tilt average to ±90°", and three rows under it are added (tilt brilliance,
+windowing and extinction), and one more sentence, "Averaged over all tilts, ...".
+Fire, scintillation and contrast are not part of a tilt sweep. Like every tilt curve,
+these averages are scored under the Grading tray with a 16° head shadow, whatever the
+viewport shows, so they match the Tilt Performance dialog for the same stone. The
+table-up rows above them keep the viewport lighting.
+
+The range of the average is the **Tilt Average Range** preference (Chapter 17). It starts
+at ±90°, which is every tilt, tilted up to 90° each way. A narrower choice changes the
+caption, for example "Tilt average to ±30°", and the sentence, which then reads
+"Averaged over tilts up to 30°, ...". Changing the preference applies at once to the
+rows on screen, in every open Compare window; nothing is measured again, because the
+measurement always covers every tilt and only the averaging changes. Retarget and
+Tune rate all tilts to ±90°, whatever the preference says.
 
 ## Tilt Curves: When a Computed Result Actually Persists
 
@@ -408,7 +418,7 @@ min left", with a progress bar and a cross that cancels. Under Local Only and Lo
 Remote it also says that the live view is paused while exporting. Click the chip to
 open the dialog again with its live progress. When the video is finished, cancelled or
 fails, a message appears even if the dialog is closed. The still-image export dialog
-works the same way, and clicking its chip brings you back to Live Render. Only one export runs at a time: while one is running, every
+works the same way: clicking its chip opens the dialog again on whatever page you are on. Only one export runs at a time: while one is running, every
 button that would start another (Export, Start Video Export, the Jobs window's Start
 Queue) is greyed out, and its hover note says so. **Add to Queue** stays available,
 because it only saves a job. If you close the program while an export runs, it asks
@@ -437,9 +447,10 @@ longer matches what the design currently looks like:
   holding. Click **Recompute** on the badge to rebuild the proposal against
   the mode/crown/target controls exactly as they stand now, the same as
   changing any of those controls does.
-- **Tilt curves**: badged whenever the geometry, material, or light the
+- **Tilt curves**: badged whenever the geometry or material the
   curves were swept against has moved since the last sweep actually
-  finished. Click **Recompute** to re-sweep against the current inputs —
+  finished. The lighting does not count: the curves are always scored under
+  the same standard. Click **Recompute** to re-sweep against the current inputs —
   the same action the existing "this curve was rendered with a different
   material" prompt already offers for a material change specifically; this
   badge also catches a geometry edit, which that one does not.
@@ -459,7 +470,7 @@ what putting a design in your catalogue actually means.
 
 ## Inspect optical paths at a tilt angle
 
-Tilt Performance uses the finished stone, even while the Live Render Cut slider shows an earlier cutting stage. Its active-session sweep and hover preview capture the resolved material and current preset/light pose or HDR map, including head shadow. Standardized catalogue and optimizer scoring keep their separate standard-lighting policy; stored library scores are not automatically replaced by current-view diagnostics.
+Tilt Performance uses the finished stone, even while the Live Render Cut slider shows an earlier cutting stage. Its curves are scored under one standard: the Grading tray at a fixed light position, with the observer's head shadow at 16°. Your lighting, light position, Head Shadow setting and HDR map never change them, so they are the same as Optimize scores, as the curves the library stores for a design, as the Compare window's tilt averages and as a tilt video's printed curves. The head shadow is part of the figures: a ray that leaves the stone inside it counts as extinction, as it does for a real viewer. The hover preview is a picture, so it shows the stone under your current lighting.
 
 The tilt curves also follow the stone's frosting: frosted facets (the Frosted Girdle switch and any tier you frosted) scatter light, so a frosted design's curves differ from its polished ones, and a design without frosting is swept exactly as before. Changing the frosting makes stored curves stale, and the next Tilt Curves batch recomputes them. The live Checks numbers and the optimizer's scores still treat every facet as polished.
 

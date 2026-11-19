@@ -7,7 +7,8 @@ use super::{
     BRILLIANCE_CHECK_BELOW_PCT, BRILLIANCE_PROBLEM_BELOW_PCT, EXTINCTION_CHECK_PCT,
     EXTINCTION_PROBLEM_PCT, FixAction, Level, MAX_LISTED_WINDOWING_TIERS, ProportionFact,
     ReasonKind, SolveFacts, TierWindowing, VerdictInputs, WINDOWING_CHECK_PCT,
-    WINDOWING_PROBLEM_PCT, evaluate, gather,
+    WINDOWING_CHECK_READS_TILT, WINDOWING_PROBLEM_PCT, WINDOWING_TILT_CHECK_PCT,
+    WINDOWING_TILT_PROBLEM_PCT, evaluate, gather, measured::optics_reasons_with,
 };
 use crate::retarget::metrics::MetricColumn;
 use pleochroma::geometry::meet_solver::MeetConstraint;
@@ -286,6 +287,79 @@ fn a_measured_problem_names_the_figure() {
         evaluate(&inputs).headline,
         "1 problem to fix, 1 more thing to check."
     );
+}
+
+#[test]
+fn the_windowing_check_ignores_the_tilt_while_the_constant_is_off() {
+    // The shipped state: with the constant false a tilt figure changes nothing.
+    if !WINDOWING_CHECK_READS_TILT {
+        let plain = evaluate(&closed().with_optics(Some(column(9.0, 70.0, 12.0))));
+        let tilted = evaluate(
+            &closed()
+                .with_optics(Some(column(9.0, 70.0, 12.0)))
+                .with_small_tilt_windowing(Some(40.0)),
+        );
+        assert_eq!(plain, tilted);
+        assert_eq!(tilted.level, Level::Good);
+    }
+
+    // The same holds with the switch given explicitly.
+    let optics = column(9.0, 70.0, 12.0);
+    assert!(optics_reasons_with(&optics, Some(40.0), false).is_empty());
+    assert_eq!(
+        optics_reasons_with(&optics, None, false),
+        optics_reasons_with(&optics, None, true)
+    );
+}
+
+#[test]
+fn the_windowing_check_takes_the_larger_reading_when_the_constant_is_on() {
+    assert!((WINDOWING_TILT_CHECK_PCT - 15.0).abs() < f32::EPSILON);
+    assert!((WINDOWING_TILT_PROBLEM_PCT - 30.0).abs() < f32::EPSILON);
+    let level_of = |table_up: f32, tilted: Option<f32>| {
+        optics_reasons_with(&column(table_up, 70.0, 12.0), tilted, true)
+            .first()
+            .map(|found| found.level)
+    };
+    // The tilt reading is larger and past its Check limit.
+    assert_eq!(level_of(9.0, Some(22.0)), Some(Level::Check));
+    assert_eq!(
+        level_of(9.0, Some(WINDOWING_TILT_PROBLEM_PCT + 0.01)),
+        Some(Level::Problem)
+    );
+    // On the limit is not past it.
+    assert_eq!(level_of(9.0, Some(WINDOWING_TILT_CHECK_PCT)), None);
+    // The tilt reading is smaller: the table-up figure decides, as before.
+    assert_eq!(level_of(20.0, Some(5.0)), Some(Level::Check));
+    assert_eq!(level_of(9.0, Some(5.0)), None);
+    // No tilt reading yet: the table-up figure decides, as before.
+    assert_eq!(level_of(20.0, None), Some(Level::Check));
+    assert_eq!(level_of(9.0, None), None);
+}
+
+#[test]
+fn the_tilted_sentence_names_the_tilt_and_gives_the_table_up_figure() {
+    let optics = column(9.0, 70.0, 12.0);
+    let reasons = optics_reasons_with(&optics, Some(22.0), true);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert_eq!(reasons[0].kind, ReasonKind::OpticalWindowing);
+    assert_eq!(
+        reasons[0].text,
+        "About 22 % of the stone leaks light straight out of the bottom when the stone is tilted by 10\u{b0} (windowing). Table up it is about 9 %."
+    );
+}
+
+#[test]
+fn the_table_up_sentence_is_unchanged_in_both_states() {
+    let optics = column(45.0, 70.0, 12.0);
+    let expected = "About 45 % of the stone leaks light straight out of the bottom (windowing).";
+    for reads_tilt in [false, true] {
+        for tilted in [None, Some(10.0)] {
+            let reasons = optics_reasons_with(&optics, tilted, reads_tilt);
+            assert_eq!(reasons[0].text, expected);
+            assert_eq!(reasons[0].level, Level::Problem);
+        }
+    }
 }
 
 #[test]

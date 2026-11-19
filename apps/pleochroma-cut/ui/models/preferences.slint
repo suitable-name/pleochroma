@@ -1,7 +1,7 @@
 // App-wide preferences: the Simple/Advanced switch, the UI scale, high contrast and
 // larger drag handles, plus the tutorial reset actions. Rust seeds these from the
 // settings file at start-up and persists every change
-// (`gui::preferences`, `AppSettings::{ui_mode, ui_scale_percent, high_contrast,
+// (`gui::preferences`, `AppSettings::{ui_mode, ui_scale_percent, tilt_average_range_deg, high_contrast,
 // large_handles, adaptive_viewport, path_cache_viewport, beam_viewport,
 // beam_instant_lighting, path_cache_disk_limit_gb,
 // first_run_tour_done, tutorials_completed}`).
@@ -20,6 +20,12 @@ export global PreferencesModel {
     in property <[string]> ui_scale_options: [];
     // Which of `ui_scale_options` is chosen; Rust keeps it in step with `ui_scale_percent`.
     in-out property <int> ui_scale_index: 0;
+    // The labels of the Tilt Average Range combo ("±15°" ... "±90° (all tilts)"), pushed from Rust
+    // so the list lives next to the rule that validates it.
+    in property <[string]> tilt_range_options: [];
+    // Which of `tilt_range_options` is chosen (5 is ±90°, the default); Rust keeps it in step with
+    // `AppSettings::tilt_average_range_deg`.
+    in-out property <int> tilt_range_index: 5;
     // The high-contrast palette (`Theme.high-contrast`, set per window by Rust).
     in-out property <bool> high_contrast: false;
     // Larger drag handles and hit areas on the Solid viewport (touch screens and pens).
@@ -63,6 +69,8 @@ export global PreferencesModel {
     callback simple_mode_changed(bool);
     // The scale combo picked `ui_scale_options[index]`.
     callback ui_scale_changed(int);
+    // The Tilt Average Range combo picked `tilt_range_options[index]`; applies at once.
+    callback tilt_range_changed(int);
     // The High contrast toggle changed (`high_contrast` already holds the new value).
     callback high_contrast_changed(bool);
     // The Larger handles toggle changed (`large_handles` already holds the new value).

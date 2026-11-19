@@ -554,3 +554,182 @@ fn the_device_phrase_says_this_device_in_plain_words() {
         assert!(!text.contains("phone"), "{text}");
     }
 }
+
+/// A preparing status of `step` at `done` of `total`, `elapsed_s` seconds in.
+const fn preparing(step: PrepareStep, done: u32, total: u32, elapsed_s: u32) -> RenderStatus {
+    RenderStatus::Preparing {
+        step,
+        done,
+        total,
+        elapsed_s,
+    }
+}
+
+#[test]
+fn a_preparing_status_has_its_own_progress_retry_and_picture_rules() {
+    let status = preparing(PrepareStep::BuildingShaders, 3, 18, 5);
+    // The bar waits at zero; a render that only prepares has not shown that it runs.
+    assert_eq!(progress_fraction(&status), Some(0.0));
+    let mut retry = FailureRetry::default();
+    let now = Duration::from_secs(5);
+    let _ = retry.decide(now);
+    assert_eq!(retry.decide(now + FAILURE_RETRY_DELAYS[0]), RetryStep::Now);
+    retry.note(&status);
+    assert_ne!(retry, FailureRetry::default(), "preparing is not healthy");
+}
+
+#[test]
+fn the_preparing_texts_are_the_decided_ones() {
+    assert_eq!(
+        preparing_line(PrepareStep::BuildingShaders, 3, 18, 4),
+        "Building shaders \u{b7} 3 of 18"
+    );
+    assert_eq!(
+        preparing_detail(PrepareStep::BuildingShaders, 3, 18, 4),
+        "Building shaders 3 of 18"
+    );
+    assert_eq!(
+        preparing_line(PrepareStep::StartingGpu, 0, 0, 2),
+        "Starting the graphics card\u{2026}"
+    );
+    assert_eq!(
+        preparing_line(PrepareStep::Uploading, 0, 0, 2),
+        "Uploading the stone\u{2026}"
+    );
+    // The Ray-Traced build is one step of one: it shows its time from the start.
+    assert_eq!(
+        preparing_line(PrepareStep::BuildingShaders, 0, 1, 12),
+        "Building the Ray-Traced shader \u{b7} 12 s"
+    );
+    // A long step keeps its progress and adds the time.
+    assert_eq!(
+        preparing_line(PrepareStep::BuildingShaders, 3, 18, 47),
+        "Building shaders \u{b7} 3 of 18 \u{b7} 47 s"
+    );
+    assert_eq!(
+        preparing_detail(PrepareStep::BuildingShaders, 3, 18, 47),
+        "Building shaders 3 of 18 \u{b7} 47 s"
+    );
+    // No device phrase while preparing.
+    for step in [
+        PrepareStep::StartingGpu,
+        PrepareStep::BuildingShaders,
+        PrepareStep::Uploading,
+        PrepareStep::FirstTrace,
+    ] {
+        let detail = preparing_detail(step, 3, 18, 60);
+        assert!(!detail.contains("device"), "{detail}");
+    }
+}
+
+#[test]
+fn the_offer_appears_after_45_seconds_in_one_step() {
+    let early = preparing(PrepareStep::BuildingShaders, 3, 18, LONG_STEP_OFFER_S - 1);
+    assert_eq!(long_step_offer(&early, Engine::PathTraced), None);
+    let late = preparing(PrepareStep::BuildingShaders, 3, 18, LONG_STEP_OFFER_S);
+    let offer = long_step_offer(&late, Engine::RayTraced).expect("an offer after 45 s");
+    assert_eq!(offer.sentence, "This is taking long. Use the CPU instead?");
+    assert_eq!(offer.button, "Use the CPU");
+    assert_eq!(offer.engine, Engine::RayTraced);
+    // Every preparing step is covered; nothing else offers.
+    for step in [
+        PrepareStep::StartingGpu,
+        PrepareStep::Uploading,
+        PrepareStep::FirstTrace,
+    ] {
+        assert!(long_step_offer(&preparing(step, 0, 0, 99), Engine::PathTraced).is_some());
+    }
+    assert_eq!(
+        long_step_offer(
+            &RenderStatus::Tracing {
+                samples: 0,
+                target: 8
+            },
+            Engine::PathTraced
+        ),
+        None
+    );
+    assert_eq!(
+        long_step_offer(&RenderStatus::Paused(PauseReason::User), Engine::PathTraced),
+        None
+    );
+}
+
+#[test]
+fn render_details_name_the_cache_and_the_preparation() {
+    let cache = |decision, offered| details_lines(decision, offered, None, None);
+    assert_eq!(cache(CacheDecision::On, Some(true)), ["Shader cache: on"]);
+    assert_eq!(cache(CacheDecision::On, None), ["Shader cache: on"]);
+    assert_eq!(
+        cache(CacheDecision::On, Some(false)),
+        ["Shader cache: not offered by this graphics card"]
+    );
+    assert_eq!(
+        cache(CacheDecision::OffThisStart, Some(true)),
+        ["Shader cache: off for this start (the app closed while loading it last time)"]
+    );
+    assert_eq!(
+        cache(CacheDecision::OffOnThisDevice, None),
+        ["Shader cache: off on this device (the app closed twice while loading it)"]
+    );
+
+    let finished = PreparationTime {
+        seconds: 72,
+        stopped_in: None,
+    };
+    let lines = details_lines(CacheDecision::On, Some(true), Some(finished), None);
+    assert_eq!(lines[1], "Preparation: 1 min 12 s");
+    let stopped = PreparationTime {
+        seconds: 72,
+        stopped_in: Some((PrepareStep::BuildingShaders, 3, 18)),
+    };
+    let lines = details_lines(
+        CacheDecision::On,
+        Some(true),
+        Some(stopped),
+        Some("Path-Traced"),
+    );
+    assert_eq!(
+        lines[1],
+        "Preparation: 1 min 12 s, stopped while building shaders (3 of 18)"
+    );
+    assert_eq!(
+        lines[2],
+        "The graphics card did not finish preparing; this session renders Path-Traced on the CPU."
+    );
+    assert_eq!(minutes_text(9), "9 s");
+}
+
+#[test]
+fn the_probe_gate_words_follow_whether_a_picture_shows() {
+    assert_eq!(
+        probe_wait_line(false),
+        (
+            String::new(),
+            "The GPU probe is running. The render starts when it finishes.".to_owned()
+        )
+    );
+    assert_eq!(
+        probe_wait_line(true),
+        ("Waiting".to_owned(), "The GPU probe is running".to_owned())
+    );
+}
+
+#[test]
+fn a_start_asked_for_during_the_probe_waits_and_runs_when_it_ends() {
+    let mut app = render_on_show();
+    app.render.set_probe_running(Some(true));
+    let mut now = Duration::from_secs(3);
+    // The driver starts nothing and asks again soon; no start was attempted.
+    assert_eq!(maintain(&mut app, now), Maintain::Wait(PROBE_POLL));
+    assert!(app.viewport.driver.blocked_message().is_none());
+    assert!(!app.viewport.driver.is_active());
+    now += PROBE_POLL;
+    assert_eq!(maintain(&mut app, now), Maintain::Wait(PROBE_POLL));
+
+    // The probe ended: the remembered start runs (here it ends as Blocked, the design is
+    // unsolved, which is how these tests see that a start was attempted).
+    app.render.set_probe_running(Some(false));
+    now += PROBE_POLL;
+    assert!(matches!(maintain(&mut app, now), Maintain::Blocked(_)));
+}

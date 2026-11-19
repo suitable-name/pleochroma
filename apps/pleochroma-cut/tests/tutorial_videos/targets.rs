@@ -219,7 +219,7 @@ pub const TABLE: &[Entry] = &[
     Entry {
         name: "keep_trial_button",
         queries: &[Query::Label("Keep as Trial")],
-        source: "components/solid_viewport/edit_figures.slint:87; editor_inspector/trials_view.slint:246",
+        source: "components/solid_viewport/edit_figures.slint:121; editor_inspector/trials_view.slint:246",
     },
     Entry {
         name: "tune_accept_button",
@@ -374,19 +374,23 @@ impl Spot {
 }
 
 /// The parts of the Solid viewport that really cover the picture, each padded by 6 px: every
-/// accessible control or text inside `SolidViewportToolbar` (the toolbar itself is a full-size
-/// overlay, so its own bounds say nothing), the guide panel and the manipulate hint bar.
+/// accessible control or text inside `SolidViewportToolbar` and `ManipulateHintBar` (both are
+/// full-size overlays, so their own bounds say nothing; the hint bar's strip is an accessible
+/// text) and the guide panel.
 #[must_use]
 pub fn viewport_obstructions(view: &WindowView) -> Vec<Spot> {
     const PAD: f32 = 6.0;
     let mut spots = Vec::new();
-    if let Some(toolbar) = view
-        .root
-        .query_descendants()
-        .match_inherits("SolidViewportToolbar")
-        .find_first()
-    {
-        for element in toolbar.query_descendants().find_all() {
+    for overlay in ["SolidViewportToolbar", "ManipulateHintBar"] {
+        let Some(overlay) = view
+            .root
+            .query_descendants()
+            .match_inherits(overlay)
+            .find_first()
+        else {
+            continue;
+        };
+        for element in overlay.query_descendants().find_all() {
             let covers = element.accessible_role().is_some_and(|role| {
                 matches!(
                     role,
@@ -405,15 +409,13 @@ pub fn viewport_obstructions(view: &WindowView) -> Vec<Spot> {
             }
         }
     }
-    for name in ["GuidePanel", "ManipulateHintBar"] {
-        if let Some(element) = view
-            .root
-            .query_descendants()
-            .match_inherits(name)
-            .find_first()
-        {
-            spots.push(Spot::of(&element));
-        }
+    if let Some(element) = view
+        .root
+        .query_descendants()
+        .match_inherits("GuidePanel")
+        .find_first()
+    {
+        spots.push(Spot::of(&element));
     }
     let spots: Vec<Spot> = spots
         .into_iter()
@@ -470,6 +472,41 @@ fn first_usable(elements: &[ElementHandle], window: (f32, f32)) -> Option<Spot> 
         .find(|spot| spot.usable(window))
 }
 
+/// `elements` without the guide panel's own text, when a control outside it carries the label
+/// too.
+///
+/// The guide panel shows the lesson's title and the step's title as plain text. A lesson called
+/// "Auto-Solve" or "Variants" would otherwise answer the lookup of the control of that name, and
+/// the click would land on the panel.
+#[must_use]
+pub fn without_guide_text(view: &WindowView, elements: Vec<ElementHandle>) -> Vec<ElementHandle> {
+    let panels: Vec<Spot> = view
+        .root
+        .query_descendants()
+        .match_inherits("GuidePanel")
+        .find_all()
+        .iter()
+        .map(Spot::of)
+        .collect();
+    if panels.is_empty() {
+        return elements;
+    }
+    let guide_text = |element: &ElementHandle| {
+        let (x, y) = Spot::of(element).center();
+        element.accessible_role() == Some(AccessibleRole::Text)
+            && panels.iter().any(|panel| {
+                x >= panel.x && x <= panel.x + panel.w && y >= panel.y && y <= panel.y + panel.h
+            })
+    };
+    if elements.iter().all(&guide_text) {
+        return elements;
+    }
+    elements
+        .into_iter()
+        .filter(|element| !guide_text(element))
+        .collect()
+}
+
 /// Runs one query.
 #[must_use]
 pub fn run(view: &WindowView, query: &Query) -> Option<Spot> {
@@ -485,7 +522,9 @@ fn run_query(view: &WindowView, query: &Query) -> Option<Spot> {
             &view.root.query_descendants().match_id(id).find_all(),
             window,
         ),
-        Query::Label(label) => first_usable(&view.by_label(label), window),
+        Query::Label(label) => {
+            first_usable(&without_guide_text(view, view.by_label(label)), window)
+        }
         Query::FileButton => file_button(view),
         Query::LabelStart(prefix) => {
             let wanted = prefix.to_owned();
@@ -599,7 +638,7 @@ pub fn text_input_start(view: &WindowView, prefix: &str) -> Option<Spot> {
 /// The first visible element with exactly this accessible label.
 #[must_use]
 pub fn run_label(view: &WindowView, label: &str) -> Option<Spot> {
-    let found = first_usable(&view.by_label(label), view.size);
+    let found = first_usable(&without_guide_text(view, view.by_label(label)), view.size);
     debug_log::lookup("label", &label, found.as_ref());
     found
 }

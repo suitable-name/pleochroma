@@ -6,7 +6,7 @@ use crate::optics_hints::critical_angle_deg;
 use pleochroma::optics::materials::GemMaterial;
 
 /// Every built-in material name, in the order of the SG table: the 14 earlier rows first.
-const ALL_SG_NAMES: [&str; 39] = [
+const ALL_SG_NAMES: [&str; 40] = [
     "Diamond",
     "Sapphire",
     "Ruby",
@@ -46,6 +46,7 @@ const ALL_SG_NAMES: [&str; 39] = [
     "Morganite",
     "Peridot",
     "Color-Change Garnet (Pyrope-Spessartine)",
+    "Nanosital",
 ];
 
 #[test]
@@ -129,10 +130,10 @@ fn peridot_stores_its_single_value_as_both_range_ends() {
     assert_eq!(peridot.range, (3.34, 3.34));
 }
 
-/// T-D7: only Morganite and the Color-Change Garnet are derived, and they carry their basis
-/// note; every other row is cited.
+/// T-D7: only Morganite, the Color-Change Garnet and Nanosital are derived, and they carry their
+/// basis note; every other row is cited.
 #[test]
-fn only_morganite_and_color_change_garnet_are_derived() {
+fn only_morganite_color_change_garnet_and_nanosital_are_derived() {
     use super::specific_gravity::SgBasis;
     for name in ALL_SG_NAMES {
         let sg = built_in_specific_gravity(name).expect(name);
@@ -143,7 +144,13 @@ fn only_morganite_and_color_change_garnet_are_derived() {
             ("Color-Change Garnet (Pyrope-Spessartine)", SgBasis::Derived(note)) => {
                 assert!(note.starts_with("Derived: range merged from two Gems & Gemology studies"));
             }
-            ("Morganite" | "Color-Change Garnet (Pyrope-Spessartine)", SgBasis::Cited) => {
+            ("Nanosital", SgBasis::Derived(note)) => {
+                assert!(note.starts_with("Derived: mean of the three faceted glass-ceramics"));
+            }
+            (
+                "Morganite" | "Color-Change Garnet (Pyrope-Spessartine)" | "Nanosital",
+                SgBasis::Cited,
+            ) => {
                 panic!("{name} must be derived");
             }
             (_, SgBasis::Cited) => {}

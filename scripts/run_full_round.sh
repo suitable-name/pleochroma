@@ -51,7 +51,7 @@
 #                                  [--hang-repro N] [--exit-repro N] [--bench-typical]
 #                                  [--speed-parts LIST] [--with-adaptive] [--with-m1]
 #                                  [--with-on-request] [--with-beam] [--beam-hang-repro N]
-#                                  [--with-long] [--no-beam]
+#                                  [--with-long] [--no-beam] [--stock-driver]
 #
 #   --repo DIR          repository root (default: the current directory)
 #   --parts LIST        comma list of parts to run (default: retest,bench,cache-note,speed,ui,
@@ -82,6 +82,10 @@
 #   --beam-hang-repro N part beam-tests also runs the step 02r hang mix N times
 #   --with-long         part beam-tests also runs the long beam rows (hours); only with --with-beam
 #   --no-beam           accepted and ignored (the default parts have no beam rows)
+#   --stock-driver      every part runs without the RADV scheduler workaround
+#                       (scripts/radv_workaround.sh, which otherwise applies it on an AMD GPU as the
+#                       app does), to check whether a newer Mesa fixed its scheduler; parts retest
+#                       and on-request get the flag too
 #
 # Needs jq for the parts bench, cache-note and m1 (their job edits and figures). The check runs
 # once the arguments are parsed, so --parts and --with-m1 count: when one of these parts is
@@ -103,6 +107,8 @@ BEAM_ARGS=()
 SPEED_ARGS=()
 BENCH_ARGS=()
 BENCH_TYPICAL=0
+ON_REQUEST_ARGS=()
+RADV=on
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
@@ -120,6 +126,12 @@ while [ $# -gt 0 ]; do
         --beam-hang-repro) BEAM_ARGS+=(--hang-repro "$2"); shift 2 ;;
         --with-long) BEAM_ARGS+=(--with-long); shift ;;
         --no-beam) shift ;;
+        --stock-driver)
+            RADV=off
+            RETEST_ARGS+=(--stock-driver)
+            ON_REQUEST_ARGS+=(--stock-driver)
+            shift
+            ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -148,6 +160,10 @@ export RUST_MIN_STACK="${RUST_MIN_STACK:-16777216}"
 # default engine (part speed sets its switches per row).
 unset PLEOCHROMA_GATED_LOOP PLEOCHROMA_STAGED PLEOCHROMA_SORTED PLEOCHROMA_GPU_PIPELINE \
     WGPU_VALIDATION_INDIRECT_CALL
+# Every part runs with the driver workaround the app runs with (scripts/radv_workaround.sh); the
+# CLI renders of the parts bench, cache-note, speed and m1 apply the same one themselves.
+. "$REPO/scripts/radv_workaround.sh"
+radv_test_workaround "$RADV" "$REPO"
 # Headless boxes have no session runtime dir; libwayland prints an error line per Vulkan ICD probe
 # without it.
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
@@ -181,6 +197,7 @@ SUMMARY="$OUT/summary.md"
     # the same on any machine.
     echo "Repo: $REPO (git: $(git describe --always --dirty 2>/dev/null || echo unknown), version: $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1), sources: $(sources_hash)), cores: $(nproc)"
     echo "Toolchain: $(rustc -V 2>/dev/null || echo unknown), $(cargo -V 2>/dev/null || echo unknown)"
+    echo "GPU driver: $RADV_STATUS"
     echo
     # A Cargo.lock that does not match the manifests is rewritten by the round's first cargo call,
     # and only that step's log shows it, so the summary says so here.
@@ -562,7 +579,7 @@ if [[ "$PARTS" == *",beam-check,"* ]]; then
             >> "$SUMMARY"
     done
 fi
-part 8 on-request on-request bash scripts/run_tests_on_request.sh
+part 8 on-request on-request bash scripts/run_tests_on_request.sh ${ON_REQUEST_ARGS[@]+"${ON_REQUEST_ARGS[@]}"}
 part 9 beam-tests beam-tests bash scripts/run_beam_tests.sh ${BEAM_ARGS[@]+"${BEAM_ARGS[@]}"}
 
 # Each part's own summary, after the table.

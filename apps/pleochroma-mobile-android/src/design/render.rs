@@ -9,6 +9,7 @@
 //! |---|---|
 //! | `runtime` | the poll and kick timers, the 10 s governor, the timers' state handle |
 //! | `model` | `RenderModel`'s overlay properties from the state |
+//! | `prep_note` | the session's preparation time for Render Details |
 //! | `export` | the export sheet: options, the worker thread, share and save |
 //!
 //! Camera changes reach the trace through `viewport::push` (see [`on_viewport_changed`]);
@@ -17,6 +18,7 @@
 
 mod export;
 mod model;
+mod prep_note;
 mod runtime;
 mod samples;
 
@@ -65,6 +67,11 @@ pub fn wire(window: &AppWindow, state: &Shared) {
             else {
                 return;
             };
+            if backend == pleochroma_mobile_core::settings::RenderBackend::DeviceGpu {
+                // A manual Device GPU choice is the owner's answer to an engine mark.
+                let engine = model::current_engine(&app);
+                app.diagnostics.state().clear_engine_mark(engine);
+            }
             if app.settings.render.backend == backend {
                 return;
             }
@@ -107,6 +114,18 @@ pub fn wire(window: &AppWindow, state: &Shared) {
             app.render.set_user_paused(!paused);
         }
         model::push(&window, &shared.borrow());
+    });
+
+    let (weak, shared) = (window.as_weak(), state.clone());
+    model.on_use_cpu_requested(move || {
+        let Some(window) = weak.upgrade() else { return };
+        {
+            let mut app = shared.borrow_mut();
+            let engine = model::current_engine(&app);
+            model::note_abandoned();
+            app.render.use_cpu_for_session(engine);
+        }
+        crate::design::refresh(&window, &shared);
     });
 
     wire_settings(window, state);
@@ -183,6 +202,11 @@ fn wire_settings(window: &AppWindow, state: &Shared) {
     let (weak, shared) = (window.as_weak(), state.clone());
     model.on_export_requested(move || {
         let Some(window) = weak.upgrade() else { return };
+        if shared.borrow().render.held_by_probe() {
+            // The export button is dimmed while the probe runs; a tap says why.
+            toast::show(&window, &render_view::probe_wait_line(false).1);
+            return;
+        }
         export::open(&window, &shared);
     });
 }

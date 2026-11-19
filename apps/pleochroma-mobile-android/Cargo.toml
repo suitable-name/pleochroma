@@ -61,6 +61,18 @@ harness = false
 test = false
 required-features = ["desktop-preview"]
 
+# The tracer log's privacy and wiring tests: each installs the real layer as the process's
+# global default, so each is its own binary with one test.
+[[test]]
+name = "tracer_privacy"
+path = "tests/tracer_privacy.rs"
+required-features = ["desktop-preview"]
+
+[[test]]
+name = "tracer_wiring"
+path = "tests/tracer_wiring.rs"
+required-features = ["desktop-preview"]
+
 # Any other host (a plain `cargo check` / `cargo test --workspace` on the desktop): the
 # preview's backend and renderer. Without a renderer Slint has no image decoders, and the
 # generated UI code, which embeds the SVG icons, does not compile.

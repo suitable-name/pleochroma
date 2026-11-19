@@ -397,7 +397,7 @@ export component PatternStage inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         PatternCombo {
-                            width: root.compact ? 118px : 140px;
+                            width: root.compact ? 138px : 150px;
                             model: ColorPatternModel.axis_options;
                             current_index <=> ColorPatternModel.axis_index;
                             label: "Pattern Axis";
@@ -447,7 +447,7 @@ export component PatternStage inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         PatternCombo {
-                            width: root.compact ? 134px : 156px;
+                            width: root.compact ? 160px : 170px;
                             model: ["Scales With Stone", "Fixed in mm"];
                             current_index <=> root.size_index;
                             label: "Pattern Size";

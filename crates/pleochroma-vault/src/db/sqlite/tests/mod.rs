@@ -33,6 +33,8 @@
 //!   `diagram_edge_abrasion`) -- round trip, replacing, cascade, migration and backfill.
 //! - [`provenance_migration`]: the `diagram_previews` material size and source columns,
 //!   and the one-off marking of design-file designs' cached results as outdated.
+//! - [`render_job_update`]: the guarded render-job update and its refusals.
+//! - [`ri_ranges`]: the stored RI ranges, the "Mine" list and the stale-version list.
 //! - [`pattern_store`]: the color pattern side tables (material pattern, zoning, presets).
 //! - [`color_variant_store`]: the color variant table.
 //! - [`stone_choice_store`]: the stone choice table (`stone_pose_choice`).
@@ -54,6 +56,8 @@ mod pattern_store;
 mod performance;
 mod planner_exclusions;
 mod provenance_migration;
+mod render_job_update;
+mod ri_ranges;
 mod schema_migrations;
 mod search;
 mod stone_choice_store;

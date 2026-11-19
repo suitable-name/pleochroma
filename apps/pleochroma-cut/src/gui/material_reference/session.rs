@@ -103,6 +103,12 @@ impl Session {
         self.selected.as_deref()
     }
 
+    /// The selected material's index: `n_D` of the base curve.
+    #[must_use]
+    pub(super) fn selected_ri(&self) -> Option<f64> {
+        self.find(self.selected.as_deref()?)?.sort.ri
+    }
+
     /// The key of the variant shown on the details page.
     #[must_use]
     pub(super) fn variant_key(&self) -> &str {

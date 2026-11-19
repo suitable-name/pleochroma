@@ -62,6 +62,15 @@ pub struct RunOptions {
     pub theme: Option<ThemeChoice>,
     /// Preview-only: opens Cutting Mode at its first step once the design is solved.
     pub cutting: bool,
+    /// Preview-only: unlocks the Developer page without the About taps.
+    pub developer: bool,
+    /// Preview-only: opens this More sub-page (6 Developer, 7 log viewer, and the older ones).
+    pub more_page: Option<i32>,
+    /// Preview-only: writes the fixed sample logs into the logs folder before the first frame.
+    pub developer_sample_logs: bool,
+    /// Preview-only: freezes the render's preparing state at this `(done, total)` of the
+    /// Path-Traced shader build, so its screens can be shot.
+    pub hold_preparing: Option<(u32, u32)>,
 }
 
 /// How long the screenshot run waits for the first frames before capturing.
@@ -137,6 +146,7 @@ pub fn run_with(
         );
     }
     push::all(&window, &state.borrow());
+    apply_developer_options(&window, &state.borrow(), options);
     apply_view_options(&window, options);
     if options.cutting {
         open_cutting_mode_when_solved(&window, &state);
@@ -185,6 +195,26 @@ fn try_open_cutting_mode(weak: slint::Weak<AppWindow>, state: Rc<RefCell<AppStat
     });
 }
 
+/// Applies the preview-only developer options: the unlocked page, the sample logs, the More
+/// sub-page and the frozen preparing state. Runs before [`apply_view_options`], so a frozen
+/// preparing state is in place before the render view starts a render.
+fn apply_developer_options(window: &AppWindow, state: &AppState, options: &RunOptions) {
+    if options.developer {
+        state.diagnostics.unlock().force();
+    }
+    if options.developer_sample_logs
+        && let Err(error) = state.diagnostics.store().write_sample_logs()
+    {
+        tracing::warn!(kind = ?error.kind(), "the sample logs could not be written");
+    }
+    if let Some(page) = options.more_page {
+        window.global::<Shell>().set_more_page(page.clamp(0, 7));
+    }
+    if let Some(counts) = options.hold_preparing {
+        pleochroma::diag::set_prepare_override(Some(counts));
+    }
+}
+
 /// Applies the preview-only options that select what is shown: the engine, the Design tab,
 /// the sheet detent and the viewport mode. Runs after the first push, so every surface is wired.
 fn apply_view_options(window: &AppWindow, options: &RunOptions) {
@@ -218,6 +248,23 @@ fn screenshot_when_rendered(window: &AppWindow, state: &Rc<RefCell<AppState>>, p
     poll_render(window.as_weak(), Rc::clone(state), path, deadline);
 }
 
+/// Whether a Render-mode screenshot may be taken now.
+///
+/// Only a finished or failed render ends the wait; every other state keeps it going,
+/// preparing included.
+#[cfg(feature = "desktop-preview")]
+const fn render_has_finished(status: &pleochroma_mobile_core::render::RenderStatus) -> bool {
+    use pleochroma_mobile_core::render::RenderStatus;
+
+    match status {
+        RenderStatus::Done { .. } | RenderStatus::Failed(_) => true,
+        RenderStatus::Idle
+        | RenderStatus::Tracing { .. }
+        | RenderStatus::Paused(_)
+        | RenderStatus::Preparing { .. } => false,
+    }
+}
+
 #[cfg(feature = "desktop-preview")]
 fn poll_render(
     weak: slint::Weak<AppWindow>,
@@ -225,16 +272,11 @@ fn poll_render(
     path: PathBuf,
     deadline: std::time::Instant,
 ) {
-    use pleochroma_mobile_core::render::RenderStatus;
-
     slint::Timer::single_shot(RENDER_POLL, move || {
         let Some(window) = weak.upgrade() else {
             return;
         };
-        let finished = matches!(
-            state.borrow().render.status(),
-            RenderStatus::Done { .. } | RenderStatus::Failed(_)
-        );
+        let finished = render_has_finished(&state.borrow().render.status());
         if finished {
             schedule_screenshot(&window, path, RENDER_SETTLE);
         } else if std::time::Instant::now() >= deadline {

@@ -1,4 +1,5 @@
-//! App-wide preferences: the Simple/Advanced switch, the UI scale and high contrast.
+//! App-wide preferences: the Simple/Advanced switch, the UI scale, high contrast and the Tilt
+//! Average Range.
 //!
 //! It also holds the larger drag handles and the tutorial resets, plus the Snap/Slice pills
 //! the Solid viewport remembers.
@@ -13,12 +14,16 @@
 //! - high contrast reaches EVERY window: each window's own `Theme` instance (a Slint
 //!   global exists once per window) is registered as a sink, so the main window, the
 //!   compare window and the rough planner all switch together, however late they open;
+//! - the Tilt Average Range reaches every window that words a tilt figure: the range in force
+//!   is [`display_tilt_window_deg`], and each window or presenter registers a sink with
+//!   [`register_tilt_range_sink`] that is told every change (it sets the `TiltWindows` words
+//!   and shows the tilt rows again from the kept profiles, never measuring);
 //! - [`saved_ui_scale_factor`] turns the saved UI scale into `SLINT_SCALE_FACTOR`; `main`
 //!   sets it before any window exists, so a change needs a restart.
 
 use crate::{
     CompareWindow, CrystalAxisModel, LocateWindow, MainWindow, ManipulateModel, PreferencesModel,
-    RigWindow, RoughPlannerWindow, Theme,
+    RigWindow, RoughPlannerWindow, Theme, TiltWindows,
     bridge::render_thread::RenderContext,
     gui::{
         external_links::open_local_path,
@@ -34,14 +39,20 @@ use crate::{
     },
 };
 use pleochroma::renderer::path_cache::lru;
-use pleochroma_editor::guide::viewing_events as events;
+use pleochroma_editor::{
+    guide::viewing_events as events,
+    metric_deltas::{
+        DEFAULT_DISPLAY_TILT_WINDOW_DEG, DISPLAY_TILT_WINDOW_CHOICES_DEG,
+        display_tilt_window_caption, display_tilt_window_plain,
+    },
+};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::{
     cell::{Cell, RefCell},
     path::Path,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
 };
 
@@ -160,6 +171,109 @@ fn apply_high_contrast(on: bool) {
     HIGH_CONTRAST.set(on);
     HIGH_CONTRAST_SHARED.store(on, Ordering::Relaxed);
     THEME_SINKS.with_borrow_mut(|sinks| sinks.retain(|sink| sink(on)));
+}
+
+// --- Tilt average range ----------------------------------------------------------------
+
+/// Told every new Tilt Average Range; answers `false` once its window is gone.
+type TiltRangeSink = Box<dyn FnMut(u8) -> bool>;
+
+thread_local! {
+    /// One sink per window or presenter that words or shows a tilt figure.
+    static TILT_RANGE_SINKS: RefCell<Vec<TiltRangeSink>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The Tilt Average Range in force, for threads other than the UI thread too (Baseline's worker
+/// and Compare's tilt thread read it when they present).
+static TILT_RANGE_SHARED: AtomicU8 = AtomicU8::new(DEFAULT_DISPLAY_TILT_WINDOW_DEG);
+
+/// The range in force, in degrees each way from table up: 15, 20, 30, 45, 60 or 90 (the default,
+/// every tilt). Set at start-up and on every change.
+#[must_use]
+pub fn display_tilt_window_deg() -> u8 {
+    TILT_RANGE_SHARED.load(Ordering::Relaxed)
+}
+
+/// Registers `sink` and brings it up to the range in force at once. A sink that reports its
+/// window gone (`false`) is not kept, then or later.
+pub(crate) fn register_tilt_range_sink(mut sink: impl FnMut(u8) -> bool + 'static) {
+    if sink(display_tilt_window_deg()) {
+        TILT_RANGE_SINKS.with_borrow_mut(|sinks| sinks.push(Box::new(sink)));
+    }
+}
+
+/// Tells every registered sink `degrees`, dropping the ones whose window is gone. The sinks run
+/// with the registry released, so one may register another.
+fn notify_tilt_range_sinks(degrees: u8) {
+    let mut sinks = TILT_RANGE_SINKS.take();
+    sinks.retain_mut(|sink| sink(degrees));
+    TILT_RANGE_SINKS.with_borrow_mut(|current| {
+        sinks.append(current);
+        *current = sinks;
+    });
+}
+
+/// Makes `degrees` the range in force and tells every sink.
+fn apply_tilt_range(degrees: u8) {
+    TILT_RANGE_SHARED.store(degrees, Ordering::Relaxed);
+    notify_tilt_range_sinks(degrees);
+}
+
+/// Sets the two words of a window's `TiltWindows` for `degrees`: "to ±90°" for captions and
+/// "to 90°" for sentences. `TiltWindows.scored` is fixed and never set.
+pub(crate) fn set_tilt_words(words: &TiltWindows<'_>, degrees: u8) {
+    words.set_displayed(display_tilt_window_caption(degrees).into());
+    words.set_displayed_plain(display_tilt_window_plain(degrees).into());
+}
+
+/// The labels of the Tilt Average Range combo: "±15°" up to "±90° (all tilts)", one per
+/// [`DISPLAY_TILT_WINDOW_CHOICES_DEG`] entry, in that order.
+fn tilt_range_labels() -> Vec<String> {
+    DISPLAY_TILT_WINDOW_CHOICES_DEG
+        .iter()
+        .map(|&degrees| {
+            if degrees == DEFAULT_DISPLAY_TILT_WINDOW_DEG {
+                format!("\u{b1}{degrees}\u{b0} (all tilts)")
+            } else {
+                format!("\u{b1}{degrees}\u{b0}")
+            }
+        })
+        .collect()
+}
+
+/// The range combo entry `index` stands for: 90 for anything out of range.
+fn tilt_range_for_index(index: i32) -> u8 {
+    usize::try_from(index)
+        .ok()
+        .and_then(|entry| DISPLAY_TILT_WINDOW_CHOICES_DEG.get(entry))
+        .copied()
+        .unwrap_or(DEFAULT_DISPLAY_TILT_WINDOW_DEG)
+}
+
+/// The combo entry for a stored range: the entry of that range, else the one of 90.
+fn tilt_range_index_for(degrees: u8) -> i32 {
+    DISPLAY_TILT_WINDOW_CHOICES_DEG
+        .iter()
+        .position(|&choice| choice == degrees)
+        .or_else(|| {
+            DISPLAY_TILT_WINDOW_CHOICES_DEG
+                .iter()
+                .position(|&choice| choice == DEFAULT_DISPLAY_TILT_WINDOW_DEG)
+        })
+        .and_then(|entry| i32::try_from(entry).ok())
+        .unwrap_or(0)
+}
+
+/// Makes the main window's `TiltWindows` words follow the Tilt Average Range preference.
+fn bind_main_window_tilt_words(ui: &MainWindow) {
+    let weak = ui.as_weak();
+    register_tilt_range_sink(move |degrees| {
+        let Some(ui) = weak.upgrade() else {
+            return false;
+        };
+        set_tilt_words(&ui.global::<TiltWindows>(), degrees);
+        true
+    });
 }
 
 /// Makes the main window follow the high-contrast preference.
@@ -281,6 +395,13 @@ pub(super) fn apply_loaded(ui: &MainWindow, settings: &AppSettings) {
             .collect::<Vec<_>>(),
     )));
     prefs.set_ui_scale_index(ui_scale_index_for_percent(settings.ui_scale_percent));
+    prefs.set_tilt_range_options(ModelRc::new(VecModel::from(
+        tilt_range_labels()
+            .into_iter()
+            .map(SharedString::from)
+            .collect::<Vec<_>>(),
+    )));
+    prefs.set_tilt_range_index(tilt_range_index_for(settings.tilt_average_range_deg));
     prefs.set_high_contrast(settings.high_contrast);
     prefs.set_large_handles(settings.large_handles);
     prefs.set_adaptive_viewport(settings.adaptive_viewport);
@@ -299,6 +420,8 @@ pub(super) fn apply_loaded(ui: &MainWindow, settings: &AppSettings) {
     HIGH_CONTRAST.set(settings.high_contrast);
     HIGH_CONTRAST_SHARED.store(settings.high_contrast, Ordering::Relaxed);
     bind_main_window_theme(ui);
+    TILT_RANGE_SHARED.store(settings.tilt_average_range_deg, Ordering::Relaxed);
+    bind_main_window_tilt_words(ui);
 }
 
 /// Wires every `PreferencesModel` callback: each change is saved through the debounced
@@ -327,6 +450,15 @@ pub(super) fn setup_preferences_callbacks(
                 .set_ui_scale_percent(i32::from(percent));
             raise(&ui, events::UI_SCALE_CHANGED);
         }
+    });
+
+    // The Tilt Average Range applies at once: the words and the open tilt rows follow, nothing is
+    // measured again.
+    let store = Arc::clone(settings_store);
+    prefs.on_tilt_range_changed(move |index: i32| {
+        let degrees = tilt_range_for_index(index);
+        store.update(|s| s.settings.set_tilt_average_range_deg(i32::from(degrees)));
+        apply_tilt_range(degrees);
     });
 
     let store = Arc::clone(settings_store);
@@ -691,6 +823,62 @@ mod tests {
     fn a_scale_the_user_set_in_the_environment_wins_over_the_saved_one() {
         assert_eq!(scale_factor_override(125, true), None);
         assert_eq!(scale_factor_override(0, true), None);
+    }
+
+    #[test]
+    fn the_range_combo_lists_the_six_choices_in_order_and_ninety_is_last() {
+        let labels = tilt_range_labels();
+        assert_eq!(
+            labels,
+            [
+                "\u{b1}15\u{b0}",
+                "\u{b1}20\u{b0}",
+                "\u{b1}30\u{b0}",
+                "\u{b1}45\u{b0}",
+                "\u{b1}60\u{b0}",
+                "\u{b1}90\u{b0} (all tilts)",
+            ]
+        );
+    }
+
+    #[test]
+    fn every_range_entry_maps_to_a_range_and_back_and_odd_ones_mean_ninety() {
+        for (position, &degrees) in DISPLAY_TILT_WINDOW_CHOICES_DEG.iter().enumerate() {
+            let index = i32::try_from(position).expect("a small index");
+            assert_eq!(tilt_range_for_index(index), degrees);
+            assert_eq!(tilt_range_index_for(degrees), index);
+        }
+        assert_eq!(tilt_range_index_for(90), 5, "the default is the last entry");
+        assert_eq!(tilt_range_for_index(-1), 90);
+        assert_eq!(tilt_range_for_index(6), 90);
+        assert_eq!(tilt_range_index_for(25), 5);
+    }
+
+    #[test]
+    fn a_range_sink_is_told_every_change_and_forgotten_once_its_window_is_gone() {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let alive = Rc::new(Cell::new(true));
+        let (sink_seen, sink_alive) = (Rc::clone(&seen), Rc::clone(&alive));
+        register_tilt_range_sink(move |degrees| {
+            sink_seen.borrow_mut().push(degrees);
+            sink_alive.get()
+        });
+        assert_eq!(
+            seen.borrow().len(),
+            1,
+            "told the range in force on registering"
+        );
+        notify_tilt_range_sinks(30);
+        notify_tilt_range_sinks(60);
+        assert_eq!(seen.borrow()[1..], [30, 60]);
+        alive.set(false);
+        notify_tilt_range_sinks(45);
+        notify_tilt_range_sinks(90);
+        assert_eq!(
+            seen.borrow().len(),
+            4,
+            "the closed window's sink answered once, then left"
+        );
     }
 
     #[test]

@@ -1,8 +1,9 @@
 //! Bounded, observable production-pipeline diagnostics.
 //!
-//! Never evaluates held-out episodes or reads/writes a checkpoint. The database loader opens
-//! the source library read-only.
+//! Reads corpus files and the source library read-only. Optional deterministic deployment
+//! validation runs after the timed training window.
 
+mod cli_dataset;
 pub mod dataset;
 #[path = "runner.rs"]
 mod runner;

@@ -104,7 +104,10 @@ pub fn pages_of(command: &Command) -> &'static [Page] {
         | "tools.lighting_environment"
         | "tools.render_output"
         | "tools.render_settings"
-        | "tools.export_render" => THREE_D,
+        | "tools.export_render"
+        // The material card's RI chart and check set (the Parameters dock's Stone tab).
+        | "material.ri_chart"
+        | "material.queue_check_set" => THREE_D,
         // The design's instructions, which the Cutting Instructions tab shows too.
         "edit.edit_as_text" | "tools.cutting_mode" | "file.export_diagram" => EDIT_AND_CUTTING,
         id if STOPS.contains(&id) => ALL,

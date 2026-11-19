@@ -9,18 +9,26 @@ use crate::renderer::gpu::frame::event_wavefront_source_for;
 const REDUCE_SHADER_SRC: &str = include_str!("../../shaders/reduce_xyz.wgsl");
 
 /// Lazy cache of `(EwKernel, class)` compute pipelines, plus the eagerly built reduce pipeline.
+///
+/// Every pipeline compiles through its own persistent cache shard
+/// (`compute::create_persisted_compute_pipeline`), so a start with a cache folder loads the
+/// driver's compiled code instead of building it again.
 pub struct EwPipelines {
     pipelines: HashMap<(EwKernel, u32), wgpu::ComputePipeline>,
     reduce_pipeline: wgpu::ComputePipeline,
+    /// The adapter the device came from: the shards are stored per adapter and driver.
+    adapter_info: wgpu::AdapterInfo,
 }
 
 impl EwPipelines {
     /// Creates a new pipeline cache and compiles `reduce_xyz_main`.
+    ///
+    /// `adapter_info` is the device's adapter (`ctx.adapter.get_info()`).
     #[must_use]
-    pub fn new(device: &wgpu::Device) -> Self {
-        let reduce_pipeline = crate::renderer::gpu::compute::create_compute_pipeline_cached(
+    pub fn new(device: &wgpu::Device, adapter_info: wgpu::AdapterInfo) -> Self {
+        let reduce_pipeline = crate::renderer::gpu::compute::create_persisted_compute_pipeline(
             device,
-            None,
+            &adapter_info,
             "reduce_xyz_main",
             REDUCE_SHADER_SRC,
             "reduce_xyz_main",
@@ -29,6 +37,7 @@ impl EwPipelines {
         Self {
             pipelines: HashMap::new(),
             reduce_pipeline,
+            adapter_info,
         }
     }
 
@@ -42,10 +51,11 @@ impl EwPipelines {
         kernel: EwKernel,
         class: u32,
     ) -> &wgpu::ComputePipeline {
+        let adapter_info = &self.adapter_info;
         self.pipelines.entry((kernel, class)).or_insert_with(|| {
-            crate::renderer::gpu::compute::create_compute_pipeline_cached(
+            crate::renderer::gpu::compute::create_persisted_compute_pipeline(
                 device,
-                None,
+                adapter_info,
                 kernel.entry_point(),
                 event_wavefront_source_for(kernel, class),
                 kernel.entry_point(),

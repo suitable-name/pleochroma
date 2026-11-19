@@ -455,6 +455,11 @@ works as before and renders at once.
 With presets ticked, each picture becomes its own job. Jobs are kept in your
 library and can be paused, resumed and exported as a script. See Chapter 23.
 
+A job you have queued is not final. Change its compute, size, samples, material, file
+name and more later with **Edit...** in the Render Jobs window (Chapter 23), and load
+its view back into the Live Render with **Load Job View**. The export dialog itself
+never changes a queued job.
+
 ### Which Stone Is Drawn
 
 An export always draws the **finished** gem. The Edit tab's Cut slider (Chapter 13)

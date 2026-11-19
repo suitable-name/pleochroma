@@ -124,6 +124,14 @@ impl Film<'_> {
             Perform::Yield { girdle_diameter_mm } => self.film_yield(*girdle_diameter_mm),
             Perform::ViewMode(mode) => self.film_view_mode(*mode),
             Perform::InspectorTab(tab) => self.film_inspector_tab(*tab),
+            // The Auto-Solve lesson's step says not to press Solve: the video waits for the solve
+            // the edit armed.
+            Perform::Command(id)
+                if id.as_str() == pleochroma_editor::guide::CMD_SOLVE
+                    && self.id == "solving-auto-solve" =>
+            {
+                self.wait_for_auto_solve()
+            }
             Perform::Command(id) => self.film_command(id),
             Perform::Sequence(parts) => {
                 for part in parts {
@@ -133,6 +141,24 @@ impl Film<'_> {
                 Ok(())
             }
         }
+    }
+
+    /// Waits for the solve the last edit armed to run by itself and finish the step, shown as a
+    /// time-lapse. Only when auto-solve did not start in time (it switches itself off for a slow
+    /// design, which the step allows for) is Solve pressed.
+    fn wait_for_auto_solve(&mut self) -> Result<(), String> {
+        debug_log::route("auto-solve: waiting for the solve to start by itself, no Solve press");
+        let ui = self.ui;
+        let n = self.perform_n;
+        let solved = pacing::wait_lapse(&mut self.rec, Duration::from_secs(10), || {
+            let s = snap(ui);
+            !s.at(n) || s.done
+        })?;
+        if solved {
+            return Ok(());
+        }
+        debug_log::route("auto-solve did not solve in 10 s: pressing Solve, as the step allows");
+        self.film_command(pleochroma_editor::guide::CMD_SOLVE)
     }
 
     /// Films the New Design dialog: opens it, fills the Empty or Template form and clicks Create.
@@ -577,13 +603,9 @@ impl Film<'_> {
         if let Some(name) = edit {
             self.film_select_tier(name)?;
         } else {
-            let btn = targets::role_label(
-                &self.view(),
-                "+ Add Concave Tier",
-                uiprobe::AccessibleRole::Button,
-                Some("TierTableToolbar"),
-            )
-            .ok_or("+ Add Concave Tier button is missing")?;
+            // Concave Tier is an item of the Add Tier menu, which the chevron beside Add Tier
+            // opens.
+            let btn = self.add_tier_menu_item("+ Add Concave Tier")?;
             self.click_and_invoke(&btn)?;
             pump(80);
             self.rec.hold(FIELD_PAUSE)?;

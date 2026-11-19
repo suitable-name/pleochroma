@@ -555,7 +555,9 @@ impl SavedState {
             used_placeholder: st.used_placeholder,
             // Written into every native save (see `SaveExtras::history_entries`).
             history_entries: st.history.description_log().to_vec(),
-            file_extras: st.file_extras.clone(),
+            // The `[meta]` states the design's RI range choice, so a Save after an Undo writes
+            // the reverted one.
+            file_extras: st.file_extras_for_write(),
             snapshot_generation: st.generation.load(Ordering::Relaxed),
         }
     }

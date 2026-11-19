@@ -25,6 +25,15 @@ import { RenderJobsModel } from "../../models/render_jobs.slint";
 import { RenderJobsPanel } from "../render_jobs/jobs_panel.slint";
 import { ExportDialog } from "../export_dialog.slint";
 import { ExportModel } from "../../models/export.slint";
+import { JobEditModel } from "../../models/job_edit.slint";
+import { JobCopyModel } from "../../models/job_copy.slint";
+import { RiFieldModel } from "../../models/ri_field.slint";
+import { RiChartModel } from "../../models/ri_chart.slint";
+import { RiBatchModel } from "../../models/ri_batch.slint";
+import { JobEditDialog } from "../render_jobs/job_edit_dialog.slint";
+import { CopyMaterialsDialog } from "../render_jobs/copy_materials.slint";
+import { RiChartDialog } from "../ri_chart/ri_chart_dialog.slint";
+import { RiRangeBatchDialog } from "../ri_range_batch_dialog.slint";
 
 // Every modal dialog `app.slint` mounts that is driven entirely by a global model (no
 // `MainWindow`-local property or callback). `MaterialEditorDialog`, `PerformanceGraphDialog` and
@@ -238,6 +247,79 @@ export component GlobalDialogsOverlay inherits Rectangle {
         }
     }
 
+    // The Edit Job dialog (a row's Edit... in the Jobs window). Same wrapping-`FocusScope`
+    // convention as the metadata editor: Escape cancels, every other key is swallowed so a
+    // shortcut cannot fire behind it, and Tab moves between its fields. Above the Jobs window.
+    if JobEditModel.open: FocusScope {
+        width: 100%;
+        height: 100%;
+        z: 420;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                JobEditModel.cancel();
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        JobEditDialog {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The Copy to Materials dialog (a row's "..." menu in the Jobs window), the same way.
+    if JobCopyModel.open: FocusScope {
+        width: 100%;
+        height: 100%;
+        z: 420;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                JobCopyModel.cancel();
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        CopyMaterialsDialog {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The RI chart (the material card's "..." menu, the command palette), the same way.
+    if RiChartModel.open: FocusScope {
+        width: 100%;
+        height: 100%;
+        z: 400;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                RiChartModel.open = false;
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        RiChartDialog {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The Compute RI Ranges batch of the library (Library menu, command palette). Like the
+    // other batch dialogs it brings its own handling.
+    if RiBatchModel.visible: RiRangeBatchDialog {
+        width: 100%;
+        height: 100%;
+        z: 400;
+    }
+
     // The command palette (Edit > Command Palette..., Ctrl+K, Ctrl+Shift+P). It brings its
     // own `FocusScope` -- the search field needs the keys first, so a wrapper like the ones
     // above would be wrong -- and sits above the dialogs (z 400) but under the confirm
@@ -366,6 +448,48 @@ export component GlobalDialogsOverlay inherits Rectangle {
             EditorModel.write_confirm_open = false;
             EditorModel.write_confirm_cancel();
         }
+    }
+
+    // "Render this job again?": a done or cancelled job whose compute or transfer changed in the
+    // Edit Job dialog. Render Again is the primary answer (Return), Save Only the second, and
+    // Cancel goes back to the dialog. Rust closes the question when it has acted on the answer;
+    // each answer closes it here too.
+    if JobEditModel.requeue_question_open: ConfirmActionDialog {
+        width: 100%;
+        height: 100%;
+        z: 500;
+        heading: "Render this job again?";
+        message: "The compute or transfer of this job changed. Render Again puts the job back in the queue and renders it from the start; the old result stays on disk. Save Only keeps the job as it is, with the new choice stored.";
+        primary_label: "Render Again";
+        primary_hint: "Save the change, put the job back in the queue and render it again.";
+        secondary_label: "Save Only";
+        secondary_hint: "Save the change and leave the job in its state.";
+        primary => {
+            JobEditModel.requeue_question_open = false;
+            JobEditModel.requeue_answer(2);
+        }
+        secondary => {
+            JobEditModel.requeue_question_open = false;
+            JobEditModel.requeue_answer(1);
+        }
+        cancel => {
+            JobEditModel.requeue_question_open = false;
+            JobEditModel.requeue_answer(0);
+        }
+    }
+
+    // The cutting sheet export waits for the traced RI range of the design. Cancel writes the
+    // sheet without the range; there is no other answer.
+    if RiFieldModel.export_waiting: ConfirmActionDialog {
+        width: 100%;
+        height: 100%;
+        z: 500;
+        heading: "Computing the RI range…";
+        message: "The cutting sheet prints the RI range of this design. Cancel writes the sheet without it.";
+        primary_label: "";
+        secondary_label: "";
+        cancel_label: "Cancel";
+        cancel => { RiFieldModel.cancel_export_wait(); }
     }
 
     // The one-time anchor explainer card -- see

@@ -317,10 +317,12 @@ fn launch(host: &Rc<Host>, prepared: Prepared) {
     // around them. The rules come from the session; the stone choices belong to the results
     // being replaced, so they are dropped.
     let locked = axis::locked_for_plan(host);
+    let kept_reasons = axis::locked_reasons_for_plan(host);
     let mut overrides = host.session.borrow().overrides.clone();
     overrides.stones.clear();
     {
         let mut session = host.session.borrow_mut();
+        session.kept_reasons = kept_reasons;
         session.cancel = Some(Arc::clone(&cancel));
         session.run.begin_run(screen);
     }

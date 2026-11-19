@@ -82,6 +82,9 @@ fn the_diagnostic_fields_round_trip() {
         labels_added: 9,
         labels_reused: 10,
         stalled_episodes: 2,
+        stepped_entries: 4,
+        stepped_families: 3,
+        fresh_label_entries: 2,
     };
     point.rej_manufacturability = 9;
     point.val_improvement_sampled = Some(1.25);
@@ -92,6 +95,21 @@ fn the_diagnostic_fields_round_trip() {
     assert_eq!(back.diagnostics, point.diagnostics);
     assert_eq!(back.val_improvement_sampled, Some(1.25));
     assert!(back.early_stopped);
+}
+
+#[test]
+fn old_collection_diagnostics_default_the_new_coverage_counts_to_zero() {
+    let old: TrainingDiagnostics = serde_json::from_str(
+        r#"{"preservation_rejected":0,"unchanged_proposals":2,"labels_added":1,"labels_reused":0,"stalled_episodes":0}"#,
+    ).unwrap();
+    assert_eq!(
+        (
+            old.stepped_entries,
+            old.stepped_families,
+            old.fresh_label_entries
+        ),
+        (0, 0, 0)
+    );
 }
 
 #[test]
@@ -244,6 +262,7 @@ fn sample_run() -> TrainingRunStats {
         final_extinction: 3.5,
         final_yield_pct: 59.0,
         val_score: Some(4.0),
+        val_deployed_score: Some(4.5),
         generalization_gap: None,
         train_designs_count: 10,
         val_designs_count: 2,

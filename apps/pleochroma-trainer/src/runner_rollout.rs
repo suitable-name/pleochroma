@@ -18,7 +18,7 @@
 //!    preparation and completion, so unrelated work can supply the GPU during a slow probe.
 //! 4. **Per-slot continuation** keeps the state unchanged until its label and policy search
 //!    complete. Both searches reduce results in canonical order and retain all hard cases.
-//! 5. **Commit** in canonical slot/local-step order: PPO batches time-limit critic bootstraps;
+//! 5. **Commit** in canonical slot/local-step order. PPO ends the return at the episode horizon;
 //!    imitation folds labels, replay, metrics and episode summaries after streams drain.
 //! 6. **Respawn** on the bounded CPU pool, using the stream's deterministic slot/step seed.
 //!
@@ -220,16 +220,15 @@ impl TrainingRunner {
         outcomes
     }
 
-    /// The PPO half of [`Self::finish_step`]: the sample goes into the rollout buffer, with the
-    /// bootstrap value a truncated episode needs.
+    /// The deployed step budget is part of the observation and ends the control task.
+    /// Only a rollout cut in the middle of an episode has future value.
     fn push_ppo_step(
         &mut self,
         w: usize,
         pending: PendingStep,
         step: &Step<GemstoneObservation>,
         ended: bool,
-        next_value: Option<f32>,
-    ) -> Result<(), RunnerError> {
+    ) {
         let PendingStep {
             free,
             raw,
@@ -238,13 +237,8 @@ impl TrainingRunner {
             state,
             ..
         } = pending;
-        let end = if step.terminated {
+        let end = if ended {
             EpisodeEnd::Terminated
-        } else if step.truncated {
-            let next_value = next_value.ok_or_else(|| {
-                RunnerError::Data("missing device critic value for truncated episode".into())
-            })?;
-            EpisodeEnd::Truncated { next_value }
         } else {
             EpisodeEnd::Continue
         };
@@ -263,7 +257,6 @@ impl TrainingRunner {
             .track(w, step.reward, self.cfg.ppo.gamma, ended);
         self.n_tiers.push(free.len());
         self.free_masks.push(free);
-        Ok(())
     }
 
     /// Step 5 of a pass for slot `w`: the sample goes into the rollout buffer (PPO) or, with its
@@ -275,8 +268,7 @@ impl TrainingRunner {
         pending: PendingStep,
         outcome: SlotOutcome,
         rollout: &mut RolloutStats,
-        next_value: Option<f32>,
-    ) -> Result<Option<Respawn>, RunnerError> {
+    ) -> Option<Respawn> {
         let SlotOutcome {
             step,
             label,
@@ -302,17 +294,23 @@ impl TrainingRunner {
         rollout.diagnostics.unchanged_proposals += usize::from(step.info.unchanged);
         rollout.diagnostics.labels_reused += usize::from(label.is_some() && !fresh_label);
         let label = label.filter(|label| rollout.record_label(label));
+        let entry = self.slots[w].entry;
+        rollout.record_step_entry(entry, &self.split);
         match self.cfg.algo {
             Algorithm::Imitation => {
                 if let Some(label) = &label
                     && fresh_label
                 {
-                    self.aggregate
-                        .push(LabelledSample::new(pending.state, pending.free, label));
-                    rollout.diagnostics.labels_added += 1;
+                    self.aggregate.push(
+                        LabelledSample::new(pending.state, pending.free, label)
+                            .with_rollout_evidence(&pending.raw, step.info.scale.is_some()),
+                    );
+                    if !self.aggregate.is_empty() {
+                        rollout.record_retained_label(entry);
+                    }
                 }
             }
-            Algorithm::Ppo => self.push_ppo_step(w, pending, &step, ended, next_value)?,
+            Algorithm::Ppo => self.push_ppo_step(w, pending, &step, ended),
         }
         rollout.steps += 1;
         rollout.reward_sum += step.reward;
@@ -324,10 +322,10 @@ impl TrainingRunner {
             self.stats.solid_closed = step.info.is_closed;
         }
         if ended {
-            return Ok(Some(self.end_episode(w, optics, rollout)));
+            return Some(self.end_episode(w, optics, rollout));
         }
         self.slots[w].obs = step.observation;
-        Ok(None)
+        None
     }
 
     /// Records the episode slot `w` just finished and draws the seed of the next one.
@@ -341,11 +339,7 @@ impl TrainingRunner {
         };
         rollout.episodes_improved += usize::from(summary.improvement() > 0.0);
         rollout.finished.push(summary);
-        let start = if self.cfg.corpus_mode {
-            slot.pos + self.cfg.effective_workers()
-        } else {
-            0
-        };
+        let start = slot.position.next_start(&self.cfg);
         Respawn {
             w,
             start,
@@ -364,7 +358,12 @@ impl TrainingRunner {
         }
         let mut chosen = Vec::with_capacity(ended.len());
         for respawn in &ended {
-            let (pos, entry) = self.choose(respawn.start)?;
+            let (pos, entry) = super::scheduled_entry(
+                self.cfg.corpus_mode,
+                &self.split.train,
+                self.focus_entry,
+                respawn.start,
+            )?;
             chosen.push((pos, entry, respawn.seed));
         }
         let (cfg, split) = (&self.cfg, &self.split);
@@ -387,10 +386,7 @@ impl TrainingRunner {
         {
             let slot = match built? {
                 Ok(slot) => slot,
-                Err(error) => {
-                    let start = self.skip_entry(pos, entry, &error)?;
-                    self.spawn_slot(start, seed)?
-                }
+                Err(error) => self.retry_slot(pos, entry, seed, error)?,
             };
             self.install_slot(respawn.w, slot);
         }
@@ -431,15 +427,8 @@ impl TrainingRunner {
                 execution.check().map_err(RunnerError::Data)?;
             }
             let mut ended = Vec::new();
-            let bootstraps =
-                self.truncated_bootstraps(outcomes.iter().map(|outcome| &outcome.step))?;
-            for (w, ((p, outcome), next_value)) in pending
-                .into_iter()
-                .zip(outcomes)
-                .zip(bootstraps)
-                .enumerate()
-            {
-                ended.extend(self.finish_step(w, p, outcome, &mut rollout, next_value)?);
+            for (w, (p, outcome)) in pending.into_iter().zip(outcomes).enumerate() {
+                ended.extend(self.finish_step(w, p, outcome, &mut rollout));
             }
             self.progress.steps(rollout.steps);
             self.respawn_slots(ended)?;

@@ -113,8 +113,14 @@ export component TierTableRow inherits Rectangle {
         : (root.item.warning_text != "" ? root.item.warning_text
         : (root.item.strategy_is_uncertain ? "Not solved yet" : "Solved"));
     property <string> block_heading: root.item.block == "Pavilion" ? "PAVILION" : (root.item.block == "Crown" ? "CROWN" : "GIRDLE");
+    // The scale value for display: `constraint_text` is the exact round-trip string the form
+    // reads (0.6058300029776786), so the row shows it to four decimals (0.7 stays 0.7).
+    property <float> scale_value: root.item.constraint_text.to-float();
+    property <string> rounded_scale: root.item.constraint_text.character-count > 6
+        ? "\{Math.round(root.scale_value * 10000) / 10000}"
+        : root.item.constraint_text;
     property <string> meets_text: root.item.kind == 1 ? "Concave tool"
-        : (root.item.constraint_kind == 2 ? "scale " + root.item.constraint_text
+        : (root.item.constraint_kind == 2 ? "scale " + root.rounded_scale
         : (root.item.constraint_kind == 1 ? "meets " + root.item.constraint_text
         : (root.item.constraint_kind == 3 ? root.item.constraint_text + " mm depth"
         : (root.item.constraint_kind == 4 ? "girdle " + root.item.constraint_text + " mm"
@@ -447,7 +453,11 @@ export component TierTableRow inherits Rectangle {
                         Tooltip { text: @markdown("\{root.state_text}"); }
                     }
                 }
-                // "..." opens the row's menu; it shows on the selected, cursor and hovered rows.
+                // "..." opens the row's menu. It shows on every row, never hidden: it stays enabled
+                // there, and a touch or screen-reader user could otherwise reach a button nobody can
+                // see. At rest it is drawn in the muted ink (a theme color, so it keeps its contrast
+                // in the high-contrast theme); the selected, cursor and hovered rows draw it in the
+                // secondary ink.
                 VerticalLayout {
                     alignment: center;
                     Rectangle {
@@ -457,7 +467,7 @@ export component TierTableRow inherits Rectangle {
                         background: more_touch.has-hover ? Theme.overlay-hover : transparent;
                         border-width: more_focus.has-focus ? 2px : 0px;
                         border-color: Theme.accent-cyan-hover;
-                        opacity: (root.selected || root.cursor_here || row_touch.has-hover || more_touch.has-hover || more_focus.has-focus) ? 1.0 : 0.0;
+                        property <bool> lit: root.selected || root.cursor_here || row_touch.has-hover || more_touch.has-hover || more_focus.has-focus;
                         accessible-role: AccessibleRole.button;
                         accessible-label: "Actions for Tier " + (root.item.index + 1);
                         accessible-description: "Adopt, pin, detach, move, duplicate, surface finish and delete this tier. Right-click the row opens the same menu.";
@@ -478,7 +488,7 @@ export component TierTableRow inherits Rectangle {
                             d: KitIcons.more;
                             size: 16px;
                             stroke: 2.4px;
-                            ink: Theme.text-secondary;
+                            ink: parent.lit ? Theme.text-secondary : Theme.text-muted;
                         }
                         more_touch := TouchArea {
                             mouse-cursor: pointer;

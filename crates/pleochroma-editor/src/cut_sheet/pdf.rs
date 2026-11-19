@@ -20,7 +20,7 @@
 //! The output is deterministic: no date, no document ID, uncompressed streams.
 
 use super::{
-    layout::{SectionLine, SheetLayout},
+    layout::{LINE_BREAK, SectionLine, SheetLayout},
     pdf_font::{Font, encode, text_width},
 };
 use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str, types::LineCapStyle};
@@ -54,6 +54,8 @@ const ROW_PITCH: f32 = 13.9;
 const LINE_PITCH: f32 = 11.5;
 /// Where a single-line row's baseline sits below the row's top.
 const ROW_BASELINE: f32 = 10.4;
+/// The smallest size the second line of a two-line data cell is shrunk to.
+const SECOND_LINE_MIN_FONT: f32 = 4.5;
 /// A shaded band's grey (`#d9d9d9`).
 const SHADE: f32 = 217.0 / 255.0;
 /// The font size of a section row.
@@ -285,25 +287,51 @@ fn cell_room(centre: f32) -> f32 {
     (2.0 * half).mul_add(LEFT_WIDTH, -4.0)
 }
 
-/// Rows of a left-column block from `top`, each cell's text centred on its own fraction of the
-/// column's width (`centres`) and shrunk to its room, with a vertical rule down the middle.
-fn block_rows(canvas: &mut Canvas, top: f32, size: f32, centres: &[f32], rows: &[Vec<String>]) {
+/// Rows of a left-column block from `top`, with a vertical rule down the middle.
+///
+/// Each cell's text is centred on its own fraction of the column's width (`centres`) and shrunk
+/// to its room. Returns the block's bottom.
+///
+/// A cell holding a [`LINE_BREAK`] prints on that many lines, each at the block's size and each
+/// shrunk to the room on its own, never wrapped; the row grows by [`LINE_PITCH`] per extra line.
+fn block_rows(
+    canvas: &mut Canvas,
+    top: f32,
+    size: f32,
+    centres: &[f32],
+    rows: &[Vec<String>],
+) -> f32 {
+    // The height the rows above have gained from their extra lines.
+    let mut extra = 0.0_f32;
     for (index, row) in rows.iter().enumerate() {
-        let baseline = (index as f32).mul_add(ROW_PITCH, top + ROW_BASELINE);
+        let baseline = (index as f32).mul_add(ROW_PITCH, top + ROW_BASELINE) + extra;
+        let mut lines = 1;
         for (text, &centre) in row.iter().zip(centres) {
-            let fitted = shrink_to_fit(text, Font::Regular, size, 6.0, cell_room(centre));
-            canvas.text_centred(
-                Font::Regular,
-                fitted,
-                centre.mul_add(LEFT_WIDTH, MARGIN),
-                baseline,
-                text,
-            );
+            for (position, line) in text.split(LINE_BREAK).enumerate() {
+                lines = lines.max(position + 1);
+                // The first line keeps the block's usual floor; a second line (the estimate's
+                // bracket) may go lower so that it fits its cell in one line.
+                let floor = if position == 0 {
+                    6.0
+                } else {
+                    SECOND_LINE_MIN_FONT
+                };
+                let fitted = shrink_to_fit(line, Font::Regular, size, floor, cell_room(centre));
+                canvas.text_centred(
+                    Font::Regular,
+                    fitted,
+                    centre.mul_add(LEFT_WIDTH, MARGIN),
+                    (position as f32).mul_add(LINE_PITCH, baseline),
+                    line,
+                );
+            }
         }
+        extra += ((lines - 1) as f32) * LINE_PITCH;
     }
     let middle = MARGIN + LEFT_WIDTH / 2.0;
-    let bottom = (rows.len() as f32).mul_add(ROW_PITCH, top);
+    let bottom = (rows.len() as f32).mul_add(ROW_PITCH, top) + extra;
     canvas.line((middle, top), (middle, bottom), THIN);
+    bottom
 }
 
 /// The left column of the template. Returns its bottom, where the views grid ends too.
@@ -365,8 +393,7 @@ fn draw_left_column(canvas: &mut Canvas, layout: &SheetLayout) -> f32 {
             vec![label.to_string(), facets, tier_label.to_string(), tiers]
         })
         .collect();
-    block_rows(canvas, top, 8.0, &[0.17, 0.42, 0.69, 0.94], &rows);
-    y = (rows.len() as f32).mul_add(ROW_PITCH, top);
+    y = block_rows(canvas, top, 8.0, &[0.17, 0.42, 0.69, 0.94], &rows);
 
     // Size Data: three ratios on each half.
     let top = block_heading(canvas, "Size Data", MARGIN, LEFT_WIDTH, y);
@@ -381,8 +408,7 @@ fn draw_left_column(canvas: &mut Canvas, layout: &SheetLayout) -> f32 {
             ]
         })
         .collect();
-    block_rows(canvas, top, 10.0, &[0.085, 0.335, 0.665, 0.915], &rows);
-    y = (rows.len() as f32).mul_add(ROW_PITCH, top);
+    y = block_rows(canvas, top, 10.0, &[0.085, 0.335, 0.665, 0.915], &rows);
 
     // Design Data: label | value.
     let top = block_heading(canvas, "Design Data", MARGIN, LEFT_WIDTH, y);
@@ -391,8 +417,7 @@ fn draw_left_column(canvas: &mut Canvas, layout: &SheetLayout) -> f32 {
         .iter()
         .map(|(label, value)| vec![label.clone(), value.clone()])
         .collect();
-    block_rows(canvas, top, 10.0, &[0.25, 0.75], &rows);
-    (rows.len() as f32).mul_add(ROW_PITCH, top)
+    block_rows(canvas, top, 10.0, &[0.25, 0.75], &rows)
 }
 
 /// The 2 x 2 grid of the four views beside the left column, from the top margin to `bottom`.
@@ -698,6 +723,31 @@ mod tests {
         assert_eq!(pages.len(), 2);
         let first = pages.into_iter().next().expect("the first page").finish();
         assert!(!contains(&first, b"(Crown"), "the first page stays empty");
+    }
+
+    /// A Design Data value on two lines adds one line pitch to its block and keeps each line in
+    /// one piece: the long second line shrinks instead of wrapping.
+    #[test]
+    fn a_two_line_value_grows_its_row_by_one_line_and_never_wraps() {
+        let rows = |value: &str| vec![vec!["RI range".to_string(), value.to_string()]];
+        let one = rows("1.768 (Sapphire)");
+        let two = rows("1.63 and up\n(Pleochroma estimate; Sapphire 1.768)");
+        let mut canvas = Canvas::new();
+        let flat = block_rows(&mut canvas, 100.0, 10.0, &[0.25, 0.75], &one);
+        let mut canvas = Canvas::new();
+        let tall = block_rows(&mut canvas, 100.0, 10.0, &[0.25, 0.75], &two);
+        assert!((flat - (100.0 + ROW_PITCH)).abs() < 1e-3, "{flat}");
+        assert!((tall - flat - LINE_PITCH).abs() < 1e-3, "{tall}");
+        let bytes = canvas.pages().remove(0).finish();
+        assert!(contains(&bytes, b"Pleochroma estimate; Sapphire 1.768"));
+        assert!(contains(&bytes, b"(1.63 and up)"));
+
+        // The second line is shrunk to its cell, in one line: it fits the room at its size.
+        let second = "(Pleochroma estimate; Sapphire 1.768)";
+        let room = cell_room(0.75);
+        let size = shrink_to_fit(second, Font::Regular, 10.0, SECOND_LINE_MIN_FONT, room);
+        assert!(size < 10.0 && size >= SECOND_LINE_MIN_FONT, "{size}");
+        assert!(text_width(second, Font::Regular, size) <= room + 0.01);
     }
 
     #[test]

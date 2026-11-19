@@ -182,8 +182,8 @@ pub struct SolidStyle {
     /// switching to Diagram mode. Defaults to `true`.
     pub show_orientation_marker: bool,
     /// Where the CROWN/PAVILION caption of [`Self::show_orientation_marker`] sits:
-    /// `false` (the default) at the top-left corner, `true` at the bottom-left corner,
-    /// scaled with the raster ([`SolidStyle::viewport`]; only rasters at least 300 px
+    /// `false` (the default) at the top-left corner, `true` at the bottom-right corner
+    /// (above the viewport's bottom row), scaled with the raster ([`SolidStyle::viewport`]; only rasters at least 300 px
     /// tall, smaller ones keep the top-left corner). The viewports lay a toolbar over
     /// the raster's top edge, which hid or clipped the top-left caption.
     pub orientation_caption_bottom: bool,
@@ -242,7 +242,7 @@ impl Default for SolidStyle {
 
 impl SolidStyle {
     /// The default style for a raster shown in a viewport or comparison pane (a toolbar
-    /// overlays its top edge): the orientation caption sits at the bottom-left corner.
+    /// overlays its top edge): the orientation caption sits at the bottom-right corner.
     #[must_use]
     pub fn viewport() -> Self {
         Self {

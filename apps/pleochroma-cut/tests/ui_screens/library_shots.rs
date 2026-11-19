@@ -95,7 +95,7 @@ pub fn cutting_instructions(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
 }
 
 /// Opens the Tilt Performance dialog and waits for all four axes.
-fn open_tilt(sc: &Sc<'_, '_>) -> Result<(), String> {
+pub fn open_tilt(sc: &Sc<'_, '_>) -> Result<(), String> {
     let ui = sc.ui();
     let tilt = ui.global::<TiltModel>();
     if !tilt.get_dialog_open() {

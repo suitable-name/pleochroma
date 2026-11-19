@@ -9,7 +9,7 @@ use super::{EnvCore, TeacherLabel, TierProbe, Winner, finish_label, offer, valid
 use crate::env::{CUDA_ENVIRONMENT_MATH, OptimizerEnv, RetargetEnv};
 
 /// Identity of the canonical probe, gradient and bounded-rescue search saved by recovery.
-pub const TEACHER_SEARCH_RECOVERY_REVISION: &str = "canonical-teacher-search-v1";
+pub const TEACHER_SEARCH_RECOVERY_REVISION: &str = "canonical-teacher-search-v2";
 
 const SNAPSHOT_VERSION: u32 = 1;
 type Checkpoint<'a> = dyn Fn(&TeacherSearchSnapshot) -> Result<(), String> + Sync + 'a;
@@ -272,9 +272,9 @@ impl EnvCore {
             return Err(invalid("search phase has unfinished probes"));
         }
         let probes = saved.probes();
-        let (mut label, mut best, gradient, enabled) =
+        let (mut label, mut best, gradient, execution_scale) =
             self.teacher_search_seed(h_deg, &probes, scales);
-        if !enabled {
+        if execution_scale.is_none() {
             return if saved.phase == Phase::Complete
                 && saved.gradient.is_empty()
                 && saved.rescue.is_empty()
@@ -333,15 +333,15 @@ impl EnvCore {
             self.recoverable_probes(&mut state, h_deg, parallel, checkpoint)?;
         }
         let probes = state.probes();
-        let (mut label, mut best, gradient, enabled) =
+        let (mut label, mut best, gradient, execution_scale) =
             self.teacher_search_seed(h_deg, &probes, scales);
-        if !enabled {
+        let Some(execution_scale) = execution_scale else {
             if state.phase != Phase::Complete {
                 state.phase = Phase::Complete;
                 checkpoint(&state)?;
             }
             return Ok(label);
-        }
+        };
         if state.phase == Phase::Probes {
             state.phase = Phase::Gradient;
             state.gradient = vec![None; gradient.len()];
@@ -351,6 +351,7 @@ impl EnvCore {
             self.recoverable_candidates(
                 &mut state,
                 &gradient,
+                execution_scale,
                 Phase::Gradient,
                 parallel,
                 checkpoint,
@@ -368,6 +369,7 @@ impl EnvCore {
                 self.recoverable_candidates(
                     &mut state,
                     &rescue,
+                    execution_scale,
                     Phase::Rescue,
                     parallel,
                     checkpoint,
@@ -409,6 +411,7 @@ impl EnvCore {
         &self,
         state: &mut TeacherSearchSnapshot,
         actions: &[Winner],
+        execution_scale: f64,
         phase: Phase,
         parallel: &(dyn Fn() -> bool + Sync),
         checkpoint: &Checkpoint<'_>,
@@ -422,7 +425,7 @@ impl EnvCore {
         let shared = SharedSearch::new(state);
         run_pending(&pending, parallel, |index| {
             health(self)?;
-            let (winner, evaluations) = self.evaluate_raw(&actions[index]);
+            let (winner, evaluations) = self.evaluate_raw(&actions[index], execution_scale);
             health(self)?;
             shared.record(
                 |state| {

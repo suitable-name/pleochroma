@@ -315,9 +315,13 @@ $gpuList = if ($Gpu -in @('all', 'both')) { @('gpu', 'cpu') } else { @($Gpu) }
 # feature of `pleochroma-net` that both apps inherit, so it is already on in every
 # variant; it is named here too so a later change to that crate's default set can never
 # silently drop it from a PGO build (the owner wants it active in every PGO variant).
+# Every build passes `--no-default-features` with this list: `pleochroma-worker`'s default
+# features are `gui` and `gpu`, so without it a `cpu` worker would still carry the GPU path.
+# `pleochroma-worker/gui` (the coordinator window) is named here instead; every other package
+# these builds select has no default features.
 function Get-PgoFeatures([bool]$IncludeCut, [bool]$IncludeWorker, [string]$GpuName) {
     $features = @('pleochroma/serde', 'pleochroma/hdr', 'pleochroma-net/compression')
-    if ($IncludeWorker) { $features += 'pleochroma-worker/worker' }
+    if ($IncludeWorker) { $features += @('pleochroma-worker/worker', 'pleochroma-worker/gui') }
     if ($GpuName -eq 'gpu') {
         $features += 'pleochroma/gpu'
         if ($IncludeCut) { $features += 'pleochroma-cut/gpu' }
@@ -380,7 +384,7 @@ if ($Quick) {
             $description = "[$name] quick-release build, NO PGO, NO LTO (bins: $(@($bins) -join ', '); features: $features)"
             Write-Host "==> $description" -ForegroundColor Cyan
             "==> $description" | Out-File -FilePath $logfile -Append -Encoding utf8
-            cargo build --profile quick-release --target $hostTarget --target-dir $tdir @pkgArgs --bins --features $features *>&1 |
+            cargo build --profile quick-release --target $hostTarget --target-dir $tdir @pkgArgs --bins --no-default-features --features $features *>&1 |
                 Tee-Object -FilePath $logfile -Append
             if ($LASTEXITCODE -ne 0) { throw "$description failed (exit $LASTEXITCODE)" }
             if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }
@@ -575,12 +579,15 @@ function Get-SharedProfilePath([string]$PgoProfileDir, [string]$TargetKey, [stri
 # (`pleochroma`, plus `pleochroma-cut-core` for the cut target; the worker does not link
 # cut-core, so it is not applicable there), $false when any could not be verified (a
 # parsing miss -- a warning is printed); throws on a confirmed mismatch in either.
-function Test-ProfileHashApplied([string]$Profdata, [string]$Tdir, [string]$Name, [bool]$CheckCutCore) {
-    $coreOk = Test-CrateHashToken -Profdata $Profdata -Tdir $Tdir -Name $Name `
+# The profile parameter is `$ProfilePath`, never `$Profdata`: PowerShell names are
+# case-insensitive, so a `$Profdata` parameter hides the script's `$profdata` (the path of
+# llvm-profdata.exe) and `& $profdata show` would try to run the .profdata file itself.
+function Test-ProfileHashApplied([string]$ProfilePath, [string]$Tdir, [string]$Name, [bool]$CheckCutCore) {
+    $coreOk = Test-CrateHashToken -ProfilePath $ProfilePath -Tdir $Tdir -Name $Name `
         -FuncName 'trace_spectral_ray_with_finish_soa' -TokenPattern 'Cs[0-9a-zA-Z]+_10pleochroma' `
         -PackageDir 'pleochroma' -RlibStem 'pleochroma'
     if (-not $CheckCutCore) { return $coreOk }
-    $cutCoreOk = Test-CrateHashToken -Profdata $Profdata -Tdir $Tdir -Name $Name `
+    $cutCoreOk = Test-CrateHashToken -ProfilePath $ProfilePath -Tdir $Tdir -Name $Name `
         -FuncName 'resolve_after_edit' -TokenPattern 'Cs[0-9a-zA-Z]+_19pleochroma_cut_core' `
         -PackageDir 'pleochroma-cut-core' -RlibStem 'pleochroma_cut_core'
     return ($coreOk -and $cutCoreOk)
@@ -589,15 +596,15 @@ function Test-ProfileHashApplied([string]$Profdata, [string]$Tdir, [string]$Name
 # Compares one crate's hash token between the merged profile and the newest optimised
 # rlib of that crate. `$PackageDir` is the package's directory name under the cargo
 # build-dir layout, `$RlibStem` the rlib's crate-name stem (underscores).
-function Test-CrateHashToken([string]$Profdata, [string]$Tdir, [string]$Name, [string]$FuncName, [string]$TokenPattern, [string]$PackageDir, [string]$RlibStem) {
+function Test-CrateHashToken([string]$ProfilePath, [string]$Tdir, [string]$Name, [string]$FuncName, [string]$TokenPattern, [string]$PackageDir, [string]$RlibStem) {
     # Every manifest line that names the function, not just the first: a merged
     # profile can hold the same symbol under more than one crate hash (e.g. the net test
     # build's differently-featured `pleochroma`), and the order of `show --all-functions`
     # decides which one comes first. All distinct tokens are collected; the rlib's token
     # must be among them.
-    $profLines = @(& $profdata show --all-functions $Profdata 2>&1 | Select-String -SimpleMatch $FuncName)
+    $profLines = @(& $profdata show --all-functions $ProfilePath 2>&1 | Select-String -SimpleMatch $FuncName)
     if ($profLines.Count -eq 0) {
-        Write-Warning "[$Name] '$FuncName' not found in $Profdata -- cannot verify the $PackageDir crate-hash match (training may not have recorded it; check the training run's own output)."
+        Write-Warning "[$Name] '$FuncName' not found in $ProfilePath -- cannot verify the $PackageDir crate-hash match (training may not have recorded it; check the training run's own output)."
         return $false
     }
     $profTokens = @($profLines | ForEach-Object { [regex]::Match($_.Line, $TokenPattern).Value } |
@@ -720,7 +727,7 @@ if ($Parallel) {
             # same crate hashes.
             $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-generate=$pdir")) -join $unitSep
             Invoke-Checked "[$name] instrumented build (packages: $($trainPkgList -join ', '); features: $features)" {
-                cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+                cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --no-default-features --features $features
             }
 
             $env:LLVM_PROFILE_FILE = Join-Path $pdir 'train-%p-%m.profraw'
@@ -796,7 +803,7 @@ if ($Parallel) {
         $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
 
         Invoke-Checked "[$name] PGO release build (packages: $($trainPkgList -join ', '); features: $features)" {
-            cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+            cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --no-default-features --features $features
         }
 
         if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }
@@ -853,7 +860,7 @@ if ($Parallel) {
             try {
                 # Crate-hash check FIRST: it is the real proof the profile applied;
                 # the missing-function count is only fatal when it could not verify.
-                $verified = Test-ProfileHashApplied -Profdata $j.Profdata -Tdir $j.Tdir -Name $j.Name -CheckCutCore $includeCut
+                $verified = Test-ProfileHashApplied -ProfilePath $j.Profdata -Tdir $j.Tdir -Name $j.Name -CheckCutCore $includeCut
                 Test-ProfileWarnings -LogFile $j.Log -Name $j.Name -MaxMissing $MaxMissingFunctionWarnings -HashVerified ([bool]$verified)
             }
             catch {
@@ -935,7 +942,7 @@ else {
 
                 $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-generate=$pdir")) -join $unitSep
                 Invoke-Checked "[$name] instrumented build (packages: $($trainPkgList -join ', '); features: $features)" {
-                    cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+                    cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --no-default-features --features $features
                 } $logfile
 
                 $env:LLVM_PROFILE_FILE = Join-Path $pdir 'train-%p-%m.profraw'
@@ -983,11 +990,11 @@ else {
             $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
 
             Invoke-Checked "[$name] PGO release build (packages: $($trainPkgList -join ', '); features: $features)" {
-                cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+                cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --no-default-features --features $features
             } $logfile
 
             # Crate-hash check FIRST -- see the parallel branch's identical note.
-            $verified = Test-ProfileHashApplied -Profdata $activeProfile -Tdir $tdir -Name $name -CheckCutCore $includeCut
+            $verified = Test-ProfileHashApplied -ProfilePath $activeProfile -Tdir $tdir -Name $name -CheckCutCore $includeCut
             Test-ProfileWarnings -LogFile $logfile -Name $name -MaxMissing $MaxMissingFunctionWarnings -HashVerified ([bool]$verified)
 
             if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }

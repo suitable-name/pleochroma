@@ -1031,7 +1031,8 @@ The sweep covers −90° to +90° of tilt away from "table-up" (looking
 straight down through the table), in 1° steps, for the material currently
 selected. A caption reminds you that between the 181 measured points, the
 curve and any hover readout are straight-line interpolated, not
-freshly ray-traced.
+freshly ray-traced. The graph always draws the full range, all tilts to ±90°; the
+Tilt Average Range preference (Chapter 17) does not change it.
 
 **The three curves:**
 

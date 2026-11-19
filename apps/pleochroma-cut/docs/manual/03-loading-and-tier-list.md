@@ -2,8 +2,8 @@
 
 ## What You Will Do
 
-This chapter gets a design open in the editor and explains every column of
-the tier list, so the numbers on screen make sense before you touch
+This chapter gets a design open in the editor and explains every part of a
+row in the tier list, so the numbers on screen make sense before you touch
 anything.
 
 The editor described in this chapter and Chapters 4–8 is the "Edit" sub-tab,
@@ -43,9 +43,9 @@ rest of the per-design actions. A problem with the solid (a failed solve, an
 unclosed stone) appears as a banner over the Edit viewport that names the tier and
 holds its fix. Below about 990 px the command bar shows icons only.
 
-The tier actions are not on the command bar. **+ Add Tier** and the **Add Tier Menu**
+The tier actions are not on the command bar. **+ Add Tier** and **More Ways to Add a Tier**
 (Tier, Concave Tier, QUICK ADD Table, Girdle and Culet, Girdle Facet Preset) are in
-the tier list's header, each row has its own "..." menu (**Actions for Tier N**, also
+the tier list's header, next to the **Tier List Menu** (Adopt All and Select); each row has its own "..." menu (**Actions for Tier N**, also
 on right-click) with Move Up, Move Down, Duplicate and Delete (Ctrl+D and Delete work on the selected row), and
 **Optimize** has its own Optimize and Cancel buttons on the inspector's Optimize
 tab (Chapter 4).
@@ -87,6 +87,22 @@ or an Apply Optimize Result.
 2. Open the 3D tab's **Edit** sub-tab.
 3. Choose **File**, then **Load Selected**, on the command bar.
 
+From any other page, press **Ctrl+K** and run **Load Selected Library Design**
+(Chapter 19) instead of steps 2 and 3.
+
+**The design opens in the Edit view.** When a design lands in the editor, the
+window shows the 3D tab's Edit view, where its tier list, inspector and
+viewport are. This holds for Load Selected, **Open...** (Ctrl+O), **Open
+Recent**, a new design, and the offer to reopen your last design when the app
+starts, and it holds on every page: load a design while you look at the Live
+Render, the Cutting Instructions or Files & Downloads, and you are taken to the
+Edit view once the design is there. A file that takes a moment to read, or a
+remote design that has to download, moves you when it arrives. Nothing moves
+when the load is cancelled or fails. Two cases leave the page alone: a design
+file named on the command line opens with the app on the Live Render, and a
+design that a tutorial loads for you is shown the way that tutorial's first
+step needs it (Chapter 22).
+
 What happens next depends on the design and where it lives:
 
 - **A remote-library design**: Load Selected fetches that entry's own
@@ -115,7 +131,7 @@ What happens next depends on the design and where it lives:
 - **Neither**: "This diagram has no cutting-instructions data to load."
 
 **Loading solves immediately.** As soon as a design loads, the app runs a
-full solve, so the tier list's MAST and SOLVE columns are already filled in
+full solve, so every row's solved state and mast are already filled in
 by the time you see it.
 
 ## Starting a New Design Instead
@@ -136,54 +152,63 @@ starts with zero tiers, and its very first Add Tier defaults to angle 0.0 and
 "Unspecified Vertex". Chapter 7's worked example takes you through building a
 stone by hand from the blank draft.
 
+The dialog floats over every page (Ctrl+N and the command palette open it
+anywhere), and opening it does not move you. When you click **Create**, the
+window shows the Edit view with the new design, as it does for a loaded one.
+Cancel leaves you where you were.
+
 ## Reading the Tier List
 
 ![The Edit view: the Solid view of the stone, the tier list and the inspector with a crown tier selected.](../../../../assets/cad.png)
 
-Each row is one tier. The columns are:
+In a short window (under 700 px high) the Edit tab shows one pane at a time: a
+**3D View | Tier Editor** switch at the bottom left picks the Solid view or the
+tier list with its inspector. It starts on the tier editor when a design is open,
+and on the 3D view (the start cards) when none is. A guide step that needs the
+other pane switches it for you. Text typed into the tier form but not applied is
+dropped when you switch, as it is when you go to another tab.
 
-| Column | Meaning |
+Each row is one tier, in cutting order. Rows are grouped under small PAVILION,
+CROWN and GIRDLE headings that also say how many tiers the group holds. From the
+left, a row reads:
+
+| Part of the row | Meaning |
 |---|---|
-| **#** | The tier's position in the schedule. |
-| **⚠** | A warning glyph when this tier has its own manufacturability warning (Chapter 5) — hover it to read the warning. Blank otherwise. |
-| **CODE** | The tier's label on the cutting sheet (Chapter 11): P1, P2, ... for pavilion tiers, G1, ... for girdle tiers, C1, C2, ... for crown tiers, T for the table and Culet for the culet. The codes are numbered separately for each letter, in the order the tiers are cut, so the numbers do not have to follow the order of the rows; a concave tier carries on the count of its side. The letter is the block this tier's angle actually classifies into — Crown, Pavilion, or Girdle, regardless of what you meant it to be (see "Anchors and Blocks" below). Hover for the full block name. |
-| **ANGLE** | The facet's cutting angle, in degrees off the girdle plane, always shown as a plain positive number. Which side of the girdle the facet is on is not in the number: the letter of the CODE column says it (a pavilion facet sits below the girdle, a crown facet above it), and a tier keeps its side when you edit its angle. Only the files keep the older convention of a negative angle for the pavilion (Chapters 4 and 11). A single click on this cell selects the row, like clicking anywhere else in it; double-click it (or press F2 on the selected row) to edit the value in place — see Chapter 4. |
-| **NAME / INDICES** | The facet's name (or "(unnamed)"), and the index position(s) it occupies. These two columns stretch with the width of the dock; every other column stays a fixed width. |
-| **MEETS** | What the tier's constraint actually is: a pin glyph and the stated value for an anchor, "meets `<names>`" for named facets, or a plain "meet" for an unspecified vertex. |
-| **MAST** | The solved depth — filled in only after a successful Solve, shown as `-` or `?` when the design hasn't been (re-)solved since this row last changed. |
-| **SOLVE** | How confident that mast value is — see "Trusting the SOLVE Column" below. Hover the cell for a one-line explanation of exactly why, when the app has one to give. |
-| **MARGIN** | For a pavilion tier, how far its angle sits above the design's critical angle — Chapter 6. A dash for crown and girdle tiers. |
-| **ORBIT** | Whether the tier's indices form one clean symmetric family — see "Orbits" below. When it is amber (incomplete), click it to fill in the missing symmetric positions automatically. |
-| **ACTIONS** | A group of buttons pinned to the right edge of the table, described below. It stays visible while the other columns scroll sideways beneath it. It includes an **Adopt** button when there is a better constraint recoverable from the original file — see Chapter 8. |
+| **Stripe and step number** | A stripe in the color of the tier's block, then the tier's position in the schedule. In Select mode (see "Tier List Menu" below) the number gives way to a tick box; a ticked row shows a check mark. |
+| **Code** | The tier's label on the cutting sheet (Chapter 11): P1, P2, ... for pavilion tiers, G1, ... for girdle tiers, C1, C2, ... for crown tiers, T for the table and Culet for the culet. The codes are numbered separately for each letter, in the order the tiers are cut, so the numbers do not have to follow the order of the rows; a concave tier carries on the count of its side. The letter is the block this tier's angle actually classifies into: Crown, Pavilion, or Girdle, regardless of what you meant it to be (see "Anchors and Blocks" below). At exactly 0 degrees the code is a button: click it to flip the facet to the other block. Hover for the full block name. |
+| **Angle** | An editable cell: the facet's cutting angle, in degrees off the girdle plane, always shown as a plain positive number. Which side of the girdle the facet is on is not in the number: the letter of the code says it (a pavilion facet sits below the girdle, a crown facet above it), and a tier keeps its side when you edit its angle. Only the files keep the older convention of a negative angle for the pavilion (Chapters 4 and 11). A single click on this cell selects the row, like clicking anywhere else in it; double-click it (or press F2 on the selected row) to edit the value in place. See Chapter 4. |
+| **Index positions** | The index position(s) the tier occupies, in full; a long list wraps to a second line. This part stretches with the width of the dock. |
+| **Detail line** | A small line under the index positions: the tier's name when it has one that differs from its code, then what the tier's constraint is: "scale" and the value for an exact scale value, "meets" and the names for named facets, the depth, girdle or table figure in mm for a depth target, "meet point" for an unspecified vertex, or "Concave tool" for a concave tier. When the tier's orbit is incomplete the line also gives the count, such as "6/8 orbit" (see "Orbits" below); a complete orbit is not listed. A detached tier says "detached". |
+| **Marks** | At the right end, a margin mark for a tier that has one (a pavilion tier; a crown tier gets an estimate, Chapter 6): how far its angle sits above the design's critical angle, in green (for example "+15.6°"), in amber with "thin" in front when it is small, and in red with "window" in front (for example "window -0.5°") when the facet would let light leak. See Chapter 6. A frost icon marks a frosted tier, a link icon marks an angle that follows another tier, and the last mark is the state mark: a green tick when the tier is solved and clear, an amber triangle when it needs a look ("Not solved yet", "Needs an anchor", or its own manufacturability warning). Hover a mark to read it. |
+| **"..." menu** | A button at the very end of the row, labeled "Actions for Tier N" to a screen reader. Right-clicking the row opens the same menu. It holds the row's actions, described below. |
 
-**In the Simple interface** (Chapter 17) the table shows fewer columns: the
-**MAST**, **SOLVE** and **ORBIT** columns, the **Adopt**, **Pin** and
-**Detach / Reattach** buttons, the **Adopt All** button, the Steps / Mirror
-tools and the filter box are hidden. Hiding changes nothing about the design
-or about what Solve does; the columns come back when you switch to Advanced. A
+**In the Simple interface** (Chapter 17) the "..." menu leaves out the **Adopt**,
+**Pin**, **Complete Orbit** and **Detach / Reattach** items, and
+the tier list menu leaves out **Adopt All**; the Steps / Mirror tools and the
+filter box are hidden too. Hiding changes nothing about the design
+or about what Solve does; the items come back when you switch to Advanced. A
 stale filter text does nothing while the filter box is hidden, so no row is
 dimmed by something you cannot see. When any tier is detached, a line under the
 toolbar reads "Some advanced settings are in use. Switch to Advanced to see
 them." The rest of this section describes the Advanced table.
 
-Every column heading, button and field has a hover tip in plain words, ending
+Every mark, button and field has a hover tip in plain words, ending
 with "See the glossary." where the Glossary (Appendix A) has an entry for it.
 The table is one Tab stop; its keys are in Chapter 4, "Keyboard Navigation in
 the Tier List."
 
-The **ACTIONS** group at the end of every row holds its buttons: **Adopt**
-(Chapter 8), **Pin**, a **Detach / Reattach** toggle, **Add Anchor**, a small
-up/down pair to move the tier earlier or later in the table, and so in the
-cutting order of its side of the stone (the same as Alt+Up/Alt+Down —
-Chapter 4), a duplicate button, and a remove ("×") button — all covered in
-Chapter 4. The group is pinned to the right edge, so the buttons are always
-in reach without scrolling; in a dock narrower than the whole row, the data
-columns scroll sideways beneath it (hold Shift and turn the mouse wheel over
-a row). A row needing an anchor (Chapter 5)
-also offers **Add Anchor** (in its "..." menu) that jumps the inspector straight to
+The **"..." menu** at the end of every row holds its actions: **Adopt**
+(Chapter 8), **Pin**, **Add Anchor**, **Complete Orbit**, **Detach / Reattach**,
+**Move Up** and **Move Down** (move the tier earlier or later in the table, and so
+in the cutting order of its side of the stone; the same as Alt+Up/Alt+Down,
+Chapter 4), **Duplicate**, **Surface Finish** and **Delete**, all covered in
+Chapter 4. Only the items that apply to that tier are listed. The menu is also
+the way to reach them without a mouse: Tab to the "..." button of the row
+that holds the keyboard cursor and press Space or Enter. A row needing an anchor
+(Chapter 5) offers **Add Anchor**, which jumps the inspector straight to
 that tier with "Exact Scale Value" already selected, ready for you to type
 the number and save. **Add Anchor does not create a new tier or fill in a
-number for you** — it only selects the existing tier the app already
+number for you**: it only selects the existing tier the app already
 flagged as the one missing an anchor, and opens the Tier form to it with
 the constraint kind preset; you still type the actual scale value and
 press Enter yourself.
@@ -195,18 +220,18 @@ but never its size, so one tier per block has to state a real, authored
 depth. Click **Got It** to dismiss it, or tick **Don't Show Again** to
 stop it appearing for good — that choice is remembered across sessions.
 
-A tier whose SOLVE strategy is trusted (see below) also shows a **Pin**
-button, the mirror image of Adopt (Chapter 8): click it to freeze that
+A tier whose solve method is trusted (see below) also offers **Pin** in
+its "..." menu, the mirror image of Adopt (Chapter 8): click it to freeze that
 tier's *current* solved mast as an exact **Exact Scale Value** anchor,
 converting a free (meet-derived) tier back into a pinned one. This is
 useful once Solve or Optimize has found a mast you want to lock in place
-so further edits elsewhere cannot move it. Pin is hidden on a tier that is
-already an anchor, and on any tier whose SOLVE strategy is still uncertain
+so further edits elsewhere cannot move it. Pin is left out for a tier that is
+already an anchor, and for any tier whose solve method is still uncertain
 (amber) — pinning a stale or placeholder mast would freeze the wrong
 number, so the app does not offer it until the value is trustworthy.
 
-Above the column headers is a small filter box: type a few letters of a
-name, index, block, SOLVE strategy, or meet constraint and every
+Above the rows is a small filter box: type a few letters of a
+name, index, block, solve method, or meet constraint and every
 non-matching row dims (rather than disappearing) so the row numbers and
 Up/Down/Home/End behaviour stay exactly as they would with no filter set.
 
@@ -218,45 +243,50 @@ whichever row you selected last, inclusive; see "Selecting Several Tiers
 for a Batched Nudge" in Chapter 4 for how that range then behaves.
 
 A tier that is cut frosted, as a whole or facet by facet, carries a small frost
-icon in its row; hover it to read "Frosted" or, for a tier frosted facet by facet,
+icon among the marks at the right end of its row; hover it to read "Frosted" or, for a tier frosted facet by facet,
 "Frosted: 2 of 8" (Chapter 4, "Frosting a Tier").
 
-If there are no tiers yet, the list reads: "No tiers yet -- open the Tier
+If there are no tiers yet, the list reads: "No tiers yet. Open the Tiers
 tab below to add one."
 
-### Trusting the SOLVE Column
+### Trusting the Solve Method
 
-The SOLVE column names the method that produced a tier's mast. The exact
-label is one of:
+Every tier's mast comes from one solve method. The row's state mark tells you
+at a glance whether to trust it (a green tick, or an amber triangle with its
+reason on hover), and the Solved section of the Tier tab (Chapter 4) names the
+method. The filter box matches it too. The exact label is one of:
 
 | Label | Meaning | Trust it? |
 |---|---|---|
 | **Scale reference** | An anchor tier (Meets: Exact Scale Value) — the mast is exactly the number you typed, not derived. | Yes |
 | **Dependency order** | A real meet vertex, settled directly in the solver's first pass. | Yes |
 | **Joint group** | A real meet vertex from a mutually-dependent group the solver had to settle together rather than in strict order. | Yes |
-| **Least-squares est.** (bold amber) | No usable meet-vertex candidate; this is a per-block estimate, not real solved geometry. | No — treat the design as not actually finished |
-| **FAILED (untrusted)** (bold amber) | The solve could not even produce an estimate; the mast shown is a placeholder. | No |
-| **not solved** (bold amber) | This row has changed since the design's last successful Solve. | No — click Solve |
-| **blocked** (bold amber) | This tier's own block is fine, but *another* block in the design has no anchor, so nothing solves yet. | No — fix the other block (Chapter 5) |
-| **no anchor yet** (bold amber) | This tier's own block is the one missing an anchor. | No — Add Anchor (below) or Chapter 5 |
-| **stale (‹label›)** (bold amber) | A cached result is shown without a fresh solve, e.g. "stale (Least-squares est.)" — the parenthesised label is what it was at the last real solve. | No — click Solve |
+| **Least-squares est.** | No usable meet-vertex candidate; this is a per-block estimate, not real solved geometry. | No — treat the design as not actually finished |
+| **FAILED (untrusted)** | The solve could not even produce an estimate; the mast shown is a placeholder. | No |
+| **not solved** | This row has changed since the design's last successful Solve. | No — click Solve |
+| **blocked** | This tier's own block is fine, but *another* block in the design has no anchor, so nothing solves yet. | No — fix the other block (Chapter 5) |
+| **no anchor yet** | This tier's own block is the one missing an anchor. | No — Add Anchor (below) or Chapter 5 |
+| **stale (‹label›)** | A cached result is shown without a fresh solve, e.g. "stale (Least-squares est.)" — the parenthesised label is what it was at the last real solve. | No — click Solve |
 
-Hover any SOLVE cell for a one-line explanation specific to that tier when
+Hover the state mark for a one-line explanation specific to that tier when
 the app has one to give.
 
 ### Orbits
 
-The ORBIT column tells you, at a glance, whether a symmetric tier's listed
-index positions form a complete, evenly spaced family under the design's
-stated fold count:
+The detail line under a tier's index positions tells you whether a symmetric
+tier's listed index positions form a complete, evenly spaced family under the
+design's stated fold count. It says nothing when the orbit is complete (the
+Solved section of the Tier tab, Chapter 4, shows the orbit shape). It shows a
+count only when the orbit is incomplete:
 
-- `orbit x4` (or `x8`, etc.) — one complete, clean orbit.
-- `2 orbits` — several complete families folded together.
-- `3/4 orbit` — an incomplete or inconsistent set of indices, shown in bold
-  amber. This is the app telling you that editing or Optimize could
+- `3/4 orbit` — an incomplete or inconsistent set of indices. This is the app
+  telling you that editing or Optimize could
   propagate this tier onto index positions you did not expect, or that a
-  facet is simply missing from its family.
-- Blank — a single-facet tier with nothing to link (e.g. the table).
+  facet is simply missing from its family. Choose **Complete Orbit** in the
+  row's "..." menu (Advanced interface) to fill in the missing symmetric
+  positions automatically.
+- No count — a complete orbit, or a single-facet tier with nothing to link
+  (e.g. the table).
 
 This matters because editing one row of a multi-index tier normally moves
 the *whole* orbit — see Detach in Chapter 4 if you want to break that.
@@ -325,9 +355,9 @@ the Tier List" above) that jumps straight to the fix.
 A tier's block is not what you intended it to be, it is whatever its angle
 actually classifies as: crown or pavilion by the side the angle is stored on
 (the tier list prints the plain number and names the side in the letter of
-the CODE column), and **girdle only at exactly 90 degrees** — the tolerance is very
+the tier code), and **girdle only at exactly 90 degrees** — the tolerance is very
 tight, so "about 90" still classifies as crown or pavilion, not girdle.
-Check the tier list's own CODE column (above) if a block you expected to
+Check the tier's own code in the tier list (above) if a block you expected to
 be anchored still reads as missing one; the tier you added may have
 classified somewhere you did not expect. Chapter 7's worked example shows
 this in practice.

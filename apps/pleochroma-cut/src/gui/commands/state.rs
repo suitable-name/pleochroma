@@ -7,7 +7,7 @@
 
 use crate::{
     BatchModel, EditorModel, GuideModel, LibraryModel, MainWindow, PreferencesModel,
-    SolidPreviewModel,
+    RenderJobsModel, RiChartModel, SolidPreviewModel,
 };
 use slint::ComponentHandle;
 use std::collections::HashSet;
@@ -94,6 +94,14 @@ pub enum Fact {
     PreviewBatchRunning,
     /// The tilt-curve batch is running.
     TiltBatchRunning,
+    /// The render queue holds at least one job (`RenderJobsModel.has_jobs`).
+    HasJobs,
+    /// The live view shows the view of a render job (`RenderJobsModel.job_view_id >= 0`).
+    JobViewShown,
+    /// The job view on screen can update its job (`RenderJobsModel.job_view_can_update`).
+    JobViewCanUpdate,
+    /// The material check set can be queued (`RiChartModel.can_queue_check_set`).
+    CanQueueCheckSet,
     /// The Simple interface is on (otherwise Advanced).
     SimpleInterface,
     /// The 3D tab is showing the Edit view.
@@ -171,6 +179,14 @@ impl CommandState {
         );
         state.set(Fact::PreviewBatchRunning, batch.get_preview_batch_running());
         state.set(Fact::TiltBatchRunning, batch.get_tilt_batch_running());
+        let jobs = ui.global::<RenderJobsModel>();
+        state.set(Fact::HasJobs, jobs.get_has_jobs());
+        state.set(Fact::JobViewShown, jobs.get_job_view_id() >= 0);
+        state.set(Fact::JobViewCanUpdate, jobs.get_job_view_can_update());
+        state.set(
+            Fact::CanQueueCheckSet,
+            ui.global::<RiChartModel>().get_can_queue_check_set(),
+        );
         state.set(
             Fact::SimpleInterface,
             ui.global::<PreferencesModel>().get_simple_mode(),
@@ -233,6 +249,10 @@ impl CommandState {
             Fact::HasSnapshot,
             Fact::HasLastSaved,
             Fact::LibrarySelected,
+            Fact::HasJobs,
+            Fact::JobViewShown,
+            Fact::JobViewCanUpdate,
+            Fact::CanQueueCheckSet,
             Fact::EditView,
         ] {
             state.set(fact, true);

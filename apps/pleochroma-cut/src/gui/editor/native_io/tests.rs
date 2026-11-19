@@ -11,7 +11,7 @@ use super::{
 use pleochroma::geometry::meet_solver::MeetConstraint;
 use pleochroma_cut_core::{
     ConstraintTier, Design, FreshDesignSpec, MaterialSelection, PreformSpec, catalogue_asc,
-    native::{DesignExtras, design_from_str, design_to_string},
+    native::{DesignExtras, RiRangeChoice, design_from_str, design_to_string},
 };
 
 /// The material name and RI override, gear, symmetry and mirror survive a save and reopen,
@@ -653,13 +653,15 @@ fn standard_round_brilliant_schedule() -> pleochroma_formats::asc::AscSchedule {
 #[test]
 fn gcs_export_of_the_standard_round_brilliant_parses_back_with_the_same_tier_count() {
     let schedule = standard_round_brilliant_schedule();
-    let text = schedule_file_text_with_frosting(&schedule, ScheduleFormat::Gcs, &[])
-        .expect("the .gcs writer accepts it");
+    let text =
+        schedule_file_text_with_frosting(&schedule, ScheduleFormat::Gcs, &[], RiRangeChoice::Off)
+            .expect("the .gcs writer accepts it");
     let parsed = pleochroma_formats::gcs::parse_gcs_bytes(text.as_bytes())
         .expect("the exported .gcs parses back");
     assert_eq!(parsed.tiers.len(), schedule.tiers.len());
-    let asc = schedule_file_text_with_frosting(&schedule, ScheduleFormat::Asc, &[])
-        .expect("the .asc writer accepts it");
+    let asc =
+        schedule_file_text_with_frosting(&schedule, ScheduleFormat::Asc, &[], RiRangeChoice::Off)
+            .expect("the .asc writer accepts it");
     assert!(asc.starts_with("GemCad"), "{asc}");
 }
 
@@ -714,6 +716,76 @@ fn open_reads_a_gcs_file_as_asc_cutting_instructions() {
     assert_eq!(loaded.asc_filename.as_deref(), Some("round.asc"));
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A `.gcs` that states an RI range opens with that range (the choice "From File"); a `.gcs`
+/// without one opens with Off.
+#[test]
+fn open_carries_the_ri_range_a_gcs_states() {
+    let schedule = standard_round_brilliant_schedule();
+    let stated = RiRangeChoice::Designer {
+        low: 1.7,
+        high: Some(2.15),
+    };
+    let dir = native_io_temp_dir("open_gcs_range");
+    let with_range = pleochroma_formats::gcs::to_gcs_string_with_ri_range(&schedule, &[], stated)
+        .expect("writes as .gcs");
+    let path = dir.join("ranged.gcs");
+    std::fs::write(&path, with_range).expect("write ranged.gcs");
+    let picked = read_foreign_design(&path).expect("a ranged .gcs opens");
+    match picked.ri_range {
+        RiRangeChoice::Designer { low, high } => {
+            assert!((low - 1.7).abs() < 1e-6, "{low}");
+            assert!(
+                high.is_some_and(|high| (high - 2.15).abs() < 1e-6),
+                "{high:?}"
+            );
+        }
+        other => panic!("the stated range must reach the open, got {other:?}"),
+    }
+
+    let plain = pleochroma_formats::gcs::to_gcs_string(&schedule).expect("writes as .gcs");
+    let plain_path = dir.join("plain.gcs");
+    std::fs::write(&plain_path, plain).expect("write plain.gcs");
+    let picked = read_foreign_design(&plain_path).expect("a plain .gcs opens");
+    assert_eq!(picked.ri_range, RiRangeChoice::Off);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A `.gcs` export states a designer's range and nothing else: Off and the Pleochroma estimate
+/// write the text a design without a range always got, and a `.asc` never carries a range.
+#[test]
+fn gcs_export_writes_the_ri_range_for_the_designer_choice_only() {
+    let schedule = standard_round_brilliant_schedule();
+    let write = |format, choice| {
+        schedule_file_text_with_frosting(&schedule, format, &[], choice).expect("writable")
+    };
+    let plain = write(ScheduleFormat::Gcs, RiRangeChoice::Off);
+    assert_eq!(
+        write(ScheduleFormat::Gcs, RiRangeChoice::Estimate),
+        plain,
+        "an estimate is never written into a file"
+    );
+    let designer = RiRangeChoice::Designer {
+        low: 1.63,
+        high: None,
+    };
+    let ranged = write(ScheduleFormat::Gcs, designer);
+    assert_ne!(ranged, plain, "the designer's range is written");
+    let reopened = pleochroma_formats::gcs::parse_gcs_bytes(ranged.as_bytes()).expect("parses");
+    match pleochroma_formats::gcs::gcs_ri_range_choice(&reopened) {
+        RiRangeChoice::Designer { low, high } => {
+            assert!((low - 1.63).abs() < 1e-6, "{low}");
+            assert_eq!(high, None);
+        }
+        other => panic!("the range must read back, got {other:?}"),
+    }
+    assert_eq!(
+        write(ScheduleFormat::Asc, designer),
+        write(ScheduleFormat::Asc, RiRangeChoice::Off),
+        "a .asc has no place for a range"
+    );
 }
 
 /// A corrupt `.gem` picked in Open... is a readable error, never a panic.

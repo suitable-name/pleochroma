@@ -66,6 +66,77 @@ fn bytes(value: &impl Serialize) -> Vec<u8> {
 }
 
 #[test]
+fn deployment_stops_at_eight_rejections_and_uses_full_endpoints_in_both_modes() {
+    use pleochroma_ai::{inference::DEFAULT_STALL_STEPS, model::TrainingMode};
+    for mode in [TrainingMode::Optimizer, TrainingMode::Retarget] {
+        let mut runner = crate::runner::tests::fixture_runner_with(|cfg| {
+            cfg.mode = mode;
+            cfg.max_step_deg = None;
+            cfg.line_search = pleochroma_ai::env::DEFAULT_LINE_SEARCH.to_vec();
+        });
+        runner.net.sens_head.weights.fill(0.0);
+        runner.net.sens_head.biases.fill(0.0);
+        runner.net.action_head.weights.fill(0.0);
+        runner.net.action_head.biases.fill(0.0);
+        let tail = tail();
+        let progress = progress(&runner, &tail);
+        let fast = job(&runner);
+        let full = EvalJob {
+            fidelity: EvalFidelity::Full,
+            ..fast
+        };
+        let defaults = fast.deployment_config();
+        let env = &runner.slots[0].env;
+        assert!(!fast.needs_deployment_rollout(env, &defaults));
+        assert!(full.needs_deployment_rollout(env, &defaults));
+        let device = EvalJob {
+            backend: crate::runner::GPU_LABEL,
+            ..fast
+        };
+        assert!(device.needs_deployment_rollout(env, &defaults));
+        let root = tempfile::tempdir().unwrap();
+        let journal = Journal::open(&root.path().join("fast"), fast, &[0], &[(0, None)]).unwrap();
+        let cpu_case = journal.case(0, 0, None);
+        let mut endpoints = Vec::new();
+        for job in [fast, full] {
+            let super::super::DesignResult::Figures(figures) = job
+                .evaluate_design_with_recovery(
+                    0,
+                    None,
+                    &progress,
+                    (job.fidelity == EvalFidelity::Fast).then_some(&cpu_case),
+                    None,
+                )
+                .unwrap()
+            else {
+                panic!("fixture must score at deployment fidelity");
+            };
+            let case = figures.case;
+            assert_eq!(case.deployment_steps, Some(DEFAULT_STALL_STEPS));
+            assert_eq!(case.deployed_score, case.deployment_base_score);
+            endpoints.push(case.deployed_score.unwrap());
+        }
+        assert_eq!(endpoints[0], endpoints[1]);
+        // Simulate a finished device diagnostic with no device worker left. Completing
+        // deployment must evaluate the host actor and commit a separate recoverable pass.
+        let journal = Journal::open(&root.path().join("gpu"), device, &[0], &[(0, None)]).unwrap();
+        let device_case = journal.case(0, 0, None);
+        let diagnostic: PassSnapshot = cpu_case.load("pass-model").unwrap().unwrap();
+        device_case.save("pass-model", &diagnostic).unwrap();
+        let super::super::DesignResult::Figures(result) = device
+            .evaluate_design_with_recovery(0, None, &progress, Some(&device_case), None)
+            .unwrap()
+        else {
+            panic!("host deployment must succeed without a device worker")
+        };
+        assert_eq!(result.case.deployed_score, Some(endpoints[0]));
+        let deployed: PassSnapshot = device_case.load("pass-deployment").unwrap().unwrap();
+        assert!(deployed.done && matches!(deployed.pilot, Pilot::Deployment));
+        assert_eq!(deployed.steps, DEFAULT_STALL_STEPS);
+    }
+}
+
+#[test]
 fn terminal_pass_restores_without_a_policy_worker_or_step_reexecution() {
     let runner = crate::runner::tests::fixture_runner_with(|_| {});
     let evaluation = job(&runner);

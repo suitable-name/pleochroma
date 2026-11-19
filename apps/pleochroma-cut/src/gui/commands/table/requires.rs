@@ -77,3 +77,15 @@ pub(super) const INSPECTOR_OPTIMIZE: &[Check] =
     &[Check::Guide(GuideGroup::Advanced), Check::Editor];
 pub(super) const SLICE: &[Check] = &[Check::Editor, Check::Design, Check::NotDiagramView];
 pub(super) const MATERIAL_EDITOR: &[Check] = &[Check::Guide(GuideGroup::DesignSettings)];
+// The render jobs' view commands: the guide's tab lock first, then what the command needs.
+pub(super) const JOBS_LOAD_VIEW: &[Check] = &[Check::Guide(GuideGroup::ViewTabs), Check::HasJobs];
+pub(super) const JOBS_BACK_TO_VIEW: &[Check] =
+    &[Check::Guide(GuideGroup::ViewTabs), Check::JobViewShown];
+pub(super) const JOBS_UPDATE_FROM_VIEW: &[Check] =
+    &[Check::Guide(GuideGroup::ViewTabs), Check::JobViewCanUpdate];
+// The material's RI chart and check set, and the library's RI range batch.
+pub(super) const RI_CHART: &[Check] = &[Check::Guide(GuideGroup::Advanced), Check::Design];
+pub(super) const CHECK_SET: &[Check] =
+    &[Check::Guide(GuideGroup::Advanced), Check::CanQueueCheckSet];
+pub(super) const RI_RANGE_BATCH: &[Check] =
+    &[Check::Guide(GuideGroup::Advanced), Check::TiltBatchIdle];

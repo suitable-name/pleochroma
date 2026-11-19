@@ -4,6 +4,7 @@ use super::{design::GcsDesign, tier::GcsTier};
 use crate::{
     asc::{AscLineEnding, AscParseError, AscSchedule, AscTier},
     gem::snap_index,
+    native::design::RiRangeChoice,
 };
 
 /// The refractive index (quartz) used when the file states none, or one not above 1,
@@ -88,6 +89,39 @@ fn convert_tier(tier: &GcsTier, gear: u32) -> AscTier {
         index_names: Vec::new(),
         notes: one_line(&tier.instructions),
     }
+}
+
+/// A positive, finite refractive index read from an `<info>` attribute's text.
+fn info_index(text: &str) -> Option<f64> {
+    text.trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+/// The refractive-index range the `<info>` element states, as the designer's own statement.
+///
+/// `ri_min` is the low end and `ri_max` the high end. A file that states only `ri_min` gives a
+/// range with no high end; a high end below the low end is dropped. A file with no usable
+/// `ri_min` states no range ([`RiRangeChoice::Off`]), whatever its `ri_max` says.
+///
+/// [`gcs_to_asc_schedule`] has nowhere to put it (an `.asc` schedule has no range), so the
+/// importer reads it with this function and stores it in the design's `[meta]` with
+/// [`crate::native::design::DesignMetadata::set_ri_range_choice`].
+#[must_use]
+pub fn gcs_ri_range_choice(design: &GcsDesign) -> RiRangeChoice {
+    let Some(info) = design.info.as_ref() else {
+        return RiRangeChoice::Off;
+    };
+    let Some(low) = info.ri_min.as_deref().and_then(info_index) else {
+        return RiRangeChoice::Off;
+    };
+    let high = info
+        .ri_max
+        .as_deref()
+        .and_then(info_index)
+        .filter(|high| *high >= low);
+    RiRangeChoice::Designer { low, high }
 }
 
 /// Converts a parsed `.gcs` design into `.asc` cutting instructions.

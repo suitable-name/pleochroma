@@ -13,11 +13,10 @@ use crate::{
         TIER_DIM,
     },
     model::{
-        CHECKPOINT_SCHEMA_VERSION, Checkpoint, GemstoneSetAttentionNetwork, TrainingMode,
-        WeightError,
+        CHECKPOINT_SCHEMA_VERSION, Checkpoint, GaussianPolicy, GemstoneSetAttentionNetwork,
+        InferenceScratch, TrainingMode, WeightError,
     },
 };
-use std::path::Path;
 
 /// Rejects a network that cannot read the current observation layout or whose parameters are
 /// inconsistent (a hand-edited or truncated file would otherwise fail inside `forward`).
@@ -60,7 +59,7 @@ pub(crate) fn network_of(
     checkpoint: Checkpoint,
     task: TrainingMode,
 ) -> Result<GemstoneSetAttentionNetwork, InferenceError> {
-    if checkpoint.schema_version != CHECKPOINT_SCHEMA_VERSION {
+    if !matches!(checkpoint.schema_version, 6 | CHECKPOINT_SCHEMA_VERSION) {
         return Err(WeightError::UnsupportedSchema {
             expected: CHECKPOINT_SCHEMA_VERSION,
             got: checkpoint.schema_version,
@@ -81,17 +80,9 @@ pub(crate) fn network_of(
         }
         .into());
     }
+    checkpoint.validate_probe_scale()?;
     check_network(&checkpoint.network)?;
     Ok(checkpoint.network)
-}
-
-/// Loads the checkpoint at `path` (rejecting another schema, another observation layout or a
-/// damaged network) and returns its network for `task` (see [`network_of`]).
-pub(crate) fn network_from_file(
-    path: &Path,
-    task: TrainingMode,
-) -> Result<GemstoneSetAttentionNetwork, InferenceError> {
-    network_of(Checkpoint::load(path, OBS_LAYOUT_VERSION)?, task)
 }
 
 /// What a policy rollout did.
@@ -108,7 +99,7 @@ pub(crate) struct PolicyRun {
 /// Runs the network greedily in `env` and returns what it took.
 ///
 /// Each step feeds the observation's tokens to the network
-/// ([`GemstoneSetAttentionNetwork::forward`]: the policy mean combines predicted component slopes
+/// ([`GemstoneSetAttentionNetwork::forward_mean_with_scratch`]: the policy mean combines predicted component slopes
 /// with objective coefficients and a learned action residual), takes the deterministic action
 /// `tanh(mean) * max_step_deg` and passes it through the kinematic projection
 /// ([`GemstoneSetAttentionNetwork::project_actions`]: pinned and flat tiers stay put, movable
@@ -147,10 +138,14 @@ where
         evaluations: 0,
     };
     let mut stalled = 0;
+    let mut scratch = InferenceScratch::default();
     for _ in 0..steps {
-        let (policy, _value) =
-            network.forward(&observation.tier_tokens(), &observation.global_token())?;
-        let mut action = policy.sample(0, true, max_step_deg);
+        let mean = network.forward_mean_with_scratch(
+            &observation.tier_tokens(),
+            &observation.global_token(),
+            &mut scratch,
+        )?;
+        let mut action = GaussianPolicy::squash(&mean, max_step_deg);
         GemstoneSetAttentionNetwork::project_actions(
             &mut action,
             &observation.tiers,
@@ -160,13 +155,9 @@ where
         let step = env.step_scaled(&action, line_search);
         run.steps += 1;
         run.evaluations += usize::from(step.info.evaluations);
-        stalled = if step.info.rejection.is_some() {
-            stalled + 1
-        } else {
-            0
-        };
+        let stop = super::policy_stalled(&mut stalled, step.info.rejection.is_some(), stall_steps);
         observation = step.observation;
-        if step.terminated || step.truncated || (stall_steps > 0 && stalled >= stall_steps) {
+        if step.terminated || step.truncated || stop {
             break;
         }
     }

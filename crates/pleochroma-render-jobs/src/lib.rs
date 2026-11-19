@@ -21,6 +21,9 @@
 //! file, the state rules and the script text.
 
 pub mod codec;
+pub mod edit;
+#[cfg(test)]
+mod edit_tests;
 pub mod job;
 pub mod order;
 pub mod paths;

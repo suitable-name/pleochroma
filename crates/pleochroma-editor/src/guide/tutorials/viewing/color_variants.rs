@@ -96,7 +96,7 @@ fn pick_material(material: &str, intro: &'static str, why: &'static str) -> Guid
 fn path_traced(intro: &'static str) -> GuideStep {
     GuideStep::new("Look at it in Path-Traced", intro)
         .actions([
-            "Click Path-Traced in the row of view pills above the picture, and give the picture a moment to settle.",
+            "Click Path-Traced in the row of view pills above the picture (it reads Path in a narrow window), and give the picture a moment to settle.",
         ])
         .check("The picture shows the stone lit with traced light, in the colors you chose.")
         .why("The Solid view is flat-shaded and shows no color of the material. From Solid, the click gives Solid combined with Path-Traced, which shows it too; click Solid to turn the flat layer off.")
@@ -164,7 +164,7 @@ fn color_variants() -> Guide {
             "Click the Along the Axis row, move Tone, Saturation and Hue to a color you like, and wait for Matching... to end.",
             "Click Apply Color.",
         ])
-        .check("The Custom tile is on, and the swatches show the color of each direction.")
+        .check("The Custom tile is on and the editor has closed. Choose Color... opens it again, with a swatch for the color of each direction.")
         .why("A direction you do not touch keeps its color, so the stone keeps its color shading by direction. The color is the closest one the material model can reach at the size of the stone.")
         .goal(check("a Custom Color applied", custom_color_applied), "a Custom Color applied")
         .highlight("stone_tab")
@@ -178,7 +178,7 @@ fn color_variants() -> Guide {
         .actions([
             "Click Choose Color..., under the COLOR tiles, to open the editor again.",
             "Move a slider a little, so the colors are matched again, and wait for Matching... to end. Save as Variant... stays dimmed until they are.",
-            "Click Save as Variant.... A name row opens with a suggested name. Type a name of your own, for example Sunset Sapphire, and click Save.",
+            "Click Save as Variant... and a name row opens with a suggested name. Type a name of your own, for example Sunset Sapphire, and click Save.",
         ])
         .check("A COLOR tile shows your name, and the design uses that variant.")
         .why("The variant is saved on this computer for the material, and it is one step in the history. The design keeps its own copy of the color.")
@@ -237,8 +237,8 @@ fn zone_colors_from_variants() -> Guide {
             "The Color Pattern window opens over the editor, so this step and the next two carry everything you need.",
         )
         .actions([
-            "In the Stone tab find Color Zoning.",
-            "Click Color Pattern.... The Color Pattern window opens.",
+            "In the Stone tab find the Color Pattern card.",
+            "Click Edit... on that card. The Color Pattern window opens.",
         ])
         .check("A window called Color Pattern opens with the stone on a stage, a Layers panel at the right and Start From..., Cancel and Done in its frame.")
         .why("Done stores the pattern with this stone and closes the window, and Cancel closes it and keeps the pattern as it was.")

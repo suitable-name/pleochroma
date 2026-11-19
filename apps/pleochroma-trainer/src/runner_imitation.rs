@@ -29,10 +29,11 @@ pub struct LabelledSample {
     sensitivities: Vec<[f32; N_COMPONENTS]>,
     /// Per real tier, the score slope; NaN for a tier without a label.
     score_slopes: Vec<f32>,
-    /// Verified raw action, or a wholly NaN row when the search found no improving action.
+    /// Raw proposal paired with its outcome, or an all-NaN row when no action was recorded.
     action_targets: Vec<f32>,
     /// The oracle step's score drop; NaN when the label has none.
     oracle_gain: f32,
+    rejected_action: bool,
 }
 
 impl LabelledSample {
@@ -77,7 +78,27 @@ impl LabelledSample {
             score_slopes,
             action_targets,
             oracle_gain: label.oracle_gain.unwrap_or(f32::NAN),
+            rejected_action: false,
         }
+    }
+
+    /// When the bounded teacher found no winner, retain the independent rollout experiment.
+    /// A successful raw proposal is executable by the same projection and line search. A failed
+    /// proposal supplies directional negative evidence only. Never invent a zero target.
+    pub(super) fn with_rollout_evidence(mut self, raw: &[f32], accepted: bool) -> Self {
+        if self.oracle_gain == 0.0
+            && self.action_targets.iter().all(|v| v.is_nan())
+            && raw.len() == self.free.len()
+            && raw.iter().all(|v| v.is_finite())
+            && raw
+                .iter()
+                .zip(&self.free)
+                .any(|(&v, &free)| free && v != 0.0)
+        {
+            self.action_targets.copy_from_slice(raw);
+            self.rejected_action = !accepted;
+        }
+        self
     }
 }
 
@@ -102,7 +123,7 @@ pub fn label_is_informative(label: &TeacherLabel) -> bool {
 /// The aggregate of labelled states, holding at most `cap` of them.
 /// The newest quarter stays ordered; older rows may be reordered during eviction.
 ///
-/// The seven queues are parallel (one entry per state), in the layout of
+/// The replay queues are parallel (one entry per state), in the layout of
 /// [`pleochroma_ai::training::ImitationBatch`].
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct LabelledStates {
@@ -119,9 +140,25 @@ pub struct LabelledStates {
     score_slopes: VecDeque<Vec<f32>>,
     action_targets: VecDeque<Vec<f32>>,
     oracle_gain: VecDeque<f32>,
+    /// Empty in snapshots written before rollout evidence was recorded.
+    #[serde(default)]
+    rejected_actions: VecDeque<bool>,
 }
 
 impl LabelledStates {
+    /// Finite-difference measurements are independent of the execution scale used for search.
+    pub(super) fn discard_behavior_targets(&mut self) {
+        self.rejected_actions
+            .iter_mut()
+            .for_each(|flag| *flag = false);
+        for target in &mut self.action_targets {
+            target.fill(f32::NAN);
+        }
+        for gain in &mut self.oracle_gain {
+            *gain = f32::NAN;
+        }
+    }
+
     /// Checks the parallel replay queues before installing a recovery snapshot.
     pub(super) fn validate_recovery(
         &self,
@@ -141,6 +178,7 @@ impl LabelledStates {
         ];
         if self.cap != cap
             || self.byte_limit != byte_limit
+            || (!self.rejected_actions.is_empty() && self.rejected_actions.len() != rows)
             || rows > cap
             || self.bytes > self.byte_limit
             || lengths.iter().any(|n| *n != rows)
@@ -176,6 +214,9 @@ impl LabelledStates {
                     .any(|v| v.is_infinite())
                 || !(self.action_targets[row].iter().all(|v| v.is_finite())
                     || self.action_targets[row].iter().all(|v| v.is_nan()))
+                || (self.rejected_actions.get(row) == Some(&true)
+                    && (self.oracle_gain[row] != 0.0
+                        || !self.action_targets[row].iter().all(|v| v.is_finite())))
                 || self.oracle_gain[row].is_infinite()
             {
                 return Err(super::RunnerError::Data(format!(
@@ -208,6 +249,7 @@ impl LabelledStates {
             score_slopes: VecDeque::new(),
             action_targets: VecDeque::new(),
             oracle_gain: VecDeque::new(),
+            rejected_actions: VecDeque::new(),
         }
     }
 
@@ -220,7 +262,8 @@ impl LabelledStates {
             + 4 * std::mem::size_of::<Vec<f32>>()
             + std::mem::size_of::<Vec<bool>>()
             + std::mem::size_of::<Vec<[f32; N_COMPONENTS]>>()
-            + std::mem::size_of::<f32>();
+            + std::mem::size_of::<f32>()
+            + std::mem::size_of::<bool>();
         self.len().saturating_mul(2).saturating_mul(slot)
     }
 
@@ -235,6 +278,7 @@ impl LabelledStates {
             self.score_slopes.capacity(),
             self.action_targets.capacity(),
             self.oracle_gain.capacity(),
+            self.rejected_actions.capacity(),
         ]
         .into_iter()
         .any(|n| n > max_capacity)
@@ -267,6 +311,10 @@ impl LabelledStates {
         self.bytes = self.bytes.saturating_add(bytes);
         self.row_bytes.push_back(bytes);
         self.n_tiers.push_back(sample.free.len());
+        if self.rejected_actions.is_empty() {
+            self.rejected_actions.resize(self.states.len(), false);
+        }
+        self.rejected_actions.push_back(sample.rejected_action);
         self.states.push_back(sample.state);
         self.free_tiers.push_back(sample.free);
         self.sensitivities.push_back(sample.sensitivities);
@@ -301,6 +349,10 @@ impl LabelledStates {
             self.score_slopes.swap(0, index);
             self.action_targets.swap(0, index);
             self.oracle_gain.swap(0, index);
+            if !self.rejected_actions.is_empty() {
+                self.rejected_actions.swap(0, index);
+                self.rejected_actions.pop_front();
+            }
             self.bytes = self
                 .bytes
                 .saturating_sub(self.row_bytes.pop_front().unwrap_or(0));
@@ -324,6 +376,7 @@ impl LabelledStates {
         self.score_slopes.shrink_to_fit();
         self.action_targets.shrink_to_fit();
         self.oracle_gain.shrink_to_fit();
+        self.rejected_actions.shrink_to_fit();
     }
 
     /// Drops every state.
@@ -338,6 +391,7 @@ impl LabelledStates {
         self.score_slopes.clear();
         self.action_targets.clear();
         self.oracle_gain.clear();
+        self.rejected_actions.clear();
         self.shrink_queues();
     }
 
@@ -352,6 +406,7 @@ impl LabelledStates {
             score_slopes: self.score_slopes.make_contiguous(),
             action_targets: self.action_targets.make_contiguous(),
             oracle_gain: self.oracle_gain.make_contiguous(),
+            rejected_actions: self.rejected_actions.make_contiguous(),
         }
     }
 }
@@ -506,6 +561,35 @@ mod tests {
         let mut one = blank;
         one.components[1] = 0.5;
         assert!(label_is_informative(&label(vec![Some(one)], None)));
+    }
+
+    #[test]
+    fn fresh_rollout_evidence_survives_replay_and_never_overrides_a_teacher_winner() {
+        let raw = [0.8, -0.2];
+        let mut replay = LabelledStates::new(8);
+        for accepted in [false, true] {
+            let measured = LabelledSample::new(
+                vec![0.0; flat_len(2)],
+                vec![true; 2],
+                &label(vec![None; 2], Some(0.0)),
+            )
+            .with_rollout_evidence(&raw, accepted);
+            replay.push(measured);
+        }
+        let mut winner = label(vec![None; 2], Some(2.0));
+        winner.action_target = Some(vec![-0.7, 0.0]);
+        replay.push(
+            LabelledSample::new(vec![0.0; flat_len(2)], vec![true; 2], &winner)
+                .with_rollout_evidence(&raw, false),
+        );
+        let saved = rmp_serde::to_vec_named(&replay).unwrap();
+        let mut restored: LabelledStates = rmp_serde::from_slice(&saved).unwrap();
+        let rows = restored.batch();
+        assert_eq!(rows.rejected_actions, &[true, false, false]);
+        assert_eq!(rows.action_targets[0], raw);
+        assert_eq!(rows.action_targets[1], raw);
+        assert_eq!(rows.action_targets[2], [-0.7, 0.0]);
+        assert_eq!(rows.oracle_gain, [0.0, 0.0, 2.0]);
     }
 
     #[test]

@@ -6,11 +6,12 @@ import { MaterialReferenceModel } from "../../models/material_reference.slint";
 import { RefPill } from "common.slint";
 import { RiCard } from "ri_card.slint";
 import { SpectrumCard } from "spectrum_card.slint";
+import { DesignsCard } from "designs_card.slint";
 import { OpticsCard, DurabilityCard, ColorsCard, VariantsCard, EffectsCard, SourcesCard } from "info_cards.slint";
 
 // The Material Details page: the header (swatch, name, family line, chips, actions) over two columns
 // of cards; below 1100 px the columns stack. The order is Durability and Cutting, Optics, Refractive
-// Index, Absorption, Color by Direction, Variants, Effects, Sources.
+// Index, Your Designs That Work Here, Absorption, Color by Direction, Variants, Effects, Sources.
 export component DetailPage inherits Rectangle {
     property <bool> two_columns: root.width >= 1100px;
 
@@ -120,6 +121,7 @@ export component DetailPage inherits Rectangle {
                     DurabilityCard { }
                     OpticsCard { two_cols: root.width >= 1240px; }
                     RiCard { }
+                    DesignsCard { }
                 }
                 VerticalLayout {
                     horizontal-stretch: 1;
@@ -140,6 +142,7 @@ export component DetailPage inherits Rectangle {
                 DurabilityCard { }
                 OpticsCard { two_cols: root.width >= 620px; }
                 RiCard { }
+                DesignsCard { }
                 SpectrumCard { }
                 ColorsCard { }
                 VariantsCard { }

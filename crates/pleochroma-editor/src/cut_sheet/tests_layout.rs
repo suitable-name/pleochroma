@@ -11,8 +11,10 @@ use super::{
     summary::smaller_round_sizes,
     tests::{label_cells, round_brilliant_design, section_html},
 };
+use crate::ri_range::{RiSource, RiStatement};
 use pleochroma_cut_core::{
-    Design, MaterialSelection, PreformSpec, ScheduleMeta, native::DesignMetadata,
+    Design, MaterialSelection, PreformSpec, ScheduleMeta,
+    native::{DesignMetadata, RiRangeChoice},
 };
 use pleochroma_solid::diagram2d::{LineWeight, view_to_svg};
 
@@ -223,17 +225,155 @@ fn design_data_without_the_optional_fields() {
     );
 }
 
-/// With every optional field: the RI range reads "low to high", the size range follows, the
-/// shape comes last, and a design without mirror symmetry reads "4-fold".
+/// The round brilliant on a Sapphire of index 1.768, the material the RI range rows keep.
+fn sapphire_design() -> Design {
+    let mut design = round_brilliant_design();
+    design.material = MaterialSelection {
+        name: Some("Sapphire".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: Some(1.768),
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    design
+}
+
+/// The "RI range" value of `design` under `ri_range`, as the layout prints it.
+fn ri_row(design: &Design, ri_range: Option<RiStatement>) -> String {
+    let solved = design.solve().expect("every tier is pinned");
+    let details = SheetDetails {
+        ri_range,
+        ..SheetDetails::default()
+    };
+    let layout = SheetLayout::build(design, &solved, &[], &details);
+    assert_eq!(layout.design_data[0].0, "RI range");
+    layout.design_data[0].1.clone()
+}
+
+fn statement(low: f64, high: Option<f64>, source: RiSource) -> RiStatement {
+    RiStatement { low, high, source }
+}
+
+/// The four source forms of the "RI range" row: whoever stated the range decides how it prints,
+/// and the material always stays on the row, on a second line once a range is stated.
+#[test]
+fn the_ri_range_row_follows_its_source_and_keeps_the_material() {
+    let design = sapphire_design();
+    // Off: the design's own index, as before, on one line.
+    assert_eq!(ri_row(&design, None), "1.768 (Sapphire)");
+    // The designer's own range, from the file or typed: the material is kept in brackets.
+    assert_eq!(
+        ri_row(
+            &design,
+            Some(statement(1.70, Some(2.15), RiSource::Designer))
+        ),
+        "1.70 to 2.15\n(Sapphire 1.768)"
+    );
+    assert_eq!(
+        ri_row(&design, Some(statement(1.63, None, RiSource::Designer))),
+        "1.63 and up\n(Sapphire 1.768)"
+    );
+    // The estimate says so on the second line, with the material.
+    assert_eq!(
+        ri_row(&design, Some(statement(1.63, None, RiSource::Estimate))),
+        "1.63 and up\n(Pleochroma estimate; Sapphire 1.768)"
+    );
+    // The high end shows only when the statement carries it (the calibrated form).
+    assert_eq!(
+        ri_row(
+            &design,
+            Some(statement(1.63, Some(2.31), RiSource::Estimate))
+        ),
+        "1.63 to 2.31\n(Pleochroma estimate; Sapphire 1.768)"
+    );
+}
+
+/// A material that is only a guess keeps its question mark, and a design with none still states
+/// its own index on the second line.
+#[test]
+fn the_second_line_of_the_ri_range_row_never_invents_a_material() {
+    let mut design = round_brilliant_design();
+    design.material = MaterialSelection::default();
+    let guessed = ri_row(&design, Some(statement(1.5, None, RiSource::Estimate)));
+    let (first, second) = guessed.split_once('\n').expect("two lines");
+    assert_eq!(first, "1.50 and up");
+    assert!(
+        second.starts_with("(Pleochroma estimate; ") && second.ends_with(" 1.540)"),
+        "{second}"
+    );
+}
+
+/// The HTML sheet breaks the two lines with a `<br>`, the text sheet puts the second line under
+/// the first, past the label.
+#[test]
+fn the_two_lines_print_in_the_html_and_text_sheets() {
+    let design = sapphire_design();
+    let solved = design.solve().expect("every tier is pinned");
+    let details = SheetDetails {
+        ri_range: Some(statement(1.63, None, RiSource::Estimate)),
+        ..SheetDetails::default()
+    };
+    let html = cutting_sheet_html_with(&design, &solved, None, &[], &details);
+    assert!(
+        html.contains(
+            "<tr><td class=\"split\">RI range</td><td>1.63 and up<br>(Pleochroma estimate; \
+             Sapphire 1.768)</td></tr>"
+        ),
+        "{html}"
+    );
+    let text = cutting_sheet_text_with(&design, &solved, &[], &details);
+    let indent = " ".repeat("RI range".len() + 4);
+    assert!(
+        text.contains(&format!(
+            "  RI range: 1.63 and up\n{indent}(Pleochroma estimate; Sapphire 1.768)\n"
+        )),
+        "{text}"
+    );
+    // Without a statement it stays one line.
+    let plain = cutting_sheet_text_with(&design, &solved, &[], &SheetDetails::default());
+    assert!(plain.contains("  RI range: 1.768 (Sapphire)\n"), "{plain}");
+}
+
+/// A native file's stated range reaches the sheet as the designer's own; the other two choices
+/// state nothing here (an estimate is traced when the sheet is written).
+#[test]
+fn from_metadata_carries_the_designers_range_only() {
+    let design = round_brilliant_design();
+    let mut metadata = DesignMetadata::default();
+    assert_eq!(
+        SheetDetails::from_metadata(&design, &metadata, "").ri_range,
+        None
+    );
+    metadata.set_ri_range_choice(RiRangeChoice::Designer {
+        low: 1.7,
+        high: Some(2.15),
+    });
+    assert_eq!(
+        SheetDetails::from_metadata(&design, &metadata, "").ri_range,
+        Some(statement(1.7, Some(2.15), RiSource::Designer))
+    );
+    metadata.set_ri_range_choice(RiRangeChoice::Estimate);
+    assert_eq!(
+        SheetDetails::from_metadata(&design, &metadata, "").ri_range,
+        None
+    );
+}
+
+/// With every optional field: the RI range reads "low to high" with its material under it, the
+/// size range follows, the shape comes last, and a design without mirror symmetry reads
+/// "4-fold".
 #[test]
 fn design_data_with_the_optional_fields() {
-    let mut design = round_brilliant_design();
+    let mut design = sapphire_design();
     design.meta.symmetry_order = 4;
     design.meta.mirror = false;
     let solved = design.solve().expect("every tier is pinned");
     let details = SheetDetails {
         shape: "Round".to_string(),
-        ri_range: Some((1.54, 1.76)),
+        ri_range: Some(statement(1.54, Some(1.76), RiSource::Designer)),
         size_range_mm: Some((4.0, 12.5)),
         ..SheetDetails::default()
     };
@@ -246,7 +386,7 @@ fn design_data_with_the_optional_fields() {
     assert_eq!(
         rows,
         [
-            ("RI range", "1.54 to 1.76"),
+            ("RI range", "1.54 to 1.76\n(Sapphire 1.768)"),
             ("Size range", "4 - 12.5 mm"),
             ("Symmetry", "4-fold"),
             ("Index gear", "96 Index"),
@@ -255,7 +395,7 @@ fn design_data_with_the_optional_fields() {
     );
     let html = cutting_sheet_html_with(&design, &solved, None, &[], &details);
     for row in [
-        "<tr><td class=\"split\">RI range</td><td>1.54 to 1.76</td></tr>",
+        "<tr><td class=\"split\">RI range</td><td>1.54 to 1.76<br>(Sapphire 1.768)</td></tr>",
         "<tr><td class=\"split\">Size range</td><td>4 - 12.5 mm</td></tr>",
         "<tr><td class=\"split\">Shape</td><td>Round</td></tr>",
     ] {

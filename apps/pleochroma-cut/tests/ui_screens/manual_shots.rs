@@ -1,18 +1,14 @@
 //! The shots of the editor chapters of the user manual: the Tier form, the concave tier form,
-//! the History and Variants views, Cutting Mode, the Angle Sweep dialog and the Render Jobs
-//! window. Each drives the real app through the model calls its controls make.
+//! the History and Variants views, Cutting Mode, the Angle Sweep dialog. Each drives the real app through the model calls its
+//! controls make.
 
 use crate::{
     kit::{Sc, card_rect, rect_of},
     nav::{CROWN_TIER, FVS},
-    support::app::{pump, wait_until},
+    support::app::pump,
 };
-use pleochroma_cut::{
-    CuttingModeModel, EditorModel, HistoryModel, RenderJobsModel, SweepModel, VariantsModel,
-    harness_support,
-};
+use pleochroma_cut::{CuttingModeModel, EditorModel, HistoryModel, SweepModel, VariantsModel};
 use slint::{ComponentHandle, Model};
-use std::time::Duration;
 use uiprobe::screenshot::Shot;
 
 /// How many tiers the History shot changes (each its own step).
@@ -238,35 +234,4 @@ pub fn angle_sweep(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
     pump(1000);
     let shot = sc.snap_main()?;
     Ok(card_rect(&sc.view(), "SweepDialog")?.crop(&shot))
-}
-
-/// `render_jobs.png`: the Render Jobs window with two queued pictures.
-///
-/// # Errors
-///
-/// The design does not open, or the jobs are not queued.
-pub fn render_jobs(sc: &mut Sc<'_, '_>) -> Result<Shot, String> {
-    sc.open_in_editor(FVS)?;
-    let ui = sc.ui();
-    let jobs = ui.global::<RenderJobsModel>();
-    // Queuing asks for the output folder: answer with a folder of the profile's working
-    // directory (it is not shown).
-    if let Ok(dir) = std::env::current_dir().map(|d| d.join("screens_queue")) {
-        let _ = std::fs::create_dir_all(&dir);
-        harness_support::queue_picker_path(dir.clone());
-        harness_support::queue_picker_path(dir);
-    }
-    jobs.invoke_add_still_jobs(1920, 1080, 64, 0, 0, 2);
-    let first = wait_until(Duration::from_secs(30), || jobs.get_rows().row_count() >= 1);
-    jobs.invoke_add_still_jobs(1280, 720, 32, 0, 0, 2);
-    let second = wait_until(Duration::from_secs(30), || jobs.get_rows().row_count() >= 2);
-    harness_support::clear_picker_answers();
-    if !(first && second) {
-        return Err("the render jobs were not queued".to_owned());
-    }
-    jobs.set_panel_open(true);
-    pump(1000);
-    sc.ctx.app.clear_notice();
-    let shot = sc.snap_main()?;
-    Ok(card_rect(&sc.view(), "RenderJobsPanel")?.crop(&shot))
 }

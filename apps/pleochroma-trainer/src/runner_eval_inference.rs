@@ -28,10 +28,15 @@ const GATHER_WINDOW: Duration = Duration::from_millis(1);
 
 type PolicyResult = Result<GaussianPolicy, String>;
 
+enum Reply {
+    Mean(SyncSender<Result<Vec<f32>, String>>),
+    Policy(SyncSender<PolicyResult>),
+}
+
 struct Request {
     state: Vec<f32>,
     tiers: usize,
-    reply: SyncSender<PolicyResult>,
+    reply: Reply,
 }
 
 pub(in super::super) struct Client {
@@ -42,7 +47,19 @@ pub(in super::super) struct Client {
 }
 
 impl Client {
+    pub(super) fn mean(&self, obs: &GemstoneObservation) -> Result<Vec<f32>, RunnerError> {
+        self.request(obs, Reply::Mean)
+    }
+
     pub(super) fn policy(&self, obs: &GemstoneObservation) -> Result<GaussianPolicy, RunnerError> {
+        self.request(obs, Reply::Policy)
+    }
+
+    fn request<T>(
+        &self,
+        obs: &GemstoneObservation,
+        reply_kind: impl FnOnce(SyncSender<Result<T, String>>) -> Reply,
+    ) -> Result<T, RunnerError> {
         let tiers = obs.tiers.len();
         if tiers == 0 || tiers > self.max_tiers {
             return Err(self.error("observation tier count exceeds the inference budget"));
@@ -52,7 +69,7 @@ impl Client {
             .send(Request {
                 state: obs.flatten(tiers),
                 tiers,
-                reply,
+                reply: reply_kind(reply),
             })
             .map_err(|_| self.disconnected())?;
         result
@@ -108,11 +125,20 @@ impl Service {
                     let model = trainer.rollout_model(); // Module::valid(): no autodiff graph.
                     drop(trainer);
                     let _ = ready.send(Ok(()));
-                    serve(&receive, |states, counts| {
-                        model
-                            .forward_host(states, counts)
-                            .map_err(|error| error.to_string())
-                    })
+                    serve(
+                        &receive,
+                        |states, counts| {
+                            model
+                                .forward_host(states, counts)
+                                .map_err(|error| error.to_string())
+                        },
+                        |states, counts| {
+                            model
+                                .forward_means_host_profiled(states, counts)
+                                .map(|(means, _)| means)
+                                .map_err(|error| error.to_string())
+                        },
+                    )
                 }));
                 let error = match result {
                     Ok(Ok(())) => return,
@@ -185,6 +211,7 @@ impl Drop for Service {
 fn serve(
     requests: &Receiver<Request>,
     mut forward: impl FnMut(&[Vec<f32>], &[usize]) -> Result<HostPolicyBatch, String>,
+    mut forward_means: impl FnMut(&[Vec<f32>], &[usize]) -> Result<Vec<Vec<f32>>, String>,
 ) -> Result<(), String> {
     while let Ok(first) = requests.recv() {
         let mut batch = vec![first];
@@ -217,20 +244,49 @@ fn serve(
                 state
             })
             .collect();
-        let output = forward(&states, &counts).and_then(|out| {
-            check_output(&out, &counts)?;
-            Ok(out)
-        });
+        // A sampled PPO case needs the learned deviations. Keep those on the selected
+        // backend even when it shares a batch with deterministic cases.
+        let output = if batch
+            .iter()
+            .any(|request| matches!(&request.reply, Reply::Policy(_)))
+        {
+            forward(&states, &counts).and_then(|out| {
+                check_output(&out, &counts)?;
+                Ok((out.means, Some(out.log_stds.into_iter())))
+            })
+        } else {
+            forward_means(&states, &counts).and_then(|means| {
+                check_rows(&means, &counts)?;
+                Ok((means, None))
+            })
+        };
         match output {
-            Ok(out) => {
-                for ((request, mean), log_std) in batch.into_iter().zip(out.means).zip(out.log_stds)
-                {
-                    let _ = request.reply.send(Ok(GaussianPolicy { mean, log_std }));
+            Ok((means, mut deviations)) => {
+                for (request, mean) in batch.into_iter().zip(means) {
+                    let log_std = deviations.as_mut().and_then(Iterator::next);
+                    match request.reply {
+                        Reply::Mean(reply) => {
+                            let _ = reply.send(Ok(mean));
+                        }
+                        Reply::Policy(reply) => {
+                            let _ = reply.send(Ok(GaussianPolicy {
+                                mean,
+                                log_std: log_std.expect("validated sampled policy batch"),
+                            }));
+                        }
+                    }
                 }
             }
             Err(error) => {
                 for request in batch {
-                    let _ = request.reply.send(Err(error.clone()));
+                    match request.reply {
+                        Reply::Mean(reply) => {
+                            let _ = reply.send(Err(error.clone()));
+                        }
+                        Reply::Policy(reply) => {
+                            let _ = reply.send(Err(error.clone()));
+                        }
+                    }
                 }
                 return Err(error);
             }
@@ -240,18 +296,20 @@ fn serve(
 }
 
 fn check_output(out: &HostPolicyBatch, counts: &[usize]) -> Result<(), String> {
-    if out.means.len() != counts.len()
-        || out.log_stds.len() != counts.len()
-        || out.values.len() != counts.len()
-        || out
-            .means
+    check_rows(&out.means, counts)?;
+    check_rows(&out.log_stds, counts)?;
+    if out.values.len() != counts.len() || out.values.iter().any(|x| !x.is_finite()) {
+        return Err("backend returned malformed or non-finite policy outputs".into());
+    }
+    Ok(())
+}
+
+fn check_rows(rows: &[Vec<f32>], counts: &[usize]) -> Result<(), String> {
+    if rows.len() != counts.len()
+        || rows
             .iter()
-            .zip(&out.log_stds)
             .zip(counts)
-            .any(|((mean, std), &n)| {
-                mean.len() != n || std.len() != n || mean.iter().chain(std).any(|x| !x.is_finite())
-            })
-        || out.values.iter().any(|x| !x.is_finite())
+            .any(|(row, &n)| row.len() != n || row.iter().any(|x| !x.is_finite()))
     {
         return Err("backend returned malformed or non-finite policy outputs".into());
     }

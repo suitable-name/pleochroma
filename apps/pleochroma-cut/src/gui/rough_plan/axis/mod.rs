@@ -35,7 +35,7 @@ mod stone;
 pub(super) use self::state::{AxisState, PickMode};
 pub(in crate::gui::rough_plan) use self::{
     panel::{apply_orientation, finish_live, set_live},
-    stone::{finish_turn, is_turning, locked_for_plan, turn},
+    stone::{finish_turn, is_turning, locked_for_plan, locked_reasons_for_plan, turn},
 };
 use super::host::Host;
 use std::rc::Rc;

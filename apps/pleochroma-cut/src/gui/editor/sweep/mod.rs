@@ -566,6 +566,30 @@ impl Controller {
         }
     }
 
+    /// Puts the tier combos' entries (they carry each tier's angle) back in step with the design
+    /// after a "Use" changed an angle. The choice each combo is on stays.
+    pub(super) fn refresh_tier_labels(&self, ui: &MainWindow, choices: Vec<form::TierChoice>) {
+        let same_tiers = {
+            let dialog = self.dialog.borrow();
+            dialog.tiers.len() == choices.len()
+                && dialog
+                    .tiers
+                    .iter()
+                    .zip(&choices)
+                    .all(|(&tier, choice)| tier == choice.tier)
+        };
+        if !same_tiers {
+            return;
+        }
+        let model = ui.global::<SweepModel>();
+        let (index, index_b) = (model.get_tier_index(), model.get_tier_b_index());
+        model.set_tier_names(present::tier_names(
+            choices.into_iter().map(|choice| choice.label).collect(),
+        ));
+        model.set_tier_index(index);
+        model.set_tier_b_index(index_b);
+    }
+
     /// "Use this angle": the selected row's angle becomes the tier's angle, as one undo step.
     fn use_selected(&self) {
         let Some(ui) = self.ui.upgrade() else {
@@ -601,7 +625,10 @@ impl Controller {
                     crate::gui::editor::trials::TrialOrigin::Sweep,
                 );
                 let after = st.current_generation();
+                // The combo's entries carry each tier's angle; the used one has a new angle now.
+                let choices = form::tier_choices(&st.design);
                 drop(st);
+                self.refresh_tier_labels(&ui, choices);
                 self.dialog.borrow_mut().mark_applied(pick.row, after);
                 present::push_results(&ui, &self.dialog.borrow());
                 show_toast(

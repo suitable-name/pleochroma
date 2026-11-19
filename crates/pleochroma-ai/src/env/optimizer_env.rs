@@ -285,8 +285,10 @@ impl OptimizerEnv {
     ///
     /// One entry per tier of the design: `None` for a tier the environment does not move, and
     /// for a free tier whose `+h_deg` and `-h_deg` candidates are both refused (unsafe, open,
-    /// unscorable, or failing a gate). Otherwise it is the two-sided derivative over `h_deg`
-    /// degrees (nonuniform when clipped), the score slopes of [`Self::teacher_label`]. Cost: one
+    /// unscorable, or failing a gate). A side is measured at its executable displacement after
+    /// angle bounds and policy squashing. Two feasible sides give a centered derivative
+    /// (nonuniform if their lengths differ). One feasible side gives a one-sided slope
+    /// against the current score. These are the score slopes of [`Self::teacher_label`]. Cost: one
     /// or two candidate evaluations per free tier. The environment is left unchanged (no step
     /// counted). An `h_deg` that is not finite and positive gives all `None`.
     #[must_use]

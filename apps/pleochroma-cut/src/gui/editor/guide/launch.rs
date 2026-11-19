@@ -116,9 +116,48 @@ pub(super) fn step_data(index: usize, step: &GuideStep) -> GuideStepData {
     }
 }
 
-/// Pushes `guide`'s steps into `GuideModel` and opens its first step. Any guide that was
-/// open is replaced.
-pub(super) fn open_guide(ui: &MainWindow, guide: &Guide) {
+/// When [`open_guide`] shows the stage of the guide's first step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FirstStage {
+    /// At once: the guide starts on the design that is open, so nothing is being refreshed.
+    Now,
+    /// One turn of the event loop later: the guide's starting design has just landed, and its
+    /// refresh may still be waiting for that turn (`view::refresh_all_now`). Changing the view
+    /// first would size the design's first frame from a viewport that is not mounted yet.
+    AfterRefresh,
+}
+
+/// Whether the guide `guide_id` is open and still on its first step.
+fn on_first_step(ui: &MainWindow, guide_id: &str) -> bool {
+    let model = ui.global::<GuideModel>();
+    model.get_open() && model.get_step_index() == 0 && model.get_guide_id().as_str() == guide_id
+}
+
+/// Shows the stage of the first step of the guide that has just opened: its view, its panels
+/// and its tab (`stage_nav::apply_stage`, what "Show Me Where" does). Done once, when the guide
+/// starts, so a guide started from another page does not open on controls that are off screen.
+/// Every later step leaves the page alone and offers "Show Me Where".
+fn show_first_stage(ui: &MainWindow, guide_id: &str, when: FirstStage) {
+    match when {
+        FirstStage::Now => super::stage_nav::apply_stage(ui),
+        FirstStage::AfterRefresh => {
+            let ui_weak = ui.as_weak();
+            let guide_id = guide_id.to_owned();
+            slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+                // A guide closed or moved on in that turn keeps what it shows.
+                if let Some(ui) = ui_weak.upgrade()
+                    && on_first_step(&ui, &guide_id)
+                {
+                    super::stage_nav::apply_stage(&ui);
+                }
+            });
+        }
+    }
+}
+
+/// Pushes `guide`'s steps into `GuideModel`, opens its first step and shows that step's stage
+/// (`first_stage` says when). Any guide that was open is replaced.
+pub(super) fn open_guide(ui: &MainWindow, guide: &Guide, first_stage: FirstStage) {
     let steps: Vec<GuideStepData> = guide
         .steps
         .iter()
@@ -133,6 +172,7 @@ pub(super) fn open_guide(ui: &MainWindow, guide: &Guide) {
     // The New Design dialog opens on its Empty template, as the guides describe it.
     ui.global::<EditorModel>().set_new_template_index(0);
     model.invoke_begin();
+    show_first_stage(ui, &guide.id, first_stage);
 }
 
 /// `GuideModel.start_guide`: starts the guide with this id, after arranging the state it
@@ -144,7 +184,7 @@ pub(super) fn start_guide(ui: &MainWindow, id: &str) {
     };
     let has_design = ui.global::<EditorModel>().get_has_design();
     match plan_start(&guide.starting_state, has_design) {
-        StartPlan::Begin => open_guide(ui, &guide),
+        StartPlan::Begin => open_guide(ui, &guide, FirstStage::Now),
         StartPlan::Blocked(reason) => show_toast(ui, reason, "info"),
         StartPlan::CreateNew {
             template_index,
@@ -303,7 +343,9 @@ pub(super) fn evaluate_launch(ui: &MainWindow) {
             runtime::set_launch(None);
             model.set_launch_pending(false);
             if let Some(guide) = runtime::guide(&launch.guide_id) {
-                open_guide(ui, &guide);
+                // The design the guide asked for has just landed (it left the page alone for
+                // the guide, `gui::editor::landing`): the first step's stage follows its refresh.
+                open_guide(ui, &guide, FirstStage::AfterRefresh);
             }
         }
         LaunchStatus::Waiting => {

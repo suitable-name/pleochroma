@@ -1,0 +1,115 @@
+// The Edit Job dialog (Render Jobs window > a row's Edit...): one queued, running, failed or
+// finished job changed in place. Rust-driven: `gui::render_jobs::edit` seeds every property
+// below from the job, recomputes the footer, the notes and `can_save` when `edited()` fires,
+// and writes the job back on `save`.
+//
+// The index properties mean what the Export dialog's same control means
+// (`models/export.slint`). Exported from `app.slint` so Rust can reach it.
+
+export global JobEditModel {
+    // --- Frame ---
+    in-out property <bool> open: false;
+    // The job being edited.
+    in property <int> job_id: -1;
+    // "Edit Job 7"
+    in property <string> title: "";
+    // A tilt video job (otherwise a still picture).
+    in property <bool> is_video: false;
+    // The job renders with the Ray-Traced engine (otherwise Path-Traced).
+    in property <bool> is_ray: false;
+    // The state of the job in a word: "Queued", "Done", ...
+    in property <string> state_word: "";
+
+    // --- Compute ---
+    // 0 Local Only, 1 Remote Only, 2 Local + Remote.
+    in-out property <int> compute_index: 0;
+    // 0 automatic, 1 always send the files, 2 the worker already has them.
+    in-out property <int> transfer_index: 0;
+    in property <bool> remote_configured: false;
+    in property <string> remote_note: "";
+
+    // --- Picture (stills) ---
+    // 0 1080p, 1 4K, 2 Custom.
+    in-out property <int> size_preset: 0;
+    in-out property <int> custom_width: 1920;
+    in-out property <int> custom_height: 1080;
+    // "Different from the live view shape. Load Job View to frame it again."
+    in property <string> aspect_note: "";
+    // The samples slider exponent (samples are 2^n).
+    in-out property <int> sample_exponent: 10;
+    // The samples of the job are not on the slider: show them as text.
+    in property <bool> samples_from_job: false;
+    in property <string> samples_from_job_text: "";
+    in-out property <int> bounce_index: 0;
+    in property <bool> bounces_from_job: false;
+    in property <string> bounces_from_job_text: "";
+    in-out property <int> color_space_index: 0;
+    in-out property <int> ray_taps_index: 0;
+    in-out property <bool> ray_fire: false;
+
+    // --- Output ---
+    in-out property <string> output_folder: "";
+    in-out property <string> file_name: "";
+    in-out property <string> label: "";
+    // "D:\Renders\rb57_sapphire_4k.png": where Save will write the result (empty: not shown).
+    in property <string> saves_to: "";
+
+    // --- HDR ---
+    in property <bool> hdr_missing: false;
+    in property <string> hdr_text: "";
+
+    // --- Material ---
+    in property <[string]> materials: [];
+    in-out property <int> material_index: 0;
+    in property <string> material_note: "";
+
+    // --- Renderer ---
+    in property <string> renderer_text: "";
+    in property <string> renderer_hint: "";
+
+    // --- Video ---
+    in-out property <int> fps_index: 0;
+    in-out property <bool> keep_frames: false;
+    in-out property <string> video_name: "";
+    in-out property <int> start_deg: 0;
+    in-out property <int> end_deg: 0;
+    in-out property <float> step_deg: 1;
+    in-out property <bool> axis_0: false;
+    in-out property <bool> axis_1: false;
+    in-out property <bool> axis_2: false;
+    in-out property <bool> axis_3: false;
+    in-out property <bool> overlay_brilliance: false;
+    in-out property <bool> overlay_windowing: false;
+    in-out property <bool> overlay_extinction: false;
+    in-out property <bool> overlay_tilt_brilliance: false;
+    in-out property <bool> overlay_angle: false;
+    // "181 frames per axis"
+    in property <string> frames_text: "";
+
+    // --- Status ---
+    // A line under the form: "This job changed while you edited it." and the like.
+    in property <string> message: "";
+    // The one-line summary of what Save will do.
+    in property <string> footer_text: "";
+    // The job cannot be edited now (a refusal, shown in place of the form).
+    in property <bool> refused: false;
+    // Curves for a video are being measured off the UI thread.
+    in property <bool> measuring_curves: false;
+    in property <bool> can_save: false;
+    // The "Render this job again?" question of a done or cancelled job (`global_dialogs.slint`).
+    in-out property <bool> requeue_question_open: false;
+
+    // Any control moved: Rust recomputes the footer, `can_save` and the notes.
+    callback edited();
+    callback browse_folder();
+    // (as a new job)
+    callback save(bool);
+    callback cancel();
+    callback rename_from_template();
+    callback locate_hdr();
+    callback material_chosen(string);
+    // Reads the job again, after "changed while editing".
+    callback load_again();
+    // 0 Cancel, 1 Save Only, 2 Render Again.
+    callback requeue_answer(int);
+}

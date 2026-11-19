@@ -141,8 +141,8 @@ fn yield_and_carat() -> GuideOverlay {
         .step(
             StepOverlay::of("Where yield is used")
                 .line(
-                    "The Optimize tab's Keep Weight objective favours angles that waste less of the rough.",
-                    "The Optimize tab's Yield Weight favours angles that waste less of the rough.",
+                    "The Optimize tab's Keep Weight objective favors angles that waste less of the rough.",
+                    "The Optimize tab's Yield Weight favors angles that waste less of the rough.",
                 )
                 .drop_line("The angle sweep table has a Yield % column.")
                 .drop_line("The Rough Planner uses the carat estimate to fit stones into a rough."),
@@ -257,11 +257,11 @@ fn snapshot_compare() -> GuideOverlay {
                     "The Snapshot is a copy of the design and its solved depths, to compare against later.",
                 )
                 .line(
-                    "Click Set Baseline on the command bar, or Set as Baseline in the strip under the inspector's tabs.",
+                    "Open the Baseline menu on the command bar and click Set Baseline.",
                     "Choose Design > Snapshot Design in the menu bar.",
                 )
                 .line(
-                    "a message says Baseline set, and the strip reads against it.",
+                    "a message says Baseline set.",
                     "a message says the Snapshot was taken.",
                 )
                 .line(

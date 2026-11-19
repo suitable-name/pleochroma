@@ -303,6 +303,7 @@ fn ensure_window(deps: &CompareDeps) -> Option<CompareWindow> {
     };
     // Starts in the current theme and follows later changes.
     crate::gui::preferences::bind_compare_window_theme(&window);
+    host::bind_tilt_range(&window);
     register_window_callbacks(&window, deps);
     host::store_window(&window);
     Some(window)

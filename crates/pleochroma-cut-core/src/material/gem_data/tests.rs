@@ -50,7 +50,7 @@ fn every_built_in_has_an_entry_and_no_other_name_does() {
         .into_iter()
         .map(|material| material.name)
         .collect();
-    assert_eq!(built_ins.len(), 39);
+    assert_eq!(built_ins.len(), 40);
     assert_eq!(TABLE.len(), built_ins.len());
     for name in &built_ins {
         assert!(
@@ -284,6 +284,8 @@ fn the_empty_fields_are_exactly_the_planned_ones() {
         ("Glass (F2)".to_owned(), "toughness"),
         ("Benitoite".to_owned(), "toughness"),
         ("Titanite (Sphene)".to_owned(), "toughness"),
+        ("Nanosital".to_owned(), "toughness"),
+        ("Nanosital".to_owned(), "cleavage"),
         ("GGG".to_owned(), "cleavage"),
         ("GGG".to_owned(), "fracture"),
     ];
@@ -314,6 +316,14 @@ fn source_citations_and_addresses() {
     assert_eq!(
         GemSource::Wikipedia("Cubic_zirconia").citation(),
         "Wikipedia, Cubic zirconia"
+    );
+    assert_eq!(
+        GemSource::GemsGemology2026.url().as_deref(),
+        Some("https://doi.org/10.5741/GEMS.62.2.164")
+    );
+    assert_eq!(
+        GemSource::RussianJeweller2016.citation(),
+        "Russian Jeweller, 13 July 2016 (manufacturer's text)"
     );
 }
 

@@ -7,6 +7,8 @@ import { SolidPreviewModel } from "../models/solid_preview.slint";
 import { TiltModel } from "../models/tilt.slint";
 import { EditorModel } from "../models/editor.slint";
 import { PhysicscolorModel } from "../models/physics_color.slint";
+import { RenderJobsModel } from "../models/render_jobs.slint";
+import { JobViewBanner } from "render_jobs/job_view_banner.slint";
 import { KitGlass } from "kit/kit.slint";
 // The glass toolbar, top right -- see `GemViewportToolbarActions`'s own doc comment
 // (`gem_viewport/toolbar_actions.slint`).
@@ -51,6 +53,15 @@ export component GemViewportView inherits Rectangle {
     // Below about 1000 px the mode names shorten, the camera buttons fold into a menu, the
     // analysis texts drop and the figures card folds. The toolbar needs a little more than that.
     property <bool> narrow: root.width < 1040px;
+    // The mode segment and the toolbar no longer fit one row (a library open beside the view in a
+    // small window): the toolbar goes on a row of its own, under the segment.
+    property <bool> stacked: root.width < 560px;
+    // Narrower still, View and Export lose their texts; below that the toolbar splits in two rows.
+    property <bool> tight: root.width < 384px;
+    property <bool> split: root.width < 290px;
+    // Where the toolbar's row is, and where the content under the top rows starts.
+    property <length> tools_y: root.stacked ? 56px : 12px;
+    property <length> below_y: root.stacked ? (root.split ? 142px : 98px) : 54px;
     // Which menu is open: 0 none, 1 the lighting menu, 2 the View menu.
     property <int> menu: 0;
     property <bool> traced: ViewportModel.live_view_mode == 1 || ViewportModel.live_view_mode == 2;
@@ -342,7 +353,7 @@ export component GemViewportView inherits Rectangle {
     // a narrower view sits below it instead (`banner` below).
     left_col := VerticalLayout {
         x: 12px;
-        y: 54px;
+        y: root.below_y;
         width: min(380px, root.width - 24px);
         height: self.preferred-height;
         spacing: 6px;
@@ -406,12 +417,22 @@ export component GemViewportView inherits Rectangle {
         }
     }
 
-    // Top right: the tools.
+    // Top right: the tools. On a `stacked` view they are a second row at the left, and on a
+    // `split` one Export and Help are a third.
     toolbar := GemViewportToolbarActions {
-        x: root.width - self.width - 12px;
-        y: 12px;
+        x: root.stacked ? 12px : root.width - self.width - 12px;
+        y: root.tools_y;
         narrow: root.narrow;
+        tight: root.tight;
+        part: root.split ? 1 : 0;
         menu <=> root.menu;
+    }
+    if root.split: GemViewportToolbarActions {
+        x: 12px;
+        y: 100px;
+        narrow: true;
+        tight: true;
+        part: 2;
     }
 
     // One banner, top centre, for a refused material, a graphics problem or a stale picture. On a
@@ -422,11 +443,20 @@ export component GemViewportView inherits Rectangle {
         avail: root.width - 24px;
     }
 
+    // The Load Job View banner, top centre under the toolbar like the problem banner (and under it
+    // when both show). It shows while the live view carries the view of a render job.
+    if RenderJobsModel.job_view_id >= 0: JobViewBanner {
+        x: (root.width - self.width) / 2;
+        y: (root.width < 1500px ? left_col.y + left_col.height + 8px : 56px)
+            + (ProblemState.present ? 100px : 0px);
+        avail: root.width - 24px;
+    }
+
     // The Optical Diagnostics popover, toggled from the toolbar. It sits under the toolbar on the
     // right, clear of the figures card and the status pill.
     if ViewportModel.live_view_mode == 1 && OpticalModel.panel_open && !TiltModel.dialog_open && !ExportModel.is_open && !ViewportModel.material_editor_open: OpticalPanel {
         x: root.width - self.width - 12px;
-        y: 56px + (ProblemState.present && root.width < 1700px ? 110px : 0px);
+        y: root.below_y + 2px + (ProblemState.present && root.width < 1700px ? 110px : 0px);
         width: min(460px, root.width - 24px);
         height: min(420px, max(160px, root.height - 240px));
     }
@@ -467,6 +497,7 @@ export component GemViewportView inherits Rectangle {
     gestures := GesturesButton {
         x: 12px;
         y: root.height - 48px;
+        room_above: self.y - 8px;
         open_by_default: !ViewportModel.gestures_seen;
         dragging: root.is_dragging;
         extra_line: "Alt+drag or Ctrl+Shift+drag: turn the stone freely on the tray";
@@ -483,13 +514,13 @@ export component GemViewportView inherits Rectangle {
     }
     if root.menu == 1: RigMenu {
         x: min(max(12px, toolbar.x + 4px), root.width - self.width - 12px);
-        y: 54px;
+        y: root.tools_y + 42px;
         max_h: root.height - 66px;
         closed => { root.close_menu(); }
     }
     if root.menu == 2: ViewMenu {
-        x: toolbar.x + toolbar.width - self.width - 4px;
-        y: 54px;
+        x: max(12px, toolbar.x + toolbar.width - self.width - 4px);
+        y: root.tools_y + 42px;
         closed => { root.close_menu(); }
     }
 

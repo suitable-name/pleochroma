@@ -55,7 +55,8 @@ pub struct RewardConfig {
     ///
     /// This term is only charged when the episode defines a shape target
     /// (`CoreSettings::shape_target`): the environment passes a drift of `0.0` otherwise, so the
-    /// scalar reward always matches the objective the run reports and evaluates. Keep the
+    /// default of zero leaves the explicit shape-target penalty in the score as the only
+    /// shape reward. Set a positive value to opt into additional base-shape regularization. Keep the
     /// weight non-negative; it is not a safety gate (the girdle and manufacturability gates
     /// are), so it can only shape the reward, never accept an invalid stone.
     pub shape_drift_weight: f32,
@@ -88,7 +89,7 @@ impl Default for RewardConfig {
             invalid_geometry_penalty: -2.0,
             safety_bound_penalty: -2.0,
             knife_edge_penalty: -1.0,
-            shape_drift_weight: 0.05,
+            shape_drift_weight: 0.0,
             manufacturability_regression_penalty: -1.0,
             step_cost: -0.02,
             new_best_bonus: 0.0,
@@ -254,7 +255,7 @@ mod tests {
         assert_eq!(config.invalid_geometry_penalty, -2.0);
         assert_eq!(config.safety_bound_penalty, -2.0);
         assert_eq!(config.knife_edge_penalty, -1.0);
-        assert_eq!(config.shape_drift_weight, 0.05);
+        assert_eq!(config.shape_drift_weight, 0.0);
         assert_eq!(config.manufacturability_regression_penalty, -1.0);
         assert_eq!(config.step_cost, -0.02);
         assert_eq!(config.new_best_bonus, 0.0);
@@ -324,11 +325,22 @@ mod tests {
     }
 
     #[test]
+    fn default_shape_target_gain_has_no_extra_base_drift_cost() {
+        let evaluator = RewardEvaluator::new(RewardConfig::default());
+        let moved = evaluator.compute_step_reward(1.0, 0.9, StepFlags::ALL_OK, 5.0);
+        let stayed = evaluator.compute_step_reward(1.0, 1.0, StepFlags::ALL_OK, 0.0);
+        assert!((moved - stayed - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
     fn gate_failures_and_drift_lower_the_reward() {
-        // Hand values at the defaults (step cost -0.02, knife edge and manufacturability -1,
+        // Hand values with optional base-shape regularization (step cost -0.02, gates -1,
         // drift weight 0.05 per percent) for a one-point gain: 1 - 0.02 = 0.98; a gate costs
         // exactly its penalty on top; 10 percent of drift costs 0.5.
-        let evaluator = RewardEvaluator::new(RewardConfig::default());
+        let evaluator = RewardEvaluator::new(RewardConfig {
+            shape_drift_weight: 0.05,
+            ..RewardConfig::default()
+        });
         let ok = StepFlags::ALL_OK;
         let clean = evaluator.compute_step_reward(50.0, 49.0, ok, 0.0);
         let girdle_flags = StepFlags {

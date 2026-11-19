@@ -2,7 +2,8 @@
 //!
 //! Files are picked with `rfd` dialogs on a background thread (so the UI never
 //! blocks), saved with `std::fs`, and "shared" or "printed" by writing the file to
-//! `<cache>/share/` and logging its path -- a desktop has no share sheet. The
+//! `<cache>/share/` and logging its path -- a desktop has no share sheet. An e-mail with an
+//! attachment does the same and also logs its recipient, subject and body. The
 //! clipboard, keep-screen-on and open-URL services are log lines. Thermal headroom is
 //! not reported, and the incoming handler is stored but never called. There is no
 //! credential vault: storing credentials fails and forgetting them is a logged no-op.
@@ -19,8 +20,8 @@ use std::{
 
 use pleochroma_formats::native::design::DESIGN_EXTENSION;
 use pleochroma_mobile_core::platform::{
-    AppDirs, DocumentsCallback, IncomingCallback, OpenKind, OpenRequest, OutgoingFile, PickedFile,
-    Platform, PlatformError, SaveCallback, SaveOutcome,
+    AppDirs, DeviceFacts, DocumentsCallback, IncomingCallback, OpenKind, OpenRequest, OutgoingFile,
+    PickedFile, Platform, PlatformError, SaveCallback, SaveOutcome,
 };
 use rfd::FileDialog;
 
@@ -144,6 +145,40 @@ impl Platform for DesktopPlatform {
 
     fn thermal_headroom(&self) -> Option<f32> {
         None
+    }
+
+    fn device_facts(&self) -> DeviceFacts {
+        DeviceFacts {
+            app_version: env!("CARGO_PKG_VERSION").to_owned(),
+            android_release: String::new(),
+            sdk_int: 0,
+            manufacturer: std::env::consts::OS.to_owned(),
+            model: "desktop preview".to_owned(),
+            soc_model: None,
+            abi: std::env::consts::ARCH.to_owned(),
+            total_ram_mb: 0,
+            thermal_headroom: None,
+            fingerprint: "desktop-preview".to_owned(),
+        }
+    }
+
+    fn compose_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+        attachment: OutgoingFile,
+    ) -> Result<(), PlatformError> {
+        let path = self.write_to_share(&attachment.suggested_name, &attachment.bytes)?;
+        tracing::info!(
+            path = %path.display(),
+            bytes = attachment.bytes.len(),
+            to,
+            subject,
+            body,
+            "e-mail: there is no mail app on the desktop; the attachment was written here"
+        );
+        Ok(())
     }
 
     fn forget_remote_credentials(&self) -> Result<(), PlatformError> {
@@ -353,6 +388,29 @@ mod tests {
     #[test]
     fn display_name_is_the_last_component() {
         assert_eq!(display_name(Path::new("a/b/c.gem")), "c.gem");
+    }
+
+    #[test]
+    fn compose_email_writes_the_attachment_to_the_share_folder() {
+        let root = pleochroma_mobile_core::platform_mock::unique_temp_dir("desktop-mail");
+        let platform = DesktopPlatform::new(AppDirs {
+            files: root.join("files"),
+            cache: root.join("cache"),
+        });
+        let attachment = OutgoingFile {
+            suggested_name: "logs.zip".to_owned(),
+            mime: "application/zip".to_owned(),
+            bytes: vec![1, 2, 3],
+        };
+        platform
+            .compose_email("to@example.org", "Subject", "Body", attachment)
+            .expect("compose");
+        assert_eq!(
+            fs::read(root.join("cache").join("share").join("logs.zip")).expect("zip"),
+            vec![1, 2, 3]
+        );
+        assert_eq!(platform.device_facts().fingerprint, "desktop-preview");
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

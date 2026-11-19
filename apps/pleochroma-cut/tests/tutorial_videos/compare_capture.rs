@@ -46,10 +46,19 @@ impl Film<'_> {
     }
 
     pub(crate) fn film_compare_table(&mut self, visual: bool) -> Result<(), String> {
-        let button = targets::resolve(&self.view(), "compare_button");
-        let targets::Resolved::Found(button) = button else {
-            return Err("Compare to Baseline button is missing".into());
-        };
+        // Compare is an item of the command bar's Baseline menu ("Compare with Snapshot…", read
+        // out as "Compare"): the menu button is pressed first, unless the menu is already open.
+        // The target `compare_button` falls back to the menu button while the menu is closed.
+        let role = uiprobe::AccessibleRole::Button;
+        if targets::role_label(&self.view(), "Compare", role, Some("SnapshotGroup")).is_none() {
+            let menu = targets::role_label(&self.view(), "Baseline", role, Some("SnapshotGroup"))
+                .ok_or("the Baseline menu button is missing")?;
+            self.click_and_invoke(&menu)?;
+            pump(80);
+            self.hold(pacing::MENU_HOLD)?;
+        }
+        let button = targets::role_label(&self.view(), "Compare", role, Some("SnapshotGroup"))
+            .ok_or("the Baseline menu has no enabled Compare item")?;
         self.click_and_invoke(&button)?;
         let table = self.ui.global::<RetargetModel>();
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || {

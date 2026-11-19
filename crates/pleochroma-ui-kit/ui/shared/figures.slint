@@ -173,6 +173,12 @@ export component PleoFigures inherits PleoGlass {
     // cells into figures, checks and tilt this way.
     in property <int> divider_a: -1;
     in property <int> divider_b: -1;
+    // A caption under the row with this index (-1: none), for a group of rows whose names are too
+    // short to carry it ("Tilt average to 30°" over the three tilt rows). It sits below the row's
+    // divider, so give the same index to `divider_a` or `divider_b`. Not drawn in the folded card
+    // or in the `grid` card; the default keeps every card as it was.
+    in property <int> caption_after: -1;
+    in property <string> caption_text: "";
     // A phone: the open card is a 2 x 3 grid (full name left, value right) at the width of the
     // folded card (`grid-width`) instead of a tall single column. Off by default.
     in property <bool> grid: false;
@@ -335,6 +341,16 @@ export component PleoFigures inherits PleoGlass {
                 if (i == root.divider_a || i == root.divider_b) && i < root.figures.length - 1: Rectangle {
                     height: 7px * root.k;
                     Rectangle { y: 3px * root.k; height: 1px; background: PleoPalette.border-subtle; }
+                }
+                if i == root.caption_after && root.caption_text != "" && i < root.figures.length - 1: Text {
+                    height: 15px * root.k;
+                    text: root.caption_text;
+                    font-size: root.font-base * 10 / 11;
+                    font-weight: 700;
+                    color: PleoPalette.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
                 }
             }
         }

@@ -30,7 +30,7 @@ fn open_live_render() -> GuideStep {
         "Open Live Render",
         "The export dialog sits in the Live Render toolbar, so the picture you queue is the one you see there.",
     )
-    .actions(["Click Live Render in the places segment of the design header."])
+    .actions(["Click the Live Render tab in the design header."])
     .check("The Live Render view opens with its toolbar and the Export button at the right. It starts on the flat Solid picture; Path-Traced above the picture shows the traced one.")
     .why("A job renders the finished stone under the lighting and material you see in Live Render.")
     .goal(event(LIVE_RENDER_OPENED), "The Live Render view")
@@ -111,8 +111,10 @@ fn render_jobs() -> Guide {
             "Each row of the list is one job.",
         )
         .actions([
-            "A row shows the job's number, its name, its state and what it renders, then its progress. The states are Queued, Running, Paused, Done, Failed and Cancelled.",
-            "Only the buttons that make sense for the job's state are shown: Run Next, Up, Down, Pause, Resume, Restart, Cancel, Show and Delete.",
+            "A row shows the job's number, its name, a badge for where it renders (Local Only, Remote Only or Local + Remote) and a badge for its state, then what it renders and its progress. The states are Queued, Running, Paused, Done, Failed and Cancelled.",
+            "Under each row are the buttons that make sense for the job's state: Pause, Resume, Show or Restart, Cancel while it renders, and Edit... for a job that is not rendering. Edit... changes the job's size, quality, compute, material and output.",
+            "The ... button at the end of the row opens a menu with the rest: Run Next, Move Up, Move Down, Duplicate, Copy to Materials..., Load Job View, and Restart, Cancel and Delete when they are not already on the row. Only the entries that fit the job's state are listed.",
+            "Compute, at the top of the window, sets where every waiting, paused or failed job renders: Local Only, Remote Only or Local + Remote. Ray-Traced jobs always stay on this computer.",
             "Delete and Clear Finished remove only the list entry. The pictures and videos they wrote stay on disk.",
             "Close, or Esc, closes the window. A job that is rendering goes on.",
         ])

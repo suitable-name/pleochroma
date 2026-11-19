@@ -234,12 +234,14 @@ impl GemMaterial {
             // in its own right it is typically faceted from clean synthetic boules.
             // Black opal and moonstone sit in it too (see the precious opal comment below).
             // Titanite (Sphene) joins them: faceted sphene is mostly eye-clean, with the odd
-            // fingerprint.
+            // fingerprint. So does Nanosital: transparent glass-ceramic is relatively clean, with
+            // minute gas bubbles and sometimes light cloudy patches (Gems & Gemology 62(2), 2026).
             "Morganite"
             | "Rutile"
             | "Precious Opal (Black)"
             | "Moonstone"
-            | "Titanite (Sphene)" => Some((0.05, 0.2)),
+            | "Titanite (Sphene)"
+            | "Nanosital" => Some((0.05, 0.2)),
             // Almandine commonly carries needle/rutile inclusions.
             "Almandine Garnet" => Some((0.15, 0.4)),
             // Tsavorite is frequently included (fine growth-tube inclusions,

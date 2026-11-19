@@ -20,7 +20,7 @@ pub use catalogue_planes::{
 };
 
 pub(in crate::gui::editor) use design::{
-    design_from_full_record, external_proportions_from_full_record,
+    design_from_full_record, external_proportions_from_full_record, gcs_bytes_ri_range,
 };
 pub(in crate::gui::editor) use pleochroma_editor::loading::{
     LoadedDesign, TierFormFields, design_from_asc_text, material_selection_for_accepted_suggestion,

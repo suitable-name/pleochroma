@@ -65,6 +65,31 @@ pub fn camera_pose() -> Option<(f32, f32, f32)> {
     })
 }
 
+/// The camera's distance (the zoom) of the registered viewport, if any.
+#[must_use]
+pub fn camera_distance() -> Option<f32> {
+    CAMERA.with(|cell| {
+        let guard = cell.borrow();
+        let handles = guard.as_ref()?;
+        let render_ctx = handles.render_ctx.upgrade()?;
+        let ctx = RenderContext::lock(&render_ctx);
+        Some(ctx.distance)
+    })
+}
+
+/// Puts the camera's distance back to `distance` (yaw, pitch, roll and pan stay). Returns whether
+/// the camera is registered.
+pub fn restore_camera_distance(distance: f32) -> bool {
+    let angles = CAMERA.with(|cell| {
+        let guard = cell.borrow();
+        let handles = guard.as_ref()?;
+        let render_ctx = handles.render_ctx.upgrade()?;
+        let ctx = RenderContext::lock(&render_ctx);
+        Some((ctx.yaw, ctx.pitch))
+    });
+    angles.is_some_and(|(yaw, pitch)| set_camera_pose(yaw, pitch, Some(distance)))
+}
+
 /// The pan of the registered viewport (`[x, y]` in image half-heights, x right, y up), if any.
 #[cfg(feature = "ui-harness")]
 #[must_use]

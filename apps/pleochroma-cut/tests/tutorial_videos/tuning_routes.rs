@@ -11,8 +11,8 @@ use crate::{
     support::app::pump,
     targets::{self, Spot},
 };
-use pleochroma_cut::{SweepModel, TuneModel};
-use slint::ComponentHandle;
+use pleochroma_cut::{BaselineModel, SweepModel, TuneModel};
+use slint::{ComponentHandle, Model};
 use std::time::Duration;
 
 /// How long a two-tier sweep of the default grid may take.
@@ -20,6 +20,12 @@ const SWEEP_TIMEOUT: Duration = Duration::from_secs(240);
 
 /// How many wheel turns bring a row or a button of the Trials view into its visible area.
 const TRIALS_REVEAL_TRIES: usize = 12;
+
+/// The component of the Solid view's toolbar: its toggles, its Show menu button and that menu.
+const SOLID_TOOLBAR: &str = "SolidViewportToolbar";
+
+/// The component of the Edit viewport's figures card (Live Render has a card of the same kind).
+const EDIT_FIGURES: &str = "EditFigures";
 
 /// The arrow keys that may move the selection off the design's own pair, in the order they are
 /// tried: the first neighbor that gives a stone is used.
@@ -76,14 +82,179 @@ impl Film<'_> {
         Ok(())
     }
 
-    /// Keep as Trial: the button the guide outlines (the strip's, or the Trials view's).
+    /// Keep as Trial: the button the guide outlines (the figures card's, or the Trials view's).
+    /// A narrow Edit viewport folds the figures card to one line, which has no Keep as Trial:
+    /// the card is opened first and folded again afterwards.
     pub(super) fn film_keep_trial(&mut self) -> Result<(), String> {
-        let targets::Resolved::Found(button) = targets::resolve(&self.view(), "keep_trial_button")
-        else {
-            return Err("the Keep as Trial button is not visible".into());
+        let found = |film: &Self| match targets::resolve(&film.view(), "keep_trial_button") {
+            targets::Resolved::Found(button) => Some(button),
+            _ => None,
+        };
+        let mut button = found(self);
+        let unfolded = button.is_none() && self.unfold_edit_figures()?;
+        if unfolded {
+            button = found(self);
+        }
+        let button = button.ok_or("the Keep as Trial button is not visible")?;
+        self.click_and_invoke(&button)?;
+        self.hold(pacing::RESULT_HOLD)?;
+        if unfolded {
+            self.fold_edit_figures()?;
+        }
+        Ok(())
+    }
+
+    /// The fold button of the Edit viewport's figures card, which reads `label` ("Show Figures"
+    /// on the folded card, "Fold Figures" on the open one).
+    fn edit_figures_fold_button(&self, label: &str) -> Option<Spot> {
+        targets::role_label(
+            &self.view(),
+            label,
+            uiprobe::AccessibleRole::Button,
+            Some(EDIT_FIGURES),
+        )
+    }
+
+    /// The fold button reading `label`, looked up until two looks 100 ms apart agree.
+    ///
+    /// The card's width follows its figures (dashes until the design is scored, numbers after),
+    /// and the fold button sits at its right end. A click at a place looked up before the numbers
+    /// arrived lands on the card itself, which copies the figures instead of opening the card
+    /// (debug run of 2026-11-18, solving-trials step 1).
+    fn settled_fold_button(&mut self, label: &str) -> Option<Spot> {
+        let mut last = self.edit_figures_fold_button(label)?;
+        for _ in 0..10 {
+            pump(100);
+            let now = self.edit_figures_fold_button(label)?;
+            if (now.x - last.x).abs() < 0.5
+                && (now.y - last.y).abs() < 0.5
+                && (now.w - last.w).abs() < 0.5
+            {
+                return Some(now);
+            }
+            last = now;
+        }
+        Some(last)
+    }
+
+    /// Opens the folded figures card of the Edit viewport. Returns whether it was folded.
+    ///
+    /// Waits for the design's figures first, so the folded line has its final width, and tries
+    /// the click again (at most three times) when it did not open the card.
+    fn unfold_edit_figures(&mut self) -> Result<bool, String> {
+        if self.edit_figures_fold_button("Show Figures").is_none() {
+            return Ok(false);
+        }
+        {
+            let baseline = self.ui.global::<BaselineModel>();
+            let _ = pacing::wait_real(pacing::START_TIMEOUT, || {
+                baseline.get_cells().row_count() >= 5
+            });
+        }
+        for _ in 0..3 {
+            let Some(button) = self.settled_fold_button("Show Figures") else {
+                break;
+            };
+            self.click_and_invoke(&button)?;
+            pump(80);
+            if self.edit_figures_fold_button("Fold Figures").is_some() {
+                return Ok(true);
+            }
+        }
+        if self.edit_figures_fold_button("Fold Figures").is_some() {
+            return Ok(true);
+        }
+        Err("Show Figures did not open the Edit viewport's figures card".into())
+    }
+
+    /// Folds the open figures card of the Edit viewport again.
+    fn fold_edit_figures(&mut self) -> Result<(), String> {
+        if let Some(button) = self.settled_fold_button("Fold Figures") {
+            self.click_and_invoke(&button)?;
+            pump(80);
+        }
+        Ok(())
+    }
+
+    /// Whether the Solid view's Show menu is open (its items are only in the tree then).
+    fn show_menu_open(&self) -> bool {
+        self.view()
+            .root
+            .query_descendants()
+            .match_inherits("ShowItem")
+            .find_first()
+            .is_some()
+    }
+
+    /// The Show menu's button, which a narrow Solid view has in place of the toggles.
+    fn show_menu_button(&self) -> Option<Spot> {
+        targets::role_label(
+            &self.view(),
+            "Show Overlays",
+            uiprobe::AccessibleRole::Button,
+            Some(SOLID_TOOLBAR),
+        )
+    }
+
+    /// Opens the Show menu of a narrow Solid view, which holds Preform, Snap, Crystal Axis,
+    /// Surface Finish, Slice and Pick Meet. Returns `false` in a wide view, where they are
+    /// toggles on the toolbar and there is no menu.
+    pub(crate) fn open_show_menu(&mut self) -> Result<bool, String> {
+        if self.show_menu_open() {
+            return Ok(true);
+        }
+        let Some(button) = self.show_menu_button() else {
+            return Ok(false);
         };
         self.click_and_invoke(&button)?;
-        self.hold(pacing::RESULT_HOLD)
+        pump(80);
+        if !self.show_menu_open() {
+            return Err("Show did not open the Solid view's Show menu".into());
+        }
+        self.hold(pacing::MENU_HOLD)?;
+        Ok(true)
+    }
+
+    /// Closes the Show menu when it is open. The menu stays open after a toggle, and while it is
+    /// open every click outside it only closes it, so a route closes it before it goes on. The
+    /// click goes to the menu's own button, as a learner's would.
+    pub(crate) fn close_show_menu(&mut self) -> Result<(), String> {
+        if !self.show_menu_open() {
+            return Ok(());
+        }
+        let button = self
+            .show_menu_button()
+            .ok_or("the Show menu is open but its button is missing")?;
+        self.click_and_invoke(&button)?;
+        pump(80);
+        if self.show_menu_open() {
+            return Err("the click on Show did not close the Show menu".into());
+        }
+        Ok(())
+    }
+
+    /// Clicks the Solid view's toggle `label` (Preform, Snap, Crystal Axis, Surface Finish, Slice
+    /// or Pick Meet): on the toolbar in a wide view, in the Show menu in a narrow one, which is
+    /// opened first and closed afterwards.
+    pub(crate) fn click_solid_toggle(&mut self, label: &str) -> Result<(), String> {
+        let find = |film: &Self| {
+            targets::role_label(
+                &film.view(),
+                label,
+                uiprobe::AccessibleRole::Button,
+                Some(SOLID_TOOLBAR),
+            )
+        };
+        let mut toggle = find(self);
+        if toggle.is_none() && self.open_show_menu()? {
+            toggle = find(self);
+        }
+        let toggle = toggle.ok_or_else(|| {
+            format!("{label} is neither on the Solid view's toolbar nor in its Show menu")
+        })?;
+        self.click_and_invoke(&toggle)?;
+        pump(80);
+        self.close_show_menu()
     }
 
     /// The History tab, then its Trials view.
@@ -256,12 +427,38 @@ impl Film<'_> {
     /// Tune tab (the metric curves and the legend make the tab taller than the inspector, and the
     /// picked tier's nudges, Pair With and Accept are the last rows). Returns whether `target` is
     /// one this can reveal, so the caller asks for it again.
+    ///
+    /// It also opens what a narrow Edit viewport folds away: the Show menu for Snap, Slice and
+    /// Crystal Axis, and the figures card for Keep as Trial. [`Self::film_conceal_target`] puts
+    /// those back.
     pub(crate) fn film_reveal_target(&mut self, target: &str) -> Result<bool, String> {
-        if target != "tune_accept_button" {
-            return Ok(false);
+        match target {
+            "tune_accept_button" => {
+                self.inspector_form_control("Accept", uiprobe::AccessibleRole::Button)?;
+                Ok(true)
+            }
+            "snap_pill" | "slice_pill" | "crystal_axis_toggle" => self.open_show_menu(),
+            "keep_trial_button" => self.unfold_edit_figures(),
+            // The inspector's tab pills scroll with the editor dock: a step that follows one
+            // whose route scrolled the dock down (to the Optimize candidates, say) finds them
+            // above the dock's top edge. The step's own route scrolls to what it needs again.
+            "preform_tab" | "optimize_tab" | "history_tab" => {
+                self.scroll_dock_to_top()?;
+                Ok(true)
+            }
+            _ => Ok(false),
         }
-        self.inspector_form_control("Accept", uiprobe::AccessibleRole::Button)?;
-        Ok(true)
+    }
+
+    /// Puts back what [`Self::film_reveal_target`] opened to show `target`, once the cursor has
+    /// rested on it: an open Show menu takes the next click anywhere else, and an open figures
+    /// card covers part of the stone. The step's own route opens them again when it needs them.
+    pub(crate) fn film_conceal_target(&mut self, target: &str) -> Result<(), String> {
+        match target {
+            "snap_pill" | "slice_pill" | "crystal_axis_toggle" => self.close_show_menu(),
+            "keep_trial_button" => self.fold_edit_figures(),
+            _ => Ok(()),
+        }
     }
 
     /// The +0.1 nudge button of the picked tier.

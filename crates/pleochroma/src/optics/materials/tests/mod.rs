@@ -11,6 +11,7 @@ mod custom;
 mod dispersion;
 mod gpu;
 mod lookup;
+mod nanosital;
 mod provenance;
 mod titanite;
 mod wavelength_birefringence;

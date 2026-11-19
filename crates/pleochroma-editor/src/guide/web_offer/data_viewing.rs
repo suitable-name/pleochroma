@@ -41,7 +41,7 @@ fn custom_material() -> GuideOverlay {
         .step(
             StepOverlay::of("What a custom material holds")
                 .line(
-                    "The built-in list has 39 materials. A custom material is one you describe yourself, for a stone the list does not have.",
+                    "The built-in list has 40 materials. A custom material is one you describe yourself, for a stone the list does not have.",
                     "A custom material is one you describe yourself, for a stone the built-in list does not have.",
                 )
                 .line(
@@ -65,7 +65,7 @@ fn custom_material() -> GuideOverlay {
                     "The custom material form sits in Design Settings, so this step carries everything you need.",
                 )
                 .line(
-                    "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material....",
+                    "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), open the Material Menu (the \u{2026} button on the material card) and click New/Edit Material... to open the Material Editor.",
                     "Open Design Settings, then click Custom material.",
                 )
                 .drop_line("Optionally pick a Load Preset Template, for example Quartz.")
@@ -138,7 +138,7 @@ fn stone_effects_first(overlay: GuideOverlay) -> GuideOverlay {
         .step(
             StepOverlay::of("Look at the stone in Path-Traced")
                 .line(
-                    "Click Path-Traced in the row of view pills above the picture, and give the picture a moment to settle.",
+                    "Click Path-Traced in the row of view pills above the picture (it reads Path in a narrow window), and give the picture a moment to settle.",
                     "Click the Render tab above the picture, choose Path-Traced under QUALITY in Render Settings, and give the picture a moment to settle.",
                 )
                 .line(
@@ -233,7 +233,7 @@ fn ametrine() -> GuideOverlay {
         .step(
             StepOverlay::of("Look at both halves in Path-Traced")
                 .line(
-                    "Click Path-Traced in the row of view pills above the picture, and give the picture a moment to settle.",
+                    "Click Path-Traced in the row of view pills above the picture (it reads Path in a narrow window), and give the picture a moment to settle.",
                     "Click the Render tab above the picture, choose Path-Traced under QUALITY in Render Settings, and give the picture a moment to settle.",
                 )
                 .line(
@@ -242,9 +242,9 @@ fn ametrine() -> GuideOverlay {
                 ),
         )
         .step(
-            StepOverlay::of("Why the color controls are grey")
+            StepOverlay::of("Why the color controls are gray")
                 .line(
-                    "A design's Body Color in the Stone tab and the Live Render Color control are greyed out with a note. The refractive-index override still applies.",
+                    "A design's Body Color in the Stone tab and the Live Render Color control are grayed out with a note. The refractive-index override still applies.",
                     "A design's Body Color in Design Settings and in Render Settings does not apply to Ametrine, because its color is its two zones. The refractive-index override still applies.",
                 )
                 .drop_line("To change a zone, open New/Edit Material... in the Stone tab. The Color Pattern section shows both halves as swatches with the note Built-in pattern. Save the material under a new name to change it.")
@@ -404,7 +404,7 @@ fn live_render() -> GuideOverlay {
                     "The Solid tab is where you change the design with the handles.",
                 )
                 .line(
-                    "Click Edit in the places segment of the design header.",
+                    "Click the Edit tab in the design header.",
                     "Click Solid, the tab next to Render.",
                 ),
         )
@@ -420,7 +420,7 @@ pub(super) fn open_render_step() -> StepOverlay {
             "The Render tab is the physically based picture of the stone: the light, the material and the dispersion as they really behave.",
         )
         .line(
-            "Click Live Render in the places segment in the design header (Live Render, Edit, Cutting Instructions, Files & Downloads).",
+            "Click the Live Render tab in the design header (Live Render, Edit, Cutting Instructions, Files & Downloads).",
             "Click Render, the first tab above the picture (or press Alt+1).",
         )
         .line(

@@ -52,7 +52,7 @@ exclude = ["vendor"]
 # `crates/pleochroma-mobile-core`, its UI-free core (app state, compute threads, platform trait).
 
 [workspace.package]
-version = "0.12.0"
+version = "0.12.1"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Suitable-Name"]
@@ -173,23 +173,29 @@ jni = "0.22.4"
 android_logger = "0.15.1"
 log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
+# The mobile developer page's log bundle (`pleochroma-mobile-core`'s `diagnostics::bundle`): an
+# in-memory zip with deflate and nothing else. `default-features = false` lives here for the same
+# reason `image`'s does above. Deflate goes through `flate2`'s pure-Rust backend (`miniz_oxide`),
+# so there is no C library, no zopfli, bzip2, zstd or lzma, no AES and no `time`.
+zip = { version = "9.7", default-features = false }
+flate2 = { version = "1.1", default-features = false }
 
 # Workspace members
-pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.12.0" }
-pleochroma = { path = "crates/pleochroma", version = "0.12.0" }
-pleochroma-net = { path = "crates/pleochroma-net", version = "0.12.0" }
-pleochroma-ui-kit = { path = "crates/pleochroma-ui-kit", version = "0.12.0" }
-pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.12.0" }
-pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.12.0" }
-pleochroma-library-mirror = { path = "crates/pleochroma-library-mirror", version = "0.12.0" }
-pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.12.0" }
-pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.12.0" }
-pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.12.0" }
-pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.12.0" }
-pleochroma-update = { path = "crates/pleochroma-update", version = "0.12.0" }
-pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.12.0" }
-pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.12.0" }
-pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.12.0" }
+pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.12.1" }
+pleochroma = { path = "crates/pleochroma", version = "0.12.1" }
+pleochroma-net = { path = "crates/pleochroma-net", version = "0.12.1" }
+pleochroma-ui-kit = { path = "crates/pleochroma-ui-kit", version = "0.12.1" }
+pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.12.1" }
+pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.12.1" }
+pleochroma-library-mirror = { path = "crates/pleochroma-library-mirror", version = "0.12.1" }
+pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.12.1" }
+pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.12.1" }
+pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.12.1" }
+pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.12.1" }
+pleochroma-update = { path = "crates/pleochroma-update", version = "0.12.1" }
+pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.12.1" }
+pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.12.1" }
+pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.12.1" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

@@ -80,8 +80,10 @@ export component PatternSlider inherits HorizontalLayout {
     in property <float> maximum: 1;
     in property <float> step: 0.01;
     in property <bool> enabled: true;
-    in property <length> label_width: 64px;
-    in property <length> readout_width: 76px;
+    // Wide enough for "Inner Apothem" and "20.0 % of width"; both keep their width (min-width), so
+    // only the slider track gives way when the card is narrow.
+    in property <length> label_width: 96px;
+    in property <length> readout_width: 104px;
     in-out property <float> value;
     callback moved(float);
 

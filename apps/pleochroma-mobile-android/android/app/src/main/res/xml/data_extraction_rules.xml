@@ -27,10 +27,9 @@
         <exclude domain="root" path="file_to_exclude"/>
         -->
     </cloud-backup>
-    <!--
+    <!-- The tracer logs and the diagnostics state stay on the device. -->
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="logs/"/>
+        <exclude domain="file" path="diagnostics.toml"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

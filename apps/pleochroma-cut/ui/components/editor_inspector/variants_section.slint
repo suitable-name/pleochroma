@@ -88,9 +88,6 @@ component VariantRowView inherits Rectangle {
     // Opening is allowed as well (the guide has not switched off undo and redo).
     in property <bool> can_open;
     callback open_requested();
-    callback rename_requested();
-    callback note_requested();
-    callback delete_requested();
 
     // Why a button is switched off, or what it does while it is on.
     property <string> busy_hint: "Switched off while something is being worked out.";
@@ -193,12 +190,18 @@ component VariantRowView inherits Rectangle {
                 icon_size: 15px;
                 label: "More for " + root.entry.name;
                 hint: "Rename, edit the note of, or delete this variant.";
-                clicked => { menu.show(); }
+                clicked => {
+                    VariantsModel.menu_entry = root.entry;
+                    menu.show();
+                }
             }
         }
     }
 
+    // Acts on `VariantsModel.menu_entry`, which the button above copies from this row: the popup
+    // reads no variant of the row itself (see `VariantsModel.menu_entry`).
     menu := PopupWindow {
+        property <VariantRowData> variant: VariantsModel.menu_entry;
         x: root.width - 190px;
         y: root.height - 8px;
         width: 180px;
@@ -213,27 +216,27 @@ component VariantRowView inherits Rectangle {
                 spacing: 2px;
                 VariantMenuItem {
                     text: "Rename";
-                    reader_label: "Rename " + root.entry.name;
+                    reader_label: "Rename " + menu.variant.name;
                     hint: root.can_edit ? "Change the name of this variant." : root.busy_hint;
                     enabled: root.can_edit;
-                    clicked => { root.rename_requested(); }
+                    clicked => { VariantsModel.begin_rename(menu.variant.key); }
                 }
                 VariantMenuItem {
                     text: "Note";
-                    reader_label: "Edit the Note of " + root.entry.name;
+                    reader_label: "Edit the Note of " + menu.variant.name;
                     hint: root.can_edit ? "Write or change the note that goes with this variant." : root.busy_hint;
                     enabled: root.can_edit;
-                    clicked => { root.note_requested(); }
+                    clicked => { VariantsModel.begin_note(menu.variant.key); }
                 }
                 VariantMenuItem {
                     text: "Delete";
-                    reader_label: "Delete " + root.entry.name;
+                    reader_label: "Delete " + menu.variant.name;
                     hint: root.can_edit
                         ? "Delete this variant from your library. You are asked\nfirst, and a deleted variant cannot be brought back."
                         : root.busy_hint;
                     danger: true;
                     enabled: root.can_edit;
-                    clicked => { root.delete_requested(); }
+                    clicked => { VariantsModel.begin_delete(menu.variant.key); }
                 }
             }
         }
@@ -571,9 +574,6 @@ export component VariantsSection inherits Rectangle {
                 can_edit: root.can_edit;
                 can_open: root.can_open;
                 open_requested => { VariantsModel.open_variant(item.key); }
-                rename_requested => { VariantsModel.begin_rename(item.key); }
-                note_requested => { VariantsModel.begin_note(item.key); }
-                delete_requested => { VariantsModel.begin_delete(item.key); }
             }
 
             if VariantsModel.design_open && VariantsModel.choices.length >= 1: KitCard {

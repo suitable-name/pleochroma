@@ -446,7 +446,10 @@ Bril. 21.0 % +1.8   Wind. 58.0 % -3.0   Ext. 19.0 % +0.3   Fire 4.1 +0.2   Yield
   its figures and shows **Out of Date: Press Solve** until the next Solve.
 - **Measure Tilt** (Advanced interface) measures the tilt averages of the Baseline
   and of the design now, over all four axes. It takes a few seconds and can be
-  stopped; the tilt rows then join the strip.
+  stopped; the tilt rows then join the strip, under the caption "Tilt average to ±90°".
+  The range is the **Tilt Average Range** preference (Chapter 17), all tilts to ±90°
+  unless you narrow it. A change applies at once to the rows on screen without
+  measuring again. Optimize and Angle Sweep always rate all tilts to ±90°.
 - **Compare...** (Advanced interface) opens the tier-by-tier comparison with the
   Baseline (Chapter 14). **Keep as Trial** puts the design into the Trials list
   (Chapter 18).

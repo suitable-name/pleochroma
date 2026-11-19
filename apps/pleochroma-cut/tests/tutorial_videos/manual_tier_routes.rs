@@ -5,7 +5,7 @@ use crate::{director::Film, pacing, targets};
 use pleochroma_cut::{CuttingModeModel, EditorModel, ManipulateModel};
 use pleochroma_editor::guide::TierEntry;
 use slint::{ComponentHandle, Model};
-use std::{cell::RefCell, time::Duration};
+use std::time::Duration;
 
 impl Film<'_> {
     /// Changes the Quick Add Table's scale in the Tier form, then adds a real Pavilion ring.
@@ -132,32 +132,67 @@ impl Film<'_> {
         if !pacing::wait_real(pacing::START_TIMEOUT, || manipulate.get_pick_mode()) {
             return Err(format!("Pick in View did not start pick mode for {tier}"));
         }
-        // The rings are placed when a frame of the stone before the tier has landed. Each
-        // ring reads out as its plate: the names of the corner, then what a click does.
-        let wanted = RefCell::new(None::<String>);
+        // The rings are placed when a frame of the stone before the tier has landed. A ring has
+        // no accessible name of its own; its plate (the names of the corner, then what a click
+        // does) is drawn only while the ring is lit, so the ring is found by its place in the
+        // model (logical pixels of the viewport) and the plate is checked after the hover.
         let seen = pacing::wait_real(pacing::STEP_TIMEOUT, || {
-            let found = manipulate
+            manipulate
                 .get_pick_rings()
                 .iter()
-                .find(|ring| ring.kind == 0)
-                .map(|ring| {
-                    if ring.sub.is_empty() {
-                        ring.label.to_string()
-                    } else {
-                        format!("{}. {}", ring.label, ring.sub)
-                    }
-                });
-            let ready = found.is_some();
-            *wanted.borrow_mut() = found;
-            ready
+                .any(|ring| ring.kind == 0)
         });
-        let label = wanted
-            .into_inner()
-            .filter(|_| seen)
-            .ok_or("pick mode shows no corner ring the tier can be cut to")?;
+        if !seen {
+            return Err("pick mode shows no corner ring the tier can be cut to".into());
+        }
         self.hold(pacing::RESULT_HOLD)?;
-        let ring = targets::run_label(&self.view(), &label)
-            .ok_or_else(|| format!("the corner ring {label:?} is not visible"))?;
+        let viewport = self.viewport()?;
+        let obstructions = targets::viewport_obstructions(&self.view());
+        let (index, label, x, y) = manipulate
+            .get_pick_rings()
+            .iter()
+            .enumerate()
+            .filter(|(_, ring)| ring.kind == 0)
+            .map(|(index, ring)| {
+                let label = if ring.sub.is_empty() {
+                    ring.label.to_string()
+                } else {
+                    format!("{}. {}", ring.label, ring.sub)
+                };
+                (index, label, viewport.x + ring.x, viewport.y + ring.y)
+            })
+            .find(|&(_, _, x, y)| {
+                x > viewport.x + 8.0
+                    && x < viewport.x + viewport.w - 8.0
+                    && y > viewport.y + 8.0
+                    && y < viewport.y + viewport.h - 8.0
+                    && !obstructions.iter().any(|spot| {
+                        x >= spot.x && x <= spot.x + spot.w && y >= spot.y && y <= spot.y + spot.h
+                    })
+            })
+            .ok_or("every corner ring the tier can be cut to is covered or off the picture")?;
+        let lit = i32::try_from(index).unwrap_or(-1);
+        self.pointer(x, y)?;
+        if !pacing::wait_real(pacing::START_TIMEOUT, || manipulate.get_pick_lit() == lit) {
+            return Err(format!(
+                "hovering the corner ring {label:?} at ({x:.0}, {y:.0}) did not light it (lit ring {}, wanted {lit})",
+                manipulate.get_pick_lit()
+            ));
+        }
+        crate::support::app::pump(60);
+        if targets::run_label(&self.view(), &label).is_none() {
+            return Err(format!(
+                "the plate of the corner ring {label:?} is not visible"
+            ));
+        }
+        self.hold(pacing::RESULT_HOLD)?;
+        let ring = targets::Spot {
+            x: x - 2.0,
+            y: y - 2.0,
+            w: 4.0,
+            h: 4.0,
+            handle: None,
+        };
         self.click_and_invoke(&ring)?;
         if !pacing::wait_real(pacing::START_TIMEOUT, || {
             !manipulate.get_pick_mode() && editor.get_meet_pick_state() != 0

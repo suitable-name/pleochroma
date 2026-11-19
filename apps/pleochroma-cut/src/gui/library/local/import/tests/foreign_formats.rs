@@ -69,7 +69,7 @@ fn import_path_imports_a_synthetic_gem_through_the_asc_path() {
     );
     assert!(!outcome.had_failures, "summary: {}", outcome.summary);
     assert!(
-        outcome.summary.contains("Imported 1 file(s)"),
+        outcome.summary.contains("Imported 1 file"),
         "summary: {}",
         outcome.summary
     );
@@ -294,7 +294,7 @@ fn import_path_rejects_a_corrupt_gem_per_file_and_still_summarises() {
     );
     assert!(outcome.had_failures, "summary: {}", outcome.summary);
     assert!(
-        outcome.summary.contains("Imported 1 file(s); 1 skipped")
+        outcome.summary.contains("Imported 1 file; 1 skipped")
             && outcome
                 .summary
                 .contains("corrupt.gem (parse error: not a readable .gem file: byte 0"),

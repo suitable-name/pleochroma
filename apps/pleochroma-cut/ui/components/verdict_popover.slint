@@ -273,9 +273,8 @@ export component VerdictPopover inherits PopupWindow {
                                     reader_label: "Show the Tier for Reason "+ (idx + 1);
                                     hint: "Select this tier in the tier table.";
                                     clicked => {
-                                        EditorModel.selected_tier_index = r.tier;
-                                        EditorModel.inspector_tab = 0;
-                                        EditorModel.inspector_collapsed = false;
+                                        // Act first, close last: closing destroys this row.
+                                        EditorModel.show_tier(r.tier, GuideModel.allows_tier_form(), GuideModel.allows_tier_table());
                                         root.close();
                                     }
                                 }

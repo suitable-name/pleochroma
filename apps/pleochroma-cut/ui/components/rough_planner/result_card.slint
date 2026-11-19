@@ -234,8 +234,10 @@ component LayoutDetail inherits VerticalLayout {
                 Metric { k: "Yield"; v: root.result.yield_pct; }
                 Metric { k: "Stones"; v: root.result.stone_count == 1 ? "1 stone" : root.result.stone_count + " stones"; }
             }
-            if root.result.saw_text != "" || root.result.yield_weight_text != "": HorizontalLayout {
-                spacing: 12px;
+            // One under the other: side by side, each got half of a column that shares its row
+            // with the thumbnail, and both values elided.
+            if root.result.saw_text != "" || root.result.yield_weight_text != "": VerticalLayout {
+                spacing: 8px;
                 if root.result.saw_text != "": Metric { k: "Saw cuts"; v: root.result.saw_text; }
                 if root.result.yield_weight_text != "": Metric { k: "Of the weighed rough"; v: root.result.yield_weight_text; }
             }

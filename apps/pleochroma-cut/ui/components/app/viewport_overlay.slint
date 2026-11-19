@@ -39,8 +39,9 @@ export component EditorViewportOverlay inherits Rectangle {
 
     if EditorModel.enabled && EditorModel.has_design && EditorModel.tiers.length == 0: Rectangle {
         x: (root.width - self.width) / 2;
-        // Starts below the toolbar's pill rows, so it never covers them.
-        y: root.toolbar_inset;
+        // Starts below the toolbar's pill rows, so it never covers them, and below the folded
+        // figures card (Bril./Wind./Ext., about 36px under the pills' 8px gap).
+        y: root.toolbar_inset + 40px;
         width: min(root.width - 32px, hint_row.preferred-width);
         height: hint_row.preferred-height;
         background: Theme.popup-surface;
@@ -80,8 +81,9 @@ export component EditorViewportOverlay inherits Rectangle {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
-                // Same Add-mode entry the command bar's and tier table's own
-                // "+ Add Tier" buttons use.
+                // Same Add-mode entry the tier table's own "+ Add Tier" button uses. This card
+                // sits in the 3D view: in the short one-pane layout the Tier form is in the
+                // other pane, which `show_tier_form` brings up.
                 add_touch := TouchButton {
                     enabled: GuideModel.allows_tier_form();
                     label: "Add Tier";
@@ -90,8 +92,7 @@ export component EditorViewportOverlay inherits Rectangle {
                         : GuideModel.locked_hint;
                     clicked => {
                         EditorModel.selected_tier_index = -1;
-                        EditorModel.inspector_tab = 0;
-                        EditorModel.inspector_collapsed = false;
+                        EditorModel.show_tier_form();
                     }
                 }
             }

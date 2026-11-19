@@ -41,7 +41,7 @@ fn wizard() -> Guide {
             "The Rough Color wizard turns photos of a rough stone on a backlit camera rig into the color of the stone.",
         )
         .actions([
-            "The result is an absorption spectrum per millimetre of path, not a texture. A stone cut from the rough then shows that color at its real size.",
+            "The result is an absorption spectrum per millimeter of path, not a texture. A stone cut from the rough then shows that color at its real size.",
             "You need a mesh rough in the Rough Planner, a camera rig with eight fixed cameras and a backlight, and the mesh aligned to the rig in Locate Inclusion from Photos.",
             "For each view you need a photo of the stone and a photo of the empty rig with the backlight on (the white frame). A photo of the empty rig with the backlight off (the dark frame) is strongly recommended.",
             "One backlight gives one color. The wizard does not recover a color change, a color that depends on the direction of the light, or scattering.",
@@ -56,7 +56,7 @@ fn wizard() -> Guide {
         )
         .actions([
             "Choose Library, then Plan Rough... in the menu bar.",
-            "Under ROUGH choose Mesh (OBJ/STL/PLY) and pick the file of your scan, or open a saved plan whose rough is a mesh (Saved Plans in the title bar). The Rough Color... button stays dimmed until a mesh is loaded and no plan is running.",
+            "Under ROUGH choose Mesh (OBJ/STL/PLY) and pick the file of your scan, or open a saved plan whose rough is a mesh (Saved Plans tab in the right column). The Rough Color... button stays dimmed until a mesh is loaded and no plan is running.",
             "Click Rough Color..., next to Locate Inclusion from Photos....",
         ])
         .check("A window opens with a strip of eight steps along the top, and Back and Next at the bottom.")
@@ -67,7 +67,7 @@ fn wizard() -> Guide {
     .step(
         GuideStep::new(
             "Photos and calibration",
-            "Steps 1 to 3 say which rig was used, load the photos and tell the wizard how the camera and the backlight are known.",
+            "The first three wizard steps (Checklist, Photos, Calibration) say which rig was used, load the photos and tell the wizard how the camera and the backlight are known.",
         )
         .actions([
             "Checklist: pick the rig. The line under it says whether the mesh is aligned to this rig; Locate... opens the Locate window where you align it.",
@@ -94,7 +94,7 @@ fn wizard() -> Guide {
     .step(
         GuideStep::new(
             "Zones and the fit",
-            "Step 6 fits one color for the whole stone, or one color for each zone you describe.",
+            "The Fit step fits one color for the whole stone, or one color for each zone you describe.",
         )
         .actions([
             "A stone without zones has just the Base Zone. For a watermelon, a bicolor or an ametrine, add zones with the five shape buttons: Half Space, Slab, Cylinder, Prism and Sector, up to four besides the base. Select a zone to type its numbers, or drag its handles in the Rough Planner's 3D view.",
@@ -107,10 +107,10 @@ fn wizard() -> Guide {
     .step(
         GuideStep::new(
             "Read the result",
-            "Step 7 shows, for each view, the photo, the render the fitted color predicts and the difference between them.",
+            "The Compare step shows, for each view, the photo, the render the fitted color predicts and the difference between them.",
         )
         .actions([
-            "If you have no photos yet, open a saved plan that already has a color (Saved Plans in the title bar of the Rough Planner) and press Rough Color...: the wizard restores the stored working-resolution photos and the fit, so Compare works without the original files.",
+            "If you have no photos yet, open a saved plan that already has a color (Saved Plans tab of the Rough Planner) and press Rough Color...: the wizard restores the fit and its numbers. The photo, render and difference pictures need the photos loaded in this session, so after a restore they read Not available yet; load the photos and run the fit again to fill them.",
             "Under the pictures, Color difference (CIEDE2000) gives the median, the 95 % level and the worst value. A value of 1 is barely visible, about 2 is visible side by side, and 5 or more is a clear difference.",
             "How well it fits holds the leave-one-view-out table: the wizard fits again without one view, predicts that view and compares it with the photo. A row more than 3 dE off is amber and often means a wrong mask, a badly aligned mesh or a zone nobody described.",
             "Predicted Colors shows a swatch for the base zone and each zone, at 7 mm and at your planned width, under D65 and under lamp A, as Lab values with a plus-or-minus number and a metamer spread.",
@@ -147,7 +147,7 @@ fn in_planner() -> Guide {
             "The rough's color is stored against a saved plan, so the planner shows it only for a plan you have saved and opened.",
         )
         .actions([
-            "Choose Library, then Plan Rough..., and open Saved Plans in the title bar. Open a plan that has a rough color; the Rough Color wizard lesson shows how to make one.",
+            "Choose Library, then Plan Rough..., and click the Saved Plans tab in the right column. Open a plan that has a rough color; the Rough Color wizard lesson shows how to make one.",
             "The stones in the result scenes and thumbnails are then drawn in their own color: the color of the rough where the stone's face-up path runs, weighted by how much of that path each zone takes.",
             "Results that were just planned and not saved are drawn with the palette colors.",
         ])
@@ -184,12 +184,12 @@ fn in_planner() -> Guide {
     .step(
         GuideStep::new(
             "What the color is made of",
-            "The material carries real millimetres, so the color scales with the stone and no slider is involved.",
+            "The material carries real millimeters, so the color scales with the stone and no slider is involved.",
         )
         .actions([
-            "Open the Stone tab of the Parameters dock and click New/Edit Material.... Its Color Pattern section shows the zones as a strip of swatches, and Edit Pattern... opens them in the Color Pattern window.",
-            "Zone Geometry Relative to Stone Size keeps the zones as fractions of the stone width, so a stone cut twice as wide gets zones twice as wide. Off, the zones keep their millimetre sizes.",
-            "A design's Body Color and the Live Render Color control do not apply to a zoned material, because its color is its zones. Both are greyed out with a note.",
+            "Open the Stone tab of the Parameters dock and click New/Edit Material... in the Material Menu. Its Color Pattern section shows the zones as a strip of swatches, and Edit Pattern... opens them in the Color Pattern window.",
+            "Zone Geometry Relative to Stone Size keeps the zones as fractions of the stone width, so a stone cut twice as wide gets zones twice as wide. Off, the zones keep their millimeter sizes.",
+            "A design's Body Color and the Live Render Color control do not apply to a zoned material, because its color is its zones. Both are grayed out with a note.",
             "Zones show in the Path-Traced views. A zoned stone with scattering renders on the processor.",
         ])
         .why("Every control is unlocked again.")
@@ -240,7 +240,7 @@ fn ametrine() -> Guide {
             "The zones show where light travels through the stone, so the Path-Traced view is where to look.",
         )
         .actions([
-            "Click Path-Traced in the row of view pills above the picture, and give the picture a moment to settle.",
+            "Click Path-Traced in the row of view pills above the picture (it reads Path in a narrow window), and give the picture a moment to settle.",
         ])
         .check("The picture shows a purple half and a yellow-orange half that meet along one straight line.")
         .why("From Solid, the click gives Solid combined with Path-Traced, which shows the zones too; click Solid to turn the flat layer off. The Solid view and Ray-Traced show a base color only.")
@@ -251,11 +251,11 @@ fn ametrine() -> Guide {
     )
     .step(
         GuideStep::new(
-            "Why the color controls are grey",
+            "Why the color controls are gray",
             "The color of Ametrine is its two zones, so a single color has nothing to change.",
         )
         .actions([
-            "A design's Body Color in the Stone tab and the Live Render Color control are greyed out with a note. The refractive-index override still applies.",
+            "A design's Body Color in the Stone tab and the Live Render Color control are grayed out with a note. The refractive-index override still applies.",
             "To change a zone, open New/Edit Material... in the Stone tab. The Color Pattern section shows both halves as swatches with the note Built-in pattern. Save the material under a new name to change it.",
             "Saving Ametrine under a new name makes a custom material that keeps both zones, and its pattern can then be edited in the Color Pattern window.",
         ])

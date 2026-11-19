@@ -47,6 +47,10 @@ export global VariantsModel {
     in property <string> list_error;
     // The open design's variants, newest first.
     in property <[VariantRowData]> rows;
+    // The variant whose "..." menu is open, copied by its row's button when it opens the menu.
+    // The menu reads it from here, never from the row: a `PopupWindow` inside a `for` row could
+    // act on another row's variant.
+    in-out property <VariantRowData> menu_entry;
 
     // What can be compared: "Current design" first, then the variants, newest first.
     in property <[string]> choices;

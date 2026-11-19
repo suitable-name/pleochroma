@@ -323,14 +323,14 @@ component DetailActions inherits HorizontalLayout {
                     icon: @image-url("../icons/globe.svg");
                     text: "Open on the Web";
                     hint: "Open this design's page on the web, in your browser.";
-                    activated => { anchor.close_menu(); root.open_url(root.detail.url); }
+                    activated => { root.open_url(root.detail.url); anchor.close_menu(); }
                     dismissed => { anchor.close_menu(); }
                 }
                 if root.detail.url != "" && !root.detail.is_local: HeaderMenuItem {
                     icon: @image-url("../icons/clipboard.svg");
                     text: "Copy Link";
                     hint: "Copy the web address of this design to the clipboard.";
-                    activated => { anchor.close_menu(); root.copy_url(root.detail.url); }
+                    activated => { root.copy_url(root.detail.url); anchor.close_menu(); }
                     dismissed => { anchor.close_menu(); }
                 }
                 // "Build this design": turns this design into a step-by-step lesson that rebuilds it
@@ -342,7 +342,7 @@ component DetailActions inherits HorizontalLayout {
                     text: "Build This Design";
                     hint: "A step-by-step lesson that rebuilds this design from an empty design, one tier at a time.";
                     enabled: !BuildDesignModel.busy;
-                    activated => { anchor.close_menu(); BuildDesignModel.start_selected(); }
+                    activated => { BuildDesignModel.start_selected(); anchor.close_menu(); }
                     dismissed => { anchor.close_menu(); }
                 }
                 // Metadata editor: title, designer, shape, refractive index, index gear, facet count,
@@ -353,7 +353,7 @@ component DetailActions inherits HorizontalLayout {
                     icon: @image-url("../icons/info.svg");
                     text: "Edit Metadata";
                     hint: "Edit the title, designer, shape, refractive index, gear, facet count and proportions.";
-                    activated => { anchor.close_menu(); root.edit_metadata(); }
+                    activated => { root.edit_metadata(); anchor.close_menu(); }
                     dismissed => { anchor.close_menu(); }
                 }
                 // The catalogue's cutting instructions as a Gem Cut Studio file
@@ -363,7 +363,7 @@ component DetailActions inherits HorizontalLayout {
                     text: "Export Gem Cut Studio File";
                     label: "Export as Gem Cut Studio File";
                     hint: "Save the cutting instructions as a Gem Cut Studio (.gcs) file. Experimental: it follows the published Gem Cut Studio 1.1 file description, and chiral designs are untested.";
-                    activated => { anchor.close_menu(); root.export_gcs(); }
+                    activated => { root.export_gcs(); anchor.close_menu(); }
                     dismissed => { anchor.close_menu(); }
                 }
                 Rectangle { height: 9px; Rectangle { y: 4px; height: 1px; background: Theme.border-subtle; } }
@@ -389,7 +389,7 @@ component DetailActions inherits HorizontalLayout {
                     text: "Yes, Delete This Design";
                     hint: "Delete this design now.";
                     danger: true;
-                    activated => { anchor.close_menu(); root.delete_diagram(); }
+                    activated => { root.delete_diagram(); anchor.close_menu(); }
                     dismissed => { anchor.close_menu(); }
                 }
                 if root.confirming_delete: HeaderMenuItem {
@@ -590,6 +590,13 @@ export component DetailHeaderView inherits Rectangle {
     // Below 800px the one-line header also leaves out L/W (the Shape chip says nearly as much),
     // so R.I. still fits at the 720 px minimum window width.
     property <bool> tiny: root.window_width < 800px;
+    // The column this header gets: the window less its padding and the library (open, or on its
+    // rail). Computed from the window, like the thresholds above, never from `root.width`.
+    property <length> column_width: root.window_width - 24px - (LibraryModel.panel_collapsed ? 52px : 352px);
+    // A design is selected and the column is too narrow for its title, the places segment and the
+    // action buttons in one row (a small window with the library open): the places segment goes
+    // on a row of its own, so the title stays readable and no button leaves the window.
+    property <bool> two_rows: root.column_width < 560px && root.detail.title != "";
     // Shape picker's option list and which entry matches `detail.shape` (-1 for
     // unclassified) -- see `library::build_shape_picker_options`'s doc comment.
     // Local designs only: the pencil below is gated on `detail.is_local`.
@@ -755,9 +762,9 @@ export component DetailHeaderView inherits Rectangle {
                 italic: true;
             }
 
-            Rectangle { horizontal-stretch: 1; }
+            if !root.two_rows: Rectangle { horizontal-stretch: 1; }
 
-            VerticalLayout {
+            if !root.two_rows: VerticalLayout {
                 alignment: center;
                 PlacesSegment {
                     compact: root.window_width < 1200px;
@@ -781,6 +788,24 @@ export component DetailHeaderView inherits Rectangle {
                     export_asc => { root.export_asc(); }
                     export_gcs => { root.export_gcs(); }
                     delete_diagram => { root.delete_diagram(); }
+                }
+            }
+        }
+        // The places segment on its own row (`two_rows`).
+        if root.effective_compact && root.two_rows: HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-bottom: 6px;
+            alignment: end;
+            VerticalLayout {
+                alignment: center;
+                PlacesSegment {
+                    compact: true;
+                    tight: true;
+                    active_tab <=> root.active_tab;
+                    active_tab_changed(v) => { root.active_tab_changed(v); }
+                    render_view_tab <=> root.render_view_tab;
+                    render_view_tab_changed(v) => { root.render_view_tab_changed(v); }
                 }
             }
         }
@@ -952,7 +977,7 @@ export component DetailHeaderView inherits Rectangle {
                     spacing: 8px;
                     alignment: end;
 
-                    VerticalLayout {
+                    if !root.two_rows: VerticalLayout {
                         alignment: center;
                         PlacesSegment {
                             compact: root.window_width < 1200px;
@@ -983,6 +1008,19 @@ export component DetailHeaderView inherits Rectangle {
                             hint: "Open the manual page on selecting and inspecting a design";
                         }
                     }
+                }
+            }
+
+            // The places segment on its own row (`two_rows`).
+            if root.two_rows: HorizontalLayout {
+                alignment: end;
+                PlacesSegment {
+                    compact: true;
+                    tight: true;
+                    active_tab <=> root.active_tab;
+                    active_tab_changed(v) => { root.active_tab_changed(v); }
+                    render_view_tab <=> root.render_view_tab;
+                    render_view_tab_changed(v) => { root.render_view_tab_changed(v); }
                 }
             }
 

@@ -425,7 +425,8 @@ mod tests {
             after_mast: 1.25,
         }];
         let text = format_tier_mast_deltas(&deltas);
-        assert!(text.contains("tier 3"));
+        // The sentence numbers tiers like the table does (1-based).
+        assert!(text.contains("tier 4"));
         assert!(text.contains("+0.2500"));
     }
 

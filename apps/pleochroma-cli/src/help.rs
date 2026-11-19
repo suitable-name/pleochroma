@@ -165,13 +165,30 @@ warnings. Exit code 2 when the design does not solve or does not close.
 ";
 
 const METRICS: &str = "\
-Usage: pleochroma-cli metrics <design>... [--material NAME | --ri N] [--tilt] [--aset-grid]
-                              [--json | --csv] [--lighting NAME] [--out FILE | --out-dir DIR]
-                              [--db FILE]
+Usage: pleochroma-cli metrics <design>... [--material NAME | --ri N] [--tilt]
+                              [--tilt-range DEG] [--aset-grid] [--ri-range]
+                              [--json | --csv] [--lighting NAME]
+                              [--out FILE | --out-dir DIR] [--db FILE]
 
 Table-up windowing, brilliance, extinction, fire, scintillation, contrast and the zone
 shares, the proportions of the stone and its yield. With --tilt the tilt performance is
-averaged over four axes and 181 angles too (about a second and a half).
+averaged too: the mean over every tilt to 90 degrees on four axes (181 angles each, about a
+second and a half). --tilt-range DEG narrows the mean to the tilts up to DEG degrees from table
+up (15, 20, 30, 45, 60 or 90), as the Tilt Average Range preference does for Compare and the
+Baseline figures; the report then names the range in the tilt heading, and --json and --csv
+add it as tilt_range_deg (the last CSV column). The command line never reads the app's
+settings. Optimize, sweep and the other scoring commands always rate all tilts to 90 degrees.
+
+With --ri-range the stone is traced across refractive indices from 1.40 to 2.70 and the
+report adds the range the design works in. It prints the table of the traced steps (the
+0.05 grid and the bisection points): the index, the windowing table up, and the windowing,
+brilliance and extinction at 10 degrees of tilt, each in percent, then the low bound and the
+high bound, the range as a sheet states it, and the row at the design's own index. The high
+bound is marked uncalibrated until its thresholds are calibrated. The trace takes about 350
+pose evaluations, each in a flat material of the step's index; the design's own index (its
+material, or --ri) only picks the own row. --json adds an ri_range object with the same rows
+and bounds. With --csv the report is that table (a header line, the own row, then one
+line per step, the bounds repeated on each line) instead of the one row of figures.
 
 Contrast (0 to 100) is Pleochroma's own measure: 100 times the mean difference in Blue share
 between neighbouring spots of the 18 x 18 face-up grid (left-right and up-down pairs of
@@ -200,7 +217,10 @@ Two girdle figures, both as a percentage of the width:
 
   --material NAME   Score in this material.
   --ri N            Score in a material of this refractive index.
-  --tilt            Also average the tilt performance.
+  --tilt            Also average the tilt performance (every tilt to 90 degrees, four axes).
+  --tilt-range DEG  With --tilt: average only the tilts up to DEG degrees (15, 20, 30, 45, 60
+                    or 90; default 90).
+  --ri-range        Also trace the range of refractive indices the stone works in.
   --aset-grid       Also print the 18 x 18 Blue shares Contrast is computed from (text only).
   --json | --csv    Print JSON, or a header line and one row, instead of text.
   --lighting NAME   The light the score is taken under (default grading, the grading tray).
@@ -1345,7 +1365,9 @@ mod tests {
                     "--material",
                     "--ri",
                     "--tilt",
+                    "--tilt-range",
                     "--aset-grid",
+                    "--ri-range",
                     "--json",
                     "--csv",
                     "--lighting",

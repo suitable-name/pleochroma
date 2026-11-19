@@ -66,6 +66,7 @@ pub use pleochroma_formats::native::{
     NativePreformShape, PreformTable, RayBandsTable, SourceTable, TierTable,
     design::{
         AttachmentBlob, AttachmentRole, DesignFile, DesignFileError, DesignMetadata, FileKind,
+        RiRangeChoice,
     },
     sha256_hex,
 };

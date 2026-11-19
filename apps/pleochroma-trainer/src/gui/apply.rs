@@ -87,11 +87,14 @@ pub fn apply_display(c: &TrainingController<'_>, s: &ProgressSnapshot) {
     c.set_has_gap(s.validation.is_some_and(|v| v.gap.is_some()));
     let validation = s.validation.unwrap_or(ValidationSnapshot {
         score: 0.0,
+        deployed_score: None,
         brilliance: 0.0,
         windowing: 0.0,
         gap: None,
     });
     c.set_val_score(validation.score);
+    c.set_has_deployed_score(validation.deployed_score.is_some());
+    c.set_val_deployed_score(validation.deployed_score.unwrap_or_default());
     c.set_val_brilliance(validation.brilliance);
     c.set_val_windowing(validation.windowing);
     c.set_generalization_gap(validation.gap.unwrap_or_default());

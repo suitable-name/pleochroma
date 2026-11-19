@@ -3,7 +3,7 @@
 //
 //   DESIGN    New Design, Open, Save, Save As, Share Design, Export .asc, Share .asc
 //   LIBRARY   Save to Library, Recent (the recent designs), Clear Recent Items
-//   APP       Remote, Preferences, Help, About
+//   APP       Remote, Preferences, Help, About, Developer (only while unlocked)
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Shell } from "../models.slint";
@@ -15,6 +15,8 @@ import { Icon } from "../shell/icon.slint";
 import { RemotePage } from "remote.slint";
 import { PreferencesPage } from "preferences.slint";
 import { AboutPage } from "about.slint";
+import { DeveloperPage, Developer } from "developer.slint";
+import { LogViewerPage } from "log_viewer.slint";
 import { LicensesPage } from "licenses.slint";
 import { PlaceholderPage } from "placeholder.slint";
 import { PageColumn, GroupHeader } from "fields.slint";
@@ -198,6 +200,19 @@ component MoreMenu inherits Rectangle {
 
                     Chevron { }
                 }
+
+                // Only while unlocked (five taps on About), for this session.
+                if Developer.unlocked: ListRow {
+                    icon: Icons.developer;
+                    title: "Developer";
+                    supporting: Developer.probe-running ? "GPU probe running…" : "Tracer log, logs and GPU probe · this session only";
+                    clicked => {
+                        Shell.developer-return = 0;
+                        Shell.more-page = 6;
+                    }
+
+                    Chevron { }
+                }
             }
         }
     }
@@ -223,4 +238,8 @@ export component MorePage inherits Rectangle {
             Shell.request-back();
         }
     }
+
+    if Shell.more-page == 6: DeveloperPage { }
+
+    if Shell.more-page == 7: LogViewerPage { }
 }

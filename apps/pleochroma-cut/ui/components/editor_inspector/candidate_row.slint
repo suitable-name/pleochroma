@@ -1,4 +1,5 @@
 import { Theme } from "../../theme.slint";
+import { TiltWindows } from "../../shared/tilt_windows.slint";
 import { OptimizeCandidateRow } from "../../models/optimize.slint";
 import { R3Delta } from "../kit/r3c.slint";
 
@@ -49,6 +50,9 @@ export component CandidateRowView inherits Rectangle {
     property <bool> is_start: root.item.rank == "Start";
 
     height: 64px;
+    // The six figure chips add up to more than a narrow dock; the card clips them instead of
+    // making the whole Optimize tab wider than its scroll view (which cut every row at the edge).
+    min-width: 0px;
     border-radius: 10px;
     background: root.selected ? Theme.surface-selected : (row_touch.has-hover ? Theme.bg-card-hover : Theme.surface-raised);
     border-width: (root.selected || root.ringed) ? 2px : 1px;
@@ -93,6 +97,7 @@ export component CandidateRowView inherits Rectangle {
                 overflow: elide;
             }
             HorizontalLayout {
+                min-width: 0px;
                 spacing: 5px;
                 alignment: start;
                 R3Delta {
@@ -105,7 +110,7 @@ export component CandidateRowView inherits Rectangle {
                     text: "Bril. " + root.item.brilliance;
                     trend: root.item.brilliance_dir;
                     arrow: root.item.brilliance_dir > 0 ? 1 : (root.item.brilliance_dir < 0 ? -1 : 0);
-                    hint: "Tilt brilliance: the light the stone returns to the eye\nas it is tilted. Higher is better.";
+                    hint: "Tilt brilliance: the light the stone returns to the eye\nas it is tilted, over all tilts to " + TiltWindows.scored + ". Higher is better.";
                 }
                 R3Delta {
                     text: "Wind. " + root.item.windowing;

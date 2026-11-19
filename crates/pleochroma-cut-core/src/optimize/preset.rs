@@ -94,22 +94,22 @@ impl ObjectivePreset {
         match self {
             Self::Balanced => "Balanced: brightness, windowing and extinction weighed equally.",
             Self::Brilliance => {
-                "Brilliance: favours the light returned to the eye as the stone tilts."
+                "Brilliance: favors the light returned to the eye as the stone tilts."
             }
             Self::LowWindowing => {
-                "Low Windowing: favours avoiding see-through areas in the pavilion."
+                "Low Windowing: favors avoiding see-through areas in the pavilion."
             }
             Self::LowExtinction => {
-                "Low Extinction: favours avoiding dark areas where light is lost."
+                "Low Extinction: favors avoiding dark areas where light is lost."
             }
             Self::KeepWeight => {
                 "Keep Weight: also weighs how much of the rough the finished stone keeps."
             }
             Self::LightenDark => {
-                "Lighten Dark Rough: favours shorter light paths through the body color, so the stone shows lighter face-up."
+                "Lighten Dark Rough: favors shorter light paths through the body color, so the stone shows lighter face-up."
             }
             Self::IntensifyPale => {
-                "Intensify Pale Rough: favours longer light paths through the body color, so the stone shows a stronger color face-up."
+                "Intensify Pale Rough: favors longer light paths through the body color, so the stone shows a stronger color face-up."
             }
         }
     }

@@ -36,7 +36,7 @@ use super::{
     VECTOR_VIEW_HEIGHT, VECTOR_VIEW_WIDTH,
     details::SheetDetails,
     diagram::{CutViews, DiagramImage, render_vector_cut_views},
-    layout::{SectionLine, SheetLayout},
+    layout::{LINE_BREAK, SectionLine, SheetLayout},
     orientation::push_orientation,
 };
 use pleochroma::{
@@ -314,14 +314,20 @@ fn push_size_data(out: &mut String, layout: &SheetLayout) {
 }
 
 /// Design Data: the template's five rows, label | value.
+///
+/// A value on two lines (the "RI range" row with a stated range) breaks with a `<br>`.
 fn push_design_data(out: &mut String, layout: &SheetLayout) {
     out.push_str("<h2 class=\"block\">Design Data</h2>\n<table class=\"block design\">\n");
     for (label, value) in &layout.design_data {
+        let value = value
+            .split(LINE_BREAK)
+            .map(html_escape)
+            .collect::<Vec<_>>()
+            .join("<br>");
         let _ = writeln!(
             out,
-            "<tr><td class=\"split\">{}</td><td>{}</td></tr>",
+            "<tr><td class=\"split\">{}</td><td>{value}</td></tr>",
             html_escape(label),
-            html_escape(value)
         );
     }
     out.push_str("</table>\n");

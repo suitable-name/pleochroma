@@ -12,7 +12,7 @@
 //!   a migration and `create_tables_if_not_exist`.
 //! - [`tables`]: the migrations that create a whole side table (previews, tilt curves,
 //!   solid extents and hull, saved plans, planner exclusions, per-design variants,
-//!   cutting progress and lighting, render jobs, tags) and the tilt-curve prune.
+//!   cutting progress and lighting, render jobs, RI ranges, tags) and the tilt-curve prune.
 //!
 //! The column-level migrations stay here, in declaration/run order.
 
@@ -32,7 +32,8 @@ pub(super) use schema::{
     DESIGN_CUT_PROGRESS_TABLE_SQL, DESIGN_LIGHTING_TABLE_SQL, DESIGN_VARIANTS_TABLE_SQL,
     DIAGRAM_FROSTING_TABLE_SQL, DIAGRAM_PLANNER_EXCLUSIONS_TABLE_SQL, DIAGRAM_PREVIEWS_TABLE_SQL,
     DIAGRAM_SOLID_EXTENTS_TABLE_SQL, DIAGRAM_SOLID_HULL_TABLE_SQL, RENDER_JOBS_TABLE_SQL,
-    SAVED_ROUGH_PLANS_TABLE_SQL, SEARCH_INDEXES_SQL, TAG_TABLES_SQL, diagram_tilt_curves_table_sql,
+    RI_RANGES_TABLE_SQL, SAVED_ROUGH_PLANS_TABLE_SQL, SEARCH_INDEXES_SQL, TAG_TABLES_SQL,
+    diagram_tilt_curves_table_sql,
 };
 
 impl Database {

@@ -115,7 +115,10 @@ export component EditorTierTable inherits Rectangle {
                 vertical-stretch: 1;
                 // Room for up to three rows, however full the toolbar above is: the dock scrolls
                 // rather than squashing the list to a sliver.
-                min-height: Math.max(60px, Math.min(EditorModel.tiers.length, 3) * 52px + 24px);
+                // A row is 52px and each block's first row carries a 24px heading on top, so
+                // the room counts both: three rows then show whole even when every one starts
+                // a block (Pavilion, Girdle, Crown).
+                min-height: Math.max(60px, Math.min(EditorModel.tiers.length, 3) * 76px + 8px);
 
                 // Keyboard navigation for the tier list: Up, Down, Home, End, PageUp, PageDown,
                 // Enter, Space, Escape, Delete, Ctrl+D, F2, Alt+Up and Alt+Down. Every branch
@@ -263,7 +266,7 @@ export component EditorTierTable inherits Rectangle {
                     x: 0px;
                     y: 4px;
                     width: parent.width;
-                    text: "No tiers yet -- open the Tier tab below to add one.";
+                    text: "No tiers yet. Open the Tiers tab below to add one.";
                     font-size: 11px;
                     color: Theme.text-muted;
                     horizontal-alignment: center;

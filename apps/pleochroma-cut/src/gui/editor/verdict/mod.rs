@@ -39,6 +39,8 @@ mod present;
 mod tests;
 mod work;
 
+pub(in crate::gui::editor) use work::apply_small_tilt;
+
 use self::work::{Job, Outcome};
 use super::state::EditorState;
 use crate::{
@@ -248,6 +250,8 @@ fn reset(ui: &MainWindow) {
     });
     DEBOUNCE.with(Timer::stop);
     present::push_hidden(ui);
+    // No tiers: the Stone tab's RI chip goes too.
+    super::ri_range::design_cleared(ui);
 }
 
 /// The sentence for a design that did not solve, from the editor's own status line.

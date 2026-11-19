@@ -13,6 +13,7 @@
 
 use std::time::Duration;
 
+use pleochroma::diag::{Engine, PrepareStep};
 use pleochroma_solid::preview::view::with_min_aspect;
 
 mod restart_probe;
@@ -25,10 +26,19 @@ use super::{
 use crate::{
     app_state::AppState,
     design_props::{LightValues, lighting_view, set_light_values},
+    diagnostics::exit::CacheDecision,
     layout::Destination,
-    render::{self, ExportColorSpace, ExportRequest, PauseReason, RenderStatus, RenderView},
+    render::{
+        self, ExportColorSpace, ExportRequest, PROBE_WAIT_SENTENCE, PauseReason, RenderStatus,
+        RenderView,
+    },
     settings::{LightingSettings, RenderQuality, RenderSettings},
 };
+
+/// Seconds in one preparing step after which the offer to use the CPU appears.
+pub const LONG_STEP_OFFER_S: u32 = 45;
+/// How often the driver asks again while the GPU probe holds the render back.
+pub const PROBE_POLL: Duration = Duration::from_millis(500);
 
 /// The trace raster's long edge on a compact window, in px.
 pub const TRACE_EDGE_COMPACT: u32 = 512;
@@ -212,7 +222,11 @@ impl FailureRetry {
         let healthy = match status {
             RenderStatus::Tracing { samples, .. } => *samples > 0,
             RenderStatus::Done { .. } => true,
-            _ => false,
+            // A render still preparing has not shown that it runs.
+            RenderStatus::Idle
+            | RenderStatus::Paused(_)
+            | RenderStatus::Failed(_)
+            | RenderStatus::Preparing { .. } => false,
         };
         if healthy {
             *self = Self::default();
@@ -248,6 +262,8 @@ pub struct RenderDriver {
     last_probe: Option<RestartProbe>,
     blocked: Option<(BlockKey, String)>,
     retry: FailureRetry,
+    /// A traced picture of this run is on screen (the probe gate words differ with one).
+    picture_shown: bool,
 }
 
 impl RenderDriver {
@@ -255,6 +271,12 @@ impl RenderDriver {
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.active
+    }
+
+    /// Whether a traced picture is on screen.
+    #[must_use]
+    pub const fn has_picture(&self) -> bool {
+        self.picture_shown
     }
 
     /// Forgets the run, the last start attempt and the failed tries, so the next
@@ -287,6 +309,7 @@ impl RenderDriver {
     fn step(&mut self, state: &mut AppState, now: Duration, touching: bool) -> Maintain {
         if !wants(state) {
             state.viewport.render_live.reset();
+            self.picture_shown = false;
             if self.active {
                 state.render.stop();
                 self.active = false;
@@ -308,6 +331,18 @@ impl RenderDriver {
                 return Maintain::Wait(delay);
             }
             Gate::Idle | Gate::Go => {}
+        }
+        // While the GPU probe runs nothing starts: the ask is remembered and the driver asks
+        // again soon. When the probe has ended the remembered start runs (the run is forgotten
+        // so the scene comparison below cannot call the stopped render current).
+        if state.render.held_by_probe() {
+            state.render.note_start_asked();
+            self.forget_run();
+            return Maintain::Wait(PROBE_POLL);
+        }
+        state.render.resume_after_probe();
+        if state.render.take_restart_wanted() {
+            self.forget_run();
         }
         let owes = state.viewport.render_live.owes_restart();
         let compact = state.window_class == crate::layout::WindowClass::Compact;
@@ -438,13 +473,14 @@ pub fn light_picture_stale(state: &AppState) -> bool {
         && (live.owes_restart()
             || matches!(
                 state.render.status(),
-                RenderStatus::Tracing { samples: 0, .. }
+                RenderStatus::Tracing { samples: 0, .. } | RenderStatus::Preparing { .. }
             ))
 }
 
 /// A traced frame of `epoch` was put on screen. Returns whether the Solid raster gave way to
 /// it, so the viewport must be pushed again.
 pub fn frame_landed(state: &mut AppState, epoch: u64) -> bool {
+    state.viewport.driver.picture_shown = true;
     let camera = state.viewport.camera;
     state.viewport.render_live.frame_landed(epoch, camera)
 }
@@ -499,11 +535,20 @@ pub fn status_line(state: &AppState) -> String {
     if state.viewport.render_live.owes_restart() && state.viewport.touch.is_down() {
         return "Release to render this view".to_owned();
     }
+    if state.render.held_by_probe() {
+        return probe_wait_line(state.viewport.driver.has_picture()).1;
+    }
     let status = state.render.status();
     if let Some(waiting) = waiting_notice(&status, &state.render.backend_report()) {
         return waiting;
     }
     match status {
+        RenderStatus::Preparing {
+            step,
+            done,
+            total,
+            elapsed_s,
+        } => preparing_line(step, done, total, elapsed_s),
         RenderStatus::Idle => state
             .viewport
             .driver
@@ -596,6 +641,9 @@ pub fn pill_line(state: &AppState) -> (String, String) {
     if state.viewport.render_live.owes_restart() && state.viewport.touch.is_down() {
         return ("Camera".to_owned(), line);
     }
+    if state.render.held_by_probe() {
+        return probe_wait_line(state.viewport.driver.has_picture());
+    }
     let ray = state.settings.render.engine_spec().is_ray();
     let device = device_phrase(&state.render.backend_report());
     let with_device = |base: String| match &device {
@@ -603,6 +651,17 @@ pub fn pill_line(state: &AppState) -> (String, String) {
         None => base,
     };
     match state.render.status() {
+        // No device phrase while preparing: at 390 px it would cut the count off, and Render
+        // Details names the device.
+        RenderStatus::Preparing {
+            step,
+            done,
+            total,
+            elapsed_s,
+        } => (
+            "Preparing".to_owned(),
+            preparing_detail(step, done, total, elapsed_s),
+        ),
         RenderStatus::Idle => ("Starting".to_owned(), line),
         RenderStatus::Tracing { samples, target } => (
             "Refining".to_owned(),
@@ -646,8 +705,161 @@ pub fn progress_fraction(status: &RenderStatus) -> Option<f32> {
             (f64::from(*samples) / f64::from(*target)).clamp(0.0, 1.0) as f32
         }),
         RenderStatus::Done { .. } => Some(1.0),
-        RenderStatus::Idle | RenderStatus::Failed(_) => Some(0.0),
+        RenderStatus::Idle | RenderStatus::Failed(_) | RenderStatus::Preparing { .. } => Some(0.0),
         RenderStatus::Paused(_) => None,
+    }
+}
+
+/// The step's words for the status line, before the time suffix.
+fn preparing_words(step: PrepareStep, done: u32, total: u32) -> String {
+    match step {
+        PrepareStep::Idle | PrepareStep::StartingGpu => {
+            "Starting the graphics card\u{2026}".to_owned()
+        }
+        PrepareStep::BuildingShaders if total > 1 => {
+            format!("Building shaders \u{b7} {done} of {total}")
+        }
+        PrepareStep::BuildingShaders => "Building the Ray-Traced shader".to_owned(),
+        PrepareStep::Uploading => "Uploading the stone\u{2026}".to_owned(),
+        PrepareStep::FirstTrace => "Tracing the first picture\u{2026}".to_owned(),
+    }
+}
+
+/// The status line while a GPU step is in flight: "Building shaders · 3 of 18",
+/// "Starting the graphics card…", "Uploading the stone…" or "Building the Ray-Traced shader ·
+/// 12 s". A long step adds its time ("… · 47 s").
+fn preparing_line(step: PrepareStep, done: u32, total: u32, elapsed_s: u32) -> String {
+    let words = preparing_words(step, done, total);
+    let single_build = step == PrepareStep::BuildingShaders && total <= 1;
+    if single_build || elapsed_s >= LONG_STEP_OFFER_S {
+        format!("{words} \u{b7} {elapsed_s} s")
+    } else {
+        words
+    }
+}
+
+/// The pill's detail while a GPU step is in flight: "Building shaders 3 of 18" (the count
+/// without the dot), and the time once the step is long.
+fn preparing_detail(step: PrepareStep, done: u32, total: u32, elapsed_s: u32) -> String {
+    let words = match step {
+        PrepareStep::BuildingShaders if total > 1 => format!("Building shaders {done} of {total}"),
+        PrepareStep::Idle | PrepareStep::StartingGpu => "Starting the graphics card".to_owned(),
+        PrepareStep::BuildingShaders => "Building the Ray-Traced shader".to_owned(),
+        PrepareStep::Uploading => "Uploading the stone".to_owned(),
+        PrepareStep::FirstTrace => "Tracing the first picture".to_owned(),
+    };
+    if elapsed_s >= LONG_STEP_OFFER_S {
+        format!("{words} \u{b7} {elapsed_s} s")
+    } else {
+        words
+    }
+}
+
+/// The offer card (or the tray's first row) after a long preparing step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LongStepOffer {
+    /// "This is taking long. Use the CPU instead?"
+    pub sentence: String,
+    /// The button's label.
+    pub button: String,
+    /// The engine the button switches to the CPU.
+    pub engine: Engine,
+}
+
+/// The offer for a render that has spent [`LONG_STEP_OFFER_S`] seconds in one preparing step.
+#[must_use]
+pub fn long_step_offer(status: &RenderStatus, engine: Engine) -> Option<LongStepOffer> {
+    match status {
+        RenderStatus::Preparing { elapsed_s, .. } if *elapsed_s >= LONG_STEP_OFFER_S => {
+            Some(LongStepOffer {
+                sentence: "This is taking long. Use the CPU instead?".to_owned(),
+                button: "Use the CPU".to_owned(),
+                engine,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// How long the last preparation took, and where it stopped if it never finished.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparationTime {
+    /// Whole seconds.
+    pub seconds: u32,
+    /// The step, and its counts, that never ended.
+    pub stopped_in: Option<(PrepareStep, u32, u32)>,
+}
+
+/// A time as "45 s" or "1 min 12 s".
+fn minutes_text(seconds: u32) -> String {
+    if seconds < 60 {
+        format!("{seconds} s")
+    } else {
+        format!("{} min {} s", seconds / 60, seconds % 60)
+    }
+}
+
+/// The lines Render Details adds: the shader cache, the preparation time, and the CPU choice.
+///
+/// `cache_offered` is whether the graphics card offers a pipeline cache (`None` before an
+/// adapter is known); `cpu_only_engine` names the engine that renders on the CPU because its
+/// preparation was abandoned in this session.
+#[must_use]
+pub fn details_lines(
+    cache: CacheDecision,
+    cache_offered: Option<bool>,
+    preparation: Option<PreparationTime>,
+    cpu_only_engine: Option<&str>,
+) -> Vec<String> {
+    let cache_line = match cache {
+        CacheDecision::OffThisStart => {
+            "Shader cache: off for this start (the app closed while loading it last time)"
+        }
+        CacheDecision::OffOnThisDevice => {
+            "Shader cache: off on this device (the app closed twice while loading it)"
+        }
+        CacheDecision::On if cache_offered == Some(false) => {
+            "Shader cache: not offered by this graphics card"
+        }
+        CacheDecision::On => "Shader cache: on",
+    };
+    let mut lines = vec![cache_line.to_owned()];
+    if let Some(preparation) = preparation {
+        let time = minutes_text(preparation.seconds);
+        lines.push(match preparation.stopped_in {
+            None => format!("Preparation: {time}"),
+            Some((step, done, total)) => {
+                let place = match step {
+                    PrepareStep::BuildingShaders if total > 1 => {
+                        format!("building shaders ({done} of {total})")
+                    }
+                    PrepareStep::BuildingShaders => "building the Ray-Traced shader".to_owned(),
+                    PrepareStep::Idle | PrepareStep::StartingGpu => {
+                        "starting the graphics card".to_owned()
+                    }
+                    PrepareStep::Uploading => "uploading the stone".to_owned(),
+                    PrepareStep::FirstTrace => "tracing the first picture".to_owned(),
+                };
+                format!("Preparation: {time}, stopped while {place}")
+            }
+        });
+    }
+    if let Some(engine) = cpu_only_engine {
+        lines.push(format!(
+            "The graphics card did not finish preparing; this session renders {engine} on the CPU."
+        ));
+    }
+    lines
+}
+
+/// The status line and the pill while the probe holds the render back: with no picture the
+/// sentence alone (title empty), with one the title "Waiting" and the short detail.
+#[must_use]
+pub fn probe_wait_line(has_picture: bool) -> (String, String) {
+    if has_picture {
+        ("Waiting".to_owned(), "The GPU probe is running".to_owned())
+    } else {
+        (String::new(), PROBE_WAIT_SENTENCE.to_owned())
     }
 }
 

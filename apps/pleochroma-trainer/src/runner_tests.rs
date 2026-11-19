@@ -115,7 +115,7 @@ fn the_worker_count_is_limited_to_the_documented_range() {
 
 #[test]
 fn the_step_limit_must_be_a_positive_number_of_degrees() {
-    for bad in [0.0, -0.5, f64::NAN, f64::INFINITY] {
+    for bad in [0.0, -0.5, f64::NAN, f64::INFINITY, f64::MAX, f64::MIN_POSITIVE, f64::from(f32::from_bits(45))] {
         assert!(
             refused(|c| c.max_step_deg = Some(bad)),
             "{bad} must be refused"
@@ -164,7 +164,7 @@ fn the_label_period_is_limited_and_imitation_needs_labels() {
 
 #[test]
 fn the_probe_size_must_be_a_positive_number_of_degrees_when_set() {
-    for bad in [0.0, -0.25, f64::NAN, f64::INFINITY] {
+    for bad in [0.0, -0.25, f64::NAN, f64::INFINITY, f64::MAX, f64::MIN_POSITIVE, f64::from(f32::from_bits(45))] {
         assert!(
             refused(|c| c.label_h_deg = Some(bad)),
             "{bad} must be refused"
@@ -181,6 +181,20 @@ fn the_exploration_noise_must_be_finite_and_not_negative() {
     }
     assert!(!refused(|c| c.explore_std = 0.0));
     assert!(!refused(|c| c.explore_std = 1.5));
+}
+
+#[test]
+fn checkpoint_exports_the_probe_displacement_in_the_training_observation() {
+    for probe in [None, Some(0.125)] {
+        let runner = fixture_runner_with(|cfg| {
+            cfg.max_step_deg = Some(0.375);
+            cfg.label_h_deg = probe;
+        });
+        assert_eq!(
+            runner.checkpoint().probe_scale_deg,
+            Some(f64::from(runner.slots[0].obs.global.probe_scale_deg))
+        );
+    }
 }
 
 #[test]
@@ -549,6 +563,35 @@ pub(super) fn fixture_runner_with(edit: impl FnOnce(&mut RunConfig)) -> Training
     TrainingRunner::new(cfg, DatasetSplit::fixture()).expect("the fixture builds a CPU runner")
 }
 
+/// Four training positions with one design that always fails environment construction.
+pub(super) fn corpus_with_failed_start() -> DatasetSplit {
+    let mut split = DatasetSplit::fixture();
+    split.entries = vec![split.entries[0].clone(); 4];
+    split.family_by_entry = vec![-1; 4];
+    split.entries[0].design.tiers.clear();
+    split.train = vec![0, 1, 2, 3];
+    split
+}
+
+#[test]
+fn skipped_designs_do_not_shift_future_corpus_coverage() {
+    let cfg = config_with(|cfg| cfg.workers = 27);
+    let train_len = 2322;
+    let mut scheduled_counts = vec![0; train_len];
+    for worker in 0..cfg.effective_workers() {
+        let mut position = EpisodePosition::scheduled(worker);
+        for _ in 0..86 {
+            if position.scheduled == 0 {
+                position = position.fallback(train_len);
+            }
+            scheduled_counts[position.scheduled] += 1;
+            position = EpisodePosition::scheduled(position.next_start(&cfg) % train_len);
+        }
+        assert_eq!(position.scheduled, worker);
+    }
+    assert!(scheduled_counts.into_iter().all(|count| count == 1));
+}
+
 #[test]
 fn every_episode_draws_its_own_objective_weights_into_its_environment() {
     let runner = fixture_runner_with(|c| {
@@ -691,6 +734,9 @@ fn one_imitation_round_labels_states_and_trains_on_them() {
         .expect("it was not interrupted");
     assert_eq!(first.steps, 8);
     assert!(first.labels_this_round > 0, "{first:?}");
+    assert_eq!(first.diagnostics.stepped_entries, 1);
+    assert_eq!(first.diagnostics.stepped_families, 1);
+    assert_eq!(first.diagnostics.fresh_label_entries, 1);
     assert!(first.evaluations_this_round > 0);
     assert!(
         first
@@ -781,6 +827,9 @@ fn one_ppo_round_trains_the_policy_and_leaves_the_aggregate_alone() {
     assert!(runner.updater.in_flight().is_none());
     assert!(report.imitation.is_none());
     assert_eq!(report.labels_this_round, 0);
+    assert_eq!(report.diagnostics.stepped_entries, 1);
+    assert_eq!(report.diagnostics.stepped_families, 1);
+    assert_eq!(report.diagnostics.fresh_label_entries, 0);
     assert!(report.oracle_gain_mean.is_none());
     assert!(report.train.policy_loss.is_finite() && report.train.value_loss.is_finite());
     assert!(runner.aggregate.is_empty());

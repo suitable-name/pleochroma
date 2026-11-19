@@ -1,0 +1,41 @@
+// The Compute RI Ranges batch of the library (Library menu): the traced RI range of every
+// design in "Mine", with progress, Cancel and resume. Rust-driven: `gui::batch::ri_range`.
+//
+// The dialog has three states: the confirm step (`confirming`), the running step (`running`) and
+// the summary (`done`). Rust sets every `in` property; the dialog only reports clicks.
+//
+// Exported from `app.slint` so Rust can reach it.
+
+export global RiBatchModel {
+    in-out property <bool> visible: false;
+
+    // The confirm step is showing.
+    in property <bool> confirming: false;
+    // The designs in "Mine" the batch goes through; -1 while they are being counted.
+    in property <int> design_count: -1;
+    // Of those, the designs with no current stored range; -1 while they are being counted.
+    in property <int> missing_count: -1;
+    // A batch is running (the dialog shows progress and Cancel).
+    in property <bool> running: false;
+    // The batch ended (the dialog shows the summary and Close).
+    in property <bool> done: false;
+    // Designs completed so far, out of `design_total`. A count, not a cursor: several lanes
+    // work at once.
+    in property <int> design_index: 0;
+    in property <int> design_total: 0;
+    // "about 3 min left", or empty.
+    in property <string> eta: "";
+    // How many lanes have a design claimed, out of `lanes_total`.
+    in property <int> lanes_active: 0;
+    in property <int> lanes_total: 0;
+    // The summary line of a finished batch.
+    in property <string> summary: "";
+
+    callback open_batch();
+    // The confirm step's "Compute".
+    callback start();
+    // Stops a running batch; on the confirm step it declines the offer.
+    callback cancel();
+    // The summary's "Close".
+    callback close();
+}

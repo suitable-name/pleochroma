@@ -168,8 +168,7 @@ export component RoughColourWindow inherits Window {
 
             // The step strip and the window's messages.
             HorizontalLayout {
-                // 32 px: a real two-line box for the status text (2 x 11 px lines).
-                height: 32px;
+                height: 24px;
                 spacing: 6px;
 
                 for title[i] in root.step_titles: rough-pill-step-title := RoughPill {
@@ -181,23 +180,23 @@ export component RoughColourWindow inherits Window {
                     clicked => { root.go_step(i); }
                 }
 
-                Text {
-                    horizontal-stretch: 1;
-                    text: root.busy ? root.busy_text : (root.error_text != "" ? root.error_text : root.status_text);
-                    font-size: 11px;
-                    color: root.busy ? Theme.text-secondary : (root.error_text != "" ? Theme.danger : Theme.text-secondary);
-                    // Top-aligned, so the text starts at the top of the 32 px strip. Two lines
-                    // fit; only the end of the second is elided.
-                    vertical-alignment: top;
-                    wrap: word-wrap;
-                    overflow: elide;
-                    accessible-role: AccessibleRole.text;
-                }
+                Rectangle { horizontal-stretch: 1; }
                 if root.busy: RoughPill {
                     text: "Cancel";
                     hint: "Stop the running step.";
                     clicked => { root.cancel_job(); }
                 }
+            }
+
+            // The window's message on its own rows under the steps, as tall as it needs (the
+            // restore sentence is long); nothing is elided.
+            if (root.busy ? root.busy_text : (root.error_text != "" ? root.error_text : root.status_text)) != "": Text {
+                text: root.busy ? root.busy_text : (root.error_text != "" ? root.error_text : root.status_text);
+                font-size: 11px;
+                color: root.busy ? Theme.text-secondary : (root.error_text != "" ? Theme.danger : Theme.text-secondary);
+                vertical-alignment: top;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
             }
 
             if root.busy && root.progress > 0: Rectangle {

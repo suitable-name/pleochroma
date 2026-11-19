@@ -125,6 +125,9 @@ pub(super) struct Session {
     pub(super) saved: SavedState,
     /// The background mesh job (an OBJ import or a mesh scaling) the window waits for.
     pub(super) mesh_jobs: MeshJobs,
+    /// The Reasons of the stones a running plan keeps (the locked stones of the selected result),
+    /// in order: the results it publishes hand them back to the same stones.
+    pub(super) kept_reasons: Vec<String>,
 }
 
 impl Default for Session {
@@ -158,6 +161,7 @@ impl Default for Session {
             axis: AxisState::default(),
             saved: SavedState::default(),
             mesh_jobs: MeshJobs::default(),
+            kept_reasons: Vec::new(),
         }
     }
 }

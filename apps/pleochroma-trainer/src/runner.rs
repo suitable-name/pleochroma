@@ -55,7 +55,7 @@ use pleochroma_ai::{
 use pleochroma_cut_core::optimize::ObjectiveFidelity;
 
 use crate::dataset::{DatasetError, DatasetSplit};
-use envs::{Slot, build_env, pick_target, sampled_source_material};
+use envs::{EpisodePosition, Slot, build_env, pick_target, sampled_source_material};
 use eval::OracleCache;
 use imitation::LabelledStates;
 use update::{BuildArgs, InstalledUpdate, Updater};
@@ -119,7 +119,23 @@ pub use types::{
     Optics, RolloutStats, RunnerStats,
 };
 
-/// The episode of `entry` (at `pos` of the train split): its environment with the target
+/// First design to try at this worker's scheduled position, or the focus stone.
+fn scheduled_entry(
+    corpus_mode: bool,
+    train: &[usize],
+    focus_entry: usize,
+    start: usize,
+) -> Result<(EpisodePosition, usize), RunnerError> {
+    if !corpus_mode {
+        return Ok((EpisodePosition::scheduled(0), focus_entry));
+    }
+    let pos = start
+        .checked_rem(train.len())
+        .ok_or_else(|| RunnerError::Data("the train split is empty".to_owned()))?;
+    Ok((EpisodePosition::scheduled(pos), train[pos]))
+}
+
+/// The episode of `entry` (at `position.selected` of the train split): its environment with the target
 /// material and the objective weights drawn from `seed`, reset to its first observation.
 ///
 /// Pure in the runner's state, so the rollout builds the next episodes of several slots in
@@ -128,7 +144,7 @@ pub use types::{
 fn build_slot(
     cfg: &RunConfig,
     split: &DatasetSplit,
-    pos: usize,
+    position: EpisodePosition,
     entry: usize,
     seed: u64,
     execution: Option<&Arc<EnvExecution>>,
@@ -170,7 +186,7 @@ fn build_slot(
     Ok(Ok(Slot {
         seed,
         env,
-        pos,
+        position,
         entry,
         src,
         tgt,
@@ -591,30 +607,27 @@ impl TrainingRunner {
 
     // ---- environments -------------------------------------------------------------------
 
-    /// First usable (position, entry) at or after `start` in the train split, or the focus
-    /// stone in single-stone mode.
-    fn choose(&self, start: usize) -> Result<(usize, usize), RunnerError> {
-        if !self.cfg.corpus_mode {
-            return Ok((0, self.focus_entry));
-        }
-        let n = self.split.train.len();
-        if n == 0 {
-            return Err(RunnerError::Data("the train split is empty".to_owned()));
-        }
-        let pos = start % n;
-        Ok((pos, self.split.train[pos]))
-    }
-
-    /// Starts an episode: a design from the train split at or after `start`, its target
-    /// material and its objective weights, all drawn from `seed`. A design whose environment
-    /// does not build is skipped ([`Self::skip_entry`]) and the next one is tried.
-    fn spawn_slot(&mut self, start: usize, seed: u64) -> Result<Slot, RunnerError> {
-        let mut start = start;
-        let mut last_error = None;
-        self.progress
-            .phase("serial respawn retry", self.split.train.len());
-        for _ in 0..self.split.train.len() {
-            let (pos, entry) = self.choose(start)?;
+    /// Tries the remaining entries after the scheduled design failed for this seed.
+    fn retry_slot(
+        &mut self,
+        mut pos: EpisodePosition,
+        mut entry: usize,
+        seed: u64,
+        mut error: EnvError,
+    ) -> Result<Slot, RunnerError> {
+        self.progress.phase(
+            "serial respawn retry",
+            self.split.train.len().saturating_sub(1),
+        );
+        loop {
+            self.skip_entry(entry, &error)?;
+            pos = pos.fallback(self.split.train.len());
+            if pos.selected == pos.scheduled {
+                return Err(RunnerError::Data(format!(
+                    "no sampled training design builds an environment for this target/objective: {error}"
+                )));
+            }
+            entry = self.split.train[pos.selected];
             let attempt = {
                 let _task = self
                     .progress
@@ -630,27 +643,14 @@ impl TrainingRunner {
             };
             match attempt {
                 Ok(slot) => return Ok(slot),
-                Err(error) => {
-                    last_error = Some(error.to_string());
-                    start = self.skip_entry(pos, entry, &error)?;
-                }
+                Err(next_error) => error = next_error,
             }
         }
-        Err(RunnerError::Data(format!(
-            "no sampled training design builds an environment for this target/objective: {}",
-            last_error.unwrap_or_else(|| "empty train split".to_owned())
-        )))
     }
 
-    /// Records that the environment of `entry` (at `pos` of the train split) failed to build
-    /// with `error` and returns the position the search for a design continues from. In
+    /// Records that the environment of `entry` failed to build with `error`. In
     /// single-stone mode there is nothing to continue with: the error is hard.
-    fn skip_entry(
-        &mut self,
-        pos: usize,
-        entry: usize,
-        error: &dyn fmt::Display,
-    ) -> Result<usize, RunnerError> {
+    fn skip_entry(&mut self, entry: usize, error: &dyn fmt::Display) -> Result<(), RunnerError> {
         let title = self.split.entries[entry].title.clone();
         if !self.cfg.corpus_mode {
             return Err(RunnerError::Data(format!(
@@ -659,7 +659,7 @@ impl TrainingRunner {
         }
         self.warnings
             .push(format!("{SKIPPED_PREFIX}'{title}': {error}"));
-        Ok(pos + 1)
+        Ok(())
     }
 
     fn install_slot(&mut self, w: usize, slot: Slot) {
@@ -681,7 +681,8 @@ impl TrainingRunner {
         let starts = (0..n)
             .map(|w| {
                 let seed = self.rng.next_u64();
-                let (pos, entry) = self.choose(w)?;
+                let (pos, entry) =
+                    scheduled_entry(self.cfg.corpus_mode, &self.split.train, self.focus_entry, w)?;
                 Ok((pos, entry, seed))
             })
             .collect::<Result<Vec<_>, RunnerError>>()?;
@@ -702,8 +703,7 @@ impl TrainingRunner {
             match attempt? {
                 Ok(slot) => fresh.push(slot),
                 Err(error) => {
-                    let next = self.skip_entry(pos, entry, &error)?;
-                    fresh.push(self.spawn_slot(next, seed)?);
+                    fresh.push(self.retry_slot(pos, entry, seed, error)?);
                 }
             }
         }

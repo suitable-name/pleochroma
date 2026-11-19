@@ -14,8 +14,8 @@ that file name is not a statement about which term is preferred.
 **A note on interchangeable terms.** The app's own UI is not perfectly
 consistent about a few of these. "Mast," "depth," and "scale value" all
 refer to the same underlying number in different places: **mast** is what
-a cutting machine's gauge reads and what the tier list's MAST column
-shows; **scale value** is what you type into an **Exact Scale Value**
+a cutting machine's gauge reads and what the Tier tab's Solved
+section shows; **scale value** is what you type into an **Exact Scale Value**
 tier's own field; and **depth** shows up in prose (including this manual)
 as a plain-language stand-in for either. They are the same number, not
 three different measurements. Similarly, "block" and "tier group" both
@@ -95,6 +95,11 @@ transparent material well across the visible range, and it is what the
 Material Editor builds from a refractive index and a dispersion slider
 value. You can also type its A, B and C yourself (Chapter 29).
 
+**Centerpoint** — The point on the stone's axis where the facets of a tier meet, at the
+culet or at the top of a crown that closes to a point. The cutting sheet says "Cut to
+centerpoint." for the tier that makes it, and "Meet P1 at centerpoint" for a tier whose
+facets meet a corner on the axis (Chapter 11).
+
 **Chatoyancy** — The narrow band of light across a cat's-eye. It comes from one set of parallel needles that scatter light onto a cone; like asterism it needs a curved dome to show as a clean line (Chapter 27).
 
 **Cheater offset** — A small azimuth (index-wheel) adjustment recorded
@@ -118,7 +123,7 @@ cleavage line of the Stone tab's identity card (amber when it is a cutting risk)
 Material Reference (Chapter 6).
 
 **Code** — A tier's label on the cutting sheet, in cutting mode and in the tier
-table's CODE column: P1, P2, ... for pavilion tiers, G1, ... for girdle tiers,
+table, where it starts each row: P1, P2, ... for pavilion tiers, G1, ... for girdle tiers,
 C1, C2, ... for crown tiers, T for the table and Culet for the culet. Each letter
 is numbered on its own, in the order the tiers are cut, and a concave tier carries
 on the count of its side (Chapters 3 and 11).
@@ -168,7 +173,7 @@ pavilion facets meet at (or near) a point.
 geometry against the catalogue's own printed proportions. Never modifies
 the design (Chapter 8).
 
-**Detach / Reattach** — The toggle that exempts a tier's index positions
+**Detach / Reattach** — The item in a tier row's "..." menu that exempts a tier's index positions
 from automatic orbit-consistency handling, for a deliberately asymmetric
 design (Chapter 4).
 
@@ -189,6 +194,10 @@ shadow rather than bright; one of the app's optical performance readouts. It
 counts the light that is **Lost** inside, and the light that leaves upward but is
 unlit or hidden by the head shadow (Chapter 2, "How the Face-Up Figures Are
 Measured").
+
+**Estimate (RI range)** — The refractive-index range the app traces for a design as cut.
+It is always labelled an estimate, on screen and on a cutting sheet, because it is the
+app's own trace and not a designer's statement (Chapter 6).
 
 **Face-up tone** — The lightness `L*` and color strength `C*` of the light a
 stone returns face-up, worked out from how far that light travelled through the
@@ -245,6 +254,11 @@ of the Stone tab (Chapter 2).
 **Leak** — The part of the face where light goes out through the pavilion instead of
 returning: the same rays Windowing counts, and the part of the **Dark** zone that
 corresponds to ASET leakage (see *Zones (ASET-style)*).
+
+**Level girdle** — A girdle band of the same thickness all the way around. On the
+cutting sheet, "Cut to level girdle." is a crown or pavilion tier whose facets all end
+on the girdle line the earlier tiers set (Chapter 11); a tier that cuts into the
+girdle makes it not level (Chapter 5).
 
 **Lighting rig** — One of the ways of lighting the stone in the live view and in
 renders: the lit models (light tent, grading tray and others), the studio rigs and
@@ -328,7 +342,7 @@ tier is cut until its plane passes through it. Without one, a tier takes the
 shallowest corner where its named facets meet (Chapter 4; Chapter 13,
 "Picking a Meet Point").
 
-**Pin** — The button that freezes a tier's current solved mast as a new
+**Pin** — The item in a tier row's "..." menu that freezes a tier's current solved mast as a new
 **Exact Scale Value** anchor, converting a free tier back into a pinned
 one — the reverse of Adopt (Chapter 3, Chapter 8).
 
@@ -376,6 +390,11 @@ waiting to be rendered. See Chapter 23.
 **Render queue** — The list of render jobs in the Render Jobs window. It renders
 one job at a time, from the top down, once you press **Start Queue**. See
 Chapter 23.
+
+**RI range** — The span of refractive indices a design is said to work in. A designer's
+own statement (typed, or from a `.gcs` or `.psdd` file) and the app's traced estimate are
+kept apart; the cutting sheet's "RI range" row prints whichever the design's RI range
+field asks for (Chapters 6 and 11).
 
 **Retarget** — The command bar's automated proposal for adapting a
 design's pavilion and crown angles to a different material, reviewed in a
@@ -439,6 +458,13 @@ is typed.
 
 **Tier** — One row of the cutting instructions: one facet, or one symmetric
 family of identical facets cut at the same angle and depth.
+
+**Tilt average** — The mean of brilliance, windowing or extinction over the tilts of the
+stone from table up, on the four tilt axes. By default it covers all tilts to ±90°,
+4 axes × 181 tilt angles = 724 entries. The Tilt Average Range preference can narrow
+what the Compare window and the Baseline figures show, for example to ±30° with
+4 × 61 = 244 entries (Chapter 17). Optimize, Angle Sweep, Retarget and Tune always
+rate all tilts to ±90°.
 
 **Tilt curve / tilt axis** — The app's sweep of a design's optical
 performance as it tips away from face-up viewing, along a chosen compass

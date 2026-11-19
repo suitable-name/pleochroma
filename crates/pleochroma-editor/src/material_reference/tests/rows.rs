@@ -60,7 +60,7 @@ fn rows_cover_the_catalogue_with_origin_and_tags() {
         .into_iter()
         .map(|gem| gem.name)
         .collect();
-    assert_eq!(rows.len(), 39);
+    assert_eq!(rows.len(), 40);
     assert_eq!(
         rows.iter().map(|r| r.name.clone()).collect::<Vec<_>>(),
         names
@@ -76,6 +76,9 @@ fn rows_cover_the_catalogue_with_origin_and_tags() {
     assert_eq!(row(&rows, "Glass (N-BK7)").origin.tag(), "Glass");
     assert_eq!(row(&rows, "Synthetic Moissanite").origin, Origin::Synthetic);
     assert_eq!(row(&rows, "Synthetic Moissanite").origin.tag(), "Synthetic");
+    // The glass-ceramic Nanosital is a manufactured imitation, filed with the glasses.
+    assert_eq!(row(&rows, "Nanosital").origin, Origin::Glass);
+    assert_eq!(row(&rows, "Nanosital").species, "Glass-ceramic");
 }
 
 /// T-E1: the texts of one well-known row.
@@ -102,7 +105,7 @@ fn diamond_row_texts() {
 #[test]
 fn custom_rows_read_not_recorded_or_their_own_data() {
     let plain = rows_with_custom(&[]);
-    assert_eq!(plain.len(), 40);
+    assert_eq!(plain.len(), 41);
     let mine = row(&plain, "My Stone");
     assert_eq!(mine.origin, Origin::Custom);
     assert_eq!(mine.origin.tag(), "Mine");
@@ -366,7 +369,7 @@ fn hardness_and_toughness_sorts_start_where_expected() {
     sort_rows(&mut rows, Column::Toughness, true);
     let last = rows.last().expect("rows");
     assert_eq!(last.gem.toughness_rank, None);
-    // Benitoite and Titanite carry no toughness grade and stay behind every graded row.
+    // Benitoite, Titanite and Nanosital carry no toughness grade and stay behind every graded row.
     assert!(row(&rows, "Benitoite").gem.toughness.is_none());
 }
 
@@ -376,12 +379,12 @@ fn hardness_and_toughness_sorts_start_where_expected() {
 fn filter_and_search_cover_the_documented_fields() {
     let rows = rows_with_custom(&[]);
     let counts = filter_counts(&rows);
-    assert_eq!(counts[0], 40);
+    assert_eq!(counts[0], 41);
     assert_eq!(counts[4], 1);
     assert_eq!(counts[1] + counts[2] + counts[3] + counts[4], counts[0]);
-    assert_eq!(counts[3], 2);
-    assert_eq!(filter_rows(&rows, Filter::All, "").len(), 40);
-    assert_eq!(filter_rows(&rows, Filter::All, "   ").len(), 40);
+    assert_eq!(counts[3], 3);
+    assert_eq!(filter_rows(&rows, Filter::All, "").len(), 41);
+    assert_eq!(filter_rows(&rows, Filter::All, "   ").len(), 41);
     assert_eq!(filter_rows(&rows, Filter::Custom, "").len(), 1);
     assert_eq!(filter_rows(&rows, Filter::Glass, "").len(), counts[3]);
     assert_eq!(filter_rows(&rows, Filter::Natural, "").len(), counts[1]);
@@ -525,13 +528,13 @@ fn family_line_keeps_the_stone_tab_format() {
 fn window_phrases_match_the_string_table() {
     use crate::material_reference::text::{copied_text, footer_text, subtitle};
     assert_eq!(
-        subtitle(39, 0),
-        "39 built-in materials. Click a column heading to sort; open a row for its curves, spectra and colors."
+        subtitle(40, 0),
+        "40 built-in materials. Click a column heading to sort; open a row for its curves, spectra and colors."
     );
-    assert!(subtitle(39, 2).starts_with("39 built-in materials and 2 of your own. Click"));
+    assert!(subtitle(40, 2).starts_with("40 built-in materials and 2 of your own. Click"));
     assert_eq!(
-        footer_text(41, Column::Hardness, true),
-        "41 materials, hardest first. Values are typical for each species; a dash means not recorded."
+        footer_text(42, Column::Hardness, true),
+        "42 materials, hardest first. Values are typical for each species; a dash means not recorded."
     );
     assert_eq!(copied_text(3), "Copied 3 materials as a table.");
 }

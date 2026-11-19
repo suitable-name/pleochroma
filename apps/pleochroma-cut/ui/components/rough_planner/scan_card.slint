@@ -50,7 +50,8 @@ export component ScanCard inherits Rectangle {
                         width: parent.width;
                         height: parent.height;
                         text: root.has_scan && RoughPlanModel.scan_file != "" ? RoughPlanModel.scan_file
-                            : (RoughPlanModel.mesh_busy ? "Reading the scan\u{2026}" : "No scan chosen yet");
+                            : (RoughPlanModel.mesh_busy ? "Reading the scan\u{2026}"
+                                : (root.has_scan ? "Scan saved with the plan" : "No scan chosen yet"));
                         font-size: 13px;
                         font-weight: 600;
                         color: Theme.text-primary;

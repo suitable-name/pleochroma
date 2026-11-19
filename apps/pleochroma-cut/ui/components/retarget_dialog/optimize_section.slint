@@ -18,10 +18,10 @@ export component OptimizeSection inherits VerticalLayout {
         spacing: 4px;
         FieldCaption {
             text: "Objective";
-            hint: "What the search favours when it scores a stone. Balanced weighs windowing, extinction and brilliance equally; the others lean one way.";
+            hint: "What the search favors when it scores a stone. Balanced weighs windowing, extinction and brilliance equally; the others lean one way.";
         }
         TipBox {
-            hint: "Pick what the search should favour.";
+            hint: "Pick what the search should favor.";
             ComboBox {
                 model: RetargetModel.objective_options;
                 current-index <=> RetargetModel.objective_index;

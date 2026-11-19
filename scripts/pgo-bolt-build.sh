@@ -540,7 +540,11 @@ pgo_packages() {
 pgo_features() {
     local target="$1" gpu="$2"
     local -a feats=(pleochroma/serde pleochroma/hdr pleochroma-net/compression)
-    [ "$target" = worker ] && feats+=(pleochroma-worker/worker)
+    # Every build passes `--no-default-features` with this list: pleochroma-worker's default
+    # features are `gui` and `gpu`, so without it a `cpu` worker would still carry the GPU path.
+    # The coordinator window (`pleochroma-worker/gui`) is named here instead; every other
+    # package these builds select has no default features.
+    [ "$target" = worker ] && feats+=(pleochroma-worker/worker pleochroma-worker/gui)
     if [ "$gpu" = gpu ]; then
         feats+=(pleochroma/gpu)
         [ "$target" = cut ] && feats+=(pleochroma-cut/gpu)
@@ -819,7 +823,7 @@ build_combination() {
         step "[$target][$current_os-$name][quick] quick-release build, NO PGO, NO LTO (bins: ${quick_bins[*]}; features: $quick_features)"
         CARGO_ENCODED_RUSTFLAGS="-C${US}target-cpu=$target_cpu" \
         cargo build --profile quick-release --target "$rust_target" --target-dir "$bdir" \
-        "${quick_pkg_args[@]}" --bins --features "$quick_features" 2>&1 | tee -a "$logfile"
+        "${quick_pkg_args[@]}" --bins --no-default-features --features "$quick_features" 2>&1 | tee -a "$logfile"
         local quick_bin quick_src quick_dst
         for quick_bin in "${quick_bins[@]}"; do
             quick_src="$bdir/$rust_target/quick-release/$quick_bin$target_exe"
@@ -886,7 +890,7 @@ build_combination() {
         CARGO_PROFILE_RELEASE_STRIP="$release_strip" \
         CARGO_ENCODED_RUSTFLAGS="-C${US}target-cpu=$target_cpu${US}-C${US}profile-generate=$rawdir" \
         cargo build --release --target "$rust_target" --target-dir "$bdir" \
-        "${pkg_args[@]}" --bins "${example_args[@]}" --features "$features" 2>&1 | tee -a "$logfile"
+        "${pkg_args[@]}" --bins "${example_args[@]}" --no-default-features --features "$features" 2>&1 | tee -a "$logfile"
 
         # All training runs execute from inside $rawdir with a RELATIVE
         # LLVM_PROFILE_FILE pattern: a Windows profile runtime interprets that path with
@@ -1009,13 +1013,13 @@ build_combination() {
         step "[$target][$current_os-$name][build] Plain cross release build, NO PGO (packages: $pkg_list; features: $features)"
         CARGO_ENCODED_RUSTFLAGS="-C${US}target-cpu=$target_cpu" \
         cargo build --release --target "$rust_target" --target-dir "$bdir" \
-        "${pkg_args[@]}" --bins "${example_args[@]}" --features "$features" 2>&1 | tee -a "$logfile"
+        "${pkg_args[@]}" --bins "${example_args[@]}" --no-default-features --features "$features" 2>&1 | tee -a "$logfile"
     else
         step "[$target][$current_os-$name][build] PGO release build (packages: $pkg_list; features: $features)"
         CARGO_PROFILE_RELEASE_STRIP="$release_strip" \
         CARGO_ENCODED_RUSTFLAGS="-C${US}target-cpu=$target_cpu${US}-C${US}profile-use=$active_profile${US}-C${US}llvm-args=-pgo-warn-missing-function$bolt_link_flags" \
         cargo build --release --target "$rust_target" --target-dir "$bdir" \
-        "${pkg_args[@]}" --bins "${example_args[@]}" --features "$features" 2>&1 | tee -a "$logfile"
+        "${pkg_args[@]}" --bins "${example_args[@]}" --no-default-features --features "$features" 2>&1 | tee -a "$logfile"
 
         # Crate-hash check FIRST: it is the real proof the profile applied, and
         # test_profile_warnings only treats the missing-function count as fatal when
@@ -1057,7 +1061,7 @@ ensure_pgo_bolt_scene() {
     if [ ! -f "$scene_json" ]; then
         step "[bolt] Writing training scene ($scene_json)"
         cargo run --release --target "$HOST_TARGET" --target-dir "$scene_dir/build" \
-        -p pleochroma-worker --features worker --example write_pgo_scene -- "$scene_json"
+        -p pleochroma-worker --no-default-features --features worker --example write_pgo_scene -- "$scene_json"
     fi
     PGO_BOLT_SCENE="$scene_json"
 }

@@ -233,22 +233,22 @@ export component PerformanceGraphDialog inherits Rectangle {
                         color: Theme.text-disabled;
                         wrap: word-wrap;
                     }
-                    // `crates/pleochroma-cut-core/src/optimize/objective.rs` scores fixed poses
-                    // under a canonical light, while this curve uses the viewport's light
-                    // (`RenderContext::light_yaw`/`light_pitch`). The two agree only until the
-                    // light moves; the caption below states it.
+                    // The curves are scored under the tilt standard
+                    // (`pleochroma_cut_core::optimize::canonical_environment`): the Grading tray at
+                    // the canonical light pose with a 16° head shadow, as Optimize and the
+                    // library's stored curves are. The viewport's lighting never changes them.
                     Text {
-                        text: "Optimize scores brilliance under a fixed light pose; this curve uses your current light -- if you've moved it, the two figures may disagree.";
+                        text: "Scored under the Grading tray with a 16° head shadow, as Optimize and the library are. Your lighting, light position and head-shadow setting do not change these curves.";
                         font-size: 11px;
                         font-italic: true;
                         color: Theme.text-disabled;
                         wrap: word-wrap;
                     }
-                    // Sweep and hover preview trace the finished stone as captured by
-                    // `SceneSnapshot::capture_finished` (material with overrides, tools, facet
-                    // finishes, fluorescence and lighting).
+                    // The sweep traces the finished stone as captured by
+                    // `SceneSnapshot::capture_finished` (material with overrides, tools and facet
+                    // finishes); the hover preview is a picture under the current lighting.
                     Text {
-                        text: "Finished stone with the current material, finish, lighting and head shadow: " + root.material_name + ".";
+                        text: "Finished stone with the current material and finish: " + root.material_name + ". The hover picture shows your current lighting.";
                         font-size: 11px;
                         font-italic: true;
                         color: Theme.text-disabled;

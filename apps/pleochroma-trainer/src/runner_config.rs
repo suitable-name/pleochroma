@@ -1,7 +1,7 @@
 //! The run configuration: what a run trains, how, and the limits every value must respect.
 
 use pleochroma_ai::{
-    env::DEFAULT_LINE_SEARCH,
+    env::{DEFAULT_LINE_SEARCH, is_observable_displacement},
     model::{ModelTier, TrainingMode},
     training::{ImitationConfig, LrSchedule, PpoConfig},
 };
@@ -85,7 +85,8 @@ pub struct RunConfig {
     /// Deterministic share of Fast training episodes labelled with the Full tilt scorer.
     /// Full training always uses Full. Zero explicitly opts out of tilt-training coverage.
     pub full_fidelity_frac: f32,
-    /// Fidelity of every step and acceptance decision in held-out validation episodes.
+    /// Rollout fidelity for held-out diagnostics. Checkpoint selection always evaluates the
+    /// default deployment rollout and its certified Full endpoint.
     pub validation_fidelity: super::EvalFidelity,
     /// Evaluate every fixed validation/test design under all seven named objective presets.
     pub objective_sweep: bool,
@@ -234,10 +235,10 @@ impl RunConfig {
             ));
         }
         if let Some(h) = self.max_step_deg
-            && !(h.is_finite() && h > 0.0)
+            && !is_observable_displacement(h)
         {
             return Err(RunnerError::Config(format!(
-                "step limit must be a finite number of degrees above 0 (got {h})"
+                "step limit must produce a finite positive policy token (got {h})"
             )));
         }
         self.validate_labelling()?;
@@ -260,10 +261,10 @@ impl RunConfig {
             ));
         }
         if let Some(h) = self.label_h_deg
-            && !(h.is_finite() && h > 0.0)
+            && !is_observable_displacement(h)
         {
             return Err(RunnerError::Config(format!(
-                "label probe size must be a finite number of degrees above 0 (got {h})"
+                "label probe size must produce a finite positive policy token (got {h})"
             )));
         }
         if self.label_memory_mib == 0 || self.label_memory_mib.checked_mul(1024 * 1024).is_none() {

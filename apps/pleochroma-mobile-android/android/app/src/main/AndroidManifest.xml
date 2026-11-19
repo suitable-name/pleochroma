@@ -33,6 +33,14 @@
         android:name="android.hardware.camera.autofocus"
         android:required="false" />
 
+    <!-- Google Play reads CHANGE_WIFI_MULTICAST_STATE as needing Wi-Fi and hides the app from
+         devices without it. Wi-Fi only helps find the paired computer again (NsdDiscovery
+         takes the multicast lock when the device has Wi-Fi); everything else, remote rendering
+         included, works over any network. -->
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
+
     <!-- Vulkan 1.0.3 (0x400003) is preferred, never required: without it the app
          renders on the CPU. -->
     <uses-feature

@@ -246,7 +246,11 @@ fn register_solve_activity(ui: &MainWindow, tier_count: usize) {
             let ui_weak = ui.as_weak();
             a.start(
                 "solve",
-                solving_banner(tier_count, Duration::ZERO),
+                // The chip appends its own live "-- N.Ns", so the label has no elapsed time of its own.
+                format!(
+                    "Solving... ({tier_count} tier{})",
+                    if tier_count == 1 { "" } else { "s" }
+                ),
                 Some(Box::new(move || {
                     cancel_in_flight_solve_from_activity(&ui_weak);
                 })),

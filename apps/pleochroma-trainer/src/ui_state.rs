@@ -129,8 +129,10 @@ pub fn design_infos(records: &[DbDesignRecord], split: &DatasetSplit) -> Vec<Des
 /// The first validation pass's figures; absent from the snapshot until a pass evaluated a design.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ValidationSnapshot {
-    /// Mean final score on the held-out designs (lower is better).
+    /// Mean final score of the diagnostic rollout on successful held-out cases (lower is better).
     pub score: f32,
+    /// Mean certified Full score under the host deployment policy for a complete cohort.
+    pub deployed_score: Option<f32>,
     /// Mean final brilliance on the validation designs.
     pub brilliance: f32,
     /// Mean final windowing on the validation designs.

@@ -188,6 +188,24 @@ pub(in crate::db::sqlite) const RENDER_JOBS_TABLE_SQL: &str = "
     CREATE INDEX IF NOT EXISTS idx_render_jobs_position ON render_jobs (position, job_id);
 ";
 
+/// `ri_ranges`' full `CREATE TABLE IF NOT EXISTS` text, shared verbatim between
+/// [`crate::db::sqlite::Database::migrate_ri_ranges_table`] and `create_tables_if_not_exist`.
+///
+/// One row per design: the traced refractive-index range, with the `threshold_version` it was
+/// computed with and a hash of the design's facet planes. A side table cascading off
+/// `diagram_entries`, like [`DIAGRAM_PLANNER_EXCLUSIONS_TABLE_SQL`]; no BLOB column. `n_low`
+/// and `n_high` are `NULL` when that end is not bounded.
+pub(in crate::db::sqlite) const RI_RANGES_TABLE_SQL: &str = "
+    CREATE TABLE IF NOT EXISTS ri_ranges (
+        entry_id INTEGER PRIMARY KEY,
+        planes_hash INTEGER NOT NULL,
+        threshold_version INTEGER NOT NULL,
+        n_low REAL,
+        n_high REAL,
+        FOREIGN KEY (entry_id) REFERENCES diagram_entries (id) ON DELETE CASCADE
+    );
+";
+
 /// `diagram_planner_exclusions`' full `CREATE TABLE IF NOT EXISTS` text, shared verbatim
 /// between [`crate::db::sqlite::Database::migrate_planner_exclusion_table`] and
 /// `create_tables_if_not_exist`, same convention as [`DIAGRAM_PREVIEWS_TABLE_SQL`].

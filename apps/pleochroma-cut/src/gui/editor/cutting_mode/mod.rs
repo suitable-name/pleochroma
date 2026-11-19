@@ -645,8 +645,11 @@ fn closed(ui: &MainWindow) {
     let model = ui.global::<CuttingModeModel>();
     model.set_error("".into());
     model.set_busy(false);
-    viewport::release_rough(ui);
+    let lifted = viewport::lift_rough_floor();
     let Some((saved, uuid, epoch)) = saved else {
+        if lifted {
+            viewport::release_rough(ui);
+        }
         return;
     };
     let replaced = state
@@ -659,6 +662,7 @@ fn closed(ui: &MainWindow) {
         } else {
             saved
         },
+        lifted,
     );
 }
 

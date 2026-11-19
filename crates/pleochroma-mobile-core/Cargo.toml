@@ -39,14 +39,20 @@ toml = { workspace = true }
 # The progress-file key of a design without an id (`cutting::key`).
 sha2 = { workspace = true }
 tracing = { workspace = true }
+# The developer page's log bundle (`diagnostics::bundle`): zip with deflate only, through
+# flate2's pure-Rust backend (`deflate-flate2` itself names no backend).
+zip = { workspace = true, features = ["deflate-flate2"] }
+flate2 = { workspace = true, features = ["rust_backend"] }
 # Blocks on the event-wavefront renderer's async accumulate (device GPU builds only).
 pollster = { workspace = true, optional = true }
+# The developer page's GPU probe builds kernels and pipeline caches directly (device GPU only).
+wgpu = { workspace = true, optional = true }
 
 [features]
 default = []
 # Path tracing on the device GPU through the event-wavefront kernels (the desktop megakernel
 # is rejected by mobile drivers); Ray-Traced uses its own kernel from `pleochroma/gpu` too.
-device-gpu = ["pleochroma/gpu", "dep:pollster"]
+device-gpu = ["pleochroma/gpu", "dep:pollster", "dep:wgpu"]
 
 [dev-dependencies]
 # The scripted library transport for the sync and browse tests.

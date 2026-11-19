@@ -98,6 +98,66 @@ pub enum SaveOutcome {
     Cancelled,
 }
 
+/// Facts about the device, for the developer page and the log bundle.
+///
+/// Nothing here identifies a person: no account, no `ANDROID_ID`, no serial.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DeviceFacts {
+    /// The app version, e.g. `"0.12.0"`.
+    pub app_version: String,
+    /// The Android release, e.g. `"14"`.
+    pub android_release: String,
+    /// The Android SDK level.
+    pub sdk_int: u32,
+    /// `Build.MANUFACTURER`.
+    pub manufacturer: String,
+    /// `Build.MODEL`.
+    pub model: String,
+    /// `Build.SOC_MODEL` where the system reports it.
+    pub soc_model: Option<String>,
+    /// The primary ABI, e.g. `"arm64-v8a"`.
+    pub abi: String,
+    /// Total memory in MB.
+    pub total_ram_mb: u64,
+    /// The thermal headroom forecast at the time of asking.
+    pub thermal_headroom: Option<f32>,
+    /// `Build.FINGERPRINT`; the preview uses `"desktop-preview"`.
+    pub fingerprint: String,
+}
+
+/// Why the previous process of the app ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitReason {
+    /// A native crash (signal).
+    CrashNative,
+    /// A crash of the managed code.
+    Crash,
+    /// The system declared the app not responding.
+    Anr,
+    /// The user or the system settings ended it.
+    UserRequested,
+    /// Killed for memory.
+    LowMemory,
+    /// Any other reason.
+    Other,
+}
+
+/// One process exit the system recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExitInfo {
+    /// Why the process ended.
+    pub reason: ExitReason,
+    /// The system's description, as it reports it.
+    pub description: String,
+    /// When it ended, in milliseconds since the Unix epoch.
+    pub timestamp_ms: i64,
+    /// The process id.
+    pub pid: u32,
+    /// The trace file Kotlin saved into `files/logs/` (`anr-<stamp>.txt` or
+    /// `crash-snapshot-<stamp>.pb`), if the system had one.
+    pub trace_file: Option<String>,
+}
+
 /// A platform service failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlatformError {
@@ -235,6 +295,35 @@ pub trait Platform: Send + Sync {
     /// before registration (the app was launched by "Open with") are delivered at
     /// once.
     fn set_incoming_handler(&self, handler: IncomingCallback);
+
+    /// Facts about this device. The default is empty.
+    fn device_facts(&self) -> DeviceFacts {
+        DeviceFacts::default()
+    }
+
+    /// The newest process exit later than `after_ms`, or `None` (also below API 30).
+    fn last_exit(&self, _after_ms: i64) -> Option<ExitInfo> {
+        None
+    }
+
+    /// The process id, for the breadcrumb file.
+    fn process_id(&self) -> u32 {
+        std::process::id()
+    }
+
+    /// Opens the mail app with one attachment. The default shares the attachment.
+    ///
+    /// # Errors
+    /// When no mail app or share sheet can be opened.
+    fn compose_email(
+        &self,
+        _to: &str,
+        _subject: &str,
+        _body: &str,
+        attachment: OutgoingFile,
+    ) -> Result<(), PlatformError> {
+        self.share(attachment)
+    }
 }
 
 /// The MIME types the app reads and writes.
@@ -322,7 +411,7 @@ pub(crate) mod bare {
 
 #[cfg(test)]
 mod tests {
-    use super::{Platform, bare::BarePlatform};
+    use super::{OutgoingFile, Platform, bare::BarePlatform};
 
     #[test]
     fn a_platform_without_a_vault_fails_every_credential_call() {
@@ -350,6 +439,25 @@ mod tests {
                 .expect_err("nothing can be erased")
                 .message,
             message
+        );
+    }
+
+    #[test]
+    fn the_new_services_have_quiet_defaults() {
+        let platform = BarePlatform::new();
+        assert_eq!(platform.device_facts(), super::DeviceFacts::default());
+        assert_eq!(platform.last_exit(0), None);
+        assert_eq!(platform.process_id(), std::process::id());
+        let attachment = OutgoingFile {
+            suggested_name: "logs.zip".to_owned(),
+            mime: "application/zip".to_owned(),
+            bytes: vec![1],
+        };
+        // The default hands the attachment to the share sheet, which the bare platform accepts.
+        assert!(
+            platform
+                .compose_email("a@b.c", "s", "b", attachment)
+                .is_ok()
         );
     }
 }

@@ -14,7 +14,10 @@ use crate::{
     EditorModel, MainWindow,
     bridge::render_thread::RenderContext,
     gui::{
-        editor::state::{EditorState, PendingUnsavedAction},
+        editor::{
+            landing::{self, Landing},
+            state::{EditorState, PendingUnsavedAction},
+        },
         show_toast,
         solid_preview::preview_state::SolidPreviewState,
     },
@@ -99,6 +102,7 @@ pub(in crate::gui::editor) fn setup_open_native_callback(
                 &preview_state_recent,
                 &solid_last_solved_recent,
                 PathBuf::from(path.as_str()),
+                Landing::ShowEditView,
             );
         });
     });
@@ -112,6 +116,10 @@ pub(in crate::gui::editor) fn setup_open_native_callback(
 /// A dirty design is refused with a toast. Unlike [`setup_open_native_callback`], this does
 /// not resume through the Save/Discard dialog: [`PendingUnsavedAction`] has no variant that
 /// carries a path to resume at. Refusing loses nothing.
+///
+/// `landing` says whether the design takes the cutter to the Edit view when it lands: Open
+/// Recent and the restore prompt do, a design given on the command line does not (the app
+/// starts on Live Render).
 pub(in crate::gui::editor) fn open_recent_native_path(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -119,6 +127,7 @@ pub(in crate::gui::editor) fn open_recent_native_path(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &crate::gui::editor::view::SolidLastSolved,
     native_path: PathBuf,
+    landing: Landing,
 ) {
     if state.borrow().is_dirty() {
         show_toast(
@@ -128,7 +137,10 @@ pub(in crate::gui::editor) fn open_recent_native_path(
         );
         return;
     }
-    let guard = ReplaceGuard::capture(&state.borrow(), false);
+    let terms = OpenTerms {
+        guard: ReplaceGuard::capture(&state.borrow(), false),
+        landing,
+    };
     let state = Rc::clone(state);
     let render_ctx = Arc::clone(render_ctx);
     let preview_state = Arc::clone(preview_state);
@@ -142,41 +154,59 @@ pub(in crate::gui::editor) fn open_recent_native_path(
             &render_ctx,
             &preview_state,
             &solid_last_solved,
-            guard,
+            terms,
             picked,
         );
     });
+}
+
+/// What a picked or named file is opened with, bundled to keep [`dispatch_picked`] within
+/// clippy's argument limit.
+#[derive(Clone, Copy)]
+struct OpenTerms {
+    /// The re-check for edits made while the file was chosen or read.
+    guard: ReplaceGuard,
+    /// Whether the design shows the Edit view when it lands.
+    landing: Landing,
 }
 
 /// Commits whatever the Open picker (or Open Recent, or the command line) read: re-checks
 /// for edits made since the unsaved-changes decision ([`ReplaceGuard`]), then hands
 /// the picked design to the replace-state path for its kind. `None` (a cancelled
 /// picker or a read that already toasted its failure) does nothing.
+///
+/// A design that landed is reported to [`landing::design_landed`], which shows the Edit view
+/// as `terms.landing` says. The open paths refresh at once (`finish_state_replace`), so the
+/// view changes here, after that refresh: the viewport is the new design's by then, or its
+/// first solve is running in the background and claims it when it lands.
 fn dispatch_picked(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
     render_ctx: &Arc<Mutex<RenderContext>>,
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &crate::gui::editor::view::SolidLastSolved,
-    guard: ReplaceGuard,
+    terms: OpenTerms,
     picked: Option<PickedNative>,
 ) {
-    match picked {
-        Some(_) if !guard.allows_replace(ui, state) => {}
+    let landed = match picked {
+        Some(_) if !terms.guard.allows_replace(ui, state) => false,
         Some(PickedNative::Design {
             native_path,
             loaded,
-        }) => open_design_file(
-            ui,
-            state,
-            render_ctx,
-            preview_state,
-            solid_last_solved,
-            DesignFileLoad {
-                native_path,
-                loaded: *loaded,
-            },
-        ),
+        }) => {
+            open_design_file(
+                ui,
+                state,
+                render_ctx,
+                preview_state,
+                solid_last_solved,
+                DesignFileLoad {
+                    native_path,
+                    loaded: *loaded,
+                },
+            );
+            true
+        }
         Some(PickedNative::AscOnly { asc_path, asc_text }) => open_plain_asc(
             ui,
             state,
@@ -194,7 +224,11 @@ fn dispatch_picked(
             solid_last_solved,
             converted,
         ),
-        None => {}
+        None => false,
+    };
+    if landed {
+        let generation = state.borrow().current_generation();
+        landing::design_landed(ui, generation, terms.landing, landing::Refresh::Ran);
     }
 }
 
@@ -210,7 +244,11 @@ pub(in crate::gui::editor) fn do_open_native(
 ) {
     // Captured now, after the dirty check (or the Save/Discard answer that resumed this call).
     // The picker is asynchronous and the editor stays interactive while it is open.
-    let guard = ReplaceGuard::capture(&state.borrow(), true);
+    // A design the cutter picks shows the Edit view when it lands.
+    let terms = OpenTerms {
+        guard: ReplaceGuard::capture(&state.borrow(), true),
+        landing: Landing::ShowEditView,
+    };
     let state = Rc::clone(state);
     let render_ctx = Arc::clone(render_ctx);
     let preview_state = Arc::clone(preview_state);
@@ -222,7 +260,7 @@ pub(in crate::gui::editor) fn do_open_native(
             &render_ctx,
             &preview_state,
             &solid_last_solved,
-            guard,
+            terms,
             picked,
         );
     });

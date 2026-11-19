@@ -59,7 +59,7 @@ fn override_orientation() -> Guide {
             "Choose Block and type 18.4, 11 and 9.6 in Rough X (mm), Rough Y (mm) and Rough Z (mm). Set Material to Sapphire.",
             "Scroll to CRYSTAL AXIS and click Set.",
         ])
-        .check("Tilt (deg) and Azimuth (deg) fields appear, and a sentence under them says how the axis lies in the rough.")
+        .check("Tilt and Turn fields appear, and a sentence under them says how the axis lies in the rough.")
         .why("A material without a crystal axis, such as Diamond, has no CRYSTAL AXIS section. Set starts with the axis along the rough's Y axis, and Undo in the planner takes it back like any edit of the rough.")
         .goal(event(ROUGH_AXIS_SET), "The rough's Crystal Axis set")
         .allow(VIEWPORT),
@@ -71,9 +71,9 @@ fn override_orientation() -> Guide {
         )
         .actions([
             "Click Fit to Crystal Length to set the axis along the longest direction of the rough. A crystal is usually longest along its axis, and a note says how clear that direction is.",
-            "Or click Align to Face or Align to Edge and click the rough in the 3D view, or type Tilt (deg) and Azimuth (deg). Tilt is measured from the rough's Y axis.",
+            "Or click Align to Face or Align to Edge and click the rough in the 3D view, or type Tilt and Turn. Tilt is measured from the rough's Y axis, and Turn is the direction it leans toward, around the Y axis.",
         ])
-        .check("The Tilt (deg) and Azimuth (deg) fields show the new angles, and the axis line is drawn in the 3D view.")
+        .check("The Tilt and Turn fields show the new angles, and the axis line is drawn in the 3D view.")
         .why("Each way is one undo step. From Color Zones follows the color zone you accepted in Rough Color, and a drag on the axis line in the 3D view turns the axis too.")
         .goal(event(ROUGH_AXIS_SET), "The rough's Crystal Axis set")
         .allow(VIEWPORT),

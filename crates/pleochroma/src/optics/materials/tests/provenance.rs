@@ -7,7 +7,7 @@ use crate::optics::materials::{GemMaterial, optics_provenance};
 #[test]
 fn every_builtin_has_a_nonempty_optics_provenance_record() {
     let materials = GemMaterial::all_materials();
-    assert_eq!(materials.len(), 39, "the built-in table has 39 materials");
+    assert_eq!(materials.len(), 40, "the built-in table has 40 materials");
     for material in &materials {
         let record = optics_provenance(&material.name)
             .unwrap_or_else(|| panic!("{} has no optics provenance record", material.name));

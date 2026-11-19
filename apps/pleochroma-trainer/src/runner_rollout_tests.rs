@@ -18,6 +18,29 @@ fn pending_step(runner: &TrainingRunner) -> PendingStep {
     }
 }
 
+#[test]
+fn batched_respawn_preserves_the_worker_cycle_after_initial_and_later_fallbacks() {
+    let mut runner = fixture_runner_with(|cfg| cfg.workers = 2);
+    runner.split = crate::runner::tests::corpus_with_failed_start();
+    runner.rebuild_slots().unwrap();
+    let mut rollout = RolloutStats::default();
+    for (scheduled, selected) in [(0, 1), (2, 2), (0, 1), (2, 2)] {
+        assert_eq!(runner.slots[0].position.scheduled, scheduled);
+        assert_eq!(runner.slots[0].entry, selected);
+        let pending = pending_step(&runner);
+        let mut outcome = rejected(&runner, false, false);
+        outcome.step.terminated = true;
+        let respawn = runner
+            .finish_step(0, pending, outcome, &mut rollout)
+            .unwrap();
+        assert_eq!(rollout.finished.last().unwrap().entry, selected);
+        runner.respawn_slots(vec![respawn]).unwrap();
+    }
+    assert_eq!(rollout.diagnostics.stepped_entries, 2);
+    assert_eq!(rollout.diagnostics.stepped_families, 1);
+    assert_eq!(rollout.diagnostics.fresh_label_entries, 0);
+}
+
 /// A step of slot 0 that moves every free tier by half the step limit.
 fn moving_step(runner: &TrainingRunner, labelled: bool) -> PendingStep {
     let max_step = runner.slots[0].env.max_step_deg();
@@ -67,8 +90,7 @@ fn cached_labels_keep_telemetry_without_repeating_replay_and_stalled_slots_resta
         let outcome = rejected(&runner, true, fresh);
         assert!(
             runner
-                .finish_step(0, pending, outcome, &mut rollout, None)
-                .unwrap()
+                .finish_step(0, pending, outcome, &mut rollout)
                 .is_none()
         );
     }
@@ -86,8 +108,7 @@ fn cached_labels_keep_telemetry_without_repeating_replay_and_stalled_slots_resta
     outcome.step.info.unchanged = false;
     assert!(
         runner
-            .finish_step(0, pending, outcome, &mut rollout, None)
-            .unwrap()
+            .finish_step(0, pending, outcome, &mut rollout)
             .is_none()
     );
     assert_eq!(runner.slots[0].rejected_steps, 0);
@@ -97,9 +118,7 @@ fn cached_labels_keep_telemetry_without_repeating_replay_and_stalled_slots_resta
         let mut outcome = rejected(&runner, false, false);
         outcome.step.info.rejection = Some(StepRejection::PreservationViolation);
         outcome.step.info.unchanged = false;
-        let respawn = runner
-            .finish_step(0, pending, outcome, &mut rollout, None)
-            .unwrap();
+        let respawn = runner.finish_step(0, pending, outcome, &mut rollout);
         assert_eq!(respawn.is_some(), index == 2);
         if let Some(respawn) = respawn {
             runner.respawn_slots(vec![respawn]).unwrap();
@@ -114,8 +133,7 @@ fn cached_labels_keep_telemetry_without_repeating_replay_and_stalled_slots_resta
     let outcome = rejected(&runner, true, true);
     assert!(
         runner
-            .finish_step(0, pending, outcome, &mut rollout, None)
-            .unwrap()
+            .finish_step(0, pending, outcome, &mut rollout)
             .is_none()
     );
     assert_eq!(
@@ -189,8 +207,7 @@ fn disabled_limit_and_ppo_do_not_restart_and_normal_ends_are_not_stalls() {
             let outcome = rejected(&runner, true, true);
             assert!(
                 runner
-                    .finish_step(0, pending, outcome, &mut rollout, None)
-                    .unwrap()
+                    .finish_step(0, pending, outcome, &mut rollout)
                     .is_none()
             );
         }
@@ -210,8 +227,7 @@ fn disabled_limit_and_ppo_do_not_restart_and_normal_ends_are_not_stalls() {
     outcome.label.as_mut().unwrap().oracle_gain = None;
     assert!(
         runner
-            .finish_step(0, pending, outcome, &mut rollout, None)
-            .unwrap()
+            .finish_step(0, pending, outcome, &mut rollout)
             .is_some()
     );
     assert_eq!(rollout.diagnostics.stalled_episodes, 0);

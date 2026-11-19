@@ -65,7 +65,7 @@ fn cutting_mode() -> Guide {
         .actions([
             "Click the Edit tab, then Cut Mode in the command bar (or choose Edit, Cutting Mode..., or press Ctrl+K and type cutting).",
             "Read the first page.",
-            "Press Space or D, or click Mark Step Done, to mark the step done.",
+            "Press Space or D, or click the button that reads like P1 Done \u{b7} Next, to mark the step done. The page goes on to the next step.",
             "Press Esc to close cutting mode and come back to this panel.",
         ])
         .check("The progress line at the bottom of the page reads 1 of 4 steps done.")

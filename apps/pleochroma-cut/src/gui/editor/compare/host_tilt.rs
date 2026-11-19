@@ -39,6 +39,33 @@ pub(super) fn cancel_tilt(surface: Surface) {
     }
 }
 
+/// Shows the live session's tilt rows again after the Tilt Average Range changed: the strip is
+/// built from the kept profiles with the range now in force, so nothing is traced. Does nothing
+/// unless a finished tilt average is on screen.
+pub(super) fn represent_tilt() {
+    let shown = with_live(|live| {
+        let ready = live.ready.as_ref()?;
+        let strip = ready.metrics.strip();
+        strip.tilt_done.then_some(strip)
+    });
+    if let Some((handle, Some(strip))) = shown {
+        handle.with_model(|model| push_strip(&model, &strip));
+    }
+}
+
+/// Makes the pop-out window's `TiltWindows` words follow the Tilt Average Range preference.
+/// Called once, when the window is created; the words are set at once and on every change.
+pub(super) fn bind_tilt_range(window: &CompareWindow) {
+    let weak = window.as_weak();
+    crate::gui::preferences::register_tilt_range_sink(move |degrees| {
+        let Some(window) = weak.upgrade() else {
+            return false;
+        };
+        crate::gui::preferences::set_tilt_words(&window.global::<TiltWindows>(), degrees);
+        true
+    });
+}
+
 /// Hands a tilt thread's report to the UI thread -- the `post` every tilt thread is
 /// spawned with. Fails silently only once the event loop has already quit.
 fn post_tilt(report: TiltReport) {

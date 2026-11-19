@@ -17,7 +17,7 @@ use jni::{
     sys::{jobject, jsize},
     vm::JavaVM,
 };
-use pleochroma_mobile_core::platform::PlatformError;
+use pleochroma_mobile_core::platform::{DeviceFacts, ExitInfo, ExitReason, PlatformError};
 use slint::android::AndroidApp;
 
 /// How many bytes cross the JNI boundary per region call. Bounds the temporary
@@ -48,8 +48,15 @@ pub(super) const SIG_SYSTEM_POWER_SAVE: MethodSignature = jni_sig!("()Z");
 pub(super) const SIG_NETWORK_METERED: MethodSignature = jni_sig!("()I");
 /// `cacheDirPath(): String`
 pub(super) const SIG_CACHE_DIR: MethodSignature = jni_sig!("()Ljava/lang/String;");
-/// `loadRemoteCredentials(): String?` and `forgetRemoteCredentials(): String?`
+/// `loadRemoteCredentials(): String?` and `forgetRemoteCredentials(): String?`; also
+/// `deviceFacts(): String`
 pub(super) const SIG_NO_ARGS_STRING: MethodSignature = jni_sig!("()Ljava/lang/String;");
+/// `lastExitInfo(afterMs: Long): String?`
+pub(super) const SIG_LAST_EXIT: MethodSignature = jni_sig!("(J)Ljava/lang/String;");
+/// `composeEmail(to: String, subject: String, body: String, name: String, bytes: ByteArray): String?`
+pub(super) const SIG_COMPOSE_EMAIL: MethodSignature = jni_sig!(
+    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Ljava/lang/String;"
+);
 
 /// The JVM and the activity, usable from any thread.
 pub(super) struct Jvm {
@@ -132,6 +139,68 @@ pub(super) fn into_unit(
         None => Ok(()),
         Some(message) => Err(PlatformError::new(message)),
     }
+}
+
+/// The `key=value` lines of a Kotlin answer; a line without `=` is skipped.
+fn key_values(text: &str) -> impl Iterator<Item = (&str, &str)> {
+    text.lines().filter_map(|line| line.split_once('='))
+}
+
+/// Reads the answer of `MainActivity.deviceFacts`. A missing or malformed value stays at its
+/// default; the thermal headroom is filled in by the caller.
+pub(super) fn parse_device_facts(text: &str) -> DeviceFacts {
+    let mut facts = DeviceFacts::default();
+    for (key, value) in key_values(text) {
+        match key {
+            "app_version" => facts.app_version = value.to_owned(),
+            "android_release" => facts.android_release = value.to_owned(),
+            "sdk_int" => facts.sdk_int = value.parse().unwrap_or(0),
+            "manufacturer" => facts.manufacturer = value.to_owned(),
+            "model" => facts.model = value.to_owned(),
+            "soc_model" => facts.soc_model = (!value.is_empty()).then(|| value.to_owned()),
+            "abi" => facts.abi = value.to_owned(),
+            "total_ram_mb" => facts.total_ram_mb = value.parse().unwrap_or(0),
+            "fingerprint" => facts.fingerprint = value.to_owned(),
+            _ => {}
+        }
+    }
+    facts
+}
+
+/// Reads the answer of `MainActivity.lastExitInfo`. `None` when the reason or the time is
+/// missing.
+pub(super) fn parse_exit_info(text: &str) -> Option<ExitInfo> {
+    let mut reason = None;
+    let mut description = String::new();
+    let mut timestamp_ms = None;
+    let mut pid = 0_u32;
+    let mut trace_file = None;
+    for (key, value) in key_values(text) {
+        match key {
+            "reason" => {
+                reason = Some(match value {
+                    "crash_native" => ExitReason::CrashNative,
+                    "crash" => ExitReason::Crash,
+                    "anr" => ExitReason::Anr,
+                    "user_requested" => ExitReason::UserRequested,
+                    "low_memory" => ExitReason::LowMemory,
+                    _ => ExitReason::Other,
+                });
+            }
+            "description" => description = value.to_owned(),
+            "timestamp_ms" => timestamp_ms = value.parse::<i64>().ok(),
+            "pid" => pid = value.parse().unwrap_or(0),
+            "trace_file" => trace_file = (!value.is_empty()).then(|| value.to_owned()),
+            _ => {}
+        }
+    }
+    Some(ExitInfo {
+        reason: reason?,
+        description,
+        timestamp_ms: timestamp_ms?,
+        pid,
+        trace_file,
+    })
 }
 
 /// Copies `bytes` into a new Java `byte[]`.

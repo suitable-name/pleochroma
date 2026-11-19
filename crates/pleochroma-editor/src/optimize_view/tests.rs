@@ -161,8 +161,8 @@ fn after_with_delta_reports_unchanged_when_the_value_did_not_move() {
 #[test]
 fn optimize_status_text_reports_the_change_and_evaluation_count() {
     let text = optimize_status_text(&sample_outcome(true, false));
-    assert!(text.contains("1 tier(s)"));
-    assert!(text.contains("42 evaluation(s)"));
+    assert!(text.contains("1 tier "));
+    assert!(text.contains("42 evaluations"));
     assert!(!text.contains("cancelled"));
 }
 
@@ -178,7 +178,7 @@ fn optimize_status_text_notes_cancellation_without_hiding_the_partial_result() {
     // the summary, not in its place.
     let text = optimize_status_text(&sample_outcome(true, true));
     assert!(text.contains("cancelled"));
-    assert!(text.contains("1 tier(s)"));
+    assert!(text.contains("1 tier "));
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn optimize_status_text_names_the_polish_stages_own_contribution_when_it_ran() {
     outcome.polish_evaluations = 31;
     outcome.polish_improvement = 0.42;
     let text = optimize_status_text(&outcome);
-    assert!(text.contains("polish: +0.42 in 31 evaluation(s)"));
+    assert!(text.contains("polish: +0.42 in 31 evaluations"));
 }
 
 #[test]

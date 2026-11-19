@@ -95,9 +95,9 @@ export component OverviewPanel inherits ScrollView {
             }
             Row {
                 KpiCard {
-                    title: "BEST SCORE";
+                    title: "BEST TRAINING SCORE";
                     value: UiState.figure(TrainingController.has_best, TrainingController.best_score, 2);
-                    tip: "The largest score improvement any episode reached so far. Higher is better.";
+                    tip: "Lowest final objective score reached by a completed training episode.";
                     accent: TrainerTheme.accent-amber;
                 }
                 KpiCard {
@@ -119,21 +119,21 @@ export component OverviewPanel inherits ScrollView {
                     title: "MODEL / ORACLE RATIO";
                     value: UiState.figure(TrainingController.has_ratio, TrainingController.val_oracle_ratio, 2);
                     subtitle: "goal above " + TrainingController.ratio_goal.to-fixed(2);
-                    tip: "Validation drop achieved by the model divided by the oracle's drop. This is the figure of merit; above the goal means the model is nearly as good as the search.";
+                    tip: "Mean deterministic diagnostic rollout improvement divided by the finite-search teacher's improvement on the same cases.";
                     accent: TrainingController.has_ratio && TrainingController.val_oracle_ratio >= TrainingController.ratio_goal ? TrainerTheme.accent-green : TrainerTheme.sev-validation;
                 }
                 KpiCard {
-                    title: "VALIDATION SCORE";
-                    value: UiState.figure(TrainingController.has_validation, TrainingController.val_score, 2);
-                    subtitle: TrainingController.has_validation ? "brilliance " + TrainingController.val_brilliance.to-fixed(1) + "% · windowing " + TrainingController.val_windowing.to-fixed(1) + "%" : "";
-                    tip: "Mean score on designs the model never trained on. Higher is better.";
+                    title: "DEPLOYED FULL SCORE";
+                    value: UiState.figure(TrainingController.has_deployed_score, TrainingController.val_deployed_score, 2);
+                    subtitle: TrainingController.has_validation ? "Diagnostic rollout " + TrainingController.val_score.to-fixed(2) : "";
+                    tip: "Mean Full score of the design returned by host inference across the complete validation cohort. Lower scores earn best-validation checkpoints.";
                     accent: TrainerTheme.sev-validation;
                 }
                 KpiCard {
                     title: "GENERALIZATION GAP";
                     value: UiState.figure(TrainingController.has_gap, TrainingController.generalization_gap, 2);
-                    subtitle: TrainingController.has_gap ? (TrainingController.generalization_gap > TrainingController.gap_warn_threshold ? "overfitting" : "healthy") : "needs 8 validated designs";
-                    tip: "Training score minus validation score. A gap above " + TrainingController.gap_warn_threshold.to-fixed(1) + " reads as overfitting.";
+                    subtitle: TrainingController.has_gap ? "Training minus validation drop" : "Needs matched rollouts";
+                    tip: "Mean training score improvement minus mean sampled validation improvement. Requires matching fidelity and at least eight held-out families, with all cases scored.";
                     accent: TrainingController.has_gap && TrainingController.generalization_gap > TrainingController.gap_warn_threshold ? TrainerTheme.sev-warning : TrainerTheme.accent-green;
                 }
             }

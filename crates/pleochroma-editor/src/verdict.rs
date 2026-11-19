@@ -64,6 +64,18 @@ pub const WINDOWING_CHECK_PCT: f32 = 15.0;
 /// Windowing above this many percent is a real problem: a third of the stone is a window.
 pub const WINDOWING_PROBLEM_PCT: f32 = 30.0;
 
+/// Whether the windowing Check also reads the 10 degree tilt mean and takes the larger of the
+/// two readings.
+///
+/// Off until the calibration shows the tilt limits raise no Check on known-good designs.
+pub const WINDOWING_CHECK_READS_TILT: bool = false;
+
+/// The tilted windowing reading above this many percent is worth a look.
+pub const WINDOWING_TILT_CHECK_PCT: f32 = 15.0;
+
+/// The tilted windowing reading above this many percent is a real problem.
+pub const WINDOWING_TILT_PROBLEM_PCT: f32 = 30.0;
+
 /// Extinction above this many percent is worth a look: two fifths of the light trapped or
 /// lost is a stone that reads dark. Set loosely (see the module docs).
 pub const EXTINCTION_CHECK_PCT: f32 = 40.0;
@@ -300,6 +312,10 @@ pub struct VerdictInputs {
     pub missing_table: bool,
     /// The measured table-up optics, when they are known.
     pub optics: Option<MetricColumn>,
+    /// The windowing mean over the eight 10 degree tilted poses at the design's own index, in
+    /// percent, when the range worker has measured it. Read only while
+    /// [`WINDOWING_CHECK_READS_TILT`] is on.
+    pub small_tilt_windowing_pct: Option<f32>,
     /// What a person reads for every tier, in schedule order: the tier's own name, or its
     /// standard code (`P2`, `C1`) when the name is empty or old-style (`3`, `A`)
     /// ([`crate::retarget::plan::tier_display_names`]). The reasons call a tier by this. Empty
@@ -341,6 +357,15 @@ impl VerdictInputs {
     pub fn with_optics(&self, optics: Option<MetricColumn>) -> Self {
         Self {
             optics,
+            ..self.clone()
+        }
+    }
+
+    /// These inputs with the 10 degree windowing mean filled in (it arrives after the rest).
+    #[must_use]
+    pub fn with_small_tilt_windowing(&self, small_tilt_windowing_pct: Option<f32>) -> Self {
+        Self {
+            small_tilt_windowing_pct,
             ..self.clone()
         }
     }
@@ -757,7 +782,10 @@ pub fn evaluate(inputs: &VerdictInputs) -> Verdict {
         ));
     }
     if let Some(optics) = &inputs.optics {
-        reasons.extend(measured::optics_reasons(optics));
+        reasons.extend(measured::optics_reasons(
+            optics,
+            inputs.small_tilt_windowing_pct,
+        ));
     }
     // An informational note at `Level::Good`: sorted last, never the verdict's level.
     if let Some(fact) = &inputs.axis {

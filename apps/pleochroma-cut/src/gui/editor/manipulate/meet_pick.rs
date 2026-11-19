@@ -24,8 +24,17 @@
 //! masts generation, tier) and kept in the session ([`CornerCache`]); a landed frame only
 //! projects them. While the mode is off, the tier that is selected and already has a pick keeps
 //! its own ring on screen, from the same cache.
+//!
+//! # The row while a solve runs
+//!
+//! An edit publishes the Meet Point row at once, while the masts on hand are still those of the
+//! solve before it. Judged by them, a tier just cut to a corner misses that corner. So a row
+//! whose design is newer than its masts reads "Solving…" ([`row_awaits_solve`]) and gets its
+//! state when the solve of the edit lands ([`on_frame_landed`]).
 
-use super::{CTX, SESSION, Shared, diagram, handles, set_hint, slice, tier_label};
+use super::{
+    CTX, SESSION, Shared, diagram, frame_updates_mast_cache, handles, set_hint, slice, tier_label,
+};
 use crate::{
     EditorModel, MainWindow, ManipulateModel, MeetPickRing, SolidPreviewModel,
     gui::{
@@ -49,7 +58,9 @@ use pleochroma_editor::{
             step_ring, tier_name, toast_cleared, toast_picked,
         },
     },
-    view_model::meet_pick_row::{meet_pick_blocked_text, meet_pick_row},
+    view_model::meet_pick_row::{
+        meet_pick_blocked_text, meet_pick_row, meet_pick_row_while_solving,
+    },
 };
 use slint::{ComponentHandle as _, Model as _, ModelRc, VecModel};
 use std::{
@@ -206,6 +217,14 @@ struct PickMode {
 pub(super) struct PickSession {
     mode: Option<PickMode>,
     cache: Option<CornerCache>,
+    /// The generation of the solved masts the Meet Point row was last worked out from, `None`
+    /// before the first solve. A frame that lands with other masts publishes the row again.
+    row_masts: Option<u64>,
+    /// Whether the row was last published as waiting for a solve ([`row_awaits_solve`]).
+    row_awaits: bool,
+    /// The generation of the last frame of the committed design that landed, `None` before
+    /// the first one.
+    landed: Option<u64>,
 }
 
 impl PickSession {
@@ -214,8 +233,23 @@ impl PickSession {
         Self {
             mode: None,
             cache: None,
+            row_masts: None,
+            row_awaits: false,
+            landed: None,
         }
     }
+}
+
+/// Whether the Meet Point row has to wait for a solve before it can say how a pick stands.
+///
+/// `design` is the design's generation, `masts` the generation the cached masts were solved for
+/// and `landed` the generation of the last frame that landed. The row waits while the design is
+/// newer than its masts and no frame of the design has landed yet. A frame of the design that
+/// brought no masts is a solve that failed: no other masts are coming, so the row is worked out
+/// from the ones on hand.
+#[must_use]
+pub(super) fn row_awaits_solve(design: u64, masts: Option<u64>, landed: Option<u64>) -> bool {
+    masts != Some(design) && landed != Some(design)
 }
 
 /// Whether pick mode is armed. The drag handles stay hidden while it is.
@@ -325,9 +359,21 @@ fn arm(ui: &MainWindow, ctx: &Shared) {
         session.pick.mode = Some(mode);
     });
     model.set_pick_lit(-1);
+    // The rings are picked in the 3D view. In the short one-pane layout the mode may have been
+    // armed from the Tier form ("Pick in View"), where that view is not on screen: it is
+    // brought up for the pick, and `leave` goes back afterwards.
+    ui.global::<EditorModel>().invoke_request_pane_temporary(0);
     handles::refresh_handles(ui, ctx);
     refresh(ui, ctx);
     publish_row_now(ui, ctx);
+}
+
+/// Whether the tier editor pane comes back when the mode ends with `exit`, in the short
+/// one-pane layout and only when arming switched the pane: after a pick or a cancel the Meet
+/// Point row of the Tier form shows the result. Every other exit follows something the user
+/// did elsewhere, and leaves them where they are.
+const fn returns_to_tier_editor(exit: Exit) -> bool {
+    matches!(exit, Exit::Picked | Exit::Cancel)
 }
 
 /// Ends pick mode: clears the rings and the outline, puts the Cut slider back when `exit` asks
@@ -340,6 +386,11 @@ pub(super) fn leave(ui: &MainWindow, ctx: &Shared, exit: Exit) {
     let Some(mode) = taken else {
         return;
     };
+    if returns_to_tier_editor(exit) {
+        ui.global::<EditorModel>().invoke_release_temporary_pane();
+    } else {
+        ui.global::<EditorModel>().invoke_forget_temporary_pane();
+    }
     model.set_pick_lit(-1);
     model.set_pick_rings(ModelRc::new(VecModel::<MeetPickRing>::default()));
     if !mode.outlined.is_empty() {
@@ -461,11 +512,46 @@ fn publish_rings(ui: &MainWindow, rings: &[PickRing], tier: &str, lit: Option<us
 /// Re-places the rings for the frame that just landed. Armed: all the corners the tier can be
 /// cut to, and the exit checks. Not armed: the ring of the selected tier's own pick, if it has
 /// one.
-pub(super) fn refresh(ui: &MainWindow, ctx: &Shared) {
+fn refresh(ui: &MainWindow, ctx: &Shared) {
+    republish_row_when_due(ui, ctx);
     if is_armed() {
         refresh_armed(ui, ctx);
     } else {
         refresh_resting(ui, ctx);
+    }
+}
+
+/// A solid-preview frame stamped `generation` has landed and is stored: notes it, so a row that
+/// waited for this design's solve gets its state, and re-places the rings ([`refresh`]).
+pub(super) fn on_frame_landed(ui: &MainWindow, ctx: &Shared, generation: u64) {
+    // A provisional Slice frame is not a frame of the committed design.
+    if frame_updates_mast_cache(generation) {
+        SESSION.with(|cell| cell.borrow_mut().pick.landed = Some(generation));
+    }
+    refresh(ui, ctx);
+}
+
+/// Publishes the Meet Point row again when the solved masts are not the ones the row was last
+/// worked out from, or when the row no longer waits (or now has to wait) for a solve.
+///
+/// An edit publishes the row at once, with the masts of the solve before it on hand; the row
+/// waits then ([`row_awaits_solve`]). The solve of the edit writes its masts before its frame
+/// lands, so the row is right from then on.
+fn republish_row_when_due(ui: &MainWindow, ctx: &Shared) {
+    let masts = handles::solved_summary(ctx).map(|(generation, _)| generation);
+    let (published, awaited, landed) = SESSION.with(|cell| {
+        let session = cell.borrow();
+        (
+            session.pick.row_masts,
+            session.pick.row_awaits,
+            session.pick.landed,
+        )
+    });
+    let awaits = ctx.state.try_borrow().map_or(awaited, |st| {
+        row_awaits_solve(st.current_generation(), masts, landed)
+    });
+    if masts != published || awaits != awaited {
+        publish_row_now(ui, ctx);
     }
 }
 
@@ -835,6 +921,23 @@ fn clear_pick(ui: &MainWindow, ctx: &Shared, index: usize) {
 pub(in crate::gui::editor) fn publish_row(ui: &MainWindow, st: &EditorState) {
     let editor = ui.global::<EditorModel>();
     let manipulate = ui.global::<ManipulateModel>();
+    let ctx = CTX.with(|cell| cell.borrow().clone());
+    // Which masts this row is worked out from and whether it waits for newer ones, for
+    // `republish_row_when_due`.
+    let masts_generation = ctx
+        .as_ref()
+        .and_then(handles::solved_summary)
+        .map(|(generation, _)| generation);
+    let design_generation = st.current_generation();
+    let awaits_solve = SESSION.with(|cell| {
+        let Ok(mut session) = cell.try_borrow_mut() else {
+            return row_awaits_solve(design_generation, masts_generation, None);
+        };
+        let awaits = row_awaits_solve(design_generation, masts_generation, session.pick.landed);
+        session.pick.row_masts = masts_generation;
+        session.pick.row_awaits = awaits;
+        awaits
+    });
     let selected = usize::try_from(editor.get_selected_tier_index())
         .ok()
         .filter(|&index| index < st.design.tiers.len());
@@ -846,11 +949,15 @@ pub(in crate::gui::editor) fn publish_row(ui: &MainWindow, st: &EditorState) {
         manipulate.set_pick_blocked_reason("".into());
         return;
     };
-    let solved = CTX
-        .with(|cell| cell.borrow().clone())
-        .and_then(|ctx| handles::aligned_masts(&ctx, st.design.tiers.len()))
+    let solved = ctx
+        .as_ref()
+        .and_then(|ctx| handles::aligned_masts(ctx, st.design.tiers.len()))
         .unwrap_or_default();
-    let row = meet_pick_row(&st.design, &solved, index);
+    let row = if awaits_solve {
+        meet_pick_row_while_solving(&st.design, &solved, index)
+    } else {
+        meet_pick_row(&st.design, &solved, index)
+    };
     let armed_note = SESSION.with(|cell| {
         let session = cell.borrow();
         session

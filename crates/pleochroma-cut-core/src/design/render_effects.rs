@@ -112,6 +112,34 @@ impl StoneRenderEffects {
         (next != *self).then_some(next)
     }
 
+    /// These effects without the look of the material called `material`: each part
+    /// [`Self::with_material_look`] switches on for it is switched off again, as long as it still
+    /// has the catalogue default. A part that was changed since is the cutter's own and stays.
+    ///
+    /// Called when the stone leaves that material, so that the schiller of a labradorite or the
+    /// milky body of a white opal does not stay on the sapphire picked next.
+    #[must_use]
+    pub fn without_material_look(&self, material: &str) -> Self {
+        let look = pleochroma::optics::materials::MaterialLook::of(material);
+        let mut next = *self;
+        if next.structure.is_some()
+            && next.structure == look.structure.as_ref().map(StructureEffects::from_spec)
+        {
+            next.structure = None;
+        }
+        if next.inclusions.is_some()
+            && next.inclusions == look.inclusion_preset.and_then(InclusionEffects::of_preset)
+        {
+            next.inclusions = None;
+        }
+        if let Some(sigma_s) = look.haze_sigma_s
+            && (next.inclusion_sigma_s - f64::from(sigma_s)).abs() < 1e-9
+        {
+            next.inclusion_sigma_s = 0.0;
+        }
+        next
+    }
+
     /// Whether this is exactly the default (nothing to write to a file).
     #[must_use]
     pub fn is_default(&self) -> bool {
@@ -263,5 +291,42 @@ mod tests {
         for name in ["Sapphire", "Opal", "Diamond"] {
             assert_eq!(plain.with_material_look(name), None, "{name}");
         }
+    }
+
+    /// Leaving a material takes the look it switched on away again, as long as the look still has
+    /// its catalogue values; a part the cutter changed stays, and so does another material's look.
+    #[test]
+    fn leaving_a_material_takes_its_untouched_look_away() {
+        let plain = StoneRenderEffects::default();
+        for name in [
+            "Precious Opal (White)",
+            "Precious Opal (Black)",
+            "Labradorite",
+            "Moonstone",
+        ] {
+            let with_look = plain
+                .with_material_look(name)
+                .expect("the material switches a look on");
+            assert_eq!(with_look.without_material_look(name), plain, "{name}");
+        }
+        for name in ["Sapphire", "Opal", "Diamond"] {
+            assert_eq!(plain.without_material_look(name), plain, "{name}");
+        }
+
+        // A haze the cutter set, and a look that came from another material, stay.
+        let opal = plain
+            .with_material_look("Precious Opal (White)")
+            .expect("white opal switches its look on");
+        let thicker = StoneRenderEffects {
+            inclusion_sigma_s: opal.inclusion_sigma_s + 0.25,
+            ..opal
+        };
+        let left = thicker.without_material_look("Precious Opal (White)");
+        assert_eq!(
+            left.inclusion_sigma_s.to_bits(),
+            thicker.inclusion_sigma_s.to_bits()
+        );
+        assert!(left.structure.is_none(), "the untouched play-of-color goes");
+        assert_eq!(opal.without_material_look("Sapphire"), opal);
     }
 }

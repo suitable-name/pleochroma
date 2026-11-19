@@ -12,6 +12,7 @@
 //! button, so only Esc and a backdrop click close it.
 
 mod confirm;
+mod job_overlays;
 mod overlays;
 mod popups;
 mod sweep_two_tier;

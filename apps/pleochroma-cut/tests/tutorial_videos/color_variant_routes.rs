@@ -265,8 +265,27 @@ impl Film<'_> {
         self.scroll_material_editor_to(label)?;
         self.hold(pacing::RESULT_HOLD)?;
         // The rows of the material sit below the list: one more turn brings them into view.
-        let (_, target) = self.material_scroll_target()?;
-        self.wheel_over(&target, -120.0)?;
+        // The step is about the row the learner saved ("Saved by you", after the built-ins):
+        // turn the wheel until that row is fully in view.
+        let mut shown = false;
+        for _ in 0..SCROLL_TRIES {
+            let (viewport, target) = self.material_scroll_target()?;
+            let view = self.view();
+            if let Some(spot) = targets::run_label_start(&view, SAVED_NAME)
+                && let Some(clipped) = spot.clipped_to(&viewport, view.size)
+                && (clipped.h - spot.h).abs() < 0.5
+            {
+                shown = true;
+                break;
+            }
+            self.wheel_over(&target, -90.0)?;
+            self.hold(Duration::from_millis(100))?;
+        }
+        if !shown {
+            crate::debug_log::route(&format!(
+                "the saved variant row {SAVED_NAME:?} did not scroll into view in the Material Editor"
+            ));
+        }
         self.hold(pacing::RESULT_HOLD)?;
         let cancel = self.scoped_button("MaterialEditorDialog", "Cancel")?;
         self.click_and_invoke(&cancel)?;
@@ -398,9 +417,15 @@ impl Film<'_> {
     }
 
     /// Selects the zone called `name` in the ZONES list (its row reads "<kind>: <name>").
+    ///
+    /// The selected zone's card is open and holds the zone's own controls, so the click goes to
+    /// the head of the card (its centre would land on one of those controls), and a zone that is
+    /// selected already is left alone.
     fn select_pattern_zone(&mut self, name: &str) -> Result<(), String> {
+        // The height of a closed card: the head of an open one.
+        const CARD_HEAD: f32 = 48.0;
         let suffix = format!(": {name}");
-        self.click_pattern_spot(name, |view| {
+        let card = move |view: &WindowView| {
             let wanted = suffix.clone();
             view.root
                 .query_descendants()
@@ -414,11 +439,41 @@ impl Film<'_> {
                 .iter()
                 .map(Spot::of)
                 .find(|spot| spot.usable(view.size))
-        })
+        };
+        let selected = |spot: &Spot| {
+            spot.handle
+                .as_ref()
+                .and_then(crate::support::ElementHandle::accessible_checked)
+                == Some(true)
+        };
+        let (window, _) = self.color_pattern_window()?;
+        let now = card(&WindowView::of("ColorPatternWindow", &window))
+            .ok_or_else(|| format!("Color Pattern zone {name:?} is missing"))?;
+        if selected(&now) {
+            return Ok(());
+        }
+        self.click_pattern_spot(name, |view| {
+            card(view).map(|spot| Spot {
+                h: spot.h.min(CARD_HEAD),
+                ..spot
+            })
+        })?;
+        let after = card(&WindowView::of("ColorPatternWindow", &window));
+        if !after.as_ref().is_some_and(selected) {
+            return Err(format!(
+                "the click on Color Pattern zone {name:?} did not select it"
+            ));
+        }
+        Ok(())
     }
 
-    /// Opens the combo called `label` of the Color Pattern window and moves its model index to
-    /// `wanted` with the keys; `index` reads that index.
+    /// Moves the combo called `label` of the Color Pattern window to the model index `wanted`
+    /// with the keys, one entry at a time; `index` reads that index.
+    ///
+    /// Every key press is a pick: the window applies it and lays the layer cards out anew, and
+    /// the combo that had the focus goes away with its card (a second key press reached
+    /// nothing). So each step closes a list that is still open with a click beside it, clicks
+    /// the combo as it is now, and presses one key.
     fn choose_pattern_entry(
         &mut self,
         label: &str,
@@ -426,27 +481,42 @@ impl Film<'_> {
         index: &dyn Fn() -> i32,
     ) -> Result<(), String> {
         let (window, origin) = self.color_pattern_window()?;
-        let view = WindowView::of("ColorPatternWindow", &window);
-        let combo = targets::role_label(&view, label, AccessibleRole::Combobox, None)
-            .ok_or_else(|| format!("the {label} list is missing in the Color Pattern window"))?;
-        self.click_secondary(window.window(), origin, &combo)?;
-        let budget = 3 * (wanted - index()).abs() + 4;
+        let model = window.global::<ColorPatternModel>();
+        let budget = (wanted - index()).abs() + 2;
         for _ in 0..budget {
             let current = index();
             if current == wanted {
                 break;
             }
+            self.close_pattern_list(label)?;
+            let view = WindowView::of("ColorPatternWindow", &window);
+            let combo = targets::role_label(&view, label, AccessibleRole::Combobox, None)
+                .ok_or_else(|| {
+                    format!("the {label} list is missing in the Color Pattern window")
+                })?;
+            self.click_secondary(window.window(), origin, &combo)?;
+            if !pacing::wait_real(Duration::from_secs(5), || {
+                crate::popup_geometry::any_popup_open(window.window())
+            }) {
+                return Err(format!("a click on the {label} list did not open it"));
+            }
             let key = if wanted > current { "Down" } else { "Up" };
             self.rec
                 .press_keys(window.window(), key)
                 .map_err(|e| format!("{label} {key}: {e:?}"))?;
-            if !pacing::wait_real(Duration::from_millis(600), || index() != current) {
-                break;
+            if !pacing::wait_real(Duration::from_secs(5), || index() != current) {
+                return Err(format!(
+                    "{key} in the {label} list left it on entry {current} (wanted entry {wanted})"
+                ));
             }
+            if !pacing::wait_real(Duration::from_secs(60), || !model.get_solving_colors()) {
+                return Err(format!(
+                    "the colors did not finish solving after a pick in the {label} list"
+                ));
+            }
+            self.hold(Duration::from_millis(200))?;
         }
-        self.rec
-            .press_keys(window.window(), "Return")
-            .map_err(|e| format!("{label} Return: {e:?}"))?;
+        self.close_pattern_list(label)?;
         if !pacing::wait_real(pacing::STEP_TIMEOUT, || index() == wanted) {
             return Err(format!(
                 "the {label} list did not select entry {wanted} (it shows entry {})",
@@ -454,6 +524,27 @@ impl Film<'_> {
             ));
         }
         self.hold(pacing::RESULT_HOLD)
+    }
+
+    /// Closes an open list of the Color Pattern window with a click on the caption beside the
+    /// combo called `label` (a click outside a list closes it; the caption does nothing).
+    fn close_pattern_list(&mut self, label: &str) -> Result<(), String> {
+        let (window, origin) = self.color_pattern_window()?;
+        if !crate::popup_geometry::any_popup_open(window.window()) {
+            return Ok(());
+        }
+        let view = WindowView::of("ColorPatternWindow", &window);
+        let caption = targets::role_label(&view, label, AccessibleRole::Text, None)
+            .ok_or_else(|| format!("the caption of the {label} list is missing"))?;
+        self.click_secondary(window.window(), origin, &caption)?;
+        if !pacing::wait_real(Duration::from_secs(5), || {
+            !crate::popup_geometry::any_popup_open(window.window())
+        }) {
+            return Err(format!(
+                "a click beside the open {label} list did not close it"
+            ));
+        }
+        self.hold(Duration::from_millis(150))
     }
 
     /// Gives the selected layer the color of the variant `name` (or the first variant after

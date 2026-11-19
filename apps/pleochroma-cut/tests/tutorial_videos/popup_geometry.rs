@@ -23,6 +23,15 @@ pub struct PopupGeometry {
     types_and_ids: HashSet<(String, String)>,
 }
 
+/// Whether `window` has an open popup window (a menu, or the list of a combo).
+pub(crate) fn any_popup_open(window: &slint::Window) -> bool {
+    WindowInner::from_pub(window)
+        .active_popups()
+        .iter()
+        .next()
+        .is_some()
+}
+
 impl PopupGeometry {
     pub(crate) fn find(ui: &MainWindow, component: &'static str) -> Result<Self, String> {
         let inner = WindowInner::from_pub(ui.window());
@@ -132,6 +141,27 @@ impl PopupGeometry {
         label: &str,
         role: AccessibleRole,
     ) -> Result<Spot, String> {
+        self.control_where(ui, label, role, |text| text == label)
+    }
+
+    /// The one control of the popup whose label starts with `prefix`, for a label that ends in a
+    /// shortcut or a sentence ("Remove this tier (Delete).").
+    pub(crate) fn control_start(
+        &self,
+        ui: &MainWindow,
+        prefix: &str,
+        role: AccessibleRole,
+    ) -> Result<Spot, String> {
+        self.control_where(ui, prefix, role, |text| text.starts_with(prefix))
+    }
+
+    fn control_where(
+        &self,
+        ui: &MainWindow,
+        label: &str,
+        role: AccessibleRole,
+        wanted: impl Fn(&str) -> bool,
+    ) -> Result<Spot, String> {
         let view = WindowView::of("MainWindow", ui);
         let matches: Vec<_> = view
             .root
@@ -139,7 +169,11 @@ impl PopupGeometry {
             .match_accessible_role(role)
             .find_all()
             .into_iter()
-            .filter(|element| element.accessible_label().is_some_and(|text| text == label))
+            .filter(|element| {
+                element
+                    .accessible_label()
+                    .is_some_and(|text| wanted(text.as_str()))
+            })
             .map(|element| {
                 let spot = Spot::of(&element);
                 (element, spot)

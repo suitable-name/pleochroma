@@ -213,6 +213,9 @@ export component KitSegmentBar inherits Rectangle {
 // One segment of a segmented control.
 export component KitSegment inherits Rectangle {
     in property <string> text;
+    // The accessible name, where the visible `text` is a shorter form of it (a narrow window);
+    // empty means `text`.
+    in property <string> label;
     in property <string> hint;
     in property <bool> on: false;
     in property <bool> enabled: true;
@@ -226,7 +229,7 @@ export component KitSegment inherits Rectangle {
     border-color: Theme.accent-cyan-hover;
     accessible-role: AccessibleRole.radio-button;
     accessible-enabled: root.enabled;
-    accessible-label: root.text;
+    accessible-label: root.label != "" ? root.label : root.text;
     accessible-description: root.hint;
     accessible-checkable: true;
     accessible-checked: root.on;

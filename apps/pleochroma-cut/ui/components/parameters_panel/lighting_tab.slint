@@ -195,7 +195,8 @@ export component LightingTab inherits VerticalLayout {
 
     // --- Lighting rig ------------------------------------------------------------------
     KitCard {
-        height: 84px;
+        // Tall enough for a two-line blurb (it wraps instead of eliding).
+        height: 102px;
         HorizontalLayout {
             padding: 10px;
             spacing: 12px;
@@ -220,7 +221,7 @@ export component LightingTab inherits VerticalLayout {
                     text: SettingsModel.env_map_loaded ? "An HDR map is the light." : ViewportModel.lighting_blurbs[root.sel];
                     font-size: 11px;
                     color: Theme.text-muted;
-                    overflow: elide;
+                    wrap: word-wrap;
                 }
                 HorizontalLayout {
                     alignment: start;

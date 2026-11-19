@@ -59,10 +59,7 @@
 
 use burn::{
     module::{ModuleVisitor, Param},
-    optim::{
-        AdamConfig, GradientsParams, ModuleOptimizer,
-        decay::WeightDecayConfig,
-    },
+    optim::{AdamConfig, GradientsParams, ModuleOptimizer, decay::WeightDecayConfig},
     prelude::*,
     tensor::TensorData,
 };
@@ -633,6 +630,21 @@ impl BurnTrainer {
             )));
         }
 
+        // This divergence belongs to the model that produced the forward above.
+        // Refuse the step before mutating weights, Adam moments, or the LR cursor.
+        if approx_kl > KL_STOP_FACTOR * self.config.target_kl {
+            return Ok(TrainingMetrics {
+                policy_loss: p_loss,
+                value_loss: v_loss,
+                entropy: ent,
+                approx_kl,
+                clip_fraction,
+                early_stopped: true,
+                grad_norm: 0.0,
+                packing_ms,
+                update_ms: update_started.elapsed().as_secs_f64() as f32 * 1000.0,
+            });
+        }
         let grads = GradientsParams::from_grads(total_loss.backward(), &self.model);
         let (grads, grad_norm) =
             clip_global_grad_norm(grads, &self.model, self.config.max_grad_norm)?;
@@ -678,11 +690,9 @@ impl BurnTrainer {
     /// Uses `config.epochs_per_batch` and `config.mini_batch_size`. The sample order is reshuffled
     /// every epoch (Fisher-Yates via [`Prng::shuffle`], seeded by [`Self::with_seed`]).
     ///
-    /// After **every** mini-batch its approximate KL is compared with
-    /// `1.5 * config.target_kl`. The first one that exceeds it ends the call, skipping the rest of
-    /// the epoch and all remaining epochs, and sets [`TrainingMetrics::early_stopped`]. The
-    /// returned metrics are means over all updates taken (`grad_norm` is the mean pre-clip global
-    /// norm).
+    /// An excessive pre-update KL ends the call before Adam takes that step. Loss statistics
+    /// include each evaluated batch. An early stop reports its triggering KL; the gradient
+    /// norm averages only batches on which Adam stepped.
     ///
     /// # Errors
     ///
@@ -700,7 +710,7 @@ impl BurnTrainer {
 
         let mut sum = TrainingMetrics::default();
         let mut num_updates = 0usize;
-        let mut early_stopped = false;
+        let mut stopped_kl = None;
         let mut order: Vec<usize> = (0..total).collect();
 
         'epochs: for _ in 0..self.config.epochs_per_batch {
@@ -708,23 +718,23 @@ impl BurnTrainer {
             for chunk in order.chunks(mb_size) {
                 let m = self.train_indices(batch, chunk)?;
                 add_metrics(&mut sum, &m);
-                num_updates += 1;
-                if m.approx_kl > KL_STOP_FACTOR * self.config.target_kl {
-                    early_stopped = true;
+                if m.early_stopped {
+                    stopped_kl = Some(m.approx_kl);
                     break 'epochs;
                 }
+                num_updates += 1;
             }
         }
 
-        let denom = num_updates.max(1) as f32;
+        let denom = (num_updates + usize::from(stopped_kl.is_some())).max(1) as f32;
         Ok(TrainingMetrics {
             policy_loss: sum.policy_loss / denom,
             value_loss: sum.value_loss / denom,
             entropy: sum.entropy / denom,
-            approx_kl: sum.approx_kl / denom,
+            approx_kl: stopped_kl.unwrap_or(sum.approx_kl / denom),
             clip_fraction: sum.clip_fraction / denom,
-            early_stopped,
-            grad_norm: sum.grad_norm / denom,
+            early_stopped: stopped_kl.is_some(),
+            grad_norm: sum.grad_norm / num_updates.max(1) as f32,
             packing_ms: sum.packing_ms,
             update_ms: sum.update_ms,
         })

@@ -613,9 +613,12 @@ pub(in crate::gui::editor) fn sync_viewport_material_link(
     ctx: &mut RenderContext,
     design: &Design,
 ) -> Option<i32> {
-    // A library design on the viewport is not this design's picture: never sync it.
-    if matches!(ctx.planes_owner, PlanesOwner::Catalogue { .. })
-        || !ui.global::<ViewportModel>().get_viewport_material_linked()
+    // A library design or a job stone on the viewport is not this design's picture: never
+    // sync it.
+    if matches!(
+        ctx.planes_owner,
+        PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. }
+    ) || !ui.global::<ViewportModel>().get_viewport_material_linked()
     {
         return None;
     }
@@ -698,8 +701,12 @@ pub(in crate::gui::editor) fn sync_stone_from_design(
     ctx: &mut RenderContext,
     design: &Design,
 ) -> StoneSync {
-    // A library design on the viewport keeps its own view-only width and effects.
-    if matches!(ctx.planes_owner, PlanesOwner::Catalogue { .. }) {
+    // A library design or a job stone on the viewport keeps its own view-only width and
+    // effects.
+    if matches!(
+        ctx.planes_owner,
+        PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. }
+    ) {
         return StoneSync {
             width_changed: false,
             effects_applied: false,

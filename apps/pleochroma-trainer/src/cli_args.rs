@@ -105,7 +105,7 @@ OPTIONS:
     --train-fidelity <fast|full>  Scoring fidelity for training rollouts and teacher labels (default: fast)
     --full-fidelity-frac <X>     Share of fast-mode episodes using Full tilt labels, 0 to 1
                                   (default: 0; full mode always uses Full; Full evaluates 724 poses)
-    --validation-fidelity <fast|full>  Fidelity of held-out policy episodes (default: fast)
+    --validation-fidelity <fast|full>  Diagnostic rollout fidelity (default: fast). Best weights use the default Fast rollout and certified Full endpoint score.
     --objective-sweep            Evaluate fixed held-out designs under all seven named presets (default: off)
     --classical-baseline <N>     Also run public coordinate optimization per design; budget is nominal and one candidate pair may exceed it (1-4096; default: off)
     --fixture                     Train on the built-in concave fixture instead of the library

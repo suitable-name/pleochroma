@@ -10,9 +10,9 @@ use super::{
     pipeline::{ImportOutcome, import_path},
 };
 use crate::{
-    LibraryModel, MainWindow,
+    EditorModel, LibraryModel, MainWindow,
     bridge::library::source::LibrarySource,
-    gui::{show_toast, tutorial_events::raise},
+    gui::{commands, show_toast, tutorial_events::raise},
     settings::SettingsPersister,
 };
 use pleochroma_editor::guide::viewing_events as events;
@@ -24,6 +24,14 @@ use std::{
     sync::{Arc, Mutex},
     thread,
 };
+
+/// Whether a finished import unfolds the library list, where the imported designs are: at
+/// least one design arrived, and the cutter is not at work on a design in the Edit view.
+/// Unfolding the list there would push the editor into its narrow layout in the middle of an
+/// edit; the toast names what was imported, and the list is one click away.
+const fn import_shows_library(imported: usize, editing_a_design: bool) -> bool {
+    imported > 0 && !editing_a_design
+}
 
 /// Runs [`import_path`] on its own worker thread and marshals UI updates back through
 /// `upgrade_in_event_loop`, as `bridge::export_thread::spawn_export` does.
@@ -101,6 +109,13 @@ fn spawn_import(
                     .set_recent_import_filter(ModelRc::new(VecModel::from(Vec::<i32>::new())));
             }
             super::super::helpers::refresh_after_library_change(&ui, &db, &source);
+            // The new rows are in the library list, which may be folded (a narrow window
+            // folds it, and the empty state's "Import a Folder" card starts from there).
+            let editing_a_design =
+                commands::edit_view_showing(&ui) && ui.global::<EditorModel>().get_has_design();
+            if import_shows_library(imported_ids.len(), editing_a_design) {
+                commands::show_library_panel(&ui);
+            }
             // A single imported design opens at once, so the cutter need not find its row in
             // a long list. `invoke_select_diagram` runs the same path as a click on the row
             // (`setup_diagram_selection_and_export_callbacks` in `diagram_list.rs`).
@@ -257,4 +272,25 @@ fn begin_import(
         .set_status_message("Importing...".into());
     reset_import_progress(ui);
     spawn_import(ui_weak, Arc::clone(db), Arc::clone(source), path, recurse);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::import_shows_library;
+
+    #[test]
+    fn imported_designs_unfold_the_library_list() {
+        assert!(import_shows_library(1, false));
+        assert!(import_shows_library(40, false));
+    }
+
+    #[test]
+    fn an_import_that_brought_nothing_leaves_the_list_folded() {
+        assert!(!import_shows_library(0, false));
+    }
+
+    #[test]
+    fn a_design_being_edited_keeps_its_layout() {
+        assert!(!import_shows_library(3, true));
+    }
 }

@@ -134,6 +134,11 @@ with Space or Enter, and the **?** in the corner opens this section:
 
 Under the cards, **Browse All Tutorials...** opens the tutorial browser (Chapter 22).
 
+A design that arrives in the editor (a new one, one you open or reopen, or a
+library design you load) brings up the **Edit** view of the 3D tab, whichever
+page you were on, because that is where you work on it. Chapter 3 has the
+details.
+
 ## The Worked-Example Guide and the Keyboard-Shortcuts Overlay
 
 Help > **Guide: New Design Walkthrough** (or the empty state's "Open the
@@ -246,6 +251,11 @@ that was converted with notes ("Converted with notes: ..."). The popup names at
 most 8 files in each of those lists before switching to "and N more" — the
 complete list always goes to the app's own log, this is only about keeping the
 popup itself from turning into a wall of file names on a large folder import.
+
+When designs were imported, the library list is unfolded if it was folded, so
+you see the new rows. The exception is the Edit view with a design open: the
+list stays as it is there, so the editor keeps its layout while you work, and
+the summary tells you what arrived.
 
 ## Settings and Where They Are Stored
 

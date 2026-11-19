@@ -30,6 +30,7 @@ use pleochroma_cut_core::{
     CANONICAL_LIGHTING_PRESET, DEFAULT_SNAP_MAX_MOVE_FRACTION, ObjectivePreset,
 };
 use pleochroma_editor::{
+    metric_deltas::normalize_display_tilt_window_deg,
     optimize_view::{
         DEFAULT_BUDGET, DEFAULT_CANDIDATES, DEFAULT_STARTS, parse_budget, parse_seed, parse_starts,
     },
@@ -106,7 +107,9 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
     let mut designs = Vec::new();
     let mut material = None;
     let mut tilt = false;
+    let mut tilt_range_deg = None;
     let mut aset_grid = false;
+    let mut ri_range = false;
     let (mut json, mut csv) = (false, false);
     let mut lighting = CANONICAL_LIGHTING_PRESET;
     let (mut out, mut out_dir, mut db) = (None, None, None);
@@ -121,7 +124,11 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
                 set_material(&mut material, MaterialArg::Ri(ri))?;
             }
             "--tilt" => tilt = true,
+            "--tilt-range" => {
+                tilt_range_deg = Some(parse_tilt_range(cursor.value("--tilt-range")?)?);
+            }
             "--aset-grid" => aset_grid = true,
+            "--ri-range" => ri_range = true,
             "--json" => json = true,
             "--csv" => csv = true,
             "--lighting" => lighting = parse_lighting(cursor.value("--lighting")?)?,
@@ -133,6 +140,9 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
     }
     if json && csv {
         return Err("give one of --json and --csv, not both".to_string());
+    }
+    if tilt_range_deg.is_some() && !tilt {
+        return Err("--tilt-range needs --tilt".to_string());
     }
     if aset_grid && (json || csv) {
         return Err(
@@ -159,13 +169,32 @@ pub(super) fn parse_metrics(args: &[String]) -> Result<Command, String> {
             design,
             material: material.clone(),
             tilt,
+            tilt_range_deg,
             aset_grid,
+            ri_range,
             format,
             lighting,
             out,
             db: db.clone(),
         })
     })
+}
+
+/// The choices of `--tilt-range` as the usage error lists them; a test pins it to the list.
+const TILT_RANGE_CHOICES_TEXT: &str = "15, 20, 30, 45, 60 or 90";
+
+/// The range of `--tilt-range`: one of 15, 20, 30, 45, 60 or 90 degrees each way from table up.
+fn parse_tilt_range(text: &str) -> Result<u8, String> {
+    let offered = text.parse::<i64>().ok().filter(|degrees| {
+        let normalized = normalize_display_tilt_window_deg(*degrees);
+        // 90 is also what an unlisted value normalizes to, so it counts only when typed as 90.
+        normalized != 90 || *degrees == 90
+    });
+    offered
+        .map(normalize_display_tilt_window_deg)
+        .ok_or_else(|| {
+            format!("--tilt-range takes {TILT_RANGE_CHOICES_TEXT} degrees, not \"{text}\"")
+        })
 }
 
 pub(super) fn parse_validate(args: &[String]) -> Result<Command, String> {

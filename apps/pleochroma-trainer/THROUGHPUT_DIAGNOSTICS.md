@@ -68,6 +68,30 @@ The Python collector uses only the standard library. `nvidia-smi` is optional bu
 strongly useful for the utilization and device-memory record. It never invokes
 Cargo or builds anything itself.
 
+## Native corpus and deployment validation
+
+Run the probe directly to measure the trainer's directory loader and optional held-out
+deployment pass. This example combines the library with supported files directly inside
+`/notebooks/native-designs`. Omit `--database` to benchmark the directory alone.
+
+```sh
+target/throughput-diagnostics/release/pleochroma-throughput-probe \
+  --database /notebooks/facet_diagrams.sqlite --design-dir /notebooks/native-designs \
+  --output /notebooks/throughput-mixed-r1 --device cuda --workers 10 \
+  --warmup 1 --iterations 3 --batch-size 256 --mini-batch 128 \
+  --updates-per-round 16 --validation-designs 16
+```
+
+`metadata.json` records both input paths, backend and effective training configuration.
+The `dataset_complete` event records the combined record fingerprint, geometric coverage,
+and train, validation and test indices. `summary.json` reports measured training steps per
+second through the final update drain. The optional `deployment_validation` then records
+its own `wall_secs`, selected validation indices, and complete deterministic report, including
+`report.mean_deployed_score` from certified Full endpoint evaluation. Inspect
+`report.failed` and each case's failure or adoption result alongside the cohort mean.
+Use a new output directory for each workload. Omitting `--validation-designs` retains
+the training-only timing. For a full-epoch workload, use `--updates-per-round 0`.
+
 ## First collection on the A100
 
 Stop other training on that GPU so device-wide telemetry is interpretable. Run:

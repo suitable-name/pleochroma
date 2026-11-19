@@ -124,7 +124,8 @@ fn evaluate_test_split(
         ));
     } else {
         console.message(&format!(
-            "  score before {:.2} -> after {:.2}, {}, {:.2} evals/step",
+            "  deployed Full {}, diagnostic rollout before {:.2} -> after {:.2}, {}, {:.2} evals/step",
+            report.mean_deployed_score.map_or_else(|| "n/a".to_owned(), |s| format!("{s:.3}")),
             report.mean_base_score,
             report.mean_final_score,
             describe_drops(
@@ -281,13 +282,11 @@ fn run_validation(
     } else {
         "fixed held-out cohort"
     };
-    let score = if v.designs > 0 {
-        format!("{:.2}", v.mean_final_score)
-    } else {
-        "n/a".to_owned()
-    };
+    let score = v
+        .mean_deployed_score
+        .map_or_else(|| "n/a".to_owned(), |score| format!("{score:.3}"));
     let line = format!(
-        "validation {cohort_kind}: {} attempted ({} evaluated, {} failed), score {score}, {}, {:.2} evals/step, generalization gap \
+        "validation {cohort_kind}: {} attempted ({} evaluated, {} failed), deployed Full score {score}, rollout {}, {:.2} evals/step, generalization gap \
          {gap}, brilliance {:.1}%, windowing {:.1}%{failed}",
         v.cases.len(),
         v.designs,
@@ -341,7 +340,8 @@ fn evaluation_snapshot(
         iteration,
         kind: kind.to_owned(),
         fidelity: if report.full_fidelity { "full" } else { "fast" }.to_owned(),
-        evaluation_revision: 3,
+        evaluation_revision: runner::EvalReport::REVISION,
+        mean_deployed_score: report.mean_deployed_score,
         distinct_entries: report.distinct_entries,
         distinct_families: report.distinct_families,
         noise_drop: report.mean_improvement_noise,

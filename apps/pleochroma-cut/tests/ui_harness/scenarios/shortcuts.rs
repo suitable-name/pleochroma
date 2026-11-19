@@ -14,7 +14,7 @@ use crate::support::{
     coverage,
 };
 use pleochroma_cut::{
-    CommandPaletteModel, EditorModel, MainWindow, ParametersModel, PreferencesModel,
+    CommandPaletteModel, EditorModel, LibraryModel, MainWindow, ParametersModel, PreferencesModel,
     ShortcutsModel, SolidPreviewModel, TrialsModel, harness_support,
 };
 use slint::{ComponentHandle, Model};
@@ -75,6 +75,31 @@ fn design_hash(ui: &MainWindow) -> i64 {
 
 fn tab_to(ctx: &Ctx<'_>, tab: i32) -> bool {
     ctx.app.ui().set_active_tab(tab);
+    true
+}
+
+/// The page on screen as one number: the top-level tab times ten plus the 3D tab's view.
+fn place(ui: &MainWindow) -> i64 {
+    i64::from(ui.get_active_tab()) * 10 + i64::from(ui.get_render_view_tab())
+}
+
+/// The Cutting Instructions tab with the library list folded to its rail. The tab change is
+/// pumped first: leaving the Edit view may reopen a list that the window's width had folded
+/// (`WindowState.sync_library_auto_collapse`), and the fold below must come after that.
+fn library_folded_on_cutting_tab(ctx: &mut Ctx<'_>) -> bool {
+    let ui = ctx.app.ui().clone_strong();
+    ui.set_active_tab(1);
+    pump(150);
+    ui.global::<LibraryModel>().set_panel_collapsed(true);
+    true
+}
+
+/// The Edit view with the tier table folded to its header.
+fn tier_table_folded(ctx: &mut Ctx<'_>) -> bool {
+    ctx.app
+        .ui()
+        .global::<EditorModel>()
+        .set_tier_table_collapsed(true);
     true
 }
 
@@ -253,6 +278,30 @@ const CASES: &[Case] = &[
         setup: nothing,
         probe: |ui| i64::from(ui.get_render_view_tab()),
         expect: |before, after| after != before,
+    },
+    Case {
+        chord: "Ctrl+E",
+        effect: "goes from the Files tab (2) to the 3D Gem tab's Edit view without toggling it",
+        record: None,
+        setup: |ctx| tab_to(ctx, 2),
+        probe: place,
+        expect: |before, after| before == 21 && after == 1,
+    },
+    Case {
+        chord: "Ctrl+F",
+        effect: "unfolds the library list before it focuses the search (outside the Edit view)",
+        record: None,
+        setup: library_folded_on_cutting_tab,
+        probe: |ui| flag(ui.global::<LibraryModel>().get_panel_collapsed()),
+        expect: |before, after| before == 1 && after == 0,
+    },
+    Case {
+        chord: "Ctrl+F",
+        effect: "unfolds the tier table before it focuses the tier filter (Edit view)",
+        record: None,
+        setup: tier_table_folded,
+        probe: |ui| flag(ui.global::<EditorModel>().get_tier_table_collapsed()),
+        expect: |before, after| before == 1 && after == 0,
     },
     Case {
         chord: "Ctrl+Alt+1",

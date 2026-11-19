@@ -50,6 +50,7 @@ mod garnets_grossular_and_andradite;
 mod garnets_pyrope_through_spessartine;
 mod look;
 mod lookup;
+mod nanosital;
 mod optics;
 mod peridot_through_benitoite;
 mod provenance;
@@ -341,8 +342,9 @@ impl GemMaterial {
         // Structural-color stones (Precious Opal (White), Precious Opal (Black), Labradorite,
         // Moonstone) come after the earlier entries, so those keep their list positions.
         materials.extend(Self::built_in_materials_feldspars_and_precious_opal());
-        // Last, so no existing material moves in the list.
+        // Titanite and Nanosital come last, so no existing material moves in the list.
         materials.push(Self::built_in_material_titanite());
+        materials.push(Self::built_in_material_nanosital());
         materials
     }
 

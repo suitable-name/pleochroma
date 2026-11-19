@@ -12,4 +12,4 @@ mod write;
 pub use date::current_date_text;
 #[cfg(test)]
 pub use write::write_cutting_sheet_html;
-pub use write::{SheetFormat, write_cutting_sheet_with, write_diagram_png};
+pub use write::{SheetFormat, sheet_details, write_cutting_sheet_with, write_diagram_png};

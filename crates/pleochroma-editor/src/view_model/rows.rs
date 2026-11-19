@@ -13,8 +13,29 @@ use super::row_format::{
 
 /// Unrounded `{}` text, for a form or inline cell to re-save; the display strings of
 /// [`format_angle_cell`] and [`format_index_value`] would lose digits.
+///
+/// A value that is exactly a widened `f32` (a key nudge or a drag handle works in single
+/// precision: 34.7 reads back as 34.700000002980232) is written as that `f32`'s shortest text,
+/// so the field shows 34.7; the difference is below 1e-6 and saving it back is harmless.
+#[allow(clippy::cast_possible_truncation)]
 fn full_precision(value: f64) -> String {
-    format!("{value}")
+    let narrow = value as f32;
+    if value.is_finite() && f64::from(narrow) == value {
+        format!("{narrow}")
+    } else {
+        tidy_text(value)
+    }
+}
+
+/// `value` as text, with arithmetic noise below 1e-8 removed: `34.70000000298023` reads
+/// `34.7`. A value that really carries more digits keeps them all.
+pub(super) fn tidy_text(value: f64) -> String {
+    let rounded = (value * 1e6).round() / 1e6;
+    if value.is_finite() && (value - rounded).abs() <= 1e-8 {
+        format!("{rounded}")
+    } else {
+        format!("{value}")
+    }
 }
 use super::{TierRow, TierRowKind};
 use pleochroma::geometry::meet_solver::{Block, SolveStrategy, SolvedTier, classify_blocks};

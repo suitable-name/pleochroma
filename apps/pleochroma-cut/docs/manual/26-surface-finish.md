@@ -93,7 +93,7 @@ Two things change that tangent from machine to machine:
 
 ### A Machine With a Centred Arm
 
-Picture the lap seen from above, a circle with the stone's dop arm lying along a radius, pointing at the lap centre. At the contact point the lap moves at right angles to that radius, which is at right angles to the arm. Whatever radius the stone is at, the angle between the arm and the tangent stays the same. The scratches run parallel to the girdle of the facet, at every radius. The fan of directions has no width. This is the plain machine, and it is the default (**Arm Points at the Lap Centre**, offset 0 degrees).
+Picture the lap seen from above, a circle with the stone's dop arm lying along a radius, pointing at the lap centre. At the contact point the lap moves at right angles to that radius, which is at right angles to the arm. Whatever radius the stone is at, the angle between the arm and the tangent stays the same. The scratches run parallel to the girdle of the facet, at every radius. The fan of directions has no width. This is the plain machine, and it is the default (**Arm Points at the Lap Center**, offset 0 degrees).
 
 ### A Mast Machine
 
@@ -105,7 +105,7 @@ degrees. An example: with the mast 30 mm to the side and a stroke between 40 and
 
 ### The Settings
 
-- **Arm Points at the Lap Centre** and **Mast to the Side** choose between the two machines above. **Mast to the Side** shows the **Mast Position** slider (from minus 150 to plus 150 mm; a negative value puts the mast on the other side of the centre).
+- **Arm Points at the Lap Center** and **Mast to the Side** choose between the two machines above. **Mast to the Side** shows the **Mast Position** slider (from minus 150 to plus 150 mm; a negative value puts the mast on the other side of the centre).
 - **Arm Offset** (minus 45 to plus 45 degrees) is the angle between the dop arm and the radial line through the contact point, added to everything else. 0 gives scratches parallel to the girdle.
 - **Lap Radius** (50 to 200 mm).
 - **Sweep Range**: **Narrow** (55 to 65 percent of the lap radius), **Typical** (40 to 80 percent), **Wide** (20 to 95 percent) or **Custom**, which shows the **Inner Radius** and **Outer Radius** sliders in millimetres.
@@ -170,7 +170,7 @@ The `.gcs` and `.asc` formats have no notation for a finish, so nothing is expor
 | The renders show no halo | The grade is **Ideal**, or the view is Ray-Traced. | Pick a grade; switch to Path-Traced. |
 | Every grade looks the same | The roughness is small compared with the light's wavelength. | Compare **Prepolish** with **Mirror**, or try **Custom** at 50 nm. |
 | The scratches point the wrong way | The Faceting Machine preference does not describe your machine. | Measure the arm offset and mast position (above), or give the tier a **Custom Angle**. |
-| The halo is one sharp streak, not a fan | **Arm Points at the Lap Centre**, or **No Sweep** on the tier, or a **Narrow** sweep. | Choose **Mast to the Side** or a wider sweep if that matches your machine. |
+| The halo is one sharp streak, not a fan | **Arm Points at the Lap Center**, or **No Sweep** on the tier, or a **Narrow** sweep. | Choose **Mast to the Side** or a wider sweep if that matches your machine. |
 | My stones look different from a colleague's | The machine setting is yours, not the design's. | This is intended; compare machine settings. |
 
 ## Next Steps

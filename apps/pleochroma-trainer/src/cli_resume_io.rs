@@ -567,9 +567,12 @@ fn is_pending_generation(name: &str) -> bool {
         })
 }
 
-/// The iteration of a `validation-v3-<route>-<iteration>` journal directory name.
+/// The iteration of a current or legacy validation journal directory.
 fn validation_iteration(name: &str) -> Option<usize> {
-    let (route, iteration) = name.strip_prefix("validation-v3-")?.rsplit_once('-')?;
+    let (route, iteration) = name
+        .strip_prefix("validation-v4-")
+        .or_else(|| name.strip_prefix("validation-v3-"))?
+        .rsplit_once('-')?;
     if route.is_empty()
         || iteration.len() < 8
         || !iteration.bytes().all(|byte| byte.is_ascii_digit())

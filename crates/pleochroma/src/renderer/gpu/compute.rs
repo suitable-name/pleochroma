@@ -161,6 +161,23 @@ pub fn create_compute_pipeline_cached(
         ?constants,
         "GPU pipeline compilation started"
     );
+    let class = constants_class_name(constants);
+    // The first compile of each kernel and class in this process is a breadcrumb step.
+    let _step = crate::diag::first_time(crate::diag::StepKind::Compile, label, class).then(|| {
+        crate::diag::enter(&crate::diag::Step {
+            kind: crate::diag::StepKind::Compile,
+            engine: None,
+            label,
+            class,
+        })
+    });
+    tracing::info!(
+        target: crate::diag::TRACER_TARGET,
+        kernel = label,
+        class,
+        entry_point,
+        "compile start"
+    );
     #[cfg(not(target_arch = "wasm32"))]
     let started = std::time::Instant::now();
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -179,14 +196,61 @@ pub fn create_compute_pipeline_cached(
         cache,
     });
     #[cfg(not(target_arch = "wasm32"))]
-    tracing::info!(
-        label,
-        elapsed_ms = started.elapsed().as_millis(),
-        "GPU pipeline compilation finished"
-    );
+    {
+        let ms = started.elapsed().as_millis();
+        tracing::info!(label, elapsed_ms = ms, "GPU pipeline compilation finished");
+        tracing::info!(
+            target: crate::diag::TRACER_TARGET,
+            kernel = label,
+            class,
+            entry_point,
+            ms,
+            "compile finished"
+        );
+    }
     #[cfg(target_arch = "wasm32")]
-    tracing::info!(label, "GPU pipeline compilation finished");
+    {
+        tracing::info!(label, "GPU pipeline compilation finished");
+        tracing::info!(
+            target: crate::diag::TRACER_TARGET,
+            kernel = label,
+            class,
+            entry_point,
+            "compile finished"
+        );
+    }
     pipeline
+}
+
+/// The pass class a pipeline's override constants select, as a word, or "" for none.
+///
+/// Reads `MATERIAL_CLASS` (the class value's kind bits, see
+/// `frame::material_class::pipeline_constants`).
+fn constants_class_name(constants: &[(&str, f64)]) -> &'static str {
+    constants
+        .iter()
+        .find(|(name, _)| *name == "MATERIAL_CLASS")
+        .map_or("", |(_, value)| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "the value is clamped to 0..=3 first"
+            )]
+            let kind = value.round().clamp(0.0, 3.0) as u32;
+            class_kind_name(kind)
+        })
+}
+
+/// The word for a class value's kind bits (`class & material_class::KIND_MASK`): "isotropic",
+/// "uniaxial", "biaxial", or "" for the generic kind.
+#[must_use]
+pub(crate) const fn class_kind_name(kind: u32) -> &'static str {
+    match kind {
+        1 => "isotropic",
+        2 => "uniaxial",
+        3 => "biaxial",
+        _ => "",
+    }
 }
 
 /// Compiles a compute pipeline through its own persistent cache shard.
@@ -227,9 +291,30 @@ pub fn create_persisted_compute_pipeline(
         constants,
     );
     if let Some(cache) = &cache {
+        let _save = cache_step(crate::diag::StepKind::CacheSave, &shard);
         super::pipeline_cache::persist(cache, adapter_info, &shard, loaded.as_deref());
     }
     pipeline
+}
+
+/// A breadcrumb step for one cache action on `shard`: loading, creating or saving its cache.
+///
+/// The label is the shard key, never a path.
+fn cache_step(kind: crate::diag::StepKind, shard: &str) -> crate::diag::StepGuard {
+    crate::diag::enter(&crate::diag::Step {
+        kind,
+        engine: None,
+        label: shard,
+        class: "",
+    })
+}
+
+/// Whether a pipeline shard gets a cache object: the device offers `PIPELINE_CACHE` and a cache
+/// folder is set.
+///
+/// Without a folder nothing would be loaded or saved, so the driver call is skipped.
+const fn shard_cache_wanted(device_offers_cache: bool, folder_set: bool) -> bool {
+    device_offers_cache && folder_set
 }
 
 /// An in-memory cache for callers that share one across multiple pipeline builds.
@@ -261,15 +346,26 @@ fn create_pipeline_cache_shard(
     adapter_info: &wgpu::AdapterInfo,
     shard: &str,
 ) -> (Option<wgpu::PipelineCache>, Option<Vec<u8>>) {
-    if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+    let configured = super::pipeline_cache::configured();
+    if !shard_cache_wanted(
+        device.features().contains(wgpu::Features::PIPELINE_CACHE),
+        configured,
+    ) {
         return (None, None);
     }
-    let blob = super::pipeline_cache::load_blob(adapter_info, shard);
+    let blob = {
+        let _load = cache_step(crate::diag::StepKind::CacheLoad, shard);
+        super::pipeline_cache::load_blob(adapter_info, shard)
+    };
     // Count the miss before the compile starts, so the shader cache card can come up during it.
     #[cfg(not(target_arch = "wasm32"))]
-    if blob.is_none() && super::pipeline_cache::configured() {
+    if blob.is_none() {
         super::pipeline_cache::note_missing_blob();
     }
+    // The cache object is made before the kernel's failure check, and a failure to make one
+    // never rejects a kernel: wgpu returns the object, and a device error it raises is read by
+    // the caller's own check after the build.
+    let _create = cache_step(crate::diag::StepKind::CacheCreate, shard);
     // SAFETY: data comes from get_data in the application-controlled cache
     // directory. wgpu's cache header validation and fallback reject incompatible
     // or corrupt blobs; shader and pipeline validation stay enabled on every load.
@@ -696,7 +792,46 @@ pub fn finish_map_read_into<T: bytemuck::Pod>(
 
 #[cfg(test)]
 mod tests {
-    use super::copy_prefix;
+    use super::{class_kind_name, constants_class_name, copy_prefix, shard_cache_wanted};
+
+    /// A shard gets a cache object only with the device feature and a cache folder.
+    #[test]
+    fn a_shard_cache_needs_the_feature_and_a_folder() {
+        assert!(shard_cache_wanted(true, true));
+        assert!(!shard_cache_wanted(true, false));
+        assert!(!shard_cache_wanted(false, true));
+        assert!(!shard_cache_wanted(false, false));
+    }
+
+    /// Without a cache folder `create_pipeline_cache_shard` creates no cache object and loads no
+    /// blob, whatever the device offers.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn without_a_folder_no_cache_object_is_created() {
+        if crate::renderer::gpu::pipeline_cache::configured() {
+            // Another test of this binary set a folder: the skip cannot be observed.
+            return;
+        }
+        let Some(ctx) = crate::renderer::gpu::test_support::require_gpu() else {
+            return;
+        };
+        let (cache, blob) =
+            super::create_pipeline_cache_shard(&ctx.device, &ctx.adapter.get_info(), "shard");
+        assert!(cache.is_none());
+        assert!(blob.is_none());
+    }
+
+    /// The pass class words follow the kind bits of the pipeline constants.
+    #[test]
+    fn the_class_word_follows_the_material_class_constant() {
+        assert_eq!(class_kind_name(1), "isotropic");
+        assert_eq!(class_kind_name(2), "uniaxial");
+        assert_eq!(class_kind_name(3), "biaxial");
+        assert_eq!(class_kind_name(0), "");
+        assert_eq!(constants_class_name(&[("MATERIAL_CLASS", 2.0)]), "uniaxial");
+        assert_eq!(constants_class_name(&[("SCATTER_NEE", 1.0)]), "");
+        assert_eq!(constants_class_name(&[]), "");
+    }
 
     #[test]
     fn copy_prefix_copies_only_the_live_prefix() {

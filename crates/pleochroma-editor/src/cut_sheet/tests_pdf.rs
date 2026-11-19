@@ -6,6 +6,7 @@ use super::{
     cutting_sheet_pdf_with, pdf::sheet_pages, render_vector_cut_views,
     tests::round_brilliant_design,
 };
+use crate::ri_range::{RiSource, RiStatement};
 use pleochroma_cut_core::Design;
 
 /// Whether `bytes` contains `needle`.
@@ -90,6 +91,38 @@ fn a_long_sheet_runs_onto_further_pages() {
     assert!(contains(&bytes, b"(Comment line 59.)"));
     assert!(contains(&bytes, b"(Pavilion"));
     assert!(contains(&bytes, b"(Crown"));
+}
+
+/// The RI range's two lines are in the PDF as two pieces of text, the second one whole: the
+/// PDF never wraps it by itself.
+#[test]
+fn the_ri_range_prints_on_two_lines_in_the_pdf() {
+    let mut design = round_brilliant_design();
+    design.material.name = Some("Sapphire".to_string());
+    design.material.refractive_index_override = Some(1.768);
+    let solved = design.solve().expect("every tier is pinned");
+    let details = SheetDetails {
+        ri_range: Some(RiStatement {
+            low: 1.63,
+            high: None,
+            source: RiSource::Estimate,
+        }),
+        ..SheetDetails::default()
+    };
+    let pdf = cutting_sheet_pdf_with(&design, &solved, &[], &details).expect("the stone closes");
+    assert!(contains(&pdf, b"/Count 1"), "still one page");
+    assert!(
+        contains(&pdf, b"(1.63 and up)"),
+        "the range on its own line"
+    );
+    assert!(
+        contains(&pdf, b"Pleochroma estimate; Sapphire 1.768"),
+        "the second line in one piece"
+    );
+    // Without a statement the row is the one line it was.
+    let plain = cutting_sheet_pdf(&design, &solved, &[]).expect("the stone closes");
+    assert!(contains(&plain, b"(1.768 (Sapphire))") || contains(&plain, b"1.768 "));
+    assert!(!contains(&plain, b"Pleochroma estimate"));
 }
 
 /// A concave design prints its tool lines in the template's columns.

@@ -221,9 +221,11 @@ pub(in crate::gui) fn resolve_export_dir_then(
                 on_done(ui, None);
                 return;
             };
-            settings_store.update(|s| {
-                s.settings.export_directory = dir.to_string_lossy().into_owned();
-            });
+            let dir_string = dir.to_string_lossy().into_owned();
+            settings_store.update(|s| s.settings.export_directory.clone_from(&dir_string));
+            // The dialog's Output Location field reads this, so it shows the folder just used
+            // instead of the "Chosen on first export" placeholder.
+            ui.global::<ExportModel>().set_directory(dir_string.into());
             on_done(ui, Some(dir));
         },
     );
@@ -336,20 +338,35 @@ pub(in crate::gui) fn fan_out_jobs(
 ///
 /// `LibraryModel.current_detail` is a browsing mirror that only catalogue loads write, so it is
 /// trusted only when `RenderContext::planes_owner` confirms the planes came from that same row.
-/// Any other source (the editor, the built-in placeholder cut, a stale selection) gets a generic
-/// name; see `PlanesOwner`.
+/// A job view names the design of its job (`RenderContext::job_design`). Any other source (the
+/// editor, the built-in placeholder cut, a stale selection) gets a generic name; see
+/// `PlanesOwner`.
 pub(in crate::gui) fn design_naming(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<crate::bridge::render_thread::RenderContext>>,
 ) -> (String, String, String, String) {
     let detail = ui.global::<LibraryModel>().get_current_detail();
-    let planes_owner = crate::bridge::render_thread::RenderContext::lock(render_ctx).planes_owner;
+    let (planes_owner, job_design) = {
+        let ctx = crate::bridge::render_thread::RenderContext::lock(render_ctx);
+        (ctx.planes_owner, ctx.job_design.clone())
+    };
     match planes_owner {
         PlanesOwner::Catalogue { entry_id } if i64::from(detail.id) == entry_id => (
             detail.title.to_string(),
             detail.designer.to_string(),
             detail.shape.to_string(),
             detail.ri.to_string(),
+        ),
+        PlanesOwner::Job { .. } => job_design.map_or_else(
+            || {
+                (
+                    "Untitled design".to_string(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                )
+            },
+            |names| (names.title, names.designer, names.shape, names.ri),
         ),
         PlanesOwner::Builtin | PlanesOwner::Catalogue { .. } | PlanesOwner::Editor { .. } => (
             "Untitled design".to_string(),

@@ -5,6 +5,7 @@ import { GuideModel } from "../../models/guide.slint";
 import { CuttingModeModel } from "../../models/cutting_mode.slint";
 import { BaselineModel } from "../../models/baseline.slint";
 import { TiltModel } from "../../models/tilt.slint";
+import { TiltWindows } from "../../shared/tilt_windows.slint";
 import { KitIcons } from "../kit/kit.slint";
 import { BarButton, BarIcons, BarMenuCaption, BarMenuItem, BarMenuPanel, BarMenuRule } from "bar_parts.slint";
 
@@ -133,7 +134,9 @@ export component SnapshotGroup inherits HorizontalLayout {
             TouchArea { clicked => { menu_anchor.close_menu(); } }
         }
         if menu_anchor.menu_open: BarMenuPanel {
-            x: 0px;
+            // Right-aligned with the button, like the File menu: the button sits near the dock's
+            // right edge, where a menu hanging from its left edge is cut off.
+            x: menu_anchor.width - self.width;
             y: menu_anchor.height + 2px;
             z: 50;
             menu_width: 276px;
@@ -156,9 +159,10 @@ export component SnapshotGroup inherits HorizontalLayout {
             BarMenuItem {
                 text: BaselineModel.measuring_tilt ? "Stop Measuring" : "Measure Tilt";
                 label: BaselineModel.measuring_tilt ? "Stop" : "Measure Tilt";
+                detail: BaselineModel.measuring_tilt ? "" : "Tilt average " + TiltWindows.displayed + ", four axes";
                 hint: BaselineModel.measuring_tilt
                     ? "Stop measuring the tilt averages."
-                    : "Measure the tilt averages of the Baseline and of the design now, over all four axes. Takes a few seconds.";
+                    : "Measure the tilt averages of the Baseline and of the design now: four axes, tilted up " + TiltWindows.displayed_plain + " each way. Takes a few seconds.";
                 enabled: BaselineModel.has_baseline;
                 activated => { menu_anchor.close_menu(); BaselineModel.measure_tilt(); }
                 dismissed => { menu_anchor.close_menu(); }

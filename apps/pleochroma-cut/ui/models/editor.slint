@@ -17,7 +17,8 @@ export global EditorModel {
     changed selected_tier_index => { selected_tier_changed(selected_tier_index); }
 
     // The selected tier's picked meet corner, for the Meet Point row of the Tier tab. `meet_pick_state`:
-    // 0 none, 1 met, 2 dormant, 3 off the stone, 4 lost. The chip and the note are the row's texts.
+    // 0 none, 1 met, 2 dormant, 3 off the stone, 4 lost, 5 solving (the design is newer than its solve;
+    // the row waits). The chip and the note are the row's texts.
     in property <int> meet_pick_state: 0;
     in property <string> meet_pick_chip: "";
     in property <string> meet_pick_note: "";
@@ -69,6 +70,84 @@ export global EditorModel {
     // sits inside an `if` branch that the root shortcut scope cannot reach by element id. A
     // counter also fires `changed` on every press, since writing the same value does not.
     in-out property <int> filter_focus_pulse: 0;
+    // The value of `filter_focus_pulse` that `EditorView` last acted on. The view is not mounted
+    // while the short one-pane layout shows the 3D view, so a pulse can arrive before it exists:
+    // its `init` compares the two and focuses the box when they differ.
+    in-out property <int> filter_focus_seen: 0;
+
+    // --- Showing the right area for an action ---------------------------------------------
+    // On a short narrow window the Edit view shows ONE pane at a time (`Tab3dContent.one_pane`):
+    // 0 the 3D view, 1 the tier editor. An action whose result or controls are in the other
+    // pane asks for it here. `Tab3dContent` owns the pane and reads the request in `init` and
+    // in a `changed` handler (it may be mounted only after the request), compares `pane_pulse`
+    // with `pane_seen` and then sets the pane. A guide step that points into a pane wins over
+    // the request, and a later pick on the pane switch wins over both. In every other layout
+    // both panes are on screen and the request does nothing.
+    // `pane_request` -1 asks only for the guide step's own pane ("Show Me Where").
+    in-out property <int> pane_request: 1;
+    in-out property <int> pane_pulse: 0;
+    in-out property <int> pane_seen: 0;
+    // The request is for a short visit (picking a meet corner in the 3D view): when it switched
+    // the pane, `Tab3dContent` notes the pane it left in `pane_return` (-1: nothing to go back
+    // to), and `release_temporary_pane` goes back there.
+    in-out property <bool> pane_temporary: false;
+    in-out property <int> pane_return: -1;
+    // Asks for `pane` (0 the 3D view, 1 the tier editor) in the one-pane layout.
+    public function request_pane(pane: int) {
+        root.pane_temporary = false;
+        root.pane_return = -1;
+        root.pane_request = pane;
+        root.pane_pulse += 1;
+    }
+    // Asks for `pane` for a short visit; `release_temporary_pane` ends it.
+    public function request_pane_temporary(pane: int) {
+        root.pane_return = -1;
+        root.pane_request = pane;
+        root.pane_temporary = true;
+        root.pane_pulse += 1;
+    }
+    // The short visit is over: back to the pane it left, if the visit switched the pane.
+    public function release_temporary_pane() {
+        if root.pane_return >= 0 {
+            root.request_pane(root.pane_return);
+        }
+        root.pane_temporary = false;
+        root.pane_return = -1;
+    }
+    // The short visit ended in a way that should not move the user again.
+    public function forget_temporary_pane() {
+        root.pane_temporary = false;
+        root.pane_return = -1;
+    }
+    // Shows the Tier form where a tier is written: the inspector's Tier tab, the inspector and
+    // the tier table unfolded, and the tier editor pane. Callers check the guide's lock
+    // (`GuideModel.allows_tier_form()`) themselves, as their buttons do.
+    public function show_tier_form() {
+        root.inspector_tab = 0;
+        root.inspector_collapsed = false;
+        root.tier_table_collapsed = false;
+        root.request_pane(1);
+    }
+    // Selects the tier at `index` and shows it in the Tier form (`show_tier_form`). The two
+    // flags are the guide's locks, `GuideModel.allows_tier_form()` and `allows_tier_table()`,
+    // passed in because `models/guide.slint` imports this file and not the other way round.
+    // With the form locked the tier is only selected, and the tier table unfolded when that is
+    // allowed.
+    public function show_tier(index: int, form_allowed: bool, table_allowed: bool) {
+        root.selected_tier_index = index;
+        if form_allowed {
+            root.show_tier_form();
+        } else if table_allowed {
+            root.tier_table_collapsed = false;
+        }
+    }
+    // Puts the cursor into the tier filter box (Ctrl+F on the Edit view, "Filter Tiers"): the
+    // tier table unfolded, the tier editor pane, then the focus pulse.
+    public function focus_tier_filter() {
+        root.tier_table_collapsed = false;
+        root.request_pane(1);
+        root.filter_focus_pulse += 1;
+    }
 
     // Path the startup prompt offers to open, or "" for no offer. The Edit tab
     // still starts blank either way; this only offers to avoid surprising silent
@@ -90,6 +169,10 @@ export global EditorModel {
     callback startup_restore_forget();
 
     in property <[EditorTierItem]> tiers: [];
+    // The row whose "..." menu is open, copied by `TierRowActions.open()` in that row. The menu's
+    // items read the tier from here, never from the row: a `PopupWindow` inside a `for` row could
+    // act on another row's tier (Delete on Tier 3 removed Tier 1).
+    in-out property <EditorTierItem> row_menu_item;
 
     // The tier table's search/filter box. Slint owns the typed text; Rust
     // performs the substring test via the pure callback below. This keeps

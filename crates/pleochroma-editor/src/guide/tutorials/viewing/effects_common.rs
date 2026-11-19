@@ -49,10 +49,10 @@ pub(super) fn pick_material(material: &str, intro: &'static str, why: &'static s
 pub(super) fn path_traced(intro: &'static str) -> GuideStep {
     GuideStep::new("Look at it in Path-Traced", intro)
         .actions([
-            "Click Path-Traced in the row of view pills above the picture, and give the picture a moment to settle.",
+            "Click Path-Traced in the row of view pills above the picture (it reads Path in a narrow window), and give the picture a moment to settle.",
         ])
         .check("The picture shows the stone lit with traced light, and the pills show Path-Traced as chosen, with Solid chosen as well or on its own.")
-        .why("The Solid view is flat-shaded and shows none of this. From Solid, the click gives Solid combined with Path-Traced, which shows it too; click Solid to turn the flat layer off.")
+        .why("The Solid view is flat-shaded and shows none of this. From Solid, the click gives Solid combined with Path-Traced, which shows it too; click Solid to turn the flat layer off. The traced picture also measures the light in the stone, so the verdict can turn to Problem and a red banner can appear for a stone that loses much light. That is the verdict at work, not an error in this lesson.")
         .goal(path_traced_view(), "The Path-Traced view")
         .perform(Perform::ViewMode(1))
         .highlight("view_modes")
@@ -144,11 +144,6 @@ fn structure_against_default(
     };
     StructureSpec::default_for(name)
         .is_some_and(|spec| moved(&own, &StructureEffects::from_spec(&spec)))
-}
-
-/// Play-of-Color (Schiller) is switched on.
-pub(super) const fn structure_on(ctx: &GoalContext<'_>) -> bool {
-    ctx.design.render_effects.structure.is_some()
 }
 
 /// The pattern is Pinfire.

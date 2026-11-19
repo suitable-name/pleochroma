@@ -146,15 +146,6 @@ export component ManipulateHintBar inherits Rectangle {
                     ManipulateModel.pick_toggled();
                 }
             }
-            if ManipulateModel.pick_mode && !ManipulateModel.provisional_active: HintButton {
-                width: 60px;
-                text: "Cancel";
-                hint: "Leave pick mode. Nothing changes. Shortcut: Escape.";
-                clicked => {
-                    ManipulateModel.pick_mode = false;
-                    ManipulateModel.pick_toggled();
-                }
-            }
             if ManipulateModel.slice_mode || ManipulateModel.provisional_active: HintButton {
                 width: 90px;
                 text: "Symmetric";

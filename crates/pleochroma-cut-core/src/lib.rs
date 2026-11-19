@@ -165,11 +165,11 @@ pub use cutting_sheet::{
 pub use design::{
     ConstraintTier, CutMeet, CutMeetAnchor, CutMeets, DEFAULT_SNAP_MAX_MOVE_FRACTION, Design,
     DesignSolveError, DesignTierCodes, EdgeAbrasionEffects, FreshDesignSpec, InclusionEffects,
-    MEET_TOLERANCE_FRACTION, MeetPickBlock, MeetPickLoss, MeetPickState, MeetTarget, MissingAnchor,
-    PickCorner, PickedFacet, ScheduleMeta, SnapMove, SnapReport, SolveMismatch, StoneRenderEffects,
-    StructureEffects, SurfaceFinish, SurfaceGrade, TargetResolveError, TierFrosting, TierId,
-    TierLabelInfo, TierMeetPick, TierMeetPickMap, TierSurface, TierTarget, compute_tier_labels,
-    convert_legacy_facet_name,
+    MEET_TOLERANCE_FRACTION, MeetPickBlock, MeetPickLoss, MeetPickState, MeetPlace, MeetTarget,
+    MissingAnchor, PickCorner, PickedFacet, ScheduleMeta, SnapMove, SnapReport, SolveMismatch,
+    StoneRenderEffects, StructureEffects, SurfaceFinish, SurfaceGrade, TargetResolveError,
+    TierFrosting, TierId, TierLabelInfo, TierMeetPick, TierMeetPickMap, TierSurface, TierTarget,
+    compute_tier_labels, convert_legacy_facet_name,
     girdle_level::{GIRDLE_LEVEL_TOLERANCE_FRACTION, GirdleLevel},
     is_legacy_123_abc, name_indicates_pavilion,
 };

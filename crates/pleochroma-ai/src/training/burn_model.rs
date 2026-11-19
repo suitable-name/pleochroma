@@ -502,21 +502,58 @@ impl BurnSetAttention {
         tier_mask: Tensor<2>,
     ) -> BurnForward {
         let [batch, n_tiers, _] = tier_inputs.dims();
-        let seq_len = 1 + n_tiers;
         let log_std = self.block_log_std(tier_inputs.clone());
-        let fractions = global_inputs
+        let tokens = self.encode(
+            tier_inputs.clone(),
+            global_inputs.clone(),
+            tier_mask.clone(),
+        );
+        let ctx_tok = tokens
             .clone()
-            .slice([
-                0..batch,
-                WEIGHT_FRACTION_INDEX..WEIGHT_FRACTION_INDEX + N_COMPONENTS,
-            ])
-            .reshape([batch, 1, N_COMPONENTS]);
-        let mobile_mask = tier_inputs
-            .clone()
-            .slice([0..batch, 0..n_tiers, MOBILITY_INDEX..MOBILITY_INDEX + 1])
-            .reshape([batch, n_tiers])
-            .greater_elem(0.5f32)
-            .float();
+            .slice([0..batch, 0..1, 0..self.d_model])
+            .reshape([batch, self.d_model]);
+        let tier_toks = tokens.slice([0..batch, 1..1 + n_tiers, 0..self.d_model]);
+        let n_real = tier_mask.clone().sum_dim(1).clamp(1.0, COUNT_CLAMP_MAX);
+        let mask3 = tier_mask.clone().reshape([batch, n_tiers, 1]);
+        let pooled_tiers = (tier_toks.clone() * mask3)
+            .sum_dim(1)
+            .reshape([batch, self.d_model])
+            / n_real;
+        let pooled = ctx_tok + pooled_tiers;
+        let value = self.critic_head.forward(pooled.clone());
+        let gain = self.gain_head.forward(pooled);
+        let (mean, sensitivities) =
+            self.action_heads(tier_inputs, global_inputs, tier_mask, tier_toks);
+        BurnForward {
+            mean,
+            log_std,
+            value,
+            sensitivities,
+            gain,
+        }
+    }
+
+    /// The same actor and masks as training, without the pooled heads or exploration scale.
+    pub(super) fn forward_mean(
+        &self,
+        tiers: Tensor<3>,
+        globals: Tensor<2>,
+        mask: Tensor<2>,
+    ) -> Tensor<2> {
+        let [batch, n_tiers, _] = tiers.dims();
+        let tokens = self.encode(tiers.clone(), globals.clone(), mask.clone());
+        let tier_toks = tokens.slice([0..batch, 1..1 + n_tiers, 0..self.d_model]);
+        self.action_heads(tiers, globals, mask, tier_toks).0
+    }
+
+    fn encode(
+        &self,
+        tier_inputs: Tensor<3>,
+        global_inputs: Tensor<2>,
+        tier_mask: Tensor<2>,
+    ) -> Tensor<3> {
+        let [batch, n_tiers, _] = tier_inputs.dims();
+        let seq_len = 1 + n_tiers;
 
         // 1. Embed global context token
         let ctx_raw = self.global_proj.forward(global_inputs);
@@ -535,33 +572,35 @@ impl BurnSetAttention {
             .slice([0..batch, 0..1])
             .mul_scalar(0.0)
             .add_scalar(1.0);
-        let key_bias = Tensor::cat(vec![ctx_col, tier_mask.clone()], 1)
+        let key_bias = Tensor::cat(vec![ctx_col, tier_mask], 1)
             .add_scalar(-1.0)
             .mul_scalar(MASKED_KEY_BIAS)
             .reshape([batch, 1, 1, seq_len]);
 
         // 4. Attention and MLP Transformer layers, then the final LayerNorm on every token
         let tokens = self.run_layers(tokens, &key_bias);
-        let tokens = self.final_norm.forward(tokens);
+        self.final_norm.forward(tokens)
+    }
 
-        // 5. Value and gain heads: context token + mean over the REAL (normalised) tier tokens
-        let ctx_tok = tokens
-            .clone()
-            .slice([0..batch, 0..1, 0..self.d_model])
-            .reshape([batch, self.d_model]);
-        let tier_toks = tokens.slice([0..batch, 1..seq_len, 0..self.d_model]);
-        let n_real = tier_mask.clone().sum_dim(1).clamp(1.0, COUNT_CLAMP_MAX);
-        let mask3 = tier_mask.clone().reshape([batch, n_tiers, 1]);
-        let pooled_tiers = (tier_toks.clone() * mask3)
-            .sum_dim(1)
-            .reshape([batch, self.d_model])
-            / n_real;
-        let pooled = ctx_tok + pooled_tiers;
-        let value = self.critic_head.forward(pooled.clone());
-        let gain = self.gain_head.forward(pooled);
-
-        // 6. Compose the sensitivity direction, then add the separately learned masked residual.
-        //    Log std was built from the input blocks.
+    fn action_heads(
+        &self,
+        tiers: Tensor<3>,
+        globals: Tensor<2>,
+        tier_mask: Tensor<2>,
+        tier_toks: Tensor<3>,
+    ) -> (Tensor<2>, Tensor<3>) {
+        let [batch, n_tiers, _] = tiers.dims();
+        let fractions = globals
+            .slice([
+                0..batch,
+                WEIGHT_FRACTION_INDEX..WEIGHT_FRACTION_INDEX + N_COMPONENTS,
+            ])
+            .reshape([batch, 1, N_COMPONENTS]);
+        let mobile_mask = tiers
+            .slice([0..batch, 0..n_tiers, MOBILITY_INDEX..MOBILITY_INDEX + 1])
+            .reshape([batch, n_tiers])
+            .greater_elem(0.5f32)
+            .float();
         let sensitivities = self.sens_head.forward(tier_toks.clone());
         let residual = self
             .action_head
@@ -572,13 +611,7 @@ impl BurnSetAttention {
         let mean =
             composed_mean(sensitivities.clone(), fractions, tier_mask, mobile_mask) + residual;
 
-        BurnForward {
-            mean,
-            log_std,
-            value,
-            sensitivities,
-            gain,
-        }
+        (mean, sensitivities)
     }
 
     /// The transformer stack (pre-LN attention and MLP, one residual per sub-layer) over

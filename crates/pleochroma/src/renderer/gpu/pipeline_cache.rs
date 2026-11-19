@@ -129,11 +129,17 @@ pub(crate) fn load_blob(info: &wgpu::AdapterInfo, shard: &str) -> Option<Vec<u8>
     };
     match read() {
         Ok(bytes) => {
-            tracing::debug!(shard, bytes = bytes.len(), path = %path.display(), "pipeline cache loaded");
+            tracing::info!(
+                target: crate::diag::TRACER_TARGET,
+                shard,
+                bytes = bytes.len(),
+                "cache blob loaded"
+            );
             Some(bytes)
         }
         Err(error) => {
-            tracing::debug!(%error, shard, path = %path.display(), "pipeline cache miss");
+            tracing::info!(target: crate::diag::TRACER_TARGET, shard, "cache blob missing");
+            tracing::debug!(%error, shard, "pipeline cache miss");
             None
         }
     }
@@ -250,10 +256,20 @@ pub(crate) fn persist(
     }
     match write_if_changed(&path, loaded, &data) {
         Ok(true) => {
-            tracing::debug!(shard, bytes = data.len(), path = %path.display(), "pipeline cache saved");
+            tracing::info!(
+                target: crate::diag::TRACER_TARGET,
+                shard,
+                bytes = data.len(),
+                "cache saved"
+            );
         }
         Ok(false) => {
-            tracing::debug!(shard, bytes = data.len(), "pipeline cache unchanged");
+            tracing::info!(
+                target: crate::diag::TRACER_TARGET,
+                shard,
+                bytes = data.len(),
+                "cache unchanged"
+            );
         }
         Err(error) => {
             // The first failure is a warning: a cache that cannot be written makes every start
@@ -261,11 +277,11 @@ pub(crate) fn persist(
             static WARNED: std::sync::atomic::AtomicBool =
                 std::sync::atomic::AtomicBool::new(false);
             if WARNED.swap(true, AtomicOrdering::Relaxed) {
-                tracing::debug!(%error, shard, path = %path.display(), "pipeline cache save skipped");
+                tracing::debug!(%error, shard, "pipeline cache save skipped");
             } else {
                 tracing::warn!(
                     %error,
-                    path = %path.display(),
+                    shard,
                     "the GPU pipeline cache cannot be saved; every start compiles the shaders again"
                 );
             }

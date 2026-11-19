@@ -85,8 +85,9 @@ cutting) -- are:
 | Labradorite | 1.5625 | +0.0080 | Biaxial (+) | No | 2.69 | 6–6.5 |
 | Moonstone | 1.523 | −0.0080 | Biaxial (−) | No | 2.58 | 6–6.5 |
 | Titanite (Sphene) | 1.894 | +0.1226 | Biaxial (+) | Yes | 3.53 | 5–5.5 |
+| Nanosital | 1.620 | — | Isotropic | Yes | 3.00 (derived) | 7 |
 
-The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28); choosing one of these materials switches its effect on. **Opal** is the plain body-color opal. **Titanite (Sphene)**, last in the list, has more fire than diamond (B–G dispersion 0.058 against 0.044) and a birefringence of 0.12, so the back facets show doubled through the table; it is yellow-green, with its strongly colored ray lying in the table. Its indices are measured values from 1887 at three wavelengths; its color follows a measured spectrum of a Madagascar crystal. Typing "Sphene" or "Titanite" finds it. Chrysoberyl (Yellow) uses the published wavelength-dependent curves of the mineral, which give the birefringence of +0.0076 (see "Curves for the Extraordinary Ray" below).
+The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28); choosing one of these materials switches its effect on. **Opal** is the plain body-color opal. **Titanite (Sphene)** has more fire than diamond (B–G dispersion 0.058 against 0.044) and a birefringence of 0.12, so the back facets show doubled through the table; it is yellow-green, with its strongly colored ray lying in the table. Its indices are measured values from 1887 at three wavelengths; its color follows a measured spectrum of a Madagascar crystal. Typing "Sphene" or "Titanite" finds it. **Nanosital**, last in the list, is not a mineral but a manufactured glass-ceramic: tiny spinel crystals grown inside a glass, sold in many colors as an imitation of sapphire, ruby, emerald, tsavorite, peridot, topaz, spinel, garnet and other gems. It is singly refractive; its index of 1.620 is the middle of the 1.60–1.63 that GIA measured on 60 stones, and its dispersion of 0.015 is the maker's own figure, so its fire may be a little low. Its default color is a cobalt blue; green (nickel), yellow and orange (manganese), red (gold), pink (neodymium and erbium), yellow-green (praseodymium) and colorless are Color Variants, with band positions from GIA's spectra and strengths that are estimates. The Material Reference files it under **Glass**. Typing "Nano Gem" or "glass-ceramic" also finds it. Chrysoberyl (Yellow) uses the published wavelength-dependent curves of the mineral, which give the birefringence of +0.0076 (see "Curves for the Extraordinary Ray" below).
 
 Several of these colors are not invented: Tanzanite, Aquamarine, Spessartine,
 Tsavorite, Demantoid and Peridot are fitted to measured absorption spectra, and
@@ -94,7 +95,7 @@ Appendix C names the source of each.
 
 The SG and Hardness columns are the typical figures for the species, with the sources and
 ranges in Appendix C and in the Material Reference (see "Gem Data and the Material
-Reference" below). Two SG figures are derived from cited figures and are marked so.
+Reference" below). Three SG figures are derived from cited figures and are marked so.
 Tanzanite's 1.694 and Peridot's 1.669 are the program's **model values** of the
 middle index (nβ) of those two-axis crystals, not literature values; Appendix C
 prints them beside GIA's measured ranges.
@@ -135,7 +136,7 @@ One thing to know when comparing with a book: the number is the program's model 
 
 The **Material Reference** is a window of its own, so it can stay open beside the design. Escape closes it, and the **?** button opens this chapter. It opens from the Stone tab (the card's **Material Details...** button and the **...** menu), **Help > Material Reference...** and the command palette. Opening it again brings it forward on the material you asked for.
 
-**The table.** The header reads "39 built-in materials and *n* of your own" (just the built-in count when you have no custom materials). Under it are:
+**The table.** The header reads "40 built-in materials and *n* of your own" (just the built-in count when you have no custom materials). Under it are:
 
 - A search field, "Search by name, system or cleavage".
 - Filter chips with counts: **All**, **Natural**, **Synthetic**, **Glass** and **My Materials**.
@@ -176,12 +177,13 @@ A custom material has the same page. A field you did not enter reads **Not recor
 The program names a primary source for every value and keeps a second one as a note when two disagree. The rules:
 
 - **Mohs hardness** is the GIA care page, widened by the Handbook of Mineralogy where it differs (spinel: GIA gives 8 and the Handbook 7.5–8, so 7.5–8 is shown). For a synthetic the Gems & Gemology table gives the figure (synthetic moissanite 9.25; the Handbook gives 9.5 for the natural mineral, and the note says so).
-- **Toughness** is the GIA care page, otherwise the GIA Gem Cleaning and Display Chart, otherwise the figure for a synthetic from the 1997 Gems & Gemology table. A material none of them grades (both glasses, benitoite and titanite) reads **Not graded**.
+- **Toughness** is the GIA care page, otherwise the GIA Gem Cleaning and Display Chart, otherwise the figure for a synthetic from the 1997 Gems & Gemology table. A material none of them grades (both glasses, benitoite, titanite and Nanosital) reads **Not graded**.
 - **Cleavage, parting and fracture** come from the Handbook of Mineralogy, which gives Miller indices; where GIA or the 1997 table disagrees, the Handbook's value is shown and an amber **Sources differ:** line names the other (alexandrite, synthetic moissanite). Where two sources index the same cleavage on different axes (tanzanite, peridot), the Handbook's setting is shown and the note names the other.
 - **Care** is the GIA care page; the International Gem Society's articles stand in only where GIA has none (benitoite, rutile, titanite).
+- **Nanosital** has no Handbook or GIA care page: its fracture and its care note (it keeps its color through the heat of casting) come from the 2026 Gems & Gemology study of glass-ceramics, and its Mohs 7 is the maker's figure, which the note says. No source gives its toughness or cleavage, so they read **Not graded** and **Not recorded**.
 - A value taken over from the species or from the end-members of a mixed stone carries a basis note, for example "Taken from the end-members pyrope and spessartine." (Color-Change Garnet), "Values of the opal species." (the Precious Opals) or "Values of the chrysoberyl species (from alexandrite)." (Chrysoberyl, Yellow).
 
-**Specific gravity.** A figure is **cited** when a source prints it, and **derived** when the program computed it from cited figures. A derived figure carries the word "Derived" and its working: Morganite's 2.86 reads "Derived: midpoint of the cited range 2.80-2.91." because GIA prints only that range, and the Color-Change Garnet's 3.92 reads "Derived: range merged from two Gems & Gemology studies (3.83-3.88 and 3.93-4.00); representative is its midpoint." Every input of a derived figure is cited. The garnets' densities describe the gem, not the pure end-member of the mineral (pyrope 3.74, almandine 4.19). Appendix C lists every source with its address.
+**Specific gravity.** A figure is **cited** when a source prints it, and **derived** when the program computed it from cited figures. A derived figure carries the word "Derived" and its working: Morganite's 2.86 reads "Derived: midpoint of the cited range 2.80-2.91." because GIA prints only that range, and the Color-Change Garnet's 3.92 reads "Derived: range merged from two Gems & Gemology studies (3.83-3.88 and 3.93-4.00); representative is its midpoint." Nanosital's 3.00 reads "Derived: mean of the three faceted glass-ceramics in Gems & Gemology 62(2), 2026 (3.06, 2.93, 2.97), 2.99, rounded to 3.0; the study measured 2.85-3.42." Every input of a derived figure is cited. The garnets' densities describe the gem, not the pure end-member of the mineral (pyrope 3.74, almandine 4.19). Appendix C lists every source with its address.
 
 ### From the Command Line
 
@@ -422,11 +424,106 @@ use" question.
 **Limitation.** One small estimate does not resolve custom catalogue materials:
 the live margin bar that appears under an angle field while you type in it. It
 is measured against the built-in materials only. For a design whose Material is a custom catalogue material with no
-explicit RI Override, that bar can differ a little from the MARGIN badge until
-you commit the angle. The Solid-view windowing-risk hatch, the MARGIN badge,
+explicit RI Override, that bar can differ a little from the margin mark on the tier row until
+you commit the angle. The Solid-view windowing-risk hatch, the margin mark on the tier row,
 Live Render, the exports and the cutting sheet all use the custom material's
 own index. Setting an explicit RI Override matching the custom material's
 value keeps even the typing estimate in agreement.
+
+## How Low a Refractive Index the Design Works In
+
+A design is cut for one material, but a cutter often asks how much lower in index it
+would still work, or whether it would suit a very high one. The Stone tab answers with
+a hint at first and with a traced range once the app has computed it.
+
+### The Pavilion Hint
+
+Under the RI chips of the Stone tab's identity card, on a row of its own, a chip reads
+for example "Pavilion needs RI 1.50 or more (P2)". It comes from the pavilion angles
+alone: the shallowest pavilion tier (the culet is left out) decides, and the chip names
+it. Hover the chip for the reason: in a material below about that index, light entering
+through the table leaks out through that tier. Tilted views and light entering through
+the crown are not counted, which is why the hint never appears on a cutting sheet. It
+shows while the traced range is not computed yet; then the traced chip takes its place.
+
+### The Traced RI Range
+
+The traced range is the app's own estimate, and it is always called an estimate. It
+traces the design as cut, with the same angles and no retarget, in a flat, clear,
+non-dispersive material of each index in turn, table up and tilted by 10° on the four
+profile axes. The lowest index is the smallest one for which the windowing stays low
+at every step up to the design's own index, table up and tilted. The highest index is
+the one up to which the brilliance holds and the extinction stays low. Until the upper
+end has been checked against designers' own statements, the app gives the lower end
+only and reads "and up". The range is worked out in the background after a solve, so
+the hint shows for a moment first, and it is kept for a design as long as its angles do
+not change.
+
+The Stone tab's chip then reads "RI 1.58 and up (estimate)". Its hover begins "Pleochroma
+estimate: traced at this design's angles, table up and tilted by 10°", then lists the
+eight catalogue materials nearest above the lower end and "and N more". A click on the
+chip opens the RI chart. The command-line report `pleochroma-cli metrics --ri-range`
+prints the same trace as a table (index, windowing table up, windowing at 10°,
+brilliance at 10°, extinction at 10°) with both ends, and `--json` and `--csv` carry it
+too.
+
+### The RI Range Field
+
+A cutting sheet can state a range. In the Edit view, the Design Settings panel's
+MATERIAL section has an **RI range** field under the material chip row. Its choices:
+
+- **Off** (the default when the file states no range): the sheet shows the design's own
+  index and material, as before.
+- **From File**, available only when the file states a range (a `.gcs` file's `ri_min`
+  and `ri_max`, or the `[meta]` keys of a `.psdd`, Chapter 11). It is preselected then,
+  and the stated range is never replaced silently.
+- **Pleochroma estimate**: the sheet carries the traced range, labelled as an estimate,
+  for example `1.58 and up (Pleochroma estimate; Sapphire 1.768)`. The design stores
+  only the choice, never a number; the sheet shows the range of the design as it is
+  when the sheet is written. Until the range is computed, the field's preview reads
+  "Pleochroma estimate (computing...)", and an export waits with "Computing the RI
+  range..." and **Cancel**, which writes the sheet without the range.
+- **Type**: you type the range yourself, with or without a high end ("1.58 and up",
+  "1.54 to 1.80"). A typed range is your own statement and prints without the word
+  "estimate".
+
+Setting the field is a normal design edit: it can be undone and it marks the design as
+unsaved. Chapter 11 ("The RI Range Row") shows how each choice prints on the sheet.
+
+### The RI Chart
+
+The RI chart opens from the traced chip, or from **RI Chart...** in the **...** menu of
+the Stone tab's identity card. It plots windowing table up and at 10°, and brilliance
+and extinction at 10°, against the refractive index, on one shared percentage scale.
+The range is shaded, the windowing limit is a line, and the built-in materials are
+ticks along the bottom (custom materials get none), with chips for the materials the
+design **Works in** and the ones it is **Outside**. While the upper end is not
+checked, it is drawn as a dashed line marked "uncalibrated". The footer holds
+**Queue Material Check Set**.
+
+### Your Designs That Work Here
+
+The Material Reference window (above) has a section **Your designs that work here**
+for the selected material. It lists your own designs, the **Mine** entries of the
+library, whose stored range contains the material's index, each labelled
+"(estimate)", at most 12 with "and N more"; a click opens the design. The ranges are
+stored when the editor computes the range of a library design, and in one go by
+**Compute RI Ranges...** in the library's batch menu, which shows its progress, can be
+cancelled and carries on from where it stopped; a range is computed again when the
+design's angles have changed. While none are stored, the section reads "No RI ranges
+computed yet" with a **Compute RI Ranges...** button.
+
+### The Material Check Set
+
+**Queue Material Check Set** queues 12 still renders of the open design, to look at
+quartz and a very high index by eye: the design's own material, Quartz and Cubic
+Zirconia, each table up and tilted 10° (through the Stone Pose, Chapter 2), each in
+the Light Tent and in Daylight, with the size, samples and compute that the Export
+dialog remembers. When the design's own material is Quartz or Cubic Zirconia that one is
+not doubled, and 8 renders are queued. The action sits in the RI chart's footer, in
+the **...** menu of the identity card and in the command palette (Chapter 19); a toast
+says "12 check renders queued." The jobs appear in the Render Jobs panel (Chapter 23)
+labelled "design · check · material · pose · light".
 
 ## Inferred Material: A Guess, Never a Fact
 
@@ -456,20 +553,22 @@ once (there is nothing left to guess), and the name reaches the saved
 is within tolerance, no badge is shown at all -- the app never forces a
 guess onto a material it cannot place.
 
-## The Tier List's MARGIN Column
+## The Margin Mark on a Tier Row
 
-Each pavilion tier (a tier whose C/P/G column reads P) shows how many degrees
+Each pavilion tier (a tier whose code starts with P) shows, among the marks at the
+right end of its row, how many degrees
 its authored angle sits above the design's own effective critical angle,
 color-coded:
 
-- **Green** (Safe) -- 2 degrees or more of margin.
-- **Amber** (Marginal) -- less than 2 degrees, but still past the critical
+- **Green** (Safe) -- 2 degrees or more of margin, for example **+15.6°**.
+- **Amber** (Marginal, with "thin" in front of the figure) -- less than 2 degrees, but still past the critical
   angle. A small edit, a manufacturing tolerance, or a different material
   could tip this into windowing.
-- **Red** (Windows) -- already below the critical angle for the design's
+- **Red** (Windows, with "window" in front of the figure, for example
+  **window -0.5°**) -- already below the critical angle for the design's
   current effective RI. Light leaks straight through this facet.
 
-A **crown** tier (C in the C/P/G column) shows a margin too, suffixed **"(est.)"**
+A **crown** tier (a code starting with C) shows a margin too, suffixed **"(est.)"**
 -- an ESTIMATE of whether light entering through that crown facet (rather
 than straight down through the table) would still reflect off the
 design's own main pavilion facet on the same side of the stone, derived from Snell's law at the crown
@@ -518,7 +617,7 @@ material its previews were drawn in, else in the one its refractive index points
 |---|---|
 | Design Settings' Effective RI / Critical Angle chips | Catalogue-aware (built-in, custom, or override) |
 | Export Edited .asc / Save / cutting sheet | Catalogue-aware (see above) |
-| Tier list's MARGIN badges | Catalogue-aware |
+| Tier list's margin marks | Catalogue-aware |
 | Optimize | Catalogue-aware |
 | Tilt curve | Catalogue-aware |
 | Live Render viewport | Catalogue-aware |
@@ -765,7 +864,7 @@ header for a reminder):
 - **Crown rows** show an estimate, suffixed **est.**, of the same margin for
   light entering through that crown facet, read against the main pavilion
   angle of the *retargeted* design (the same estimate the tier list shows,
-  see "The Tier List's MARGIN Column" above). A crown facet is never judged
+  see "The Margin Mark on a Tier Row" above). A crown facet is never judged
   with the pavilion formula. The estimate follows a single ray through that crown facet and onto
   the main pavilion facet on the same side of the stone, and nothing else:
   light that wanders to other facets is not counted. Read it as a guide, not
@@ -815,8 +914,8 @@ tilt-curve persistence rule for a design that is not yet in your catalogue.
 ## Doing It by Hand
 
 Retarget's Shift stage already automates the mechanical part of this, but
-understanding the reasoning is worth knowing, and Design Settings' MARGIN
-column is what you would watch either way:
+understanding the reasoning is worth knowing, and the margin
+mark on each tier row is what you would watch either way:
 
 1. Load the design and note its current pavilion main angle(s) and its
    effective RI (the Design Settings panel's own readout).
@@ -824,11 +923,11 @@ column is what you would watch either way:
    arcsin(1 / RI), measured from the facet's normal). A higher RI gives a
    smaller critical angle; a lower RI gives a larger one.
 3. Set the Stone tab's Material combo to the target material
-   (or type a Custom RI). Watch the tier list's MARGIN column: any pavilion
+   (or type a Custom RI). Watch the margin marks in the tier list: any pavilion
    tier that turns red windows at the new RI.
 4. On the inspector's Tier tab (Chapter 4), select each red or amber
-   pavilion tier in turn and edit its **Angle (deg)** field so the MARGIN
-   column reads green again, then press Enter.
+   pavilion tier in turn and edit its **Angle (deg)** field so its margin
+   mark reads green again, then press Enter.
 5. Click **Solve** (Chapter 5) and check the status strip still reads
    "Closed solid."
 6. The Live Render viewport already shows your

@@ -63,7 +63,13 @@ pub(super) fn drive(film: &mut Film<'_>, step: usize) -> Result<(), String> {
         | ("materials-silk-sapphire", 0 | 7)
         | ("materials-scratch-direction", 0 | 4 | 6)
         | ("materials-labradorite-schiller", 0 | 5)
-        | ("materials-axis-curves", 0 | 2 | 3) => film.hold(pacing::RESULT_HOLD),
+        | ("materials-axis-curves", 0 | 3) => film.hold(pacing::RESULT_HOLD),
+        // Use it on the design: the saved material is picked in the Stone tab's Material list,
+        // where it is listed after the built-ins.
+        ("materials-axis-curves", 2) => {
+            film.film_material(CURVES_NAME)?;
+            film.hold(pacing::RESULT_HOLD)
+        }
         // The Path-Traced step every lesson but the last has.
         ("materials-polish-quality" | "materials-scratch-direction", 1)
         | (
@@ -92,8 +98,8 @@ pub(super) fn drive(film: &mut Film<'_>, step: usize) -> Result<(), String> {
         ("materials-silk-sapphire", 5) => turn_silk(film),
         ("materials-silk-sapphire", 6) => cats_eye(film),
         // Play-of-color.
-        ("materials-opal-play-of-color", 3) => switch_structure_on(film, "Show Play-of-Color"),
-        ("materials-labradorite-schiller", 3) => switch_structure_on(film, "Show Schiller"),
+        ("materials-opal-play-of-color", 3) => show_structure_switch(film, "Show Play-of-Color"),
+        ("materials-labradorite-schiller", 3) => show_structure_switch(film, "Show Schiller"),
         ("materials-opal-play-of-color", 4) => {
             open_structure_card(film)?;
             click_stone_label(film, "Pinfire")
@@ -165,18 +171,14 @@ fn choose_grade(film: &mut Film<'_>, tier: &str, grade: i32) -> Result<(), Strin
     wait_step_done(film, "the Surface Finish grade")
 }
 
-/// The toolbar's Surface Finish pill.
+/// The Solid view's Surface Finish toggle: on the toolbar, or in the Show menu of a narrow view.
 fn show_surface_finish(film: &mut Film<'_>) -> Result<(), String> {
     let model = film.ui.global::<SurfaceModel>();
     if model.get_show_overlay() {
         return Err("Show Surface Finish is already on before the lesson clicks it".into());
     }
-    let pill = targets::role_label(&film.view(), "Surface Finish", AccessibleRole::Button, None)
-        .or_else(|| targets::run_label(&film.view(), "Surface Finish"))
-        .ok_or(
-            "the Surface Finish pill is not on the toolbar (it is hidden in the Diagram view)",
-        )?;
-    film.click_and_invoke(&pill)?;
+    film.click_solid_toggle("Surface Finish")
+        .map_err(|why| format!("{why} (it is hidden in the Diagram view)"))?;
     if !pacing::wait_real(pacing::STEP_TIMEOUT, || model.get_show_overlay()) {
         return Err("clicking the Surface Finish pill did not show the overlay".into());
     }
@@ -198,7 +200,53 @@ fn custom_angle(film: &mut Film<'_>) -> Result<(), String> {
         return Err("clicking Custom Angle did not tick it".into());
     }
     film.hold(pacing::RESULT_HOLD)?;
+    drag_scratch_angle(film)?;
     wait_step_done(film, "Custom Angle")
+}
+
+/// The step's second action: drags the Angle slider that the ticked Custom Angle box shows half
+/// way along its track, so that the tier's scratch ticks turn when the thumb is let go.
+fn drag_scratch_angle(film: &mut Film<'_>) -> Result<(), String> {
+    const LABEL: &str = "Scratch Angle in Degrees";
+    let model = film.ui.global::<SurfaceModel>();
+    let before = model.get_angle_deg();
+    let slider = film
+        .inspector_form_control(LABEL, AccessibleRole::Slider)?
+        .ok_or("the Scratch Angle slider is not on screen after Custom Angle was ticked")?;
+    let view = film.view();
+    let handle = slider
+        .handle
+        .as_ref()
+        .ok_or("the Scratch Angle slider has no accessible element handle")?;
+    let thumbs: Vec<targets::Spot> = handle
+        .query_descendants()
+        .match_id("Slider::thumb")
+        .find_all()
+        .iter()
+        .map(targets::Spot::of)
+        .filter(|spot| spot.usable(view.size))
+        .collect();
+    let [thumb] = thumbs.as_slice() else {
+        return Err(format!(
+            "the Scratch Angle slider has {} usable rendered thumbs, expected exactly one",
+            thumbs.len()
+        ));
+    };
+    if slider.w <= thumb.w {
+        return Err("the Scratch Angle slider track is unusable".into());
+    }
+    let start = thumb.center();
+    let end = (
+        (slider.w - thumb.w).mul_add(0.5, slider.x + thumb.w / 2.0),
+        start.1,
+    );
+    film.gesture(start, end, None, false, false)?;
+    if !pacing::wait_real(pacing::STEP_TIMEOUT, || {
+        (model.get_angle_deg() - before).abs() > 1.0
+    }) {
+        return Err("dragging the Scratch Angle slider did not change the angle".into());
+    }
+    film.hold(pacing::RESULT_HOLD)
 }
 
 /// Chooses `name` in the Stone tab's Material list after earlier steps scrolled the tab down
@@ -213,8 +261,27 @@ fn choose_material_again(film: &mut Film<'_>, name: &str) -> Result<(), String> 
 // --- The Stone tab --------------------------------------------------------------------------
 
 /// Clicks the Stone tab control called `label`, whatever its role.
+///
+/// A switch row writes its name twice: as the row's text and as the name of the switch at its
+/// right end. A click on the text does nothing, so a control that is not a text is taken first.
 fn click_stone_label(film: &mut Film<'_>, label: &str) -> Result<(), String> {
-    let spot = film.stone_control(label, |view| targets::run_label(view, label))?;
+    let spot = film.stone_control(label, |view| {
+        let wanted = label.to_owned();
+        view.root
+            .query_descendants()
+            .match_predicate(move |element| {
+                element
+                    .accessible_label()
+                    .is_some_and(|name| name == wanted)
+                    && element.accessible_role() != Some(AccessibleRole::Text)
+                    && element.accessible_enabled() != Some(false)
+            })
+            .find_all()
+            .iter()
+            .map(targets::Spot::of)
+            .find(|spot| spot.usable(view.size))
+            .or_else(|| targets::run_label(view, label))
+    })?;
     film.click_and_invoke(&spot)?;
     film.hold(pacing::RESULT_HOLD)
 }
@@ -276,18 +343,19 @@ fn cats_eye(film: &mut Film<'_>) -> Result<(), String> {
     wait_step_done(film, "Cat's-Eye Silk")
 }
 
-/// The switch of the Play-of-Color (Schiller) group.
-fn switch_structure_on(film: &mut Film<'_>, label: &str) -> Result<(), String> {
+/// The reading step on the switch of the Play-of-Color (Schiller) card: choosing the material
+/// switched it on, so the card is opened, the cursor rests on the switch and nothing is clicked.
+fn show_structure_switch(film: &mut Film<'_>, label: &str) -> Result<(), String> {
     let model = film.ui.global::<RenderEffectsModel>();
-    if model.get_structure_on() {
-        return Err(format!("{label} is already on before the lesson clicks it"));
+    if !model.get_structure_on() {
+        return Err(format!(
+            "{label} is off: choosing the material did not switch it on"
+        ));
     }
     open_structure_card(film)?;
-    click_stone_label(film, label)?;
-    if !model.get_structure_on() {
-        return Err(format!("clicking {label} did not switch it on"));
-    }
-    wait_step_done(film, label)
+    let switch = film.stone_control(label, |view| targets::run_label(view, label))?;
+    film.glide_to(switch.center())?;
+    film.hold(pacing::RESULT_HOLD)
 }
 
 /// Drags the Stone tab slider `label` a little along its track and waits for the design.

@@ -60,6 +60,7 @@ impl Default for RenderContext {
             planes_owner: PlanesOwner::Builtin,
             editor_generation: None,
             catalogue_over_generation: None,
+            job_design: None,
             material_unresolved: None,
             editor_material_stash: None,
             custom_materials: Arc::new(Vec::new()),

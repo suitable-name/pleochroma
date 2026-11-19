@@ -56,7 +56,7 @@ component PresetButton inherits Rectangle {
 // `c_axis_override_available` (Rust-driven) is false for an isotropic material, which has no
 // crystal axis to orient: the section then says so and offers nothing.
 export component CrystalAxisSection inherits VerticalLayout {
-    spacing: 6px;
+    spacing: 8px;
 
     init => { CrystalAxisModel.refresh(); }
 
@@ -88,28 +88,31 @@ export component CrystalAxisSection inherits VerticalLayout {
         wrap: word-wrap;
     }
 
+    // The wrapped texts sit directly in this layout, each under its own `if`: Slint 1.18 measures a
+    // word-wrapped Text inside an `if`-created layout as one line, so the folding card around this
+    // section came out too short and clipped the last preset.
+    if SettingsModel.c_axis_override_available: KitFillSegments {
+        labels: ["As Material", "Set for This Stone"];
+        picked: SettingsModel.c_axis_override_enabled ? 1 : 0;
+        selected(i) => {
+            SettingsModel.c_axis_override_enabled = i == 1;
+            SettingsModel.c_axis_override_changed(i == 1);
+        }
+    }
+
+    if SettingsModel.c_axis_override_available: Text {
+        text: SettingsModel.c_axis_override_enabled
+            ? "Tilt is measured from the table normal, azimuth around it."
+            : "The material's own axis is used. Choose a preset below, or Set for This Stone, to turn it.";
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    // The presets: three geometry presets, then the ones named by the colors they give.
     if SettingsModel.c_axis_override_available: VerticalLayout {
         spacing: 8px;
 
-        KitFillSegments {
-            labels: ["As Material", "Set for This Stone"];
-            picked: SettingsModel.c_axis_override_enabled ? 1 : 0;
-            selected(i) => {
-                SettingsModel.c_axis_override_enabled = i == 1;
-                SettingsModel.c_axis_override_changed(i == 1);
-            }
-        }
-
-        Text {
-            text: SettingsModel.c_axis_override_enabled
-                ? "Tilt is measured from the table normal, azimuth around it."
-                : "The material's own axis is used. Choose a preset below, or Set for This Stone, to turn it.";
-            font-size: 11px;
-            color: Theme.text-muted;
-            wrap: word-wrap;
-        }
-
-        // The presets: three geometry presets, then the ones named by the colors they give.
         VerticalLayout {
             spacing: 4px;
             PresetButton {
@@ -228,13 +231,14 @@ export component CrystalAxisSection inherits VerticalLayout {
                     }
                 }
             }
-
-            if CrystalAxisModel.note != "": Text {
-                text: CrystalAxisModel.note;
-                font-size: 10px;
-                color: Theme.text-muted;
-                wrap: word-wrap;
-            }
         }
+    }
+
+    // Outside the layouts above, for the same wrapped-text reason.
+    if SettingsModel.c_axis_override_available && SettingsModel.c_axis_override_enabled && CrystalAxisModel.note != "": Text {
+        text: CrystalAxisModel.note;
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
     }
 }

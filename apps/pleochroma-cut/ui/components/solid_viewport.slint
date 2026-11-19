@@ -168,7 +168,14 @@ export component SolidViewportView inherits Rectangle {
         root.refresh_hover();
     }
     function refresh_hover() {
-        if (!drag_area.has-hover || root.is_dragging || root.handle_dragging || root.axis_dragging || root.slice_dragging) {
+        if (!drag_area.has-hover) {
+            // The pointer is off the picture (over a toolbar pill or another overlay): a frame
+            // that arrives now must not leave the old readout waiting for its return.
+            SolidPreviewModel.hover_text = "";
+            SolidPreviewModel.diagram_hover_text = "";
+            return;
+        }
+        if (root.is_dragging || root.handle_dragging || root.axis_dragging || root.slice_dragging) {
             return;
         }
         if (SolidPreviewModel.view_mode == 3) {
@@ -666,6 +673,9 @@ export component SolidViewportView inherits Rectangle {
         x: 12px;
         y: toolbar.top_height + 8px + root.banner_room + root.hint_room;
         narrow: root.width < 900px;
+        // Down to the bottom row (the Cut slider, the status line): the card folds when its
+        // open height does not fit, as in the short view of the narrow stack.
+        room: root.height - 64px - self.y;
         view_right: root.absolute-position.x + root.width - 12px;
         view_bottom: root.absolute-position.y + root.height - 64px;
     }

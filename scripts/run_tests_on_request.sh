@@ -11,7 +11,7 @@
 #
 # Usage (from the repository root, or with --repo):
 #   bash scripts/run_tests_on_request.sh [--repo DIR] [--only TEXT] [--threads N]
-#                                        [--timeout DURATION]
+#                                        [--timeout DURATION] [--stock-driver]
 #
 #   --repo DIR          repository root (default: the current directory)
 #   --only TEXT         run only the listed tests whose name contains TEXT (for example
@@ -19,6 +19,9 @@
 #   --threads N         test threads per target (default 4: these tests are heavy, fewer at a time
 #                       finish sooner than 16 competing ones)
 #   --timeout DURATION  hard stop per target (default 2h; `timeout` syntax)
+#   --stock-driver      run without the RADV scheduler workaround (scripts/radv_workaround.sh, which
+#                       otherwise applies it on an AMD GPU as the app does): the GPU tests then use
+#                       Mesa's stock shader compiler, to check whether a newer Mesa fixed it
 #
 # Output: <repo>/owner-run-logs/on-request-<timestamp>/
 #   NN-<target>.log  full output per cargo target
@@ -31,12 +34,14 @@ REPO="$(pwd)"
 ONLY=""
 THREADS=4
 TIMEOUT=2h
+RADV=on
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
         --only) ONLY="$2"; shift 2 ;;
         --threads) THREADS="$2"; shift 2 ;;
         --timeout) TIMEOUT="$2"; shift 2 ;;
+        --stock-driver) RADV=off; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -47,6 +52,9 @@ cd "$REPO" || { echo "no repo at $REPO" >&2; exit 2; }
 . "$REPO/scripts/fresh_sources.sh"
 fresh_sources
 export RUST_MIN_STACK="${RUST_MIN_STACK:-16777216}"
+# The GPU tests run with the driver workaround the app runs with (scripts/radv_workaround.sh).
+. "$REPO/scripts/radv_workaround.sh"
+radv_test_workaround "$RADV" "$REPO"
 OUT_DIR="$REPO/owner-run-logs/on-request-$(date +%Y-%m-%d_%H%M%S)"
 mkdir -p "$OUT_DIR"
 SUMMARY="$OUT_DIR/summary.md"
@@ -59,6 +67,7 @@ SUMMARY="$OUT_DIR/summary.md"
     # the same on any machine.
     echo "Repo: $REPO (git: $(git describe --always --dirty 2>/dev/null || echo unknown), version: $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1), sources: $(sources_hash)), only: '${ONLY:-all}'"
     echo "Toolchain: $(rustc -V 2>/dev/null || echo unknown), $(cargo -V 2>/dev/null || echo unknown)"
+    echo "GPU driver: $RADV_STATUS"
     echo
     echo "| step | exit | minutes |"
     echo "| --- | --- | --- |"

@@ -24,7 +24,7 @@ use super::{
     recovery::CaseJournal, work,
 };
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// Longest stretch of batched journal work a crash may cost.
 const COMMIT_INTERVAL: Duration = Duration::from_secs(2);
@@ -59,6 +59,7 @@ struct PassSnapshot {
     steps: usize,
     evaluations: usize,
     accepted: usize,
+    consecutive_rejections: usize,
     rejections: BTreeMap<String, usize>,
     action_rms_sum: f64,
     base: Optics,
@@ -70,6 +71,7 @@ impl Pilot {
     fn key(&self) -> &'static str {
         match self {
             Self::Model => "model",
+            Self::Deployment => "deployment",
             Self::Sampled { .. } => "sampled",
             Self::Noise { .. } => "noise",
             Self::Oracle => "oracle",
@@ -79,7 +81,9 @@ impl Pilot {
     /// RNG state advances, but the pass kind and distribution cannot change during recovery.
     fn same_distribution(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Model, Self::Model) | (Self::Oracle, Self::Oracle) => true,
+            (Self::Model, Self::Model)
+            | (Self::Deployment, Self::Deployment)
+            | (Self::Oracle, Self::Oracle) => true,
             (Self::Sampled { explore_std: a, .. }, Self::Sampled { explore_std: b, .. }) => {
                 a.map(f32::to_bits) == b.map(f32::to_bits)
             }
@@ -98,6 +102,7 @@ impl PassSnapshot {
             steps: 0,
             evaluations: 0,
             accepted: 0,
+            consecutive_rejections: 0,
             rejections: BTreeMap::new(),
             action_rms_sum: 0.0,
             base,
@@ -122,6 +127,7 @@ impl PassSnapshot {
         if self.version != VERSION
             || !self.pilot.same_distribution(expected)
             || self.accepted > self.steps
+            || self.consecutive_rejections > self.steps - self.accepted
             || rejected.is_none_or(|count| count > self.steps - self.accepted)
             || !self.action_rms_sum.is_finite()
             || self.action_rms_sum < 0.0
@@ -272,13 +278,8 @@ impl EvalJob<'_> {
                 .sum();
             state.action_rms_sum += (squared / count as f64).sqrt();
         }
-        // Preserve the teacher's measured action at unit scale. The ordinary model/noise
-        // passes retain the original first-accepted line-search and authoritative meet gate.
-        let scales: &[f64] = if oracle {
-            &[1.0]
-        } else {
-            &self.cfg.line_search
-        };
+        // The teacher verifies its command under the same first-accepted search as deployment.
+        let scales = &self.cfg.line_search;
         let backend = if self.execution.is_some() {
             "CUDA"
         } else {
@@ -289,14 +290,28 @@ impl EvalJob<'_> {
             state.pilot.name(),
             state.steps + 1,
         ));
-        let step = work::step(env, &action, scales, progress.tail);
+        let deterministic = matches!(state.pilot, Pilot::Model | Pilot::Deployment);
+        let step =
+            if deterministic && self.backend == super::super::CPU_LABEL && self.execution.is_none()
+            {
+                env.step_scaled(&action, scales)
+            } else {
+                work::step(env, &action, scales, progress.tail)
+            };
         state.steps += 1;
         state.evaluations += teacher_evaluations + usize::from(step.info.evaluations);
         state.accepted += usize::from(step.info.scale.is_some());
         if let Some(reason) = &step.info.rejection {
             *state.rejections.entry(format!("{reason:?}")).or_insert(0) += 1;
         }
-        state.done = step.terminated || step.truncated || (oracle && step.info.scale.is_none());
+        let stalled = deterministic
+            && pleochroma_ai::inference::policy_stalled(
+                &mut state.consecutive_rejections,
+                step.info.rejection.is_some(),
+                pleochroma_ai::inference::DEFAULT_STALL_STEPS,
+            );
+        state.done =
+            step.terminated || step.truncated || stalled || (oracle && step.info.scale.is_none());
         Ok(())
     }
 

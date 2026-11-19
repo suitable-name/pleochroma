@@ -57,23 +57,23 @@ fn deep_solve() -> Guide {
     Guide::new(
         "optimizing-deep-solve",
         "Deep Solve",
-        "Check a catalogue design's solved stone against the proportions printed for it, and read the verdict.",
+        "Check a catalog design's solved stone against the proportions printed for it, and read the verdict.",
         GuideCategory::Optimizing,
     )
     .starting(StartingState::RequiresOpenDesign)
     .step(
         GuideStep::new(
             "What Deep Solve checks",
-            "Deep Solve is a slow, separate check: does this design's geometry reproduce the proportions printed in the catalogue?",
+            "Deep Solve is a slow, separate check: does this design's geometry reproduce the proportions printed in the catalog?",
         )
         .actions([
             "It compares the solved stone with the design's own printed Vol/W^3, L/W, C/W, P/W and H/W.",
             "It never changes the design. It reports, and suggests, and nothing is written back unless you Pin a tier it names.",
             "It needs a design with printed proportions: one loaded from the library. A new design or a template has none, and the button is dim. Hover the button to see why.",
-            "It also has nothing to repair while every tier is still pinned to its recorded mast: Adopt a tier first (the Adopt button in the tier table's ACTIONS group).",
-            "If adopting leaves a block without an anchor (the status strip says so), click Add Anchor on that block's row, save the tier with its exact scale value, and adopt a tier of a block that keeps its anchor.",
+            "It also has nothing to repair while every tier is still pinned to its recorded mast: Adopt a tier first (Adopt in the row's \u{2026} menu, Actions for Tier N).",
+            "If adopting leaves a block without an anchor (the status strip says so), click Add Anchor in the \u{2026} menu of that block's row, save the tier with its exact scale value, and adopt a tier of a block that keeps its anchor.",
         ])
-        .why("If the button is dim, use Skip Step: this lesson only reads the result of a run. Load a catalogue design from the Library, adopt a tier, and start the lesson again to run it.")
+        .why("If the button is dim, use Skip Step: this lesson only reads the result of a run. Load a catalog design from the Library, adopt a tier, and start the lesson again to run it.")
         .highlight("deep_solve_button")
         .allow(TOOLS),
     )
@@ -149,10 +149,10 @@ fn optimize() -> Guide {
     .step(
         GuideStep::new(
             "Open the Optimize tab",
-            "Everything about a search is on the inspector's Optimize tab: what to favour, what may change, the run and the results.",
+            "Everything about a search is on the inspector's Optimize tab: what to favor, what may change, the run and the results.",
         )
         .actions(["Click Optimize in the inspector below the tier table."])
-        .check("the tab shows Objective, What May Change, Run and Candidates.")
+        .check("the tab shows Aim For, What May Change, Run and the Optimize button.")
         .why("The tab is the one home of Optimize: it has the Optimize button that starts a run and the Cancel button that stops it.")
         .goal(Goal::InspectorTab(2), "the Optimize tab open")
         .highlight("optimize_tab")
@@ -160,18 +160,18 @@ fn optimize() -> Guide {
     )
     .step(
         GuideStep::new(
-            "Choose what to favour",
-            "The Objective list sets four weights. The choices only differ in which weight counts most.",
+            "Choose what to favor",
+            "The tiles under Aim For set four weights. The choices only differ in which weight counts most.",
         )
         .actions([
-            "Open the Objective list and choose Low Windowing.",
-            "Read the line under the list: it says what the choice favours.",
+            "Under Aim For, click Low Windowing.",
+            "Read the line under the tiles: it says what the choice favors.",
         ])
-        .check("the Objective list reads Low Windowing.")
+        .check("the Low Windowing tile is lit.")
         .why("Balanced weighs windowing, extinction and tilt brilliance equally. Brilliance, Low Extinction and Keep Weight lean the other ways; Keep Weight also counts how much of the rough is wasted. Lighten Dark Rough and Intensify Pale Rough pull the face-up color lighter or stronger. Custom shows the weight boxes so you can set them yourself.")
         .goal(
             event(events::OPTIMIZE_PRESET_CHOSEN),
-            "an entry of the Objective list chosen",
+            "an Aim For tile chosen",
         )
         .highlight("optimize_tab")
         .allow(TOOLS),
@@ -183,7 +183,7 @@ fn optimize() -> Guide {
         )
         .actions([
             "Under What May Change, see that Vary Anchored Tiers is ticked. It starts ticked on a design where every tier is pinned, like this one: the search then turns each tier about the edge where it meets the girdle, so the girdle outline stays.",
-            "Click Angle Ranges... Each tier the search may move can change by 5 degrees either way, never past 0.5 or 89.5 degrees. Type your own MIN and MAX to narrow or widen a range, or press Reset Ranges.",
+            "Click Edit..., at the right of the line that says how many tiers can change. Each tier the search may move can change by 5 degrees either way, never past 0.5 or 89.5 degrees. Type your own MIN and MAX to narrow or widen a range, or press Reset Ranges.",
         ])
         .check("a table of the tiers with MIN and MAX boxes.")
         .why("The table, the culet and the girdle never move, and a tier whose angle follows a relation shows follows a relation instead of boxes: it goes along with the tier it reads. Keep the Girdle (at Least Half Its Thickness) drops a candidate whose girdle gets thinner than half of what it was.")
@@ -200,10 +200,10 @@ fn optimize() -> Guide {
             "A small budget keeps this run to a few seconds.",
         )
         .actions([
-            "Under Run, set Budget to 100 and Candidates to 2.",
+            "Click the Run line to open it, then set Budget to 100 and Candidates to 2.",
             "Read the Estimated time line above the button, then click Optimize in the tab. A bar shows how far the search has got, and a Cancel button stops it and keeps the best result so far.",
         ])
-        .check("a Candidates list under the run settings.")
+        .check("Results under the Optimize button: the starting stone and the candidates.")
         .why("Budget is how many trial stones the search may score. The same Seed gives the same result on the same design. Every candidate you ask for costs one more full-quality scoring at the end.")
         .goal(event(events::OPTIMIZE_FINISHED), "an Optimize run to finish")
         .highlight("optimize_tab")
@@ -302,7 +302,7 @@ fn retarget_shift() -> Guide {
         .actions([
             "Click Retarget... on the command bar.",
             "Set Target Material to Topaz. A card under it shows its n_D and critical angle. Stay on 1. Shift.",
-            "Read the table: Block, Tier, Old, New, Margin and Risk (Safe, Marginal or Windows) for each crown and pavilion tier. The table and culet are greyed and read Not changed.",
+            "Read the table: Block, Tier, Old, New, Margin and Risk (Safe, Marginal or Windows) for each crown and pavilion tier. The table and culet are grayed out and read Not changed.",
             "Wait until the line under the table no longer says Checking..., and read it: Valid, with the girdle and table figures and the stone's depth (for example depth 61 % (was 58 %)), or Not valid, with the reasons. Under it, Optical Comparison (Table Up) gives windowing, brilliance and extinction for the current stone, the current stone in Topaz, and the retargeted stone.",
             "Click Apply. This lesson goes on when the design has changed, and the dialog closes itself.",
         ])
@@ -378,7 +378,7 @@ fn retarget_optimize() -> Guide {
         .actions([
             "Optimize starts from the Shift result and moves every crown and pavilion angle on its own, inside a range you choose, looking for the best score in the new material.",
             "It can find a valid stone when the formula's result is not valid, and a better one than the formula gives, because the crown can move too.",
-            "It never tilts the table or culet, moves the girdle or a tier whose angle follows a relation; it keeps at least half the girdle thickness, refits the table and culet heights so they keep their size, and (Keep the Design's Look, on by default) favours options that keep the design's table size and crown-to-pavilion ratio.",
+            "It never tilts the table or culet, moves the girdle or a tier whose angle follows a relation; it keeps at least half the girdle thickness, refits the table and culet heights so they keep their size, and (Keep the Design's Look, on by default) favors options that keep the design's table size and crown-to-pavilion ratio.",
         ])
         .why("The search is seeded, not random: the same design, settings and target give the same options every time. It runs only when you press Search, in the background.")
         .highlight("retarget_button")

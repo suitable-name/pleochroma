@@ -99,11 +99,13 @@ mod write;
 #[cfg(test)]
 mod tests;
 
-pub use convert::gcs_to_asc_schedule;
+pub use convert::{gcs_ri_range_choice, gcs_to_asc_schedule};
 pub use design::GcsDesign;
 pub use error::GcsParseError;
 pub use frosting::{GcsTierFrosting, gcs_frosting};
 pub use metadata::{GcsColor, GcsIndex, GcsInfo, GcsRender};
 pub use parse::{parse_gcs, parse_gcs_bytes};
 pub use tier::{GcsFacet, GcsTier, GcsVertex, normal_from_index_angle, side_rule_index_angle};
-pub use write::{GcsWriteError, to_gcs_string, to_gcs_string_with_frosting};
+pub use write::{
+    GcsWriteError, to_gcs_string, to_gcs_string_with_frosting, to_gcs_string_with_ri_range,
+};

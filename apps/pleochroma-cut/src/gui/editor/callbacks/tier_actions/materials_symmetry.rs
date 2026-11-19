@@ -152,16 +152,28 @@ pub(in crate::gui::editor) fn setup_apply_design_material_callback(
 /// The edit a pick in the material combo makes: the material and, when the pick changes the
 /// material to one whose look is a design effect (precious opal's play-of-color, labradorite's
 /// schiller, moonstone's adularescence, white opal's milky body), that effect switched on in the
-/// same undo step (`StoneRenderEffects::with_material_look`). The refresh after the edit pushes
-/// the effects to the Stone tab's controls and the render context.
+/// same undo step (`StoneRenderEffects::with_material_look`). The look the stone got from the
+/// material it leaves is switched off in that step too, as long as it was not changed since
+/// (`StoneRenderEffects::without_material_look`): the list applies every entry the arrow keys
+/// pass, and a sapphire must not keep the schiller of the labradorite above it. The refresh after
+/// the edit pushes the effects to the Stone tab's controls and the render context.
 fn material_pick_edit(design: &Design, material: MaterialSelection) -> Edit {
     let look = if material.name == design.material.name {
         None
     } else {
-        material
+        let left = design
+            .material
             .name
             .as_deref()
-            .and_then(|name| design.render_effects.with_material_look(name))
+            .map_or(design.render_effects, |old| {
+                design.render_effects.without_material_look(old)
+            });
+        let next = material
+            .name
+            .as_deref()
+            .and_then(|name| left.with_material_look(name))
+            .unwrap_or(left);
+        (next != design.render_effects).then_some(next)
     };
     let set = Edit::SetMaterial {
         material: Box::new(material),
@@ -697,6 +709,57 @@ mod tests {
                 Edit::SetMaterial { .. }
             ),
             "the same material again switches nothing on"
+        );
+    }
+
+    /// Leaving a material whose look is an effect takes the untouched look away in the same undo
+    /// step, so the next material does not keep it; a look the cutter changed stays.
+    #[test]
+    fn a_pick_away_from_a_material_takes_its_untouched_look_with_it() {
+        let mut state = EditorState::fresh();
+        let original_effects = state.design.render_effects;
+        let named = |state: &EditorState, name: &str| {
+            let mut material = state.design.material.clone();
+            material.name = Some(name.to_string());
+            material
+        };
+        let labradorite = named(&state, "Labradorite");
+        state
+            .apply(material_pick_edit(&state.design, labradorite))
+            .expect("the pick applies");
+        assert!(
+            state.design.render_effects.structure.is_some(),
+            "schiller on"
+        );
+
+        let sapphire = named(&state, "Sapphire");
+        let edit = material_pick_edit(&state.design, sapphire);
+        assert!(matches!(edit, Edit::Batch(ref steps) if steps.len() == 2));
+        state.apply(edit).expect("the pick applies");
+        assert_eq!(
+            state.design.render_effects, original_effects,
+            "the sapphire does not keep the schiller"
+        );
+        assert!(state.undo().expect("undoes"));
+        assert!(
+            state.design.render_effects.structure.is_some(),
+            "one undo brings the labradorite and its schiller back"
+        );
+
+        // A changed look is the cutter's own: it stays on the next material.
+        let mut changed = state.design.render_effects;
+        changed.inclusion_sigma_s += 0.25;
+        state
+            .apply(Edit::SetRenderEffects { effects: changed })
+            .expect("the change applies");
+        let sapphire = named(&state, "Sapphire");
+        state
+            .apply(material_pick_edit(&state.design, sapphire))
+            .expect("the pick applies");
+        assert_eq!(
+            state.design.render_effects.inclusion_sigma_s.to_bits(),
+            changed.inclusion_sigma_s.to_bits(),
+            "the haze the cutter set stays"
         );
     }
 

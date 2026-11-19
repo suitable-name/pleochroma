@@ -6,6 +6,7 @@ import { TrialsModel } from "../../models/trials.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { TiltModel } from "../../models/tilt.slint";
+import { TiltWindows } from "../../shared/tilt_windows.slint";
 import { ExportModel } from "../../models/export.slint";
 import { KitFigure, KitFigures } from "../kit/kit.slint";
 import { FiguresHelp } from "../gem_viewport/figures_help.slint";
@@ -16,12 +17,16 @@ import { FiguresHelp } from "../gem_viewport/figures_help.slint";
 // figure (`BaselineModel.cells`, which Rust already orders that way). "Keep as Trial" is its action.
 //
 // Open by default; folded to one line when `ViewportModel.figures_folded` says so (the same saved
-// choice as Live Render's card) and by itself on a narrow view (`narrow`, not remembered). The two
-// states are two instances (`if`), as in `LiveFigures`.
+// choice as Live Render's card) and by itself on a narrow view (`narrow`, not remembered) and on
+// a view too short for the open card (`room`: in the narrow stack the view is 140-260 px tall,
+// and the open card lay over the Cut slider). The two states are two instances (`if`), as in
+// `LiveFigures`.
 //
 // The Simple interface shows the figures without their changes and without Keep as Trial.
 export component EditFigures inherits Rectangle {
     in property <bool> narrow: false;
+    // The height the viewport has for the card, from the card's top to the viewport's bottom row.
+    in property <length> room: 10000px;
     // Where the viewport's room for the popover ends (window coordinates): its right edge less the
     // margin, and the top of its bottom row.
     in property <length> view_right: 0px;
@@ -31,6 +36,14 @@ export component EditFigures inherits Rectangle {
     property <bool> narrow_open: false;
     property <int> n: BaselineModel.cells.length;
     property <bool> deltas: GuideModel.shows_advanced();
+    // The open card's height, worked out from its rows and not read from the card: the card's
+    // own height changes when it folds, and reading it here would be a binding loop. 41 px of
+    // padding and header, 23 px a row (the last without its 3 px gap), 7 px for each of the two
+    // dividers and 15 px for the tilt caption (`KitFigures`).
+    property <length> open_height: 38px + 23px * max(5, min(root.n, 11))
+        + (root.n >= 8 ? 14px : 0px) + (root.has_tilt ? 15px : 0px);
+    // Starts folded: the view is narrow, or too short to show the open card.
+    property <bool> tight: root.narrow || root.room < root.open_height;
 
     // A cell as a figure: `trend` 1 better, -1 worse, 0 about the same.
     pure function fig(i: int) -> KitFigure {
@@ -75,6 +88,10 @@ export component EditFigures inherits Rectangle {
 
     // Contrast sits right after the five (cell 5) when the design's zones were measured.
     property <bool> has_contrast: root.n >= 6 && BaselineModel.cells[5].name == "Contrast";
+    // The three tilt averages are the last three cells (Rust puts them there); a caption names their window,
+    // since the 82 px name column cannot.
+    property <bool> has_tilt: root.n >= 8 && BaselineModel.cells[root.n - 1].name == "Tilt Extinction";
+    property <string> tilt_caption: "Tilt average " + TiltWindows.displayed;
     // What a click copies: the five numbers with their names, and Contrast when it is measured.
     property <string> copy_text: root.n >= 5
         ? (fig(0).name + " " + fig(0).value + "\n" + fig(1).name + " " + fig(1).value + "\n" + fig(2).name + " " + fig(2).value + "\n" + fig(3).name + " " + fig(3).value + "\n" + fig(4).name + " " + fig(4).value
@@ -89,14 +106,16 @@ export component EditFigures inherits Rectangle {
 
     figures_lay := HorizontalLayout {
         alignment: start;
-        if root.narrow: KitFigures {
+        if root.tight: KitFigures {
             title: BaselineModel.has_baseline ? "VS BASELINE" : "FIGURES";
             figures: !root.narrow_open ? root.folded_list : root.open_list;
             folded: !root.narrow_open;
             show_bars: false;
             show_deltas: root.deltas && BaselineModel.has_baseline;
             divider_a: root.n >= 8 ? (root.has_contrast ? 5 : 4) : -1;
-            divider_b: root.n >= 8 ? (root.has_contrast ? 7 : 6) : -1;
+            divider_b: root.has_tilt ? root.n - 4 : (root.n >= 8 ? (root.has_contrast ? 7 : 6) : -1);
+            caption_after: root.has_tilt ? root.n - 4 : -1;
+            caption_text: root.tilt_caption;
             show_help: true;
             help => { ViewportModel.figures_help_open = !ViewportModel.figures_help_open; }
             action_text: root.deltas && GuideModel.allows_history() && EditorModel.enabled ? "Keep as Trial" : "";
@@ -104,14 +123,16 @@ export component EditFigures inherits Rectangle {
             action => { TrialsModel.keep_trial(); }
             fold_toggled(f) => { root.narrow_open = !f; }
         }
-        if !root.narrow: KitFigures {
+        if !root.tight: KitFigures {
             title: BaselineModel.has_baseline ? "VS BASELINE" : "FIGURES";
             figures: root.wide_folded ? root.folded_list : root.open_list;
             folded: root.wide_folded;
             show_bars: false;
             show_deltas: root.deltas && BaselineModel.has_baseline;
             divider_a: root.n >= 8 ? (root.has_contrast ? 5 : 4) : -1;
-            divider_b: root.n >= 8 ? (root.has_contrast ? 7 : 6) : -1;
+            divider_b: root.has_tilt ? root.n - 4 : (root.n >= 8 ? (root.has_contrast ? 7 : 6) : -1);
+            caption_after: root.has_tilt ? root.n - 4 : -1;
+            caption_text: root.tilt_caption;
             show_help: true;
             help => { ViewportModel.figures_help_open = !ViewportModel.figures_help_open; }
             action_text: root.deltas && GuideModel.allows_history() && EditorModel.enabled ? "Keep as Trial" : "";

@@ -126,12 +126,12 @@ pub const SHORTCUTS: &[Shortcut] = &[
     },
     Shortcut {
         keys: "Ctrl+E",
-        action: "Toggle the 3D Spectral Preview tab's Live Render / Edit pill. **Not** Export -- \"Export Edited .asc\" has no keyboard shortcut of its own.",
+        action: "Toggle the 3D Spectral Preview tab's Live Render / Edit pill; from the Cutting Instructions or Files & Downloads tab, go to the Edit view. **Not** Export -- \"Export Edited .asc\" has no keyboard shortcut of its own.",
         context: Context::Global,
     },
     Shortcut {
         keys: "Ctrl+F",
-        action: "Focus the catalogue search box, or, while the Edit tab's tier list is showing, the tier list's own filter box instead",
+        action: "Focus the catalogue search box, or, in the Edit view, the tier list's own filter box instead. The list that is searched is unfolded first.",
         context: Context::Global,
     },
     Shortcut {
@@ -146,7 +146,7 @@ pub const SHORTCUTS: &[Shortcut] = &[
     },
     Shortcut {
         keys: "1 / 2 / 3 / 4 / 5",
-        action: "Solid / Path-Traced / Solid + Path-Traced / Diagram / Ray-Traced view of the Edit tab's viewport. Only while that viewport is on screen and no text field has focus.",
+        action: "Solid / Path-Traced / Solid + Path-Traced / Diagram / Ray-Traced view of the Edit tab's viewport. Only while the Edit view is on screen and no text field has focus; a short window that shows one pane at a time switches to the 3D view.",
         context: Context::Global,
     },
     Shortcut {

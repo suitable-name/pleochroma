@@ -51,7 +51,7 @@
 //! the first of equals; nothing iterates a hash map.
 
 use self::geometry::{StoneContacts, closing_box, ring_bounds, weld};
-use super::{ConstraintTier, Design, TierRef};
+use super::{ConstraintTier, Design, TierRef, girdle_level::GirdleLevel};
 use crate::manufacturability::facet_plane_boundaries;
 use glam::DVec3;
 use pleochroma::geometry::{
@@ -144,6 +144,26 @@ pub struct CutMeets {
     /// The finished stone's size (its largest extent), in design units. The tolerance is
     /// `MEET_TOLERANCE_FRACTION * size`.
     pub size: f64,
+    /// Where the points of each tier's [`CutMeet::Meets`] lie, aligned with [`Self::tiers`]
+    /// ([`MeetPlace::Other`] for a tier that does not meet).
+    ///
+    /// The cutting sheet words a meet by it: "Meet P1 at centerpoint", "Cut to level girdle.".
+    pub place: Vec<MeetPlace>,
+}
+
+/// Where the points a [`CutMeet::Meets`] tier's facets pass through lie.
+///
+/// Read by the cutting sheet to word the meet; it changes no depth and no score.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeetPlace {
+    /// Every such point lies on the axis of the stone (within `ON_AXIS_FRACTION` of its size):
+    /// "Meet P1 at centerpoint".
+    Centerpoint,
+    /// A crown or pavilion tier whose points all lie on the girdle line the earlier tiers set,
+    /// and which does not cut into the girdle: "Cut to level girdle.".
+    GirdleLine,
+    /// Any other tier, and every tier whose meet is not [`CutMeet::Meets`].
+    Other,
 }
 
 impl CutMeets {
@@ -204,15 +224,22 @@ impl Design {
     #[must_use]
     pub fn cut_meets(&self, solved: &[SolvedTier]) -> Option<CutMeets> {
         let walk = CutWalk::new(self, solved)?;
+        let level = self.girdle_level(solved);
         let mut tiers = vec![CutMeet::Anchor(CutMeetAnchor::NothingToMeet); self.tiers.len()];
+        let mut place = vec![MeetPlace::Other; self.tiers.len()];
         for (position, &tier) in walk.order.iter().enumerate() {
+            let (meet, targets) = walk.meet_at(position);
+            if let Some(slot) = place.get_mut(tier) {
+                *slot = walk.place_of(tier, &meet, &targets, level.as_ref());
+            }
             if let Some(slot) = tiers.get_mut(tier) {
-                *slot = walk.meet_at(position).0;
+                *slot = meet;
             }
         }
         Some(CutMeets {
             tiers,
             size: walk.size,
+            place,
         })
     }
 
@@ -411,6 +438,8 @@ struct Anchors {
     /// Per tier: a crown-side tier that is not a girdle (the table included), whose vertices
     /// off the axis a table could meet.
     crown: Vec<bool>,
+    /// Per tier: a girdle tier ([`ConstraintTier::is_girdle`]).
+    girdle: Vec<bool>,
 }
 
 impl Anchors {
@@ -459,6 +488,7 @@ impl Anchors {
                 .iter()
                 .map(|flat| tier_is_crown_side(flat.angle_deg) && !flat.is_girdle())
                 .collect(),
+            girdle: tiers.iter().map(ConstraintTier::is_girdle).collect(),
         }
     }
 }
@@ -579,6 +609,93 @@ impl CutWalk {
         let table_without_point =
             anchors.table.get(tier).copied().unwrap_or(false) && !self.has_table_point(&targets);
         (self.classify(tier, reach, table_without_point), targets)
+    }
+
+    /// Where the points the facets of `tier` pass through lie, for the cutting sheet's wording.
+    ///
+    /// `meet` is the tier's meet and `targets` the stone cut before it ([`Self::meet_at`]);
+    /// `level` is the finished stone's girdle level.
+    ///
+    /// [`MeetPlace::Other`] unless `meet` is [`CutMeet::Meets`].
+    fn place_of(
+        &self,
+        tier: usize,
+        meet: &CutMeet,
+        targets: &[Target],
+        level: Option<&GirdleLevel>,
+    ) -> MeetPlace {
+        if !matches!(meet, CutMeet::Meets(_)) {
+            return MeetPlace::Other;
+        }
+        let Some(facets) = self.facets.get(tier) else {
+            return MeetPlace::Other;
+        };
+        let tolerance = self.tolerance();
+        // Every target any facet of the tier passes through.
+        let passed: Vec<&Target> = targets
+            .iter()
+            .filter(|target| {
+                facets
+                    .iter()
+                    .any(|&(normal, offset)| (normal.dot(target.point) - offset).abs() <= tolerance)
+            })
+            .collect();
+        if passed.is_empty() {
+            return MeetPlace::Other;
+        }
+        let on_axis = ON_AXIS_FRACTION * self.size;
+        if passed
+            .iter()
+            .all(|target| target.point.x.hypot(target.point.z) <= on_axis)
+        {
+            return MeetPlace::Centerpoint;
+        }
+        if self.meets_on_girdle_line(tier, &passed, level) {
+            return MeetPlace::GirdleLine;
+        }
+        MeetPlace::Other
+    }
+
+    /// Whether the crown or pavilion `tier`, whose facets pass through `passed`, is cut to the
+    /// level girdle: every point has a girdle tier among its forming tiers, they lie at one height,
+    /// that height is the girdle line of the tier's side, and the tier is not among
+    /// [`GirdleLevel::cut_in`]. `false` without a girdle `level`.
+    fn meets_on_girdle_line(
+        &self,
+        tier: usize,
+        passed: &[&Target],
+        level: Option<&GirdleLevel>,
+    ) -> bool {
+        let anchors = &self.anchors;
+        let flag = |list: &[bool], tier: usize| list.get(tier).copied().unwrap_or(false);
+        let Some(level) = level else {
+            return false;
+        };
+        if flag(&anchors.girdle, tier) || flag(&anchors.table, tier) || level.cut_in.contains(&tier)
+        {
+            return false;
+        }
+        // The bottom line for a pavilion tier, the top line for a crown tier.
+        let line = if flag(&anchors.crown, tier) {
+            level.top.1
+        } else {
+            level.bottom.0
+        };
+        let tolerance = level.tolerance();
+        let (low, high) = passed
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), target| {
+                (low.min(target.point.y), high.max(target.point.y))
+            });
+        high - low <= tolerance
+            && (low - line).abs() <= tolerance
+            && (high - line).abs() <= tolerance
+            && passed.iter().all(|target| {
+                target
+                    .tiers
+                    .iter()
+                    .any(|&forming| flag(&anchors.girdle, forming))
+            })
     }
 
     /// The meet of `tier` from how its facets `reach` the stone cut so far, by the module
@@ -770,3 +887,121 @@ pub use reanchor::MeetTarget;
 
 #[cfg(test)]
 mod tests;
+
+/// The tests of [`MeetPlace`]: where the points of each tier's meet lie, on the published
+/// Pentalume and on synthetic targets for the cases a real design has no tier for.
+#[cfg(test)]
+mod place_tests {
+    use super::{CutMeet, CutWalk, GirdleLevel, MeetPlace, Target};
+    use crate::{design::Design, preform::PreformSpec};
+    use glam::DVec3;
+
+    /// The published Pentalume Sapphire (`designs/Pentalume_Sapphire/Pentalume_Sapphire.asc`),
+    /// whose depths are the meet-point re-issue's. Inlined verbatim, line endings aside.
+    const PENTALUME: &str = "\
+GemCad 5.0
+g 80 0
+y 5 y
+I 1.7680773735046387
+H Pentalume Sapphire
+H Designed by Niklas Gussek
+a -44.6 0.7320997926 0 n P1_Five_broad_mains 16 32 48 64
+a 90 1 0 n G1_Five_long_sides 16 32 48 64 G Set stone size.
+a -41.9 0.7652954996 3 n P2_Ten_culet_splits 13 19 29 35 45 51 61 67 77
+a 90 1.1280169178 8 n G2_Five_clipping_flats 24 40 56 72
+a -44.4 0.8192817262 8 n P3_Five_corner_guards 24 40 56 72
+a 37.9 0.6474728844 0 n C1_Five_broad_bezels 16 32 48 64
+a 32 0.6334255166 8 n C2_Five_corner_bezels 24 40 56 72
+a 29.9 0.5941508544 4 n C3_Ten_stars 12 20 28 36 44 52 60 68 76
+a 0 0.3662153277 n Table
+";
+
+    /// Pentalume's tiers, in the order the file stores them.
+    const P2: usize = 2;
+    const G2: usize = 3;
+    const P3: usize = 4;
+    const C2: usize = 6;
+    const C3: usize = 7;
+
+    /// The design the app opens a bare `.asc` file as: every tier pinned to its recorded depth.
+    fn pentalume() -> Design {
+        let schedule = pleochroma_formats::asc::parse_asc(PENTALUME).expect("the fixture parses");
+        let preform = PreformSpec::cylinder_for_schedule(&schedule, 3.0, 1.0, 3.0);
+        Design::from_asc_schedule(preform, &schedule)
+    }
+
+    /// Where a design's tiers are cut to: P2 meets the culet on the axis, and P3, C2 and C3 are
+    /// cut to the level girdle. Every other tier is an anchor or has its own wording.
+    #[test]
+    fn pentalume_places_p2_at_the_centerpoint_and_three_tiers_at_the_girdle_line() {
+        let design = pentalume();
+        let solved = design.solve().expect("every tier is pinned");
+        let meets = design.cut_meets(&solved).expect("the stone closes");
+        assert_eq!(meets.place.len(), design.tiers.len());
+        assert!(matches!(meets.tiers[P2], CutMeet::Meets(_)));
+        assert_eq!(
+            meets.place,
+            [
+                MeetPlace::Other,
+                MeetPlace::Other,
+                MeetPlace::Centerpoint,
+                MeetPlace::Other,
+                MeetPlace::GirdleLine,
+                MeetPlace::Other,
+                MeetPlace::GirdleLine,
+                MeetPlace::GirdleLine,
+                MeetPlace::Other,
+            ]
+        );
+    }
+
+    /// A target `x` off the axis at height `y`, formed by `tiers`.
+    fn target(x: f64, y: f64, tiers: &[usize]) -> Target {
+        Target {
+            point: DVec3::new(x, y, 0.0),
+            tiers: tiers.to_vec(),
+            planes: Vec::new(),
+        }
+    }
+
+    /// Rule B on synthetic targets: it holds for points at the girdle line that each have a
+    /// girdle tier, and fails for a point without one, for points at two heights, for a tier in
+    /// `cut_in`, for a girdle tier, and when the design has no girdle level.
+    #[test]
+    fn the_level_girdle_rule_holds_only_when_all_four_conditions_do() {
+        let design = pentalume();
+        let solved = design.solve().expect("every tier is pinned");
+        let walk = CutWalk::new(&design, &solved).expect("the stone closes");
+        let level = design.girdle_level(&solved).expect("a girdle line");
+        assert!(level.cut_in.is_empty(), "the re-issue's girdle is level");
+        let tolerance = level.tolerance();
+        // The bottom line, where a pavilion tier meets the girdle; G1 is tier 1, P1 tier 0.
+        let bottom = level.bottom.0;
+        let at_girdle = target(1.0, bottom, &[1, P2]);
+        let also_girdle = target(0.5, bottom, &[0, 1, G2]);
+        let off_girdle = target(0.5, bottom, &[0, P2]);
+        let too_high = target(0.5, bottom + 2.0 * tolerance, &[0, 1]);
+
+        let holds = |tier: usize, targets: &[&Target], level: Option<&GirdleLevel>| {
+            walk.meets_on_girdle_line(tier, targets, level)
+        };
+        assert!(holds(P3, &[&at_girdle, &also_girdle], Some(&level)));
+        // One girdle corner and one pavilion meet: the list stays.
+        assert!(!holds(P3, &[&at_girdle, &off_girdle], Some(&level)));
+        // Two heights.
+        assert!(!holds(P3, &[&at_girdle, &too_high], Some(&level)));
+        // A tier that cuts into the girdle.
+        let mut cutting_in = level.clone();
+        cutting_in.cut_in = vec![P3];
+        assert!(!holds(P3, &[&at_girdle, &also_girdle], Some(&cutting_in)));
+        // A girdle tier keeps its own wording.
+        assert!(!holds(G2, &[&at_girdle, &also_girdle], Some(&level)));
+        // No girdle level, no such row.
+        assert!(!holds(P3, &[&at_girdle, &also_girdle], None));
+        // A crown tier is judged against the top line.
+        let top = level.top.1;
+        let crown_at_girdle = target(1.0, top, &[1, C2]);
+        assert!(holds(C3, &[&crown_at_girdle], Some(&level)));
+        assert!(!holds(C3, &[&at_girdle], Some(&level)));
+    }
+}

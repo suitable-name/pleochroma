@@ -23,6 +23,16 @@ impl Film<'_> {
         self.click_and_invoke(&pill)?;
         pump(30);
         if self.ui.get_active_tab() != 0 || self.ui.get_render_view_tab() != 1 {
+            // The header's content can change while the cursor is on its way (a design just
+            // picked in the library fills in its title), which moves the pills under the click.
+            // A pill that moved is clicked once more where it is now.
+            let again = targets::edit_pill(&self.view()).ok_or("Edit tab is missing")?;
+            if (again.x - pill.x).abs() > 1.0 || (again.y - pill.y).abs() > 1.0 {
+                self.click_and_invoke(&again)?;
+                pump(30);
+            }
+        }
+        if self.ui.get_active_tab() != 0 || self.ui.get_render_view_tab() != 1 {
             return Err("the Edit tab click did not switch the view to Edit".to_owned());
         }
         self.stage_state.view = StageView::Edit;

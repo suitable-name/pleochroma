@@ -39,6 +39,7 @@ mod tests_payload_encoding;
 mod tests_preview_batch_size;
 #[cfg(test)]
 mod tests_remote;
+mod tilt_range;
 mod tray_reflection;
 mod ui_preferences;
 mod worker;

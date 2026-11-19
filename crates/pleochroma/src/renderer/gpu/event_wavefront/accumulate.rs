@@ -6,6 +6,7 @@
 use glam::Vec3;
 
 use crate::{
+    diag::{self, Engine, PrepareStep},
     geometry::{
         GpuFacetPlane,
         tool::{GPU_MAX_TOOL_PRIMITIVES, ToolPrimitive, pack_planes_and_tools},
@@ -18,7 +19,7 @@ use crate::{
         },
         frame_scene::FrameScene,
         gpu::{
-            GpuContext,
+            GpuContext, compute,
             event_wavefront::{
                 EwError,
                 chunk::{
@@ -199,6 +200,9 @@ pub struct EventWavefrontRenderer {
     live: live::LiveEwState,
     /// Whether the most recent frame ran the optics lookup table kernels.
     tables_in_use: bool,
+    /// Whether a chunk of this renderer has been dispatched and read back: the first dispatch and
+    /// the first readback of a session are breadcrumb steps and tracer events.
+    traced_once: bool,
     /// The estimator of every later frame; `None` follows the process default
     /// (`optics::raytracer::default_estimator`). See [`Self::set_estimator`].
     estimator: Option<crate::optics::raytracer::Estimator>,
@@ -211,7 +215,8 @@ impl EventWavefrontRenderer {
     /// Constructs a new [`EventWavefrontRenderer`] with the given [`GpuContext`].
     #[must_use]
     pub fn new(ctx: GpuContext) -> Self {
-        let pipelines = EwPipelines::new(&ctx.device);
+        // The adapter is kept for the pipeline cache shards, which are stored per adapter.
+        let pipelines = EwPipelines::new(&ctx.device, ctx.adapter.get_info());
         Self {
             ctx,
             pipelines,
@@ -224,6 +229,7 @@ impl EventWavefrontRenderer {
             validate_raw_samples: false,
             live: live::LiveEwState::default(),
             tables_in_use: false,
+            traced_once: false,
             estimator: None,
         }
     }
@@ -350,6 +356,22 @@ impl EventWavefrontRenderer {
     ) -> Result<(), EwError> {
         // A failure already recorded (by the scene upload, say) is no kernel's.
         self.check_uncaptured_error()?;
+        let total = count_u32(kernels.len());
+        let mut done = count_u32(
+            kernels
+                .iter()
+                .filter(|&&kernel| self.pipelines.contains(kernel, material_class))
+                .count(),
+        );
+        // Nothing to build leaves the preparation step alone.
+        if done < total {
+            diag::set_prepare(
+                Engine::PathTraced,
+                PrepareStep::BuildingShaders,
+                done,
+                total,
+            );
+        }
         for &kernel in kernels {
             if self.pipelines.contains(kernel, material_class) {
                 continue;
@@ -357,12 +379,27 @@ impl EventWavefrontRenderer {
             self.pipelines
                 .ensure(&self.ctx.device, kernel, material_class);
             if let Some(detail) = self.ctx.failure() {
+                tracing::error!(
+                    target: diag::TRACER_TARGET,
+                    kernel = kernel.entry_point(),
+                    class = compute::class_kind_name(material_class & material_class::KIND_MASK),
+                    class_value = material_class,
+                    detail = %detail,
+                    "kernel rejected by the driver"
+                );
                 return Err(EwError::KernelCompile {
                     kernel,
                     class: material_class,
                     detail,
                 });
             }
+            done += 1;
+            diag::set_prepare(
+                Engine::PathTraced,
+                PrepareStep::BuildingShaders,
+                done,
+                total,
+            );
         }
         Ok(())
     }
@@ -628,6 +665,8 @@ impl EventWavefrontRenderer {
             // A failed or timed-out chunk can leave the staging buffer mapped-pending;
             // rebuild the per-chunk buffers on the next call.
             self.chunk_buffers = None;
+            // The preparation step ends when the step fails.
+            diag::clear_prepare(Engine::PathTraced);
         }
         result
     }
@@ -736,10 +775,14 @@ impl EventWavefrontRenderer {
         accum: &mut [Vec3],
     ) -> Result<(), EwError> {
         let num_pixels = accum.len();
+        diag::set_prepare(Engine::PathTraced, PrepareStep::Uploading, 0, 1);
         self.upload_scene(scene, packed, (spp, material_class))?;
         let kernels =
             needed_kernels_with_surface(material_class, scene, self.surface.needs_ground_arm());
         self.compile_kernels(&kernels, material_class)?;
+        diag::set_prepare(Engine::PathTraced, PrepareStep::FirstTrace, 0, 1);
+        // The preparation ends with the first chunk's readback of this call.
+        let mut preparing = true;
 
         let max_storage_binding = self.ctx.device.limits().max_storage_buffer_binding_size;
         let byte_budget_pixels = chunk_pixels_for(
@@ -778,6 +821,7 @@ impl EventWavefrontRenderer {
                 chunk_rays,
             ));
             let start = clock::Instant::now();
+            let first_of_session = !self.traced_once;
 
             let result = {
                 let scene_buffers = self
@@ -801,7 +845,7 @@ impl EventWavefrontRenderer {
                     pixels_this_chunk,
                     spp,
                     &chunk_params,
-                    self.validate_raw_samples,
+                    (self.validate_raw_samples, first_of_session),
                 )
                 .await
                 .map_err(|error| match self.ctx.failure() {
@@ -815,6 +859,11 @@ impl EventWavefrontRenderer {
             // A validation error never fails the dispatch call itself: the pass is skipped
             // and the readback returns zeros or the previous chunk. Never accept that.
             self.check_uncaptured_error()?;
+            self.traced_once = true;
+            if preparing {
+                diag::clear_prepare(Engine::PathTraced);
+                preparing = false;
+            }
 
             let ns_per_tuple = start.elapsed().as_nanos() as f64 / chunk_rays as f64;
             self.ns_per_tuple_ema = Some(clock::blend_ema(self.ns_per_tuple_ema, ns_per_tuple));

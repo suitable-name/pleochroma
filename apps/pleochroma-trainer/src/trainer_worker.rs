@@ -362,6 +362,7 @@ impl Worker<'_> {
             .filter(|v| v.designs > 0)
             .map(|v| ValidationSnapshot {
                 score: v.mean_final_score,
+                deployed_score: v.mean_deployed_score,
                 brilliance: v.final_optics.brilliance,
                 windowing: v.final_optics.windowing,
                 gap,
@@ -535,11 +536,12 @@ impl Worker<'_> {
                 self.log(
                     "VAL",
                     format!(
-                        "Validation cohort: {} attempted ({} evaluated, {} failed), score {:.2}, {drops}, {:.2} evals/step, \
+                        "Validation cohort: {} attempted ({} evaluated, {} failed), deployed Full {}, rollout {:.2}, {drops}, {:.2} evals/step, \
                          brilliance {:.1}%, windowing {:.1}%, generalization gap {gap}",
                         report.cases.len(),
                         report.designs,
                         report.failed,
+                        report.mean_deployed_score.map_or_else(|| "n/a".to_owned(), |s| format!("{s:.3}")),
                         report.mean_final_score,
                         report.mean_evaluations_per_step,
                         report.final_optics.brilliance,

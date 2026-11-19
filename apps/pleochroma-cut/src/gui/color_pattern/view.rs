@@ -25,7 +25,7 @@ use crate::{
     gui::rough_colour::wizard::zone_rows::ShapeKind,
 };
 use pleochroma_cut_core::material::pattern::{MAX_PATTERN_ZONES, PatternColor};
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 /// The window is `narrow` below this width, logical pixels.
 const NARROW_BELOW: f64 = 1060.0;
@@ -38,6 +38,28 @@ fn strings<S: AsRef<str>>(items: impl IntoIterator<Item = S>) -> ModelRc<SharedS
             .map(|item| SharedString::from(item.as_ref()))
             .collect::<Vec<_>>(),
     ))
+}
+
+/// Puts `rows` into the list `current` holds: row by row while the length is unchanged (only
+/// the rows that differ), a new model when it changed or there is none yet.
+///
+/// A `for` loop keeps its row components while its model stays the same, so a re-present does
+/// not rebuild the layer cards. That keeps an open list, such as From variant, and its keyboard
+/// focus alive while the arrow keys pick one entry after another.
+fn update_rows<T: Clone + PartialEq + 'static>(
+    current: &ModelRc<T>,
+    rows: Vec<T>,
+    set: impl FnOnce(ModelRc<T>),
+) {
+    if current.row_count() != rows.len() || rows.is_empty() {
+        set(ModelRc::new(VecModel::from(rows)));
+        return;
+    }
+    for (index, row) in rows.into_iter().enumerate() {
+        if current.row_data(index).as_ref() != Some(&row) {
+            current.set_row_data(index, row);
+        }
+    }
 }
 
 /// A swatch color as Slint paints it.
@@ -172,7 +194,11 @@ fn present_gallery_and_stage(model: &ColorPatternModel<'_>, session: &Session) {
 fn present_layers(model: &ColorPatternModel<'_>, session: &Session, swatches: &[ZoneSwatch]) {
     let pattern = &session.pattern;
     let zones = pattern.zones.len();
-    model.set_zone_rows(ModelRc::new(VecModel::from(zone_rows(session, swatches))));
+    update_rows(
+        &model.get_zone_rows(),
+        zone_rows(session, swatches),
+        |rows| model.set_zone_rows(rows),
+    );
     let row = stored_to_row(session.selected(), zones);
     model.set_selected_row(i32::try_from(row).unwrap_or(0));
     let can_add = zones < MAX_PATTERN_ZONES;
@@ -238,9 +264,14 @@ fn present_zone_color(
     model.set_legacy_notice(is_legacy(session.rank, color));
     // "Custom color" first, then the material's variants; the entry the zone has is selected.
     let (labels, index) = variant_menu(&session.variants, color);
-    model.set_variant_labels(strings(
-        std::iter::once("Custom color".to_owned()).chain(labels),
-    ));
+    update_rows(
+        &model.get_variant_labels(),
+        std::iter::once("Custom color".to_owned())
+            .chain(labels)
+            .map(SharedString::from)
+            .collect(),
+        |rows| model.set_variant_labels(rows),
+    );
     model.set_variant_index(if index < 0 { 0 } else { index + 1 });
     let caption = match color {
         PatternColor::Variant { label, .. } => format!("From {label}"),
@@ -300,5 +331,19 @@ mod tests {
         assert!(!is_narrow(2200, 2.0));
         // A window with no size yet is not narrow.
         assert!(!is_narrow(0, 1.0));
+    }
+
+    /// The same length keeps the model (only changed rows are written); a new length replaces it.
+    #[test]
+    fn rows_of_the_same_length_update_the_model_in_place() {
+        let first: ModelRc<i32> = ModelRc::new(VecModel::from(vec![1, 2, 3]));
+        let mut replaced = None;
+        update_rows(&first, vec![1, 5, 3], |rows| replaced = Some(rows));
+        assert!(replaced.is_none(), "same length: no new model");
+        assert_eq!(first.iter().collect::<Vec<_>>(), vec![1, 5, 3]);
+
+        update_rows(&first, vec![1, 5], |rows| replaced = Some(rows));
+        let replaced = replaced.expect("a new length gets a new model");
+        assert_eq!(replaced.iter().collect::<Vec<_>>(), vec![1, 5]);
     }
 }

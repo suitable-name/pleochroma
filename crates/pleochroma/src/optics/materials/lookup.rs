@@ -7,6 +7,10 @@ use super::GemMaterial;
 const NAME_ALIASES: &[(&str, &str)] = &[
     ("sphene", "Titanite (Sphene)"),
     ("titanite", "Titanite (Sphene)"),
+    // Nanosital is sold as "nano gems"; it is a Si-Al-Mg-Zn glass-ceramic, the only one built in.
+    ("nano gem", "Nanosital"),
+    ("glass-ceramic", "Nanosital"),
+    ("glass ceramic", "Nanosital"),
 ];
 
 impl GemMaterial {
@@ -40,7 +44,8 @@ impl GemMaterial {
     }
 
     /// The built-in material a second name stands for, matched as a whole name in any letter
-    /// case: `"Sphene"` and `"titanite"` are `"Titanite (Sphene)"`. `None` for any other name.
+    /// case: `"Sphene"` and `"titanite"` are `"Titanite (Sphene)"`, `"Nano Gem"` and
+    /// `"glass-ceramic"` are `"Nanosital"`. `None` for any other name.
     #[must_use]
     pub fn alias_target(name: &str) -> Option<&'static str> {
         let lower = name.trim().to_lowercase();

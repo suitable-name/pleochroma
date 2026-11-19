@@ -3,12 +3,14 @@
 //! Every value is typical for the species, carries the sources it comes from, and keeps the
 //! source's own words where sources differ (a [`SourceNote`]). A field no gemological or
 //! mineralogical source gives is empty (`None`), never filled in: the toughness of the glasses,
-//! Benitoite and Titanite, and the cleavage and fracture of GGG.
+//! Benitoite, Titanite and Nanosital, the cleavage of Nanosital, and the cleavage and fracture of
+//! GGG.
 //!
 //! Source keys: `gia_c("x")` is the GIA care page of gem x, `GIA_CH` the GIA Gem Cleaning and
 //! Display Chart, `GG97` the Gems & Gemology 1997 table, `hom("x")` the Handbook of Mineralogy
 //! page, `wm("X")` webmineral, `igs("x")` the International Gem Society article, `wp("X")`
-//! Wikipedia.
+//! Wikipedia, `GG26` the Gems & Gemology 2026 glass-ceramics study, `RJ16` the manufacturer's
+//! text in Russian Jeweller 2016.
 
 use super::{
     CareTopic, Cited, Cleavage, CleavageQuality, Confidence, CrystalForm, Fracture, GemBasis,
@@ -213,6 +215,12 @@ const GIA_CH: GemSource = GemSource::GiaChart2018;
 
 /// Gems & Gemology, Winter 1997, Table 1.
 const GG97: GemSource = GemSource::GemsGemology1997;
+
+/// Gems & Gemology 62(2), Summer 2026, the glass-ceramics (Nanosital) study.
+const GG26: GemSource = GemSource::GemsGemology2026;
+
+/// The manufacturer's Nanosital text in Russian Jeweller, 13 July 2016.
+const RJ16: GemSource = GemSource::RussianJeweller2016;
 
 /// A single toughness grade.
 const fn grade(toughness: Toughness) -> ToughnessRange {
@@ -1597,6 +1605,38 @@ pub(super) static TABLE: &[(&str, GemData)] = &[
                 "The parting is due to twinning on {221}.",
                 [hom("titanite")]
             )],
+            basis: GemBasis::Species,
+        },
+    ),
+    (
+        "Nanosital",
+        GemData {
+            origin: MaterialOrigin::Glass,
+            species: "Glass-ceramic",
+            mohs: cited!(Medium, (7.0, 7.0), [RJ16]),
+            knoop: None,
+            toughness: None,
+            cleavage: None,
+            parting: None,
+            fracture: Some(cited!(Medium, CONCHOIDAL, [GG26])),
+            care: &[care!(
+                Heat,
+                Medium,
+                "Keeps its color through the heat of casting, so it can be set in the wax before the metal is cast.",
+                [GG26, RJ16]
+            )],
+            notes: &[
+                note!(
+                    Hardness,
+                    "Mohs 7 is the manufacturer's figure; no independent measurement is published.",
+                    [RJ16]
+                ),
+                note!(
+                    Fracture,
+                    "Gems & Gemology lists conchoidal fractures among the inclusions of the transparent stones.",
+                    [GG26]
+                ),
+            ],
             basis: GemBasis::Species,
         },
     ),

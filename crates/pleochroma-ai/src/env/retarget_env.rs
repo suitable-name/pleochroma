@@ -310,8 +310,10 @@ impl RetargetEnv {
     ///
     /// One entry per tier of the design: `None` for a tier the environment does not move, and
     /// for a free tier whose `+h_deg` and `-h_deg` candidates are both refused (unsafe, open,
-    /// unscorable, or failing a gate). Otherwise it is the two-sided derivative over `h_deg`
-    /// degrees (nonuniform when clipped), the score slopes of [`Self::teacher_label`]. Cost: one
+    /// unscorable, or failing a gate). A side is measured at its executable displacement after
+    /// angle bounds and policy squashing. Two feasible sides give a centered derivative
+    /// (nonuniform if their lengths differ). One feasible side gives a one-sided slope
+    /// against the current score. These are the score slopes of [`Self::teacher_label`]. Cost: one
     /// or two candidate evaluations per free tier. The environment is left unchanged (no step
     /// counted). An `h_deg` that is not finite and positive gives all `None`.
     #[must_use]
@@ -576,34 +578,48 @@ mod tests {
 
     #[test]
     fn score_gradient_fd_is_the_secant_of_the_steps_the_policy_would_make() {
-        // The label probes every free tier on both sides. With the step limit set to `h`, a
-        // single-tier step of `+h` or `-h` builds exactly the probe's candidate, so the slope is
-        // the two-sided difference quotient of the two steps' candidate scores when both are
-        // closed stones that pass the gates, the one-sided quotient against the current score
-        // when only one is, and `None` when neither is.
+        // Request the full step limit. A bounded policy command reaches tanh(MEAN_BOUND)
+        // times that limit. Replay those finite endpoints and divide by their executed span.
         let h = 0.25;
         let mut env = fixture_env_with(|config| config.max_step_deg = h);
         let tiers = env.base_design().tiers.len();
         let gradient = env.score_gradient_fd(h);
-        let base = env.current_score();
+        let base = f64::from(env.current_score());
+        let endpoint = crate::env::MEAN_BOUND;
+        let radius = crate::model::GaussianPolicy::squash(&[endpoint], h).deltas_deg[0];
+        assert!(radius > 0.0 && radius < h);
         let mut checked = 0;
         for tier in env.movable_tier_indices().to_vec() {
-            let mut side = |delta: f64| {
-                let _ = env.reset(0);
-                let mut deltas = vec![0.0; tiers];
-                deltas[tier] = delta;
-                let step = env.step(&ContinuousTierAction::new(deltas));
+            let mut side = |raw_endpoint: f32| {
+                let obs = env.reset(0);
+                let mut raw = vec![0.0; tiers];
+                raw[tier] = raw_endpoint;
+                let mut action = crate::model::GaussianPolicy::squash(&raw, h);
+                crate::model::GemstoneSetAttentionNetwork::project_actions(
+                    &mut action,
+                    &obs.tiers,
+                    obs.global.target_critical_angle_deg,
+                    h,
+                );
+                assert_eq!(
+                    action.deltas_deg[tier].abs(),
+                    radius,
+                    "fixture has symmetric room"
+                );
+                let step = env.step(&action);
                 matches!(step.info.rejection, None | Some(StepRejection::NotImproved)).then(|| {
                     step.info
                         .candidate_score
                         .expect("a closed, scored candidate")
                 })
             };
-            let (plus, minus) = (side(h), side(-h));
+            let (plus, minus) = (side(endpoint), side(-endpoint));
             let secant = match (plus, minus) {
-                (Some(plus), Some(minus)) => Some(f64::from(plus - minus) / (2.0 * h)),
-                (Some(plus), None) => Some(f64::from(plus - base) / h),
-                (None, Some(minus)) => Some(f64::from(base - minus) / h),
+                (Some(plus), Some(minus)) => {
+                    Some((f64::from(plus) - f64::from(minus)) / (2.0 * radius))
+                }
+                (Some(plus), None) => Some((f64::from(plus) - base) / radius),
+                (None, Some(minus)) => Some((base - f64::from(minus)) / radius),
                 (None, None) => None,
             };
             match (gradient[tier], secant) {

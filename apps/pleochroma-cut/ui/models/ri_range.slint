@@ -1,0 +1,15 @@
+// The RI range chip of the Stone tab: the refractive-index range the design allows, from the cheap
+// geometric hint or from the traced estimate. Rust-driven: `gui::editor::ri_range` fills it after
+// every solve and material change.
+//
+// Exported from `app.slint` so Rust can reach it.
+
+export global RiRangeModel {
+    // 0 hidden, 1 geometric hint, 2 traced estimate.
+    in property <int> chip_state: 0;
+    in property <string> chip_text: "";
+    in property <string> chip_hover: "";
+
+    // The chip was clicked.
+    callback chip_clicked();
+}

@@ -268,7 +268,7 @@ pub enum MaterialFilter {
     Natural,
     /// Laboratory-grown materials.
     Synthetic,
-    /// The glasses.
+    /// The glasses and the glass-ceramic.
     Glass,
     /// The custom materials of the `--db` library.
     Custom,
@@ -359,9 +359,16 @@ pub struct MetricsArgs {
     pub material: Option<MaterialArg>,
     /// Also average the tilt performance (about a second and a half).
     pub tilt: bool,
+    /// The range of the tilt averages in degrees each way from table up (`--tilt-range`): 15,
+    /// 20, 30, 45, 60 or 90. `None` without the flag, which is every tilt to 90 degrees and
+    /// leaves the range unnamed in the JSON and the CSV. Only with `tilt`.
+    pub tilt_range_deg: Option<u8>,
     /// Also print the Blue share of every spot of the face-up grid that Contrast is computed
     /// from (the text report only).
     pub aset_grid: bool,
+    /// Also trace the range of refractive indices the stone works in (`--ri-range`): the grid
+    /// table and both bounds. With `--csv` the report is that table instead of the figures row.
+    pub ri_range: bool,
     /// How to print.
     pub format: ReportFormat,
     /// The light the score is taken under.

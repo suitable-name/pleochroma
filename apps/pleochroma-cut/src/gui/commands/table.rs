@@ -19,10 +19,11 @@ use super::{
 };
 use crate::MainWindow;
 use requires::{
-    ADVANCED, ADVANCED_DESIGN, CONCAVE_TIER, DEEP_SOLVE, EDITOR, FILE_OPS, FILE_OPS_DESIGN,
-    FILE_OPS_LIBRARY, HISTORY_DESIGN, LIBRARY_SELECTED, MATERIAL_EDITOR, NEW_DESIGN, NONE,
-    OPTIMIZE, REDO, SOLVE, SOLVE_SETTING, TIER_ACTION, TIER_FORM, TIER_TABLE, TO_ADVANCED,
-    TO_SIMPLE, UNDO, VIEW_TABS,
+    ADVANCED, ADVANCED_DESIGN, CHECK_SET, CONCAVE_TIER, DEEP_SOLVE, EDITOR, FILE_OPS,
+    FILE_OPS_DESIGN, FILE_OPS_LIBRARY, HISTORY_DESIGN, JOBS_BACK_TO_VIEW, JOBS_LOAD_VIEW,
+    JOBS_UPDATE_FROM_VIEW, LIBRARY_SELECTED, MATERIAL_EDITOR, NEW_DESIGN, NONE, OPTIMIZE, REDO,
+    RI_CHART, RI_RANGE_BATCH, SOLVE, SOLVE_SETTING, TIER_ACTION, TIER_FORM, TIER_TABLE,
+    TO_ADVANCED, TO_SIMPLE, UNDO, VIEW_TABS,
 };
 use slint::ComponentHandle as _;
 
@@ -523,6 +524,15 @@ pub static COMMANDS: &[Command] = &[
         call!(LibraryModel.invoke_regenerate_all_tilt_curves),
     ),
     command(
+        "library.compute_ri_ranges",
+        "Compute RI Ranges...",
+        Category::Tools,
+        "library batch refractive index range estimate designs work material",
+        None,
+        RI_RANGE_BATCH,
+        call!(RiBatchModel.invoke_open_batch),
+    ),
+    command(
         "tools.regenerate_both",
         "Regenerate Both Previews and Tilt Curves...",
         Category::Tools,
@@ -596,6 +606,56 @@ pub static COMMANDS: &[Command] = &[
         None,
         VIEW_TABS,
         run::open_render_export,
+    ),
+    // --- Render jobs and the material's RI range ---------------------------------------
+    command(
+        "jobs.load_view",
+        "Load Job View...",
+        Category::Tools,
+        "render job queue show look camera lighting pick view of a job",
+        None,
+        JOBS_LOAD_VIEW,
+        |ui: &MainWindow| {
+            let jobs = ui.global::<crate::RenderJobsModel>();
+            jobs.set_panel_open(true);
+            jobs.set_pick_view_mode(true);
+        },
+    ),
+    command(
+        "jobs.back_to_my_view",
+        "Back to My View",
+        Category::Tools,
+        "render job view return normal look end",
+        None,
+        JOBS_BACK_TO_VIEW,
+        run::back_to_my_view,
+    ),
+    command(
+        "jobs.update_from_view",
+        "Update Job from This View",
+        Category::Tools,
+        "render job view save camera lighting capture queue",
+        None,
+        JOBS_UPDATE_FROM_VIEW,
+        run::update_job_from_view,
+    ),
+    command(
+        "material.ri_chart",
+        "RI Chart...",
+        Category::Tools,
+        "refractive index material range windowing brilliance extinction graph",
+        None,
+        RI_CHART,
+        call!(RiChartModel.invoke_open_chart),
+    ),
+    command(
+        "material.queue_check_set",
+        "Queue Material Check Set",
+        Category::Tools,
+        "refractive index material render jobs queue several stones compare",
+        None,
+        CHECK_SET,
+        call!(RiChartModel.invoke_queue_check_set),
     ),
     // --- Help -------------------------------------------------------------------------
     command(

@@ -82,14 +82,22 @@ impl EnvCore {
         scales: &[f64],
         parallel: &(dyn Fn() -> bool + Sync),
     ) -> TeacherLabel {
-        let (mut label, mut best, actions, search_enabled) =
+        let (mut label, mut best, actions, execution_scale) =
             self.teacher_search_seed(h_deg, probes, scales);
-        if !search_enabled {
+        let Some(execution_scale) = execution_scale else {
             return label;
-        }
-        label.evaluations += self.search_raw_actions(&actions, parallel, &mut best);
+        };
+        label.evaluations +=
+            self.search_raw_actions(&actions, execution_scale, parallel, &mut best);
         if best.is_none() {
-            label.evaluations += self.rescue_actions(h_deg, probes, &actions, parallel, &mut best);
+            label.evaluations += self.rescue_actions(
+                h_deg,
+                probes,
+                &actions,
+                execution_scale,
+                parallel,
+                &mut best,
+            );
         }
         finish_label(label, best)
     }
@@ -99,7 +107,7 @@ impl EnvCore {
         h_deg: f64,
         probes: &[TierProbe],
         scales: &[f64],
-    ) -> (TeacherLabel, Option<Winner>, Vec<Winner>, bool) {
+    ) -> (TeacherLabel, Option<Winner>, Vec<Winner>, Option<f64>) {
         let count = self.current_design.tiers.len();
         if probes.len() != count
             || !h_deg.is_finite()
@@ -119,7 +127,7 @@ impl EnvCore {
                 assemble_label(vec![None; count], 0, super::OracleOutcome::default()),
                 None,
                 Vec::new(),
-                false,
+                None,
             );
         }
         let tiers = probes.iter().map(|probe| probe.sensitivity).collect();
@@ -136,20 +144,37 @@ impl EnvCore {
                 .iter()
                 .any(|&tier| self.policy_coordinate(tier).mobile)
         {
-            return (label, None, Vec::new(), false);
+            return (label, None, Vec::new(), None);
         }
+        let execution_scale = scales[0];
         let mut best = None;
+        let mut actions = Vec::new();
         for (tier, probe) in probes.iter().enumerate() {
             if self.policy_coordinate(tier).mobile
                 && let Some(measured) = probe.best_action.filter(|action| action.tier == tier)
-                && let Some(winner) = coordinate_winner(measured, count)
+                && let Some(mut winner) = coordinate_winner(measured, count)
             {
-                offer(&mut best, winner);
+                if execution_scale == 1.0 {
+                    offer(&mut best, winner);
+                } else {
+                    // A probe measures a unit-scale action. Invert the rollout's first scale,
+                    // clip to a representable command and verify the resulting physical move.
+                    let requested = f64::from(measured.raw.tanh()) * self.settings.max_step_deg;
+                    winner.raw[tier] = self.canonical_probe(tier, requested / execution_scale).0;
+                    if winner.raw[tier] != 0.0 {
+                        winner.gain = 0.0;
+                        actions.push(winner);
+                    }
+                }
             }
         }
         let slopes = score_slopes(&label.tiers);
-        let actions = self.gradient_actions(h_deg, &slopes, &scales);
-        (label, best, actions, true)
+        for gradient in self.gradient_actions(h_deg, &slopes, &scales) {
+            if !actions.iter().any(|old| old.raw == gradient.raw) {
+                actions.push(gradient);
+            }
+        }
+        (label, best, actions, Some(execution_scale))
     }
 
     fn gradient_actions(&self, h_deg: f64, slopes: &[Option<f32>], scales: &[f64]) -> Vec<Winner> {
@@ -173,12 +198,13 @@ impl EnvCore {
                     if !self.policy_coordinate(tier).mobile {
                         return 0.0;
                     }
-                    let requested = f64::from(value.tanh()) * self.settings.max_step_deg * scale;
+                    let requested =
+                        f64::from(value.tanh()) * self.settings.max_step_deg * (scale / scales[0]);
                     self.canonical_probe(tier, requested).0
                 })
                 .collect();
             if raw.iter().any(|&value| value != 0.0)
-                && !self.is_original_probe(&raw, h_deg)
+                && (scales[0] != 1.0 || !self.is_original_probe(&raw, h_deg))
                 && !actions.iter().any(|old| old.raw == raw)
             {
                 actions.push(Winner {
@@ -203,10 +229,10 @@ impl EnvCore {
                 .any(|h| value == self.canonical_probe(tier, h).0)
     }
 
-    fn evaluate_raw(&self, action: &Winner) -> (Option<Winner>, usize) {
+    fn evaluate_raw(&self, action: &Winner, execution_scale: f64) -> (Option<Winner>, usize) {
         let outcome = self.try_candidate(
             &action_from_direction(&action.raw, self.settings.max_step_deg),
-            1.0,
+            execution_scale,
         );
         let winner = outcome.is_accepted().then(|| Winner {
             raw: action.raw.clone(),
@@ -226,6 +252,7 @@ impl EnvCore {
     fn search_raw_actions(
         &self,
         actions: &[Winner],
+        execution_scale: f64,
         parallel: &(dyn Fn() -> bool + Sync),
         best: &mut Option<Winner>,
     ) -> usize {
@@ -234,7 +261,7 @@ impl EnvCore {
             if actions.len() - index > 1 && (on_pool_worker() || parallel()) {
                 let outcomes: Vec<_> = actions[index..]
                     .par_iter()
-                    .map(|candidate| self.evaluate_raw(candidate))
+                    .map(|candidate| self.evaluate_raw(candidate, execution_scale))
                     .collect();
                 for (winner, spent) in outcomes {
                     evaluations += spent;
@@ -244,7 +271,7 @@ impl EnvCore {
                 }
                 break;
             }
-            let (winner, spent) = self.evaluate_raw(action);
+            let (winner, spent) = self.evaluate_raw(action, execution_scale);
             evaluations += spent;
             if let Some(winner) = winner {
                 offer(best, winner);
@@ -263,11 +290,12 @@ impl EnvCore {
         h_deg: f64,
         probes: &[TierProbe],
         measured: &[Winner],
+        execution_scale: f64,
         parallel: &(dyn Fn() -> bool + Sync),
         best: &mut Option<Winner>,
     ) -> usize {
         let candidates = self.rescue_candidates(h_deg, probes, measured);
-        self.search_raw_actions(&candidates, parallel, best)
+        self.search_raw_actions(&candidates, execution_scale, parallel, best)
     }
 
     fn rescue_candidates(
@@ -355,7 +383,7 @@ impl EnvCore {
             }
         }
         // Gradient actions were already evaluated in this unchanged environment, and an equal
-        // raw action would be executed again at unit scale. Filter after the cap, without
+        // raw action would be executed again at the same scale. Filter after the cap, without
         // refilling, so search coverage and tie order stay the same.
         candidates.retain(|candidate| !measured.iter().any(|old| old.raw == candidate.raw));
         candidates

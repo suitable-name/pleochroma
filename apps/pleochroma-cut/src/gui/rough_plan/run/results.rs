@@ -401,7 +401,8 @@ fn publish(host: &Rc<Host>, state: ShownLayouts, rendered: Rendered) {
             session.axis.shown_edits.clear();
             session.axis.reset_edit();
             if state.source == ResultsSource::Planned {
-                session.reset_stone_choices(&axis::layouts::locks_of(&state.layouts));
+                let reasons = std::mem::take(&mut session.kept_reasons);
+                session.reset_stone_choices(&axis::layouts::locks_of(&state.layouts, &reasons));
             }
         }
         let run = &mut session.run;

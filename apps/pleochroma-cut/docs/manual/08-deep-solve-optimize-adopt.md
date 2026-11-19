@@ -163,7 +163,7 @@ A design with **concave tiers** is not one of these cases. Deep Solve
 verifies the **flat stone** (the planar solve from the flat tiers): that is
 what printed proportions describe, and the concave tools are not part of
 them. The hint says so, and the verdict line adds "(flat stone; N concave
-tier(s) are not part of the printed proportions)". A pass therefore says
+tiers are not part of the printed proportions)" (or "tier is" for a single one). A pass therefore says
 the flat facets reproduce the printed figures; it does not check the
 carved stone. If you type figures you measured on the carved stone into
 the Printed Proportions form, Deep Solve will report "not accepted" for a
@@ -412,8 +412,9 @@ Every candidate evaluated during the search itself is scored at a single,
 canonical camera pose (table-up) — about 2 ms on a small design. The
 report you see before and after the run, by contrast, is always scored at
 full fidelity: the same 4-axis, 181-point tilt sweep the Tilt Performance
-dialog uses (724 sample points total), which takes over a second on its
-own. On a small 12-tier fixture an evaluation takes about 7 ms, so a
+dialog uses (724 sample points total, all tilts to ±90°), which takes over a second on its
+own. The Tilt Average Range preference (Chapter 17) does not change it: Optimize always
+rates all tilts to ±90°. On a small 12-tier fixture an evaluation takes about 7 ms, so a
 200-evaluation budget finishes in roughly a second and a half, plus the two
 full-fidelity report evaluations bracketing it. With the default budget of
 800, and the evaluations of several starts running side by side, a default

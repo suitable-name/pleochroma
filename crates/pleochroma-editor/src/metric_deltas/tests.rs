@@ -278,6 +278,216 @@ fn the_tilt_average_is_the_mean_of_every_point_of_every_axis() {
     assert!(none.brilliance_pct.abs() < 1e-6, "no axes is zero, not NaN");
 }
 
+/// Four axes whose three curves differ at every tilt, so a wrong window shows in the mean.
+fn sloped_axes() -> [AxisProfile; 4] {
+    std::array::from_fn(|axis| {
+        let curve = |scale: f32| -> [f32; 181] {
+            std::array::from_fn(|index| {
+                let tilt = index as f32 - 90.0;
+                (axis as f32).mul_add(3.0, tilt * tilt * scale)
+            })
+        };
+        AxisProfile {
+            brilliance: curve(0.004),
+            extinction: curve(0.002),
+            windowing: curve(0.001),
+        }
+    })
+}
+
+#[test]
+fn the_windowed_tilt_average_is_the_hand_mean_of_the_four_by_sixty_one_entries() {
+    let axes = sloped_axes();
+    let mut hand = [0.0_f64; 3];
+    let mut entries = 0_u32;
+    for axis in &axes {
+        // Entries 60 to 120 are the tilts -30 to +30 degrees.
+        for ((b, w), e) in axis.brilliance[60..=120]
+            .iter()
+            .zip(&axis.windowing[60..=120])
+            .zip(&axis.extinction[60..=120])
+        {
+            hand[0] += f64::from(*b);
+            hand[1] += f64::from(*w);
+            hand[2] += f64::from(*e);
+            entries += 1;
+        }
+    }
+    assert_eq!(entries, 4 * 61, "four axes of 61 entries");
+    let entries = f64::from(entries);
+    let within = average_axis_profiles_within(&axes, 30.0);
+    assert!((f64::from(within.brilliance_pct) - hand[0] / entries).abs() < 1e-4);
+    assert!((f64::from(within.windowing_pct) - hand[1] / entries).abs() < 1e-4);
+    assert!((f64::from(within.extinction_pct) - hand[2] / entries).abs() < 1e-4);
+    let full = average_axis_profiles(&axes);
+    assert!(
+        (within.brilliance_pct - full.brilliance_pct).abs() > 1.0,
+        "the 30 degree window is not the +-90 degree mean"
+    );
+}
+
+#[test]
+fn a_window_of_ninety_degrees_is_the_plus_minus_ninety_mean_bit_for_bit() {
+    let axes = sloped_axes();
+    assert_eq!(
+        average_axis_profiles_within(&axes, 90.0),
+        average_axis_profiles(&axes)
+    );
+    let table_up = average_axis_profiles_within(&axes, 0.0);
+    let hand = axes
+        .iter()
+        .map(|axis| f64::from(axis.brilliance[90]))
+        .sum::<f64>()
+        / 4.0;
+    assert!((f64::from(table_up.brilliance_pct) - hand).abs() < 1e-4);
+    let none = average_axis_profiles_within(&[], 30.0);
+    assert!(none.brilliance_pct.abs() < 1e-6, "no axes is zero, not NaN");
+}
+
+#[test]
+fn the_plus_minus_ninety_mean_is_still_every_point_of_every_axis() {
+    let axes = sloped_axes();
+    let mut sum = 0.0_f64;
+    for axis in &axes {
+        for value in &axis.brilliance {
+            sum += f64::from(*value);
+        }
+    }
+    let full = average_axis_profiles(&axes);
+    assert!((f64::from(full.brilliance_pct) - sum / (4.0 * 181.0)).abs() < 1e-4);
+}
+
+#[test]
+fn the_windowed_measurement_stops_when_the_step_refuses() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let environment = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
+    let mut calls = 0_usize;
+    let stopped = measure_tilt_average_within_finished(
+        FinishedStone::polished(StoneGeometry::planes_only(&planes)),
+        &material,
+        environment,
+        30.0,
+        &mut |_| {
+            calls += 1;
+            calls < 5
+        },
+    );
+    assert!(stopped.is_none());
+    assert_eq!(calls, 5, "nothing is asked for after the refusal");
+}
+
+#[test]
+fn the_profile_measurement_stops_when_the_step_refuses() {
+    let planes = StandardGemCuts::standard_round_brilliant();
+    let material = GemMaterial::diamond();
+    let environment = LightingPreset::RingLights.studio(1.0, 0.85, 0.95);
+    let mut calls = 0_usize;
+    let stopped = measure_tilt_profiles_finished(
+        FinishedStone::polished(StoneGeometry::planes_only(&planes)),
+        &material,
+        environment,
+        &mut |_| {
+            calls += 1;
+            calls < 3
+        },
+    );
+    assert!(stopped.is_none());
+    assert_eq!(calls, 3, "nothing is asked for after the refusal");
+}
+
+#[test]
+fn the_displayed_range_defaults_to_every_tilt() {
+    assert_eq!(DEFAULT_DISPLAY_TILT_WINDOW_DEG, 90);
+    assert_eq!(
+        DISPLAY_TILT_WINDOW_CHOICES_DEG,
+        [15, 20, 30, 45, 60, 90],
+        "the six choices the preference and the command line offer"
+    );
+    assert!(DISPLAY_TILT_WINDOW_CHOICES_DEG.contains(&DEFAULT_DISPLAY_TILT_WINDOW_DEG));
+}
+
+#[test]
+fn normalize_keeps_each_choice_and_turns_anything_else_into_ninety() {
+    for choice in DISPLAY_TILT_WINDOW_CHOICES_DEG {
+        assert_eq!(normalize_display_tilt_window_deg(i64::from(choice)), choice);
+    }
+    for odd in [
+        -90,
+        -1,
+        0,
+        10,
+        25,
+        89,
+        91,
+        120,
+        180,
+        256,
+        i64::MAX,
+        i64::MIN,
+    ] {
+        assert_eq!(normalize_display_tilt_window_deg(odd), 90, "{odd}");
+    }
+}
+
+#[test]
+fn the_caption_and_sentence_words_follow_the_range() {
+    assert_eq!(display_tilt_window_caption(90), "to \u{b1}90\u{b0}");
+    assert_eq!(display_tilt_window_caption(30), "to \u{b1}30\u{b0}");
+    assert_eq!(display_tilt_window_plain(90), "to 90\u{b0}");
+    assert_eq!(display_tilt_window_plain(15), "to 15\u{b0}");
+    for choice in DISPLAY_TILT_WINDOW_CHOICES_DEG {
+        let caption = display_tilt_window_caption(choice);
+        assert!(caption.starts_with("to \u{b1}") && caption.ends_with('\u{b0}'));
+        assert_eq!(
+            display_tilt_window_plain(choice),
+            caption.replace('\u{b1}', ""),
+            "the plain word is the caption word without the plus-minus sign"
+        );
+    }
+}
+
+#[test]
+fn the_angle_count_is_two_per_degree_plus_one() {
+    assert_eq!(tilt_angles_within(90), 181);
+    assert_eq!(tilt_angles_within(30), 61);
+    assert_eq!(tilt_angles_within(15), 31);
+    assert_eq!(usize::from(tilt_angles_within(90)), TILT_ANGLES_DEG.len());
+}
+
+#[test]
+fn the_tilt_sentence_names_a_narrow_range_and_says_all_tilts_at_ninety() {
+    assert_eq!(tilt_sentence_lead(90), "Averaged over all tilts");
+    assert_eq!(tilt_sentence_lead(30), "Averaged over tilts up to 30\u{b0}");
+    assert_eq!(tilt_sentence_lead(15), "Averaged over tilts up to 15\u{b0}");
+    let pair = (tilt(50.0, 20.0, 20.0), tilt(48.0, 23.0, 20.0));
+    let narrow = describe_metric_deltas_within(
+        DEFAULT_SUBJECT,
+        &base(),
+        &base(),
+        Some((&pair.0, &pair.1)),
+        30,
+    );
+    assert_eq!(
+        narrow.last().map(String::as_str),
+        Some(
+            "Averaged over tilts up to 30°, the after design returns less light (-2 %) and shows more windowing (+3 %)."
+        )
+    );
+    let default = describe_metric_deltas_within(
+        DEFAULT_SUBJECT,
+        &base(),
+        &base(),
+        Some((&pair.0, &pair.1)),
+        DEFAULT_DISPLAY_TILT_WINDOW_DEG,
+    );
+    assert_eq!(
+        default,
+        describe_metric_deltas(&base(), &base(), Some((&pair.0, &pair.1))),
+        "the old entry point is the default range"
+    );
+}
+
 #[test]
 fn the_table_up_measurement_of_a_round_brilliant_is_in_range_and_repeatable() {
     let planes = StandardGemCuts::standard_round_brilliant();

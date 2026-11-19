@@ -160,6 +160,9 @@ export component TipButton inherits Rectangle {
     in property <bool> enabled: true;
     // The accent look (Apply Preform while a field has changed since it was applied).
     in property <bool> primary: false;
+    // `false` drops the tooltip, for a button a `GuideLockTip` already covers (two tooltips on
+    // one spot draw over each other).
+    in property <bool> show_hint: true;
     callback clicked();
 
     min-width: tip_button.min-width;
@@ -167,7 +170,7 @@ export component TipButton inherits Rectangle {
     preferred-width: tip_button.preferred-width;
     preferred-height: tip_button.preferred-height;
 
-    Tooltip { text: @markdown("\{root.hint}"); }
+    if root.show_hint: Tooltip { text: @markdown("\{root.hint}"); }
 
     tip_button := Button {
         width: root.width;

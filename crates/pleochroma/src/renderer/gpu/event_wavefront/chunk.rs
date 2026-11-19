@@ -15,15 +15,19 @@ pub(crate) use bindings::kernel_slots;
 pub(crate) use bindings::{bind_generate_live, bind_kernel};
 pub(crate) use scene_buffers::SceneBuffers;
 
-use crate::renderer::{
-    buffers::{EwHit, EwParams, EwRayChan, EwRayCore, GpuTransportParams},
-    frame_scene::FrameScene,
-    gpu::{compute, frame::GpuReduceParams},
+use crate::{
+    diag::{self, Engine, Step, StepGuard, StepKind},
+    renderer::{
+        buffers::{EwHit, EwParams, EwRayChan, EwRayCore, GpuTransportParams},
+        frame_scene::FrameScene,
+        gpu::{compute, frame::GpuReduceParams},
+    },
 };
 
 use super::{
     EwError,
     accumulate::{MAX_WORKGROUPS_PER_DIMENSION, WORKGROUP_SIZE},
+    clock::Instant,
     diagnostics::{SampleRange, validate_chunk_samples},
     kernels::{EwKernel, needed_kernels_with_surface},
     pipelines::EwPipelines,
@@ -244,7 +248,7 @@ pub(crate) async fn execute_chunk(
     pixels_this_chunk: usize,
     spp: u32,
     params: &GpuTransportParams,
-    validate_raw_samples: bool,
+    (validate_raw_samples, first_of_session): (bool, bool),
 ) -> Result<Vec<f32>, EwError> {
     let total_rays = pixels_this_chunk * spp as usize;
     if total_rays == 0 {
@@ -276,6 +280,9 @@ pub(crate) async fn execute_chunk(
         scene_buffers,
         chunk_buffers,
     );
+    // The first dispatch of a session is a breadcrumb step and a tracer event.
+    let first_dispatch =
+        first_of_session.then(|| (first_step(StepKind::FirstDispatch), Instant::now()));
     dispatch_chunk_rounds(&ChunkRoundContext {
         device,
         queue,
@@ -289,6 +296,9 @@ pub(crate) async fn execute_chunk(
         binds: &binds,
         live_generate: None,
     });
+    if let Some((_step, started)) = first_dispatch {
+        note_first(StepKind::FirstDispatch, started);
+    }
 
     // Diagnostics must inspect finalized per-ray values before reduce_xyz drops
     // nonfinite tuples. The default renderer avoids this extra readback entirely.
@@ -316,7 +326,36 @@ pub(crate) async fn execute_chunk(
         pixels_this_chunk,
         spp,
     );
-    map_read(device, queue, &chunk_buffers.staging, pixels_this_chunk * 3).await
+    let first_readback =
+        first_of_session.then(|| (first_step(StepKind::FirstReadback), Instant::now()));
+    let result = map_read(device, queue, &chunk_buffers.staging, pixels_this_chunk * 3).await;
+    if let Some((_step, started)) = first_readback
+        && result.is_ok()
+    {
+        note_first(StepKind::FirstReadback, started);
+    }
+    result
+}
+
+/// The breadcrumb step of a session's first dispatch or first readback.
+fn first_step(kind: StepKind) -> StepGuard {
+    diag::enter(&Step {
+        kind,
+        engine: Some(Engine::PathTraced),
+        label: "ew_chunk",
+        class: "",
+    })
+}
+
+/// Writes the tracer event of a session's first dispatch or first readback.
+fn note_first(kind: StepKind, started: Instant) {
+    let ms = started.elapsed().as_millis();
+    match kind {
+        StepKind::FirstDispatch => {
+            tracing::info!(target: diag::TRACER_TARGET, ms, "first dispatch");
+        }
+        _ => tracing::info!(target: diag::TRACER_TARGET, ms, "first readback"),
+    }
 }
 
 /// Dispatches one chunk of an adaptive (live-tile) pass: generation through `live_generate`

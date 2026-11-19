@@ -403,8 +403,9 @@ pub fn push_zones(host: &Host) {
             .map(|f| {
                 let mut r = vec![TextRow {
                     text: format!(
-                        "Fitted {} zone(s); residual rms {:.2} sigma; {} model.",
+                        "Fitted {} {}; residual rms {:.2} sigma; {}.",
                         f.fit.n_zones,
+                        if f.fit.n_zones == 1 { "zone" } else { "zones" },
                         f.fit.residual_rms,
                         super::compare::model_name(f.fit.chosen_fit().kind)
                     ),

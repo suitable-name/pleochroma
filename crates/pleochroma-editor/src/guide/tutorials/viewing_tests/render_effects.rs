@@ -2,7 +2,7 @@
 
 use super::{Sim, act, event, guide_named, read, viewing_events as events, walk};
 use crate::guide::{Group, GuideCategory, StartingState};
-use pleochroma::optics::inclusions::bragg::{StructurePattern, StructureSpec};
+use pleochroma::optics::inclusions::bragg::StructurePattern;
 use pleochroma_cut_core::{
     Edit, InclusionEffects, MaterialSelection, StoneRenderEffects, StructureEffects, SurfaceFinish,
     SurfaceGrade, TierSurface,
@@ -52,24 +52,15 @@ fn with_effects(sim: &mut Sim, change: impl FnOnce(&mut StoneRenderEffects)) {
         .expect("the effects are written");
 }
 
-/// The play-of-color the design's material starts from.
-fn default_structure(sim: &Sim) -> StructureEffects {
-    let name = sim
-        .session
-        .design
-        .material
-        .name
-        .clone()
-        .expect("the lesson has set a material");
-    StructureEffects::from_spec(
-        &StructureSpec::default_for(&name).expect("the material has a play-of-color"),
-    )
-}
-
-/// Switches play-of-color on, as the Stone tab's switch does.
-fn structure_on(sim: &mut Sim) {
-    let structure = default_structure(sim);
-    with_effects(sim, |effects| effects.structure = Some(structure));
+/// Picks the material `name` in the Stone tab's Material list: the material and, in the same
+/// step, the look it switches on (a precious opal's play-of-color, a labradorite's schiller).
+fn pick_material_with_its_look(sim: &mut Sim, name: &str) {
+    set_material(sim, name);
+    if let Some(effects) = sim.session.design.render_effects.with_material_look(name) {
+        sim.session
+            .apply(Edit::SetRenderEffects { effects })
+            .expect("the look is written");
+    }
 }
 
 /// Writes the inclusion preset `name`.
@@ -158,14 +149,15 @@ fn the_silk_lesson_sets_the_axis_a_preset_a_turn_and_the_cats_eye() {
 }
 
 #[test]
-fn the_opal_lesson_switches_the_flashes_on_and_works_the_controls() {
+fn the_opal_lesson_shows_the_flashes_and_works_the_controls() {
     walk(
         "materials-opal-play-of-color",
         vec![
             read(),
-            act(|sim| set_material(sim, "Precious Opal (White)")),
+            act(|sim| pick_material_with_its_look(sim, "Precious Opal (White)")),
             act(Sim::click_path),
-            act(structure_on),
+            // Choosing the opal switched the flashes on: the step shows the switch.
+            read(),
             act(|sim| {
                 with_effects(sim, |effects| {
                     if let Some(structure) = effects.structure.as_mut() {
@@ -193,14 +185,15 @@ fn the_opal_lesson_switches_the_flashes_on_and_works_the_controls() {
 }
 
 #[test]
-fn the_labradorite_lesson_switches_the_schiller_on_and_changes_the_coverage() {
+fn the_labradorite_lesson_shows_the_schiller_and_changes_the_coverage() {
     walk(
         "materials-labradorite-schiller",
         vec![
             read(),
-            act(|sim| set_material(sim, "Labradorite")),
+            act(|sim| pick_material_with_its_look(sim, "Labradorite")),
             act(Sim::click_path),
-            act(structure_on),
+            // Choosing the labradorite switched the schiller on: the step shows the switch.
+            read(),
             act(|sim| {
                 with_effects(sim, |effects| {
                     if let Some(structure) = effects.structure.as_mut() {
@@ -287,13 +280,15 @@ fn a_silk_turn_needs_the_preset_and_the_cats_eye_needs_its_own_preset() {
 fn the_play_of_color_steps_tell_the_controls_apart() {
     let guide = guide_named("materials-opal-play-of-color");
     let mut sim = Sim::start(&guide.starting_state);
-    set_material(&mut sim, "Precious Opal (White)");
-    // Nothing is on yet.
-    for step in [3, 4, 5, 6] {
-        assert!(!sim.met(&guide.steps[step].goal), "step {}", step + 1);
-    }
-    structure_on(&mut sim);
-    assert!(sim.met(&guide.steps[3].goal));
+    pick_material_with_its_look(&mut sim, "Precious Opal (White)");
+    assert!(
+        sim.session.design.render_effects.structure.is_some(),
+        "choosing the opal switches its flashes on"
+    );
+    assert!(
+        guide.steps[3].is_manual(),
+        "the flashes are on already, so the step that shows the switch is a reading step"
+    );
     // The material's own pattern, range and seed finish none of the others.
     for step in [4, 5, 6] {
         assert!(!sim.met(&guide.steps[step].goal), "step {}", step + 1);

@@ -1,0 +1,212 @@
+# Built-in color variants: Nanosital (Si-Al-Mg-Zn glass-ceramic). Schema: see ../color_variants.toml.
+# Calibration record: docs/chromophores/calibration-records.md#nanosital.
+#
+# Primary source of every band position: W. Soonthorntantikul, W. Vertriest, K. Avakyan, "Glass-ceramics as
+# imitation gemstones: a study on a silicon-aluminum-magnesium-zinc system", Gems & Gemology 62(2), 164-176
+# (Summer 2026), doi 10.5741/GEMS.62.2.164, figure 8 (absorption spectra 300-980 nm by chromophore) and table 1 (dominant
+# chromophores by color). GIA publishes the spectra as figures without absorption coefficients, so every strength
+# here is an ESTIMATE until calibrated against a measured spectrum.
+#
+# Conventions of this file (every entry): unit per_mm, reference_path_mm 7.0 (a 7 mm stone, face-up path 9.905 mm);
+# peaks are the Napierian absorption coefficient per millimetre; width_nm is sigma in cm^-1 (energy rows, FWHM /
+# 2.35482). The host is isotropic, so every entry stores equal o_ray / e_ray sets with pleochroic = false. Each
+# colored entry is the recipe of the `nanosital` host of data/chromophores.toml at the amounts named in its sources
+# (that host's peak_coeff in cm^-1 per unit, divided by 10 for per mm; an `edge` row becomes the Gaussian the loader
+# makes of it). The Material Default (the built-in's own tensor) is the cobalt blue.
+
+data_version = 1
+
+# Nanosital, Ni Green: Ni2+ bands at 598 and 635 nm with the green stones' absorption edge (0.12 wt% NiO).
+[[variant]]
+material = "Nanosital"
+key = "nanosital.ni_green"
+label = "Ni Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Band positions measured (GIA); widths and strength estimated.",
+  "Ni2+ bands at about 598 and 635 nm and an absorption edge between 365 and 445 nm in the green glass-ceramics (Gems & Gemology 62(2), 2026, figure 8B; nickel the dominant chromophore, table 1; GC-12 green, RI 1.618, SG 2.97)",
+  "FWHM 3000 cm^-1 per band and 10 cm^-1 per wt% NiO, after the Ni2+ row of the silicate glass host (Report p.29, secondary); the edge (onset 445 nm, 50 cm^-1 per wt% NiO) and the amount 0.12 wt% NiO are chosen for an emerald-to-tsavorite green; estimated",
+]
+fit_record = "docs/chromophores/calibration-records.md#nanosital"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 598.0, width_nm = 1273.983, peak = 0.12, shape = "energy" },
+    { center_nm = 635.0, width_nm = 1273.983, peak = 0.12, shape = "energy" },
+    { center_nm = 417.15, width_nm = 1273.983, peak = 1.2, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 598.0, width_nm = 1273.983, peak = 0.12, shape = "energy" },
+    { center_nm = 635.0, width_nm = 1273.983, peak = 0.12, shape = "energy" },
+    { center_nm = 417.15, width_nm = 1273.983, peak = 1.2, shape = "energy" },
+  ]
+
+# Nanosital, Mn Yellow: manganese absorption from below 400 nm into the blue (0.6 wt% MnO).
+[[variant]]
+material = "Nanosital"
+key = "nanosital.mn_yellow"
+label = "Mn Yellow"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Absorption range measured (GIA); band shape and strength estimated.",
+  "Yellow glass-ceramics absorb strongly from below 400 nm up to about 550 nm; manganese is the cause (Gems & Gemology 62(2), 2026, figure 8D and the discussion, after Bosi et al., American Mineralogist 92, 27 (2007))",
+  "Two broad Gaussians stand in for the measured absorption: 380 nm (FWHM 6000 cm^-1, 6.0 cm^-1 per wt% MnO) and 470 nm (FWHM 4500 cm^-1, 1.8 cm^-1 per wt% MnO), at 0.6 wt% MnO for a citrine yellow; estimated",
+]
+fit_record = "docs/chromophores/calibration-records.md#nanosital"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 380.0, width_nm = 2547.965, peak = 0.36, shape = "energy" },
+    { center_nm = 470.0, width_nm = 1910.974, peak = 0.108, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 380.0, width_nm = 2547.965, peak = 0.36, shape = "energy" },
+    { center_nm = 470.0, width_nm = 1910.974, peak = 0.108, shape = "energy" },
+  ]
+
+# Nanosital, Mn Orange: the same manganese bands at five times the amount (3.0 wt% MnO).
+[[variant]]
+material = "Nanosital"
+key = "nanosital.mn_orange"
+label = "Mn Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Absorption range measured (GIA); band shape and strength estimated.",
+  "With more manganese the strong absorption extends to about 610 nm and the color turns orange (Gems & Gemology 62(2), 2026, figure 8D and the discussion)",
+  "The Mn Yellow bands at 3.0 wt% MnO, the upper colorant level GIA reports for the material (a few ppm up to 3 wt%, box A); estimated",
+]
+fit_record = "docs/chromophores/calibration-records.md#nanosital"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 380.0, width_nm = 2547.965, peak = 1.8, shape = "energy" },
+    { center_nm = 470.0, width_nm = 1910.974, peak = 0.54, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 380.0, width_nm = 2547.965, peak = 1.8, shape = "energy" },
+    { center_nm = 470.0, width_nm = 1910.974, peak = 0.54, shape = "energy" },
+  ]
+
+# Nanosital, Au Red: gold-nanoparticle band at 540 nm with the gold's rising absorption toward short wavelengths.
+[[variant]]
+material = "Nanosital"
+key = "nanosital.au_red"
+label = "Au Red"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Band position and gold content measured (GIA); widths and strength estimated.",
+  "Red glass-ceramics: one broad band at about 540 nm from gold nanoparticles, 20-40 ppm Au (Gems & Gemology 62(2), 2026, figure 8E and the discussion; GC-20 red, RI 1.618, SG 2.93)",
+  "540 nm band FWHM 3500 cm^-1 after the Au colloid row of the silicate glass host (Report p.29, secondary); a 400 nm band (FWHM 6000 cm^-1) stands in for the gold's absorption below 500 nm, which closes the violet; 10 ppm_site (about 30 ppm Au by mass) at 0.3 and 0.45 cm^-1 per ppm_site, chosen for a ruby red; estimated",
+]
+fit_record = "docs/chromophores/calibration-records.md#nanosital"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 540.0, width_nm = 1486.313, peak = 0.3, shape = "energy" },
+    { center_nm = 400.0, width_nm = 2547.965, peak = 0.45, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 540.0, width_nm = 1486.313, peak = 0.3, shape = "energy" },
+    { center_nm = 400.0, width_nm = 2547.965, peak = 0.45, shape = "energy" },
+  ]
+
+# Nanosital, Nd-Er Pink: the narrow rare-earth lines of the pink glass-ceramics (2.0 wt% Er2O3, 1.0 wt% Nd2O3).
+[[variant]]
+material = "Nanosital"
+key = "nanosital.nd_er_pink"
+label = "Nd-Er Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Line positions measured (GIA); widths and strengths estimated.",
+  "Pink glass-ceramics: narrow bands at about 365, 378, 407, 442, 450, 488, 519, 523, 543, 585, 654, 745, 800, 878 and 970 nm from neodymium and erbium (Gems & Gemology 62(2), 2026, figure 8F and table 1)",
+  "Er3+ at 378, 450, 488, 523, 543 and 654 nm and Nd3+ at 585 and 745 nm (the eight strongest visible lines; the GPU holds eight bands per ray, and 800, 878 and 970 nm lie beyond the rendered range); FWHM 250-350 cm^-1 after the Nd3+ and Er3+ rows of the silicate glass host; 2.0 wt% Er2O3 and 1.0 wt% Nd2O3 (3 wt% colorant, GIA's upper level) for a kunzite pink; estimated",
+]
+fit_record = "docs/chromophores/calibration-records.md#nanosital"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 378.0, width_nm = 127.398, peak = 0.81, shape = "energy" },
+    { center_nm = 450.0, width_nm = 127.398, peak = 0.21, shape = "energy" },
+    { center_nm = 488.0, width_nm = 106.165, peak = 0.39, shape = "energy" },
+    { center_nm = 523.0, width_nm = 127.398, peak = 1.41, shape = "energy" },
+    { center_nm = 543.0, width_nm = 106.165, peak = 0.3, shape = "energy" },
+    { center_nm = 654.0, width_nm = 106.165, peak = 0.39, shape = "energy" },
+    { center_nm = 585.0, width_nm = 148.631, peak = 0.51, shape = "energy" },
+    { center_nm = 745.0, width_nm = 127.398, peak = 0.225, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 378.0, width_nm = 127.398, peak = 0.81, shape = "energy" },
+    { center_nm = 450.0, width_nm = 127.398, peak = 0.21, shape = "energy" },
+    { center_nm = 488.0, width_nm = 106.165, peak = 0.39, shape = "energy" },
+    { center_nm = 523.0, width_nm = 127.398, peak = 1.41, shape = "energy" },
+    { center_nm = 543.0, width_nm = 106.165, peak = 0.3, shape = "energy" },
+    { center_nm = 654.0, width_nm = 106.165, peak = 0.39, shape = "energy" },
+    { center_nm = 585.0, width_nm = 148.631, peak = 0.51, shape = "energy" },
+    { center_nm = 745.0, width_nm = 127.398, peak = 0.225, shape = "energy" },
+  ]
+
+# Nanosital, Pr Yellow-Green: Pr3+ lines at 445, 472, 484 and 590 nm with the absorption edge near 390 nm (2.0 wt% Pr6O11).
+[[variant]]
+material = "Nanosital"
+key = "nanosital.pr_yellow_green"
+label = "Pr Yellow-Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Line positions measured (GIA); widths and strengths estimated.",
+  "Green-yellow and yellow glass-ceramics: bands at about 445, 472, 484 and 590 nm and an absorption edge at about 380-400 nm from praseodymium (Gems & Gemology 62(2), 2026, figure 8C and the discussion)",
+  "FWHM 250 / 300 cm^-1 and the coefficients 1.5, 1.0, 0.8 and 0.6 cm^-1 per wt% Pr6O11 and the edge 6.0 cm^-1 per wt% of the cubic zirconia host's Pr row (Report p.11, secondary), moved to the GIA positions, at 2.0 wt% Pr6O11: a light yellow-green; estimated",
+]
+fit_record = "docs/chromophores/calibration-records.md#nanosital"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 445.0, width_nm = 106.165, peak = 0.3, shape = "energy" },
+    { center_nm = 472.0, width_nm = 106.165, peak = 0.2, shape = "energy" },
+    { center_nm = 484.0, width_nm = 106.165, peak = 0.16, shape = "energy" },
+    { center_nm = 590.0, width_nm = 127.398, peak = 0.12, shape = "energy" },
+    { center_nm = 368.45, width_nm = 1273.983, peak = 2.4, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 445.0, width_nm = 106.165, peak = 0.3, shape = "energy" },
+    { center_nm = 472.0, width_nm = 106.165, peak = 0.2, shape = "energy" },
+    { center_nm = 484.0, width_nm = 106.165, peak = 0.16, shape = "energy" },
+    { center_nm = 590.0, width_nm = 127.398, peak = 0.12, shape = "energy" },
+    { center_nm = 368.45, width_nm = 1273.983, peak = 2.4, shape = "energy" },
+  ]
+
+# Nanosital, Colorless: the base glass without a colorant.
+[[variant]]
+material = "Nanosital"
+key = "nanosital.colorless"
+label = "Colorless"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = false
+sources = [
+  "Colorless: no chromophore.",
+  "The colorless optical glass OG-02 (RI 1.600, SG 2.89) shows that the base glass carries no color of its own; white glass-ceramics are colored by scatter, not absorption (Gems & Gemology 62(2), 2026, table 2 and the discussion)",
+]
+fit_record = "docs/chromophores/calibration-records.md#nanosital"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = []
+  e_ray = []

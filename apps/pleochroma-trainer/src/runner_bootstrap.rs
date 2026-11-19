@@ -1,11 +1,8 @@
 //! PPO critic bootstraps use the same device and frozen weights as the rollout.
 
-use pleochroma_ai::{
-    env::{GemstoneObservation, Step},
-    training::TrainError,
-};
+use pleochroma_ai::{env::GemstoneObservation, training::TrainError};
 
-use super::{Algorithm, RunnerError, TrainingRunner};
+use super::{RunnerError, TrainingRunner};
 
 impl TrainingRunner {
     pub(super) fn bootstrap_values(
@@ -32,57 +29,21 @@ impl TrainingRunner {
         }
         Ok(values)
     }
-
-    pub(super) fn truncated_bootstraps<'a>(
-        &self,
-        steps: impl Iterator<Item = &'a Step<GemstoneObservation>>,
-    ) -> Result<Vec<Option<f32>>, RunnerError> {
-        let steps: Vec<_> = steps.collect();
-        let mut result = vec![None; steps.len()];
-        if self.cfg.algo != Algorithm::Ppo {
-            return Ok(result);
-        }
-        let selected: Vec<_> = steps
-            .iter()
-            .enumerate()
-            .filter(|(_, step)| step.truncated && !step.terminated)
-            .collect();
-        let observations: Vec<_> = selected.iter().map(|(_, step)| &step.observation).collect();
-        let values = self.bootstrap_values(&observations)?;
-        for ((index, _), value) in selected.into_iter().zip(values) {
-            result[index] = Some(value);
-        }
-        Ok(result)
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::runner::tests::fixture_runner_with;
 
     #[test]
-    fn only_time_limits_bootstrap_in_the_original_slot_order() {
-        let runner = fixture_runner_with(|cfg| cfg.algo = Algorithm::Ppo);
+    fn rollout_cut_evaluates_only_the_requested_critic_rows() {
+        let runner = fixture_runner_with(|cfg| cfg.algo = crate::runner::Algorithm::Ppo);
         let observation = runner.slots[0].obs.clone();
-        let step = |terminated, truncated| Step {
-            observation: observation.clone(),
-            reward: 0.0,
-            terminated,
-            truncated,
-            info: pleochroma_ai::env::StepInfo::default(),
-        };
-        let steps = [
-            step(false, false),
-            step(false, true),
-            step(true, true),
-            step(false, true),
-        ];
-        let values = runner.truncated_bootstraps(steps.iter()).expect("critic");
         let expected = runner
             .bootstrap_values(&[&observation, &observation])
             .expect("device batch");
-        assert_eq!(values, [None, Some(expected[0]), None, Some(expected[1])]);
+        assert_eq!(expected.len(), 2);
+        assert_eq!(expected[0], expected[1]);
         assert!(runner.bootstrap_values(&[]).expect("empty").is_empty());
     }
 }

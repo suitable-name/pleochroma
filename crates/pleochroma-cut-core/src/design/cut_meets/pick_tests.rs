@@ -4,12 +4,16 @@
 //! The design is the standard round brilliant: the girdle (tier 4), the pavilion mains (tier 5)
 //! and the lower girdle (tier 6) are cut in that order, so the lower girdle is cut on a stone of
 //! girdle and main facets, and every corner it can meet there is formed by those two tiers.
+//!
+//! The last test picks on the Standard Round Brilliant template instead, the design the New
+//! Design dialog makes and the UI harness arms pick mode on.
 
 use super::{MeetPickBlock, MeetPickLoss, MeetPickState, PickCorner, PickedFacet, TierMeetPick};
 use crate::{
     design::{ConstraintTier, CutMeet, Design, ScheduleMeta, TierId, TierTarget},
     edit::Edit,
     preform::PreformSpec,
+    templates::TEMPLATES,
 };
 use pleochroma::geometry::meet_solver::{MeetConstraint, SolvedTier, tier_instance_normals};
 
@@ -378,4 +382,108 @@ fn designs_compare_by_their_picks() {
     let mut without = design.clone();
     without.tier_meet_picks.clear();
     assert_ne!(design, without);
+}
+
+/// The template's pavilion tiers. A template stores its tiers in the order they are cut.
+const TEMPLATE_PAVILION_MAIN: usize = 0;
+const TEMPLATE_GIRDLE: usize = 1;
+const TEMPLATE_LOWER_GIRDLE: usize = 2;
+
+/// The Standard Round Brilliant template on its own rough, with its lower girdle meeting the
+/// named facets Pavilion Main and Girdle and no pick yet: the design the UI harness's
+/// `meet_pick_mode` scenario arms pick mode on.
+fn template_meeting_by_name() -> Design {
+    let spec = &TEMPLATES[0];
+    assert_eq!(spec.name, "Standard Round Brilliant", "the first template");
+    let mut design = Design::new(spec.preform.clone(), spec.schedule_meta(), spec.tiers());
+    assert_eq!(design.tiers[TEMPLATE_PAVILION_MAIN].name, "Pavilion Main");
+    assert_eq!(design.tiers[TEMPLATE_GIRDLE].name, "Girdle");
+    assert_eq!(design.tiers[TEMPLATE_LOWER_GIRDLE].name, "Lower Girdle");
+    design
+        .apply_edit(Edit::SetConstraint {
+            index: TEMPLATE_LOWER_GIRDLE,
+            constraint: MeetConstraint::MeetNamed(vec![
+                "Pavilion Main".to_owned(),
+                "Girdle".to_owned(),
+            ]),
+        })
+        .expect("the Meets setting applies");
+    design
+}
+
+/// Whichever corner pick mode offers for the template's lower girdle, the tier reaches it once
+/// the pick is solved: the mast is the corner's, and the pick is met, not off the stone.
+///
+/// The stone cut before the lower girdle is eight mains and sixteen girdle faces, so it has 25
+/// corners a tier can be cut to:
+///
+/// - the 16 corners where a main crosses the edge between two girdle faces (the template's own
+///   meet, mast 0.69655),
+/// - the 8 points where the ridge between two mains ends on a girdle face (mast 0.70214, the
+///   shallowest point of the two names), and
+/// - the point where the eight mains meet (mast 0.65453).
+///
+/// The harness picks "the first pickable ring", which depends on the camera, so every corner is
+/// picked here. Until the solve of the pick lands, the masts on hand are those of the solve
+/// before it: there the tier does not pass through a corner at another depth, and the pick
+/// reads off the stone. That is the "corner cut away" a row shows when it is worked out too
+/// early; it is not how the pick stands.
+#[test]
+fn every_corner_the_template_offers_is_met_once_its_pick_is_solved() {
+    let named = template_meeting_by_name();
+    let before = named.solve().expect("the lower girdle meets its names");
+    let corners = named
+        .pick_corners(&before, TEMPLATE_LOWER_GIRDLE)
+        .expect("the stone closes");
+    let formed_by = |tiers: &[usize]| corners.iter().filter(|c| c.tiers == tiers).count();
+    assert_eq!(
+        (
+            formed_by(&[TEMPLATE_PAVILION_MAIN, TEMPLATE_GIRDLE]),
+            formed_by(&[TEMPLATE_PAVILION_MAIN]),
+            corners.len()
+        ),
+        (24, 1, 25),
+        "{corners:?}"
+    );
+
+    let mast_before = before[TEMPLATE_LOWER_GIRDLE].mast;
+    let mut off_the_stone_before_the_solve = 0;
+    for corner in &corners {
+        assert_eq!(corner.unnamed_tier, None, "{corner:?}");
+        let mut design = named.clone();
+        let edit = design
+            .meet_pick_edit(TEMPLATE_LOWER_GIRDLE, corner)
+            .expect("every tier at the corner is named");
+        design.apply_edit(edit).expect("the batch applies");
+        assert_eq!(
+            design.tier_meet_pick(TEMPLATE_LOWER_GIRDLE),
+            Some(&corner.pick),
+            "the pick is stored"
+        );
+
+        // The masts of the solve before the pick, for a corner at another depth.
+        if (corner.mast - mast_before).abs() > 1e-3 {
+            assert_eq!(
+                design.meet_pick_states(&before),
+                [(TEMPLATE_LOWER_GIRDLE, MeetPickState::OffStone)],
+                "on the masts of the solve before the pick: {corner:?}"
+            );
+            off_the_stone_before_the_solve += 1;
+        }
+
+        let solved = design.solve().expect("the picked design solves");
+        assert!(
+            (solved[TEMPLATE_LOWER_GIRDLE].mast - corner.mast).abs() < 1e-5,
+            "{} against {}: {corner:?}",
+            solved[TEMPLATE_LOWER_GIRDLE].mast,
+            corner.mast
+        );
+        assert_eq!(
+            design.meet_pick_states(&solved),
+            [(TEMPLATE_LOWER_GIRDLE, MeetPickState::Met)],
+            "{corner:?}"
+        );
+    }
+    // The corners lie at three depths, so at least two kinds differ from the depth before.
+    assert!(off_the_stone_before_the_solve >= 9);
 }

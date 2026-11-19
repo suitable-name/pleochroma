@@ -29,6 +29,8 @@ fn apply_import(c: &TrainingController<'_>, run: &TrainingRunStats) {
     c.set_best_score(run.best_score.unwrap_or_default());
     c.set_has_validation(run.val_score.is_some());
     c.set_val_score(run.val_score.unwrap_or_default());
+    c.set_has_deployed_score(run.val_deployed_score.is_some());
+    c.set_val_deployed_score(run.val_deployed_score.unwrap_or_default());
     c.set_has_gap(run.generalization_gap.is_some());
     c.set_generalization_gap(run.generalization_gap.unwrap_or_default());
     c.set_has_optics(true);
@@ -84,7 +86,7 @@ impl Gui {
         self.log(
             "IMPORT",
             format!(
-                "{label}; best score {}",
+                "{label}, lowest training endpoint score {}",
                 run.best_score
                     .map_or_else(|| "—".to_owned(), |b| format!("{b:.1}"))
             ),

@@ -32,7 +32,7 @@ impl TrainingRunner {
         let update_of_iteration =
             pending.map_or(s.update_of_iteration, |update| Some(update.iteration));
         let optics = s.current.unwrap_or_default();
-        let val = s.last_validation.as_ref();
+        let val = s.last_validation.as_ref().filter(|v| v.designs > 0);
         let imitation = last_imitation.unwrap_or_default();
         let log_std = &self.net.log_std_raw;
         let mean_log_std =
@@ -59,6 +59,7 @@ impl TrainingRunner {
             extinction: optics.extinction,
             yield_pct: optics.yield_pct,
             val_score: val.map(|v| v.mean_final_score),
+            val_deployed_score: val.and_then(|v| v.mean_deployed_score),
             val_brilliance: val.map(|v| v.final_optics.brilliance),
             val_windowing: val.map(|v| v.final_optics.windowing),
             mean_step_reward_raw: s.mean_step_reward_raw,
@@ -83,12 +84,13 @@ impl TrainingRunner {
             rej_not_improved: s.rej_not_improved,
             imitation_loss: imitation.loss,
             imitation_objective_revision: last_imitation
-                .filter(|metrics| metrics.updates > 0 && metrics.objective_revision == 2)
-                .map(|_| "balanced-action-vector-v2".to_owned()),
+                .filter(|metrics| metrics.updates > 0 && metrics.objective_revision >= 2)
+                .map(|m| format!("balanced-action-vector-v{}", m.objective_revision)),
             sens_mse: imitation.sens_mse,
             train_cosine: last_imitation.filter(|m| m.updates > 0).map(|m| m.cosine),
             action_loss: imitation.action_loss,
             action_samples: imitation.action_samples,
+            rejected_action_samples: imitation.rejected_action_samples,
             gain_loss: imitation.gain_loss,
             skipped_minibatches: imitation.skipped_minibatches,
             labelled_samples: s.labelled_samples,
@@ -184,7 +186,15 @@ impl TrainingRunner {
             final_windowing: current.windowing,
             final_extinction: current.extinction,
             final_yield_pct: current.yield_pct,
-            val_score: s.last_validation.as_ref().map(|v| v.mean_final_score),
+            val_score: s
+                .last_validation
+                .as_ref()
+                .filter(|v| v.designs > 0)
+                .map(|v| v.mean_final_score),
+            val_deployed_score: s
+                .last_validation
+                .as_ref()
+                .and_then(|v| v.mean_deployed_score),
             generalization_gap: self.generalization_gap(),
             train_designs_count: self.split.train.len(),
             val_designs_count: self.split.val.len(),
@@ -229,7 +239,7 @@ impl TrainingRunner {
     /// include it (a final [`Self::validate`] does so too).
     #[must_use]
     pub fn checkpoint(&self) -> Checkpoint {
-        Checkpoint::new(
+        let mut checkpoint = Checkpoint::new(
             self.cfg.mode,
             self.cfg.tier,
             OBS_LAYOUT_VERSION,
@@ -237,7 +247,13 @@ impl TrainingRunner {
             self.stats.iteration as u64,
             self.cfg.seed,
             self.net.clone(),
-        )
+        );
+        checkpoint.probe_scale_deg = self
+            .cfg
+            .label_h_deg
+            .or_else(|| self.slots.first().map(|slot| slot.env.max_step_deg()))
+            .or(self.cfg.max_step_deg);
+        checkpoint
     }
 
     /// Writes a weight-only export to `path` (temporary file, then rename).

@@ -251,6 +251,7 @@ Edit > Preferences... (Ctrl+Comma) writes these top-level keys; the
 | `first_run_tour_done` | `true` / `false` | `true` for a file without the key; `false` on a brand-new install |
 | `tutorials_completed` | list of tutorial ids | empty |
 | `ui_scale_percent` | `0` (Automatic) or one of 75, 90, 100, 110, 125, 150, 175, 200 | `0` |
+| `tilt_average_range_deg` | 15, 20, 30, 45, 60 or 90: how far from table up the displayed tilt averages (Compare, the Baseline figures) reach, in degrees each way; the scoring tools always rate all tilts to 90; a missing key or any other value loads as 90 | `90` |
 | `high_contrast` | `true` / `false` | `false` |
 | `large_handles` | `true` / `false` | `false` |
 | `adaptive_viewport` | `true` / `false`: Adaptive Sampling in the Viewport; every build reads and writes it, only a build with the optional `adaptive-sampling` feature shows or uses it | `false` |

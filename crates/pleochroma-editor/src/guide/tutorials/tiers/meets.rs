@@ -98,7 +98,7 @@ fn meets_named_facets() -> Guide {
             "Set Meets to Named Facet(s) (Facets segment).",
             "Facet Names: Lower Girdle, then press Enter.",
         ])
-        .check("Upper Girdle's Meets column reads meets Lower Girdle.")
+        .check("the detail line under Upper Girdle's indices reads meets Lower Girdle.")
         .why("Several names are separated by commas. The solver puts the depth where this tier's facets cut the named facets: here, where the upper girdle facets touch the lower girdle facets. The crown still has other tiers with an exact scale value, so the stone keeps solving.")
         .goal(
             check("Upper Girdle meets Lower Girdle", |ctx| {
@@ -118,7 +118,7 @@ fn meets_named_facets() -> Guide {
             "Click the Table row.",
             "Set Meets to Unspecified Vertex (Vertex segment); it applies at once.",
         ])
-        .check("the Table row's Meets column reads meet.")
+        .check("the Table row's detail line reads meet point.")
         .why("The solver cuts the table down to a vertex of the facets already there, and this crown, with its star facets, gives it one close to where the table was. Use it for a table you do not want to size by hand, and look at the result: on a crown of main facets only, with no star facets, the next vertex below the point where they meet is the girdle, so the table would sink there and cut the crown away. Undo (Ctrl+Z) brings the table back.")
         .goal(
             Goal::tier("Table", 0.0).with_meet(MeetKind::Unspecified),
@@ -178,7 +178,7 @@ fn meets_pick_the_corner() -> Guide {
             "Click the Table row.",
             "Set Meets to Unspecified Vertex (Vertex segment); it applies at once.",
         ])
-        .check("the Table row's Meets column reads meet, and the Tier tab shows a Meet Point row.")
+        .check("the Table row's detail line reads meet point, and the Tier tab shows a Meet Point row.")
         .why("The Meet Point row appears for a tier that meets a vertex or named facets. Without a pick, the solver takes the shallowest point where the tier's facets reach the others.")
         .goal(
             Goal::tier("Table", 0.0).with_meet(MeetKind::Unspecified),
@@ -237,22 +237,22 @@ fn meets_pick_the_corner() -> Guide {
 fn meets_in_millimetres() -> Guide {
     Guide::new(
         "tiers-meets-mm-targets",
-        "Meets in Millimetres",
-        "State a depth, a girdle thickness or a table width in millimetres instead of scale units.",
+        "Meets in Millimeters",
+        "State a depth, a girdle thickness or a table width in millimeters instead of scale units.",
         GuideCategory::AdvancedTiers,
     )
     .starting(StartingState::Template(5))
     .step(
         GuideStep::new(
             "Give the stone a size",
-            "Millimetre targets are converted through the girdle diameter, so the design needs one first.",
+            "Millimeter targets are converted through the girdle diameter, so the design needs one first.",
         )
         .actions([
             "Open the Preform tab in the inspector.",
             "Girdle Diameter (mm): 6.5, then press Enter (the value applies when you press Enter or leave the field).",
         ])
         .check("the Preform tab shows the yield figures after the next solve.")
-        .why("The girdle diameter is the stone's real width. It turns the design's own units into millimetres; without it these targets cannot be solved.")
+        .why("The girdle diameter is the stone's real width. It turns the design's own units into millimeters; without it these targets cannot be solved.")
         .goal(Goal::YieldApplied, "the yield inputs to be applied")
         .highlight("preform_tab")
         .allow(&[Group::PreformTab, Group::History]),
@@ -260,14 +260,14 @@ fn meets_in_millimetres() -> Guide {
     .step(
         GuideStep::new(
             "Cut to a depth",
-            "Cut to depth (mm) states how deep a facet's plane sits, measured the way the MAST column's millimetre tooltip measures it.",
+            "Cut to depth (mm) states how deep a facet's plane sits, measured along the mast in millimeters.",
         )
         .actions([
             "Open the Tier tab and click the Pavilion Main row.",
             "Set Meets to Cut to depth (mm) (Depth segment).",
             "Value (mm): 2.2, then press Enter.",
         ])
-        .check("the Pavilion Main row's Meets column reads 2.20 mm depth.")
+        .check("the Pavilion Main row's detail line reads 2.2 mm depth.")
         .why("The value is turned into a scale value just before each solve, so it follows the girdle diameter if you change it.")
         .goal(
             check("Pavilion Main has a depth target", |ctx| {
@@ -276,7 +276,7 @@ fn meets_in_millimetres() -> Guide {
                     Some(TierTarget::DepthMm(_))
                 )
             }),
-            "a depth in millimetres on Pavilion Main",
+            "a depth in millimeters on Pavilion Main",
         )
         .highlight("inspector_tier")
         .allow(FORM_ADVANCED),
@@ -291,7 +291,7 @@ fn meets_in_millimetres() -> Guide {
             "Set Meets to Table width (mm) (Table segment).",
             "Value (mm): 3.2, then press Enter.",
         ])
-        .check("the Table row's Meets column reads table 3.20 mm.")
+        .check("the Table row's detail line reads table 3.2 mm.")
         .why("This costs several solves rather than one, so the status strip may take a moment to settle.")
         .goal(
             check("Table has a width target", |ctx| {
@@ -300,7 +300,7 @@ fn meets_in_millimetres() -> Guide {
                     Some(TierTarget::TableWidthMm(_))
                 )
             }),
-            "a width in millimetres on Table",
+            "a width in millimeters on Table",
         )
         .highlight("inspector_tier")
         .allow(FORM_ADVANCED),
@@ -315,7 +315,7 @@ fn meets_in_millimetres() -> Guide {
             "Set Meets to Girdle thickness (mm) (Girdle segment).",
             "Value (mm): 0.3, then press Enter.",
         ])
-        .check("the Girdle row's Meets column reads girdle 0.30 mm.")
+        .check("the Girdle row's detail line reads girdle 0.3 mm.")
         .why("Put it on the tier that makes the girdle: the girdle row itself.")
         .goal(
             check("Girdle has a thickness target", |ctx| {
@@ -324,7 +324,7 @@ fn meets_in_millimetres() -> Guide {
                     Some(TierTarget::GirdleThicknessMm(_))
                 )
             }),
-            "a thickness in millimetres on Girdle",
+            "a thickness in millimeters on Girdle",
         )
         .highlight("inspector_tier")
         .allow(FORM_ADVANCED),
@@ -357,9 +357,9 @@ fn adopt_imported_meets() -> Guide {
         )
         .actions([
             "Open a .asc file with File > Open, or load an imported design from the library.",
-            "Look for Adopt buttons in the tier table, and for a cyan line starting File says under Solved in the Tier tab.",
+            "Open the \u{2026} menu (Actions for Tier N) at the end of a tier row, or right-click the row: it offers Adopt. In the Tier tab, a cyan line starting File says stands under Solved.",
         ])
-        .check("an Adopt button in the tier table.")
+        .check("Adopt in the \u{2026} menu of a tier row.")
         .why("A design you built yourself has nothing to adopt. Use Back to leave this lesson.")
         .goal(
             check("a tier has an imported meet to adopt", has_adoptable),
@@ -378,8 +378,8 @@ fn adopt_imported_meets() -> Guide {
             "Adopt one tier",
             "Adopt switches a tier from a fixed number to the instruction its file stated.",
         )
-        .actions(["Click Adopt on one row of the tier table."])
-        .check("that row's Meets column changes from a pinned value to a meet, and its Adopt button goes.")
+        .actions(["Open the \u{2026} menu of one row of the tier table and click Adopt."])
+        .check("that row's detail line changes from a pinned scale value to a meet, and its menu no longer offers Adopt.")
         .why("A tier that meets other facets can be moved by Solve and Optimize; a pinned tier cannot.")
         .goal(
             check("a tier has adopted its imported meet", has_adopted),
@@ -394,7 +394,7 @@ fn adopt_imported_meets() -> Guide {
             "Adopt All does every remaining tier in one go.",
         )
         .actions(["Open the Tier List Menu above the tier list and click Adopt All."])
-        .check("no Adopt button is left in the tier table.")
+        .check("no row's \u{2026} menu offers Adopt any more.")
         .why("Adopt All is one Undo step, so a single Ctrl+Z brings every pinned value back.")
         .goal(
             check("every imported meet is adopted", all_adopted),
@@ -434,7 +434,7 @@ fn pin_to_mast() -> Guide {
             "Set Meets to Named Facet(s) (Facets segment).",
             "Facet Names: Lower Girdle, then press Enter.",
         ])
-        .check("the Upper Girdle row's Meets column reads meets Lower Girdle.")
+        .check("the Upper Girdle row's detail line reads meets Lower Girdle.")
         .why("The stone keeps solving because the crown still has other tiers with an exact scale value.")
         .goal(
             Goal::tier("Upper Girdle", 41.0).with_meet(MeetKind::Named),
@@ -450,10 +450,10 @@ fn pin_to_mast() -> Guide {
         )
         .actions([
             "Wait until the status strip says the stone is solved.",
-            "In the Upper Girdle row, click Pin in the PIN column.",
+            "Open the \u{2026} menu (Actions for Tier N) at the end of the Upper Girdle row and click Pin.",
         ])
-        .check("the Meets column shows a pinned scale value, and the Pin button goes.")
-        .why("Pin a tier before Optimize to hold it where it is while the other tiers move. There is no Pin button while a tier is unsolved or already pinned.")
+        .check("the row's detail line shows a pinned scale value, and its menu no longer offers Pin.")
+        .why("Pin a tier before Optimize to hold it where it is while the other tiers move. The menu offers no Pin while a tier is unsolved or already pinned.")
         .goal(
             Goal::tier("Upper Girdle", 41.0).with_meet(MeetKind::ExactScale),
             "Upper Girdle pinned to its solved depth",

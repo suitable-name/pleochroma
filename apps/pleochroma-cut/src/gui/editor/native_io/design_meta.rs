@@ -8,6 +8,9 @@
 //! title, designer, source, shape, tags and the marks, so it wins for those. Fields
 //! the library has no column for (`id`, `notes`, `license`, `copyright`, the creation
 //! time, unknown keys) come from the session unchanged.
+//! The RI range choice (`ri_min`, `ri_max`, `ri_range_source`) is one of them: the Design
+//! Settings sheet writes it into the session's `[meta]` table, and a Save writes it back as it
+//! stands. The estimate is stored as the choice only, never as a number.
 //!
 //! Everything here is plain data in, plain data out: [`assemble`] and
 //! [`merge_attachments`] touch neither the database nor the clock, so they are tested

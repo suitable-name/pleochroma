@@ -45,6 +45,14 @@ pub enum Check {
     PreviewBatchIdle,
     /// The tilt-curve batch is not running.
     TiltBatchIdle,
+    /// The render queue holds at least one job.
+    HasJobs,
+    /// The live view shows the view of a render job.
+    JobViewShown,
+    /// The job view on screen can update its job.
+    JobViewCanUpdate,
+    /// The material check set can be queued.
+    CanQueueCheckSet,
     /// The Edit view is on screen.
     EditView,
     /// The viewport is not in Diagram mode.
@@ -106,10 +114,20 @@ impl Check {
                 !state.has(Fact::TiltBatchRunning),
                 "A tilt-curve batch is already running",
             ),
+            Self::HasJobs => (state.has(Fact::HasJobs), "No render jobs yet"),
+            Self::JobViewShown => (state.has(Fact::JobViewShown), "No job view is showing"),
+            Self::JobViewCanUpdate => (
+                state.has(Fact::JobViewCanUpdate),
+                "The job cannot be updated from this view right now",
+            ),
+            Self::CanQueueCheckSet => (
+                state.has(Fact::CanQueueCheckSet),
+                "The material check set cannot be queued right now",
+            ),
             Self::EditView => (state.has(Fact::EditView), "Open the Edit tab first"),
             Self::NotDiagramView => (
                 !state.has(Fact::DiagramView),
-                "Not available in the Diagram view",
+                "Leave the Diagram view first",
             ),
             Self::AdvancedInterfaceOn => (
                 !state.has(Fact::SimpleInterface),
@@ -168,6 +186,10 @@ mod tests {
             Check::LibrarySelected,
             Check::PreviewBatchIdle,
             Check::TiltBatchIdle,
+            Check::HasJobs,
+            Check::JobViewShown,
+            Check::JobViewCanUpdate,
+            Check::CanQueueCheckSet,
             Check::EditView,
             Check::NotDiagramView,
             Check::AdvancedInterfaceOn,
@@ -194,6 +216,10 @@ mod tests {
             Check::HasSnapshot,
             Check::HasLastSaved,
             Check::LibrarySelected,
+            Check::HasJobs,
+            Check::JobViewShown,
+            Check::JobViewCanUpdate,
+            Check::CanQueueCheckSet,
             Check::EditView,
             Check::SimpleInterfaceOn,
             Check::Guide(GuideGroup::Advanced),
@@ -252,7 +278,7 @@ mod tests {
         let diagram = CommandState::ready().with(Fact::DiagramView, true);
         assert_eq!(
             Check::NotDiagramView.verdict(&diagram),
-            Err("Not available in the Diagram view")
+            Err("Leave the Diagram view first")
         );
     }
 

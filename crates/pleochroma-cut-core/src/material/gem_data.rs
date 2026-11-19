@@ -247,6 +247,12 @@ pub enum GemSource {
     Wikipedia(&'static str),
     /// The GIA Gem Reference Guide, cited by title only, for values checked against the book.
     GiaGemReferenceGuide,
+    /// Soonthorntantikul, Vertriest and Avakyan, "Glass-ceramics as imitation gemstones: a study on
+    /// a silicon-aluminum-magnesium-zinc system", Gems & Gemology 62(2), Summer 2026, pp. 164-176
+    /// (doi 10.5741/GEMS.62.2.164).
+    GemsGemology2026,
+    /// The manufacturer's text on Nanosital in the trade journal Russian Jeweller, 13 July 2016.
+    RussianJeweller2016,
 }
 
 /// Capitalizes the first letter of `text` and turns separators into spaces.
@@ -277,11 +283,18 @@ impl GemSource {
             Self::Schott(glass) => format!("Schott optical glass datasheet, {glass}"),
             Self::Wikipedia(title) => format!("Wikipedia, {}", title.replace('_', " ")),
             Self::GiaGemReferenceGuide => "GIA Gem Reference Guide (1988)".to_owned(),
+            Self::GemsGemology2026 => {
+                "Soonthorntantikul et al., Gems & Gemology, Summer 2026".to_owned()
+            }
+            Self::RussianJeweller2016 => {
+                "Russian Jeweller, 13 July 2016 (manufacturer's text)".to_owned()
+            }
         }
     }
 
     /// The source's stable address. `None` for a source cited by title only (the GIA Gem
-    /// Reference Guide) and for the Gems & Gemology article, which has no address of its own.
+    /// Reference Guide) and for the 1997 Gems & Gemology article, which has no address of its
+    /// own; the 2026 article is addressed by its DOI.
     #[must_use]
     pub fn url(&self) -> Option<String> {
         match self {
@@ -302,6 +315,8 @@ impl GemSource {
                     .to_owned(),
             ),
             Self::Wikipedia(title) => Some(format!("https://en.wikipedia.org/wiki/{title}")),
+            Self::GemsGemology2026 => Some("https://doi.org/10.5741/GEMS.62.2.164".to_owned()),
+            Self::RussianJeweller2016 => Some("https://russianjeweller.ru/2/8/8822".to_owned()),
             Self::GemsGemology1997 | Self::GiaGemReferenceGuide => None,
         }
     }
@@ -376,14 +391,15 @@ pub enum GemBasis {
     Derived(&'static str),
 }
 
-/// Whether a material is a mineral, a laboratory-grown material or a glass.
+/// Whether a material is a mineral, a laboratory-grown material or a glass (the glass-ceramic
+/// Nanosital included).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaterialOrigin {
     /// A natural gem material.
     Natural,
     /// A laboratory-grown crystal.
     Synthetic,
-    /// A glass.
+    /// A glass, or a glass-ceramic such as Nanosital.
     Glass,
 }
 
@@ -398,9 +414,10 @@ pub struct GemData {
     pub mohs: Cited<(f32, f32)>,
     /// Knoop hardness, where a source gives it (the glasses).
     pub knoop: Option<Cited<u16>>,
-    /// `None`: no published grade (the glasses, Benitoite, Titanite). Shown as "Not graded".
+    /// `None`: no published grade (the glasses, Benitoite, Titanite, Nanosital). Shown as "Not
+    /// graded".
     pub toughness: Option<Cited<ToughnessRange>>,
-    /// `Some` with an empty slice: no cleavage. `None`: not recorded (GGG).
+    /// `Some` with an empty slice: no cleavage. `None`: not recorded (GGG, Nanosital).
     pub cleavage: Option<Cited<&'static [Cleavage]>>,
     /// The parting forms. `None`: none recorded.
     pub parting: Option<Cited<&'static [CrystalForm]>>,

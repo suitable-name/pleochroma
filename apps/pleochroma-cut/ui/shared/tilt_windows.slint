@@ -1,0 +1,16 @@
+// The two tilt windows a person meets, named in one place.
+//
+// `displayed` and `displayed_plain` are the range of the tilt figures read for a design
+// (Compare's "Tilt average to ±90°", Baseline's Measure Tilt, the command line): the mean over the
+// tilts up to the Preferences choice "Tilt Average Range" from table up, ±90° (every tilt) by
+// default. Rust sets both words from the preference at start-up and on every change, on the main
+// window and on every Compare window (`gui::preferences::register_tilt_range_sink`):
+// `displayed` for captions ("to ±90°"), `displayed_plain` for sentences ("to 90°").
+// `scored` is the window the scoring tools (Optimize, Trials, Angle Sweep, Retarget, Tune) average
+// their tilt term over, always. It never follows the preference. Hints that name a window take the
+// word from here.
+export global TiltWindows {
+    in property <string> displayed: "to ±90°";
+    in property <string> displayed_plain: "to 90°";
+    out property <string> scored: "±90°";
+}

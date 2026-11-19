@@ -424,6 +424,14 @@ impl Film<'_> {
         if library.get_selected_entry_id() != id {
             return Err(format!("library row click did not select entry {id}"));
         }
+        // The picked design's details arrive a moment later and fill the header (title, chips),
+        // which moves the view pills beside them: wait for them, so that the next lookup of a
+        // pill is not out of date when the click lands. A library that never sends details only
+        // costs the wait.
+        let _ = pacing::wait_real(std::time::Duration::from_secs(5), || {
+            library.get_current_detail().id == id
+        });
+        pump(60);
         Ok(())
     }
 
@@ -525,7 +533,71 @@ impl Film<'_> {
         if library.get_selected_shape_index() != 0 || library.get_selected_gear_index() != 0 {
             return Err("Reset Filters left Shape or Gear restricted".into());
         }
+        // The list query runs on a worker after a debounce, so the catalog repopulates a moment
+        // after the last combo change; the picture and the next step wait for it.
+        let landed = pacing::wait_lapse(&mut self.rec, std::time::Duration::from_secs(10), || {
+            library.get_total_count() > 0
+                && library.get_matched_count() == library.get_total_count()
+                && usize::try_from(library.get_total_count())
+                    .is_ok_and(|total| library.get_diagram_list().row_count() == total)
+        })?;
+        if !landed {
+            return Err("the catalog did not show every design after Reset Filters".into());
+        }
         Ok(())
+    }
+
+    /// The Preferences switch whose label starts with `prefix`, scrolled into the dialog's list:
+    /// the list is longer than the dialog, and a row below its edge would take the click on the
+    /// dialog's footer instead.
+    fn preference_switch(&mut self, prefix: &str) -> Result<targets::Spot, String> {
+        for _ in 0..24 {
+            let view = self.view();
+            let dialog = view
+                .root
+                .query_descendants()
+                .match_inherits("PreferencesDialog")
+                .find_first()
+                .ok_or("Preferences dialog is not mounted")?;
+            let list = dialog
+                .query_descendants()
+                .match_inherits("ScrollView")
+                .find_first()
+                .map(|scroll| targets::Spot::of(&scroll))
+                .ok_or("Preferences list is missing")?;
+            // The wheel turns over the left edge of the list, clear of its combo boxes (a wheel
+            // over a combo box changes its value).
+            let wheel_at = targets::Spot {
+                x: list.x + 3.0,
+                y: list.h.mul_add(0.5, list.y),
+                w: 3.0,
+                h: 3.0,
+                handle: None,
+            };
+            let Some(switch) = targets::role_label_start(
+                &view,
+                prefix,
+                uiprobe::AccessibleRole::Checkbox,
+                Some("PreferencesDialog"),
+            ) else {
+                // A row far outside the list may not be in the tree yet: go down the list.
+                self.wheel_over(&wheel_at, -100.0)?;
+                continue;
+            };
+            if switch.y >= list.y && switch.y + switch.h <= list.y + list.h {
+                return Ok(switch);
+            }
+            // Slint's wheel convention is opposite the content's motion.
+            let delta = if switch.y + switch.h > list.y + list.h {
+                -100.0
+            } else {
+                100.0
+            };
+            self.wheel_over(&wheel_at, delta)?;
+        }
+        Err(format!(
+            "Preferences switch {prefix:?} did not scroll into the list"
+        ))
     }
 
     /// Opens Preferences with Ctrl+, flips the setting `name` names, and closes the dialog.
@@ -540,8 +612,7 @@ impl Film<'_> {
         match name {
             "high_contrast_changed" => {
                 let old = prefs.get_high_contrast();
-                let button = targets::run_label_start(&self.view(), "High Contrast.")
-                    .ok_or("High Contrast switch is missing")?;
+                let button = self.preference_switch("High Contrast.")?;
                 self.click_and_invoke(&button)?;
                 if prefs.get_high_contrast() == old {
                     return Err("High Contrast switch did not change".into());
@@ -549,8 +620,7 @@ impl Film<'_> {
             }
             "large_handles_changed" => {
                 let old = prefs.get_large_handles();
-                let button = targets::run_label_start(&self.view(), "Larger Handles.")
-                    .ok_or("Larger Handles switch is missing")?;
+                let button = self.preference_switch("Larger Handles.")?;
                 self.click_and_invoke(&button)?;
                 if prefs.get_large_handles() == old {
                     return Err("Larger Handles switch did not change".into());
@@ -612,6 +682,8 @@ impl Film<'_> {
                 self.film_preference(name)?;
             }
             "verdict_opened" => {
+                // The reasons to open are those of the solve that has just run.
+                self.settle_verdict();
                 let targets::Resolved::Found(spot) =
                     targets::resolve(&self.view(), "verdict_badge")
                 else {
@@ -646,9 +718,8 @@ impl Film<'_> {
                 // The Multi-Select lesson names its two tiers (Crown Main and Pavilion Main): they
                 // are ticked by name, not by their row numbers, which depend on the template.
                 // Select is an item of the tier list's "..." menu now.
-                self.press_label("Tier List Menu")?;
-                pump(80);
-                self.press_label("Select")?;
+                let select = self.tier_list_menu_item("Select")?;
+                self.click_and_invoke(&select)?;
                 for name in ["Crown Main", "Pavilion Main"] {
                     self.film_reveal_tier(name)?;
                     let row = self.tier_row_number(name)?;

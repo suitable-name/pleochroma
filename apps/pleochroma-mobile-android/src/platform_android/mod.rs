@@ -6,12 +6,13 @@
 //! * `pending` is the request-id table that joins Kotlin's asynchronous answers to the
 //!   Rust callbacks waiting for them, and stages files other apps send.
 //! * `natives` holds the `extern "system"` functions Kotlin calls back with.
-//! * `logging` sends `log`, panics and `tracing` to logcat.
+//! * `logging` sends `log`, panics and `tracing` to logcat, and the GPU part of them to
+//!   the tracer log while its switch is on.
 //!
 //! Requests the user must answer (pick, save) are asynchronous: the Kotlin call returns
 //! at once and the answer arrives later through `natives`. The other services (share,
-//! print, clipboard, keep-awake, thermal, open URL) are synchronous JNI calls; Kotlin
-//! hops to the UI thread itself where Android requires it.
+//! print, clipboard, keep-awake, thermal, open URL, device facts, last exit, e-mail) are
+//! synchronous JNI calls; Kotlin hops to the UI thread itself where Android requires it.
 
 pub(crate) mod back;
 mod jvm;
@@ -23,15 +24,15 @@ use std::{fs, path::PathBuf};
 
 use jni::{JValue, jni_str, objects::JString};
 use pleochroma_mobile_core::platform::{
-    AppDirs, DocumentsCallback, IncomingCallback, OpenKind, OpenRequest, OutgoingFile,
-    PlatformError, SaveCallback,
+    AppDirs, DeviceFacts, DocumentsCallback, ExitInfo, IncomingCallback, OpenKind, OpenRequest,
+    OutgoingFile, PlatformError, SaveCallback,
 };
 use slint::android::AndroidApp;
 
 use jvm::{
-    Jvm, SIG_CACHE_DIR, SIG_CREATE_DOCUMENT, SIG_KEEP_SCREEN_ON, SIG_ONE_STRING,
-    SIG_OPEN_DOCUMENTS, SIG_PRINT_HTML, SIG_SHARE, SIG_THERMAL_HEADROOM, error_message, into_unit,
-    new_byte_array,
+    Jvm, SIG_CACHE_DIR, SIG_COMPOSE_EMAIL, SIG_CREATE_DOCUMENT, SIG_KEEP_SCREEN_ON, SIG_LAST_EXIT,
+    SIG_ONE_STRING, SIG_OPEN_DOCUMENTS, SIG_PRINT_HTML, SIG_SHARE, SIG_THERMAL_HEADROOM,
+    error_message, into_unit, new_byte_array,
 };
 
 pub(crate) use logging::init as init_logging;
@@ -293,6 +294,75 @@ impl pleochroma_mobile_core::platform::Platform for AndroidPlatform {
 
     fn set_incoming_handler(&self, handler: IncomingCallback) {
         pending::set_incoming_handler(handler);
+    }
+
+    fn device_facts(&self) -> DeviceFacts {
+        let text = self
+            .jvm
+            .with_env(|env, activity| {
+                let value = env.call_method(
+                    activity,
+                    jni_str!("deviceFacts"),
+                    jvm::SIG_NO_ARGS_STRING,
+                    &[],
+                )?;
+                error_message(env, value)
+            })
+            .ok()
+            .flatten();
+        let mut facts = text
+            .as_deref()
+            .map_or_else(DeviceFacts::default, jvm::parse_device_facts);
+        if facts.app_version.is_empty() {
+            facts.app_version = env!("CARGO_PKG_VERSION").to_owned();
+        }
+        facts.thermal_headroom = pleochroma_mobile_core::platform::Platform::thermal_headroom(self);
+        facts
+    }
+
+    fn last_exit(&self, after_ms: i64) -> Option<ExitInfo> {
+        let text = self
+            .jvm
+            .with_env(|env, activity| {
+                let value = env.call_method(
+                    activity,
+                    jni_str!("lastExitInfo"),
+                    SIG_LAST_EXIT,
+                    &[JValue::Long(after_ms)],
+                )?;
+                error_message(env, value)
+            })
+            .ok()??;
+        jvm::parse_exit_info(&text)
+    }
+
+    fn compose_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+        attachment: OutgoingFile,
+    ) -> Result<(), PlatformError> {
+        into_unit(self.jvm.with_env(|env, activity| {
+            let to = JString::new(env, to)?;
+            let subject = JString::new(env, subject)?;
+            let body = JString::new(env, body)?;
+            let name = JString::new(env, &attachment.suggested_name)?;
+            let bytes = new_byte_array(env, &attachment.bytes)?;
+            let value = env.call_method(
+                activity,
+                jni_str!("composeEmail"),
+                SIG_COMPOSE_EMAIL,
+                &[
+                    JValue::Object(&to),
+                    JValue::Object(&subject),
+                    JValue::Object(&body),
+                    JValue::Object(&name),
+                    JValue::Object(&bytes),
+                ],
+            )?;
+            error_message(env, value)
+        }))
     }
 }
 

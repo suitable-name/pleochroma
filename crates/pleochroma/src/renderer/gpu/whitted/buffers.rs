@@ -1,5 +1,6 @@
 use super::{WhittedGpuError, WhittedGpuRenderer, env_cache::CachedEnvironment};
 use crate::{
+    diag::{self, Engine, PrepareStep},
     geometry::tool::{
         GPU_MAX_TOOL_PRIMITIVES, TOOL_RECORD_VECS, ToolPrimitive, pack_planes_and_tools,
     },
@@ -212,6 +213,21 @@ impl WhittedGpuRenderer {
     /// Does not panic in practice: the `u32` conversions it unwraps are guarded by
     /// the limit checks that precede them.
     pub fn prepare(
+        &self,
+        scene: &FrameScene<'_>,
+        tools: &[ToolPrimitive],
+        prep: &WhittedPrep<'_>,
+    ) -> Result<WhittedGpuScene, WhittedGpuError> {
+        diag::set_prepare(Engine::RayTraced, PrepareStep::Uploading, 0, 1);
+        let uploaded = self.prepare_uploads(scene, tools, prep);
+        if uploaded.is_err() {
+            diag::clear_prepare(Engine::RayTraced);
+        }
+        uploaded
+    }
+
+    /// The uploads of [`Self::prepare`], without the preparation bookkeeping.
+    fn prepare_uploads(
         &self,
         scene: &FrameScene<'_>,
         tools: &[ToolPrimitive],

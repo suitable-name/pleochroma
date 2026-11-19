@@ -357,11 +357,12 @@ fn metrics_params_ignore_everything_that_does_not_change_the_numbers() {
     );
 }
 
-/// The lighting preset is an input of both requests: changing it changes the params (so
-/// a cached result is not reused), and the metrics then equal the direct call under the
-/// new preset's rig.
+/// The lighting preset is an input of the metrics request: changing it changes the params (so
+/// a cached result is not reused), and the metrics then equal the direct call under the new
+/// preset's rig. The tilt request does not change: its curves are scored under the tilt
+/// standard.
 #[test]
-fn the_lighting_preset_is_an_input_of_both_requests() {
+fn the_lighting_preset_is_an_input_of_the_metrics_but_not_of_the_tilt_sweep() {
     let design = template_design(1);
     let (spec, planes) = scene_of(&design, MaterialSpec::catalogue("Diamond"));
     let mut other = spec.clone();
@@ -371,9 +372,17 @@ fn the_lighting_preset_is_an_input_of_both_requests() {
         MetricsParams::from_scene(&spec),
         MetricsParams::from_scene(&other)
     );
-    assert_ne!(
+    assert_eq!(
         TiltParams::from_scene(&spec),
         TiltParams::from_scene(&other)
+    );
+    let mut moved_light = spec.clone();
+    moved_light.lighting.light_yaw += 0.3;
+    moved_light.lighting.light_pitch -= 0.2;
+    assert_eq!(
+        TiltParams::from_scene(&spec),
+        TiltParams::from_scene(&moved_light),
+        "the light position is not an input of the tilt sweep either"
     );
 
     let mut cache = None;
@@ -454,7 +463,7 @@ fn the_metrics_cache_tells_one_map_from_another_and_from_the_preset() {
 }
 
 /// The HDR map is an input of the metrics (a new map recomputes them) and not of the tilt
-/// sweep, which the desktop scores under the preset only.
+/// sweep, which is scored under the tilt standard.
 #[test]
 fn the_hdr_map_is_an_input_of_the_metrics_but_not_of_the_tilt_sweep() {
     let design = template_design(1);
@@ -493,13 +502,8 @@ fn the_notes_say_what_the_numbers_were_scored_under() {
         ScoredUnder::Preset(tent).hud_note(true),
         "Scored under Light tent + black cards, map not loaded"
     );
-    assert_eq!(
-        tilt_lighting_note(tent, false),
-        "Scored under the Light tent + black cards rig at the current light."
-    );
-    assert!(
-        tilt_lighting_note(tent, true).contains("the loaded HDR map is not used for this sweep")
-    );
+    assert!(tilt_lighting_note().starts_with("Scored under the Grading tray"));
+    assert!(tilt_lighting_note().contains("16\u{b0} head shadow"));
 }
 
 #[test]
@@ -670,7 +674,7 @@ fn the_tilt_sweep_equals_the_four_direct_axis_profiles() {
             FinishedStone::new(StoneGeometry::planes_only(&planes), &finishes),
             &bare,
             azimuth,
-            LightingPreset::LightTent.studio(1.0, 0.84, 0.93),
+            canonical_environment(),
             None,
         );
         assert_eq!(axis.azimuth_deg.to_bits(), azimuth.to_bits());
@@ -728,7 +732,7 @@ fn the_tilt_sweep_honours_the_finishes_and_a_polished_stone_is_the_plain_sweep()
             &planes,
             &bare,
             PROFILE_AZIMUTHS_DEG[0],
-            LightingPreset::LightTent.studio(1.0, 0.84, 0.93),
+            canonical_environment(),
         );
         b.iter()
             .chain(&e)

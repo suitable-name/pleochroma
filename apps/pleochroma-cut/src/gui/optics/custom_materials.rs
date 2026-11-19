@@ -268,6 +268,13 @@ fn handle_saved_custom_material(
         .specific_gravity
         .map(|sg| format!(" (SG {sg:.2})"))
         .unwrap_or_default();
+    // The editor floats over every page (the palette opens it anywhere), but the material it
+    // saved shows in the Parameters dock's Stone tab and on the stone. Saved from the Cutting
+    // Instructions or the Files tab, the 3D tab is brought forward with that Stone tab open.
+    // On the 3D tab nothing moves: the stone is on screen and the dock is as the cutter left it.
+    if ui.get_active_tab() != crate::gui::commands::TAB_3D {
+        crate::gui::commands::open_stone_properties(ui);
+    }
     // A failed zone update replaces the success toast: the material is saved and listed, but the
     // cutter must hear that its zones were not.
     if let Some(warning) = &outcome.zones_warning {

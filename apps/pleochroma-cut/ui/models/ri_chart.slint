@@ -1,0 +1,92 @@
+// The RI chart dialog: how the windowing, brilliance and extinction of the design hold up across
+// refractive indices. Rust-driven: `gui::editor::ri_chart` fills everything the view shows; the
+// view (`components/ri_chart/`) only draws it.
+//
+// Positions are percent of the plot's width (0 is RI 1.40, 100 is RI 2.70) and, for heights,
+// percent of the plot's height from the top. A negative position means "not shown".
+//
+// Exported from `app.slint` so Rust can reach it.
+
+// One chart line as SVG path data in a 0..100 by 0..100 viewbox. `series`: 0 windowing tilted,
+// 1 windowing table up (dashed), 2 brilliance tilted, 3 extinction tilted, 4 the uncalibrated
+// high end of the range (dashed).
+export struct RiChartLine {
+    commands: string,
+    series: int,
+}
+
+// One built-in material on the RI axis. `row` is the label row under the plot (0 is the top
+// one), or -1 when the label is folded into the chips because it would crowd its neighbours;
+// the tick itself is always drawn. `state`: 0 outside the range, 1 inside it, 2 the design's own.
+export struct RiChartTick {
+    x: float,
+    label: string,
+    row: int,
+    state: int,
+}
+
+// One "Works in" chip: the material and its RI. `current` marks the design's own material.
+export struct RiChartChip {
+    text: string,
+    current: bool,
+}
+
+// A line of chips (Rust wraps them to the plot's width).
+export struct RiChartChipRow {
+    chips: [RiChartChip],
+}
+
+export global RiChartModel {
+    in-out property <bool> open: false;
+    // The material check set (the design in several materials) can be queued as render jobs.
+    // Rust keeps it true while an editable design is open.
+    in property <bool> can_queue_check_set: false;
+
+    // True once a traced range is shown; false while it is still computing (`computing`) or
+    // when the design has none (`message` says why).
+    in property <bool> ready: false;
+    in property <bool> computing: false;
+    in property <string> message: "";
+
+    // The lead sentence over the chart.
+    in property <string> intro_text: "";
+    in property <[RiChartLine]> lines: [];
+
+    // The range: where it starts, where its shading stops (100 when open ended), the labels.
+    in property <float> band_low_x: -1;
+    in property <float> band_high_x: -1;
+    in property <string> low_text: "";
+    // The high end drawn as a dashed line (only while it is not calibrated), and its label.
+    in property <float> high_x: -1;
+    in property <string> high_text: "";
+    // The design's own index and "Current: Sapphire".
+    in property <float> current_x: -1;
+    in property <string> current_text: "";
+    // The windowing limit: its height in percent from the top, and "Windowing limit 15 %".
+    in property <float> limit_y: -1;
+    in property <string> limit_text: "";
+
+    in property <string> axis_low: "";
+    in property <string> axis_high: "";
+    in property <[RiChartTick]> ticks: [];
+    in property <string> summary_text: "";
+
+    // "Works in (...)" and its chips; `more_text` is "and 5 more" (its hover lists them).
+    in property <string> works_heading: "";
+    in property <[RiChartChipRow]> chip_rows: [];
+    in property <string> more_text: "";
+    in property <string> more_hint: "";
+    in property <string> outside_text: "";
+    in property <string> status_text: "";
+
+    // The plot's size in pixels, reported by the view so Rust can cut the dashed lines to a pixel
+    // length and place the tick labels; `plot_resized` asks it to redraw.
+    in-out property <length> plot_width: 0px;
+    in-out property <length> plot_height: 0px;
+
+    callback open_chart();
+    callback plot_resized();
+    // Queues one job per material of the check set (the footer button of the chart, the menu of
+    // the material card and the command palette).
+    callback queue_check_set();
+}

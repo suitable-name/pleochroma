@@ -138,6 +138,9 @@ mod history_panel;
 // that module's own doc comment.
 #[cfg(test)]
 mod identity_pins;
+// A design landing in the editor (New, Open, Load Selected): showing the Edit view for it --
+// see that module's own doc comment.
+mod landing;
 // Findings that reach the tier table after their solid-preview frame (the plan worker runs
 // the costly concave-tool check once its frame is out) -- see that module's own doc comment.
 mod late_findings;
@@ -168,6 +171,8 @@ mod relation_ui;
 // The editor's half of the Live Render toolbar's "Color" control -- see that module's
 // own doc comment.
 mod render_color;
+pub(in crate::gui) mod ri_chart;
+pub(in crate::gui) mod ri_range;
 mod setup;
 mod stone_pattern;
 // The shortcut table shared by the in-app overlay and the generated section of
@@ -221,6 +226,7 @@ pub(in crate::gui) fn release_window_state() {
     trials::release_window_state();
     tune_panel::release_window_state();
     native_io::release_window_state();
+    ri_range::release_window_state();
 }
 
 /// Names the editor holders that are still set. See `gui::window_release::live_holders`.
@@ -230,6 +236,9 @@ pub(in crate::gui) fn note_holders(out: &mut Vec<&'static str>) {
     trials::note_holders(out);
     cutting_mode::note_holders(out);
     native_io::note_holders(out);
+    if ri_range::holds_database() {
+        out.push("editor::ri_range DB (vault)");
+    }
     if compare::window_is_kept() {
         out.push("editor::compare COMPARE (pop-out window, live session)");
     }
@@ -494,6 +503,8 @@ fn setup_editor_secondary_callbacks(
         preview_state,
         solid_last_solved,
     );
+    // The RI range field in Design Settings' MATERIAL section.
+    ri_range::field::setup(ui, state);
     callbacks::setup_gear_apply_callback(ui, state);
     design_settings_model::setup_design_settings_model(ui);
     callbacks::setup_gear_remap_confirm_callback(
@@ -616,7 +627,7 @@ fn setup_editor_tertiary_callbacks(
     callbacks::setup_tier_filter_callback(ui);
     // Live critical-angle guidance in the Tier form, the one-time anchor
     // explainer card, and "Set material" on an inferred-material guess.
-    callbacks::setup_angle_live_preview_callback(ui, state);
+    callbacks::setup_angle_live_preview_callback(ui, state, render_ctx);
     callbacks::setup_anchor_explainer_dismiss_callback(ui);
     callbacks::setup_material_guess_set_callback(
         ui,

@@ -17,6 +17,9 @@
 /// color science: CIE 1931 color matching, gamut mapping, tone mapping, and the
 /// brilliance/fire/scintillation optical metrics.
 pub mod color;
+/// Render diagnostics shared by the apps: the tracer target, the engine and preparation-step
+/// names, and the preparation progress.
+pub mod diag;
 /// Faceted gemstone solid geometry: the plane-arrangement B-rep, standard cut
 /// tables, girdle classification, and the meet-point solver.
 pub mod geometry;

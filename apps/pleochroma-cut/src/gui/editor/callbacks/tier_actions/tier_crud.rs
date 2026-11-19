@@ -574,7 +574,10 @@ fn remove_multi_selected_now(
             drop(st);
             ui.global::<EditorModel>().set_selected_tier_index(-1);
             bump_form_reset_pulse(ui);
-            let mut message = format!("Removed {removed_count} tier(s).");
+            let mut message = format!(
+                "Removed {removed_count} tier{}.",
+                if removed_count == 1 { "" } else { "s" }
+            );
             if let Some(freed) = freed {
                 message.push(' ');
                 message.push_str(&freed);

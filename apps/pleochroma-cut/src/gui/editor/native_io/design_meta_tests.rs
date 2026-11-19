@@ -464,3 +464,90 @@ fn a_catalogue_design_without_an_id_is_named_after_its_entry_and_a_save_keeps_th
     .with_design_uuid_assigned(Some(url));
     assert_eq!(with_file_id.metadata.id, ID);
 }
+
+/// The RI range choice rides in the `[meta]` table's own keys: a Save writes whichever of the
+/// four forms the design holds, a reopened file reads it back, and the estimate never gets a number.
+#[test]
+fn a_save_writes_the_ri_range_choice_and_the_estimate_never_gets_a_number() {
+    use pleochroma_cut_core::native::RiRangeChoice;
+    for choice in [
+        RiRangeChoice::Off,
+        RiRangeChoice::Designer {
+            low: 1.7,
+            high: Some(2.15),
+        },
+        RiRangeChoice::Designer {
+            low: 1.63,
+            high: None,
+        },
+        RiRangeChoice::Estimate,
+    ] {
+        let mut base = DesignMetadata::default();
+        base.set_ri_range_choice(choice);
+        // With a library row, so the overlay of the row's own fields is in play.
+        let prepared = assemble(
+            &DesignFileExtras::new(base, Vec::new()),
+            Some(&row(&["b", "a"], false, false)),
+            NOW,
+            || ID.to_string(),
+        )
+        .expect("assembles");
+        assert_eq!(prepared.metadata.ri_range_choice(), choice, "{choice:?}");
+
+        let text = written(&DesignExtras {
+            metadata: Some(&prepared.metadata),
+            attachments: &prepared.attachments,
+            ..DesignExtras::default()
+        });
+        let loaded = design_from_str(&text).expect("opens");
+        assert_eq!(loaded.metadata.ri_range_choice(), choice, "{choice:?}");
+
+        match choice {
+            RiRangeChoice::Off => {
+                for key in ["ri_min", "ri_max", "ri_range_source"] {
+                    assert!(!text.contains(key), "{key} written for Off");
+                }
+            }
+            RiRangeChoice::Estimate => {
+                assert!(text.contains("ri_range_source"));
+                assert!(!text.contains("ri_min") && !text.contains("ri_max"));
+            }
+            RiRangeChoice::Designer { .. } => assert!(text.contains("ri_min")),
+        }
+    }
+}
+
+/// A design that was saved with an RI range and is saved again with no change writes the same
+/// bytes: the choice is not rewritten, reordered or dropped by the second Save.
+#[test]
+fn saving_again_keeps_the_ri_range_choice_byte_for_byte() {
+    use pleochroma_cut_core::native::RiRangeChoice;
+    let mut base = DesignMetadata::default();
+    base.set_ri_range_choice(RiRangeChoice::Designer {
+        low: 1.7,
+        high: Some(2.15),
+    });
+    let first = assemble(&DesignFileExtras::new(base, Vec::new()), None, NOW, || {
+        ID.to_string()
+    })
+    .expect("assembles");
+    let text = written(&DesignExtras {
+        metadata: Some(&first.metadata),
+        attachments: &first.attachments,
+        ..DesignExtras::default()
+    });
+    let loaded = design_from_str(&text).expect("opens");
+    let second = assemble(
+        &DesignFileExtras::new(loaded.metadata, loaded.attachments),
+        None,
+        NOW,
+        || panic!("the design already has its id"),
+    )
+    .expect("assembles");
+    let again = written(&DesignExtras {
+        metadata: Some(&second.metadata),
+        attachments: &second.attachments,
+        ..DesignExtras::default()
+    });
+    assert_eq!(again, text);
+}

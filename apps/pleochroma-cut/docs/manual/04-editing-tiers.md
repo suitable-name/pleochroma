@@ -149,18 +149,19 @@ defines, snapped to the index wheel, in one undo step (Chapter 13, "Slicing a
 New Facet with the Mouse").
 
 **Editing does not re-solve.** Applying a tier edit (or Add This Tier, or Remove,
-or Apply Preform) updates the tier list's editable columns
+or Apply Preform) updates the tier list's angles and index positions
 immediately, but deliberately does *not* run a fresh solve — that is
 Chapter 5's job, and it can take real time on a large design. Instead the
-MAST and SOLVE columns, and the status strip, are marked visibly stale
+state marks of the rows change to the amber triangle ("Not solved yet"), and the
+status strip is marked visibly stale,
 until you click **Solve** (or until auto-solve runs, if you turned it on).
 Undo and Redo follow the same rule; their exact behaviour is under "Undo and
 Redo," below.
 
 For an already-saved tier, the Tier tab also shows a read-only **Solved**
-section once you have loaded that row: its mast, its block, its SOLVE
-strategy (with the same one-line explanation the tier table's own tooltip
-shows), its margin over the critical angle, its orbit shape, which other
+section once you have loaded that row: its mast, its block, its solve
+method (with the same one-line explanation the row's state mark shows on
+hover), its margin over the critical angle, its orbit shape, which other
 tiers it actually meets (by name, e.g. "meets tier 3 (C1)"), and its own
 manufacturability warning, if it has one.
 
@@ -260,7 +261,7 @@ A new tier counts as a pavilion when its Name starts with P (the rule Add This T
 uses), so you type just the plain angle; a minus sign typed in front of the
 angle does the same. Otherwise the slider treats it as a crown. The tier table
 then shows the angle as a plain positive number with its side in the letter of
-the CODE column.
+the tier's code.
 
 ## Losing an Unsaved Draft
 
@@ -452,7 +453,7 @@ override holds one.
 
 ## Inline Angle Editing
 
-The tier list's ANGLE column is itself editable — you don't have to load a
+The angle cell of each tier-list row is itself editable — you don't have to load a
 tier into the Tier tab just to nudge its angle. A single click on the angle
 cell **selects that row**, the same as clicking anywhere else in it (see
 "Selecting a Tier" in Chapter 3). To edit the value in place,
@@ -479,7 +480,7 @@ relation. Edit it in the Tier form." instead.
 
 Every commit here is a real, undoable edit — press **Undo** to step it back
 like any other change — and, like every other tier edit, it marks the
-design stale (MAST/SOLVE/the status strip) until you next click Solve, or
+design stale (the rows' state marks and the status strip) until you next click Solve, or
 until auto-solve picks it up if it's turned on (Chapter 5).
 
 ## Nudging an Angle with the Keyboard or Scroll Wheel
@@ -494,10 +495,10 @@ retyping it:
 | Shift+Up / Shift+Down | ±1° |
 | Ctrl+Up / Ctrl+Down | ±0.01° |
 
-In the tier list the arrows change the number the ANGLE cell shows: Up makes it
+In the tier list the arrows change the number the angle cell shows: Up makes it
 bigger and Down makes it smaller, for a crown tier and a pavilion tier alike. A
 pavilion tier's angle is stored as a negative number, but the list prints it
-without the minus sign (the letter of the CODE column says which side it is on), and the
+without the minus sign (the letter of the tier's code says which side it is on), and the
 arrows follow what you see; the minus sign stays. A tier stops at 0° on its own
 side instead of crossing into the other block.
 
@@ -576,8 +577,8 @@ them); the other rows' buttons are not Tab stops, though a mouse or a screen
 reader still reaches them. Every button has a hover tip, a colored ring while
 it has the keyboard, and answers Space and Enter. A screen reader announces the
 list as "Tiers" and each row with its name, angle and state. In the Simple
-interface (Chapter 17) the Mast and Orbit columns, the Adopt, Pin and Detach
-buttons and the Steps / Mirror tools are left out.
+interface (Chapter 17) the Adopt, Pin, Complete Orbit and Detach / Reattach
+items of the "..." menu, Adopt All and the Steps / Mirror tools are left out.
 
 ## Selecting Several Tiers for a Batched Nudge
 
@@ -628,8 +629,8 @@ Edit menu) says exactly what they will do — "Undo: Set P1 angle to
 What Undo and Redo do, step by step, and what they leave for you:
 
 - **They do not run Solve.** The design is put back exactly as it was, but
-  the numbers that come from a solve are not recomputed. The table's MAST
-  and SOLVE columns, the solved readout in the Tier tab and the status strip
+  the numbers that come from a solve are not recomputed. The rows'
+  state marks, the solved readout in the Tier tab and the status strip
   are marked stale, the same way they are after a tier edit. A Deep Solve or
   Optimize result that is still on screen is marked "Stale: Design
   Changed". Click **Solve** to bring them up to date; if you turned
@@ -703,10 +704,10 @@ than an ordinary edit: each is up to 24 solves (a bisection search) rather
 than one, so expect Solve to take noticeably longer on a design with one of
 these authored.
 
-The tier table's MEETS column shows the target itself, led by a small
-arrow (e.g. "3.20 mm depth," "girdle 0.25 mm," "table 4.10 mm"); the adjacent MAST/MAST(mm)
-columns show the *resolved* scale reference once the design has solved, the
-same as for any other tier. Changing the Meets combo away from a target
+The detail line under the tier's index positions in the tier table shows the
+target itself (e.g. "3.20 mm depth," "girdle 0.25 mm," "table 4.10 mm"); the
+Solved section of the Tier tab shows the *resolved* scale reference once the
+design has solved, the same as for any other tier. Changing the Meets combo away from a target
 kind and saving clears the target — the tier goes back to being an ordinary
 meet/scale-reference tier, exactly as if the target had never been set.
 

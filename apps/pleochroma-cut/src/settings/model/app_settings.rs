@@ -10,6 +10,7 @@ use super::{
         LegacyWorkerMigration, RemoteEndpoint, TiltVideoCompute, migrate_legacy_workers,
     },
     surface_glare::{DEFAULT_SURFACE_GLARE, default_surface_glare, deserialize_surface_glare},
+    tilt_range::{default_tilt_average_range_deg, deserialize_tilt_average_range_deg},
     ui_preferences::{UiMode, deserialize_ui_scale_percent, normalize_ui_scale_percent},
     view_settings::default_live_view_mode,
     worker::{LiveComputeTarget, LocalPreviewScale, WorkerSettings},
@@ -593,6 +594,15 @@ pub struct AppSettings {
     /// not offered loads as `0`.
     #[serde(default, deserialize_with = "deserialize_ui_scale_percent")]
     pub ui_scale_percent: u16,
+    /// How far from table up the displayed tilt averages reach, in degrees each way: one of
+    /// 15, 20, 30, 45, 60 or 90 (the default, every tilt). Compare and the Baseline figures
+    /// follow it; the scoring tools always rate all tilts to 90. A missing key or a
+    /// hand-edited value that is not offered loads as 90.
+    #[serde(
+        default = "default_tilt_average_range_deg",
+        deserialize_with = "deserialize_tilt_average_range_deg"
+    )]
+    pub tilt_average_range_deg: u8,
     /// The high-contrast palette (`Theme.high-contrast`): near-black surfaces, white text
     /// and bright accents.
     #[serde(default)]

@@ -746,6 +746,11 @@ fn setup_reset_lighting_tab_callback(
         let Some(ui) = ui_weak.upgrade() else {
             return;
         };
+        // A reset is the cutter's own choice of look: a job's view ends first.
+        crate::gui::render_jobs::view::session::end(
+            &ui,
+            crate::gui::render_jobs::view::session::EndReason::LightingChosen,
+        );
         let values = LightingValues::default();
         let rig = crate::gui::optics::offered_lighting::offered_from_label(&values.lighting_rig);
         {

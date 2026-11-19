@@ -15,6 +15,8 @@ mod android_entry;
 mod platform_android;
 #[cfg(feature = "desktop-preview")]
 pub mod platform_desktop;
+#[cfg(any(target_os = "android", feature = "desktop-preview"))]
+pub mod tracer_layer;
 
 mod commands;
 mod cut;

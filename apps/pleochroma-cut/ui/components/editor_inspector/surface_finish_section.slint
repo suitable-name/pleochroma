@@ -48,7 +48,7 @@ export component SurfaceFinishSection inherits VerticalLayout {
             alignment: space-between;
             Rectangle {
                 height: rq_lbl.preferred-height;
-                Tooltip { text: @markdown("The roughness of the polish in nanometres (the RMS height of\nthe surface). 1 is a mirror polish, 25 a rough pre-polish."); }
+                Tooltip { text: @markdown("The roughness of the polish in nanometers (the RMS height of\nthe surface). 1 is a mirror polish, 25 a rough pre-polish."); }
                 rq_lbl := Text { x: 0px; text: "Roughness (nm)"; font-size: 11px; color: Theme.text-muted; }
             }
             Text { text: Math.round(SurfaceModel.custom_rq * 10) / 10 + " nm"; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
@@ -57,7 +57,7 @@ export component SurfaceFinishSection inherits VerticalLayout {
             enabled: root.editable;
             minimum: 0.0;
             maximum: 100.0;
-            accessible-label: "Custom Roughness in Nanometres";
+            accessible-label: "Custom Roughness in Nanometers";
             value <=> SurfaceModel.custom_rq;
             released(val) => { SurfaceModel.controls_changed(root.loaded_tier_index); }
         }

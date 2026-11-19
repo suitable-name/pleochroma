@@ -144,6 +144,8 @@ pub struct SkippedRecord {
 pub struct DatasetSplit {
     /// All loadable designs, in record order.
     pub entries: Vec<DesignEntry>,
+    /// Connected source/geometry family key of each entry, computed during splitting.
+    pub(crate) family_by_entry: Vec<i64>,
     /// Indices into `entries` of the train split.
     pub train: Vec<usize>,
     /// Indices into `entries` of the validation split.
@@ -229,11 +231,15 @@ impl DatasetSplit {
         }
 
         let groups = connected_design_groups(&entries, &normalized_contents);
+        let mut family_by_entry = vec![0; entries.len()];
         let group_count = groups.len();
         let (mut train, mut val, mut test) = (Vec::new(), Vec::new(), Vec::new());
         let mut group_counts = [0usize; 3];
         let mut assignments = Vec::with_capacity(group_count);
         for (key, members) in groups {
+            for &entry in &members {
+                family_by_entry[entry] = key;
+            }
             let bucket = split_bucket(key, split_seed);
             let target = if bucket < SPLIT_TRAIN_PERCENT {
                 0
@@ -262,6 +268,7 @@ impl DatasetSplit {
             .max(1);
         Ok(Self {
             entries,
+            family_by_entry,
             train: {
                 train.sort_unstable();
                 train
@@ -298,6 +305,7 @@ impl DatasetSplit {
                 physical_size_augmented: false,
             }],
             train: vec![0],
+            family_by_entry: vec![-1],
             val: vec![0],
             test: vec![0],
             by_record: vec![Some(0)],

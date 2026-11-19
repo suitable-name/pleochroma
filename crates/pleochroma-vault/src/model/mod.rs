@@ -46,6 +46,8 @@ pub mod performance;
 pub mod preview;
 /// The desktop render queue's jobs -- see [`render_job::RenderJob`].
 pub mod render_job;
+/// RI ranges stored per design and threshold version.
+pub mod ri_range;
 /// Saved rough plans -- see [`saved_rough_plan::SavedRoughPlan`].
 pub mod saved_rough_plan;
 /// The seed shape vocabulary -- see [`shapes::DEFAULT_SHAPES`].

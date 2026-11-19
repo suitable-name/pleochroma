@@ -1,7 +1,10 @@
 //! Native bounded, reusable dispatch/readback slots. A FIFO turn queues at most
 //! two chunks before waiting, so readback of one overlaps execution of the other.
 use super::{WhittedGpuError, WhittedGpuRenderer, WhittedGpuScene};
-use crate::renderer::{buffers::whitted::GpuWhittedParams, gpu::compute};
+use crate::{
+    diag::{self, Engine, PrepareStep, Step, StepGuard, StepKind},
+    renderer::{buffers::whitted::GpuWhittedParams, gpu::compute},
+};
 use glam::Vec3;
 use std::{sync::mpsc, time::Instant};
 
@@ -34,6 +37,75 @@ struct Pending {
     submission: wgpu::SubmissionIndex,
     receiver: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
     pixels: u32,
+}
+
+/// The first trace turn after a scene upload: the preparation step and, for the first one of a
+/// renderer, the two breadcrumb steps and the tracer lines.
+///
+/// Dropping it ends the preparation step, whether the turn finished, was cancelled or failed.
+struct FirstTrace {
+    /// Whether this is the renderer's first trace at all.
+    first: bool,
+    /// `diag::process_ms()` when the first dispatch began.
+    began: u64,
+    /// The open breadcrumb step: the first dispatch, then the first readback.
+    step: Option<StepGuard>,
+}
+
+impl FirstTrace {
+    /// Begins the first turn after an upload; `first` is true for the renderer's very first.
+    fn begin(first: bool) -> Self {
+        let step = first.then(|| {
+            diag::set_prepare(Engine::RayTraced, PrepareStep::FirstTrace, 0, 1);
+            tracing::info!(
+                target: diag::TRACER_TARGET,
+                engine = "Ray-Traced",
+                "first dispatch"
+            );
+            Self::enter_step(StepKind::FirstDispatch)
+        });
+        Self {
+            first,
+            began: diag::process_ms(),
+            step,
+        }
+    }
+
+    /// Opens a breadcrumb step of the Ray-Traced kernel.
+    fn enter_step(kind: StepKind) -> StepGuard {
+        diag::enter(&Step {
+            kind,
+            engine: Some(Engine::RayTraced),
+            label: "whitted_main",
+            class: "",
+        })
+    }
+
+    /// The chunks are submitted; the readback is next.
+    fn dispatched(&mut self) {
+        if self.first {
+            self.step = Some(Self::enter_step(StepKind::FirstReadback));
+        }
+    }
+
+    /// The readback completed.
+    fn finished(self) {
+        if self.first {
+            tracing::info!(
+                target: diag::TRACER_TARGET,
+                engine = "Ray-Traced",
+                ms = diag::process_ms().saturating_sub(self.began),
+                "first readback"
+            );
+        }
+    }
+}
+
+impl Drop for FirstTrace {
+    fn drop(&mut self) {
+        self.step = None;
+        diag::clear_prepare(Engine::RayTraced);
+    }
 }
 
 impl Drop for Pending {
@@ -320,6 +392,8 @@ impl WhittedGpuRenderer {
         cancel: &dyn Fn() -> bool,
     ) -> Result<Option<Vec<Vec3>>, WhittedGpuError> {
         let mut pending = Vec::with_capacity(2);
+        let mut first_trace = (self.traced_upload != scene.upload_id)
+            .then(|| FirstTrace::begin(self.traced_upload == 0));
         for (index, range) in ranges.iter().enumerate() {
             if cancel() {
                 return Ok(None);
@@ -338,16 +412,33 @@ impl WhittedGpuRenderer {
             pending.push(slot.submit(self, *range, scene));
             self.slots[index] = Some(slot);
         }
+        if let Some(first) = &mut first_trace {
+            first.dispatched();
+        }
         let capacity = ranges.iter().map(|range| range.pixels as usize).sum();
         let mut values = Vec::with_capacity(capacity);
         for chunk in pending {
             if cancel() {
                 return Ok(None);
             }
-            chunk.read(&self.ctx.device, &mut values)?;
+            let waited = diag::process_ms();
+            if let Err(error) = chunk.read(&self.ctx.device, &mut values) {
+                tracing::warn!(
+                    target: diag::TRACER_TARGET,
+                    engine = "Ray-Traced",
+                    waited_ms = diag::process_ms().saturating_sub(waited),
+                    %error,
+                    "readback failed"
+                );
+                return Err(error);
+            }
         }
         if cancel() {
             return Ok(None);
+        }
+        self.traced_upload = scene.upload_id;
+        if let Some(first) = first_trace {
+            first.finished();
         }
         Ok(Some(values))
     }

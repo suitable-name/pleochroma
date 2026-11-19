@@ -67,9 +67,18 @@ export component InfoSheetHost inherits Rectangle {
 
             HorizontalLayout {
                 alignment: end;
+                spacing: Theme.space-sm;
+
+                if Shell.info-action != "": TextButton {
+                    text: Shell.info-action;
+                    clicked => {
+                        Shell.info-visible = false;
+                        Shell.info-action-clicked();
+                    }
+                }
 
                 TextButton {
-                    text: "Got It";
+                    text: Shell.info-action != "" ? "OK" : "Got It";
                     clicked => {
                         Shell.info-visible = false;
                     }

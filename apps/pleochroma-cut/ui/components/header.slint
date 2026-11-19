@@ -81,15 +81,22 @@ export component HeaderToolbar inherits Rectangle {
     property <length> controls_spacing: root.compact ? 6px : 10px;
     property <length> combo_min_w: root.compact ? 72px : 96px;
     property <length> search_min_w: root.compact ? 100px : 140px;
+    // The sort combo shows "Catalog Order" / "Recently Edited": it needs more than the other two.
+    property <length> sort_min_w: root.compact ? 112px : 136px;
     // Smallest / preferred width of the control cluster: Filters is a fixed 84px, Import is its
     // button's own width. Eight cells and seven gaps: a hidden cell keeps its place at zero width.
     // The Jobs chip (the render queue) shows only while a job is waiting or running. Its cell
     // keeps its place at zero width, so the gap count stays fixed.
-    property <length> jobs_w: RenderJobsModel.chip_visible ? jobs_chip.preferred-width : 0px;
+    // In the two-row (`compact`) header it gets what the row has left when that is less than its
+    // preferred width (its text elides), so the row never runs out of the window.
+    property <length> jobs_room: root.width - 20px - root.search_min_w - 2 * root.combo_min_w - root.sort_min_w - 84px
+        - import_btn.preferred-width - root.export_w - 7 * root.controls_spacing;
+    property <length> jobs_w: !RenderJobsModel.chip_visible ? 0px
+        : (root.compact ? max(64px, min(jobs_chip.preferred-width, root.jobs_room)) : jobs_chip.preferred-width);
     // The export chip (a running export started from a dialog, popup open or not) is the same
     // kind of cell: zero width when idle, so eight cells and seven gaps, always.
     property <length> export_w: ExportRunModel.direct_running ? export_chip.preferred-width : 0px;
-    property <length> controls_min_w: root.search_min_w + 3 * root.combo_min_w + 84px
+    property <length> controls_min_w: root.search_min_w + 2 * root.combo_min_w + root.sort_min_w + 84px
         + import_btn.preferred-width + root.jobs_w + root.export_w + 7 * root.controls_spacing;
     property <length> controls_pref_w: 260px + 160px + 130px + 140px + 84px
         + import_btn.preferred-width + root.jobs_w + root.export_w + 7 * root.controls_spacing;
@@ -491,7 +498,7 @@ export component HeaderToolbar inherits Rectangle {
             // on the wire (`LibraryRequest::Search::order`) and `apps/pleochroma-worker` applies
             // it, so a remote library sorts like a local one.
             Rectangle {
-                min-width: root.combo_min_w;
+                min-width: root.sort_min_w;
                 preferred-width: 140px;
                 horizontal-stretch: 1;
                 height: 28px;
@@ -503,7 +510,7 @@ export component HeaderToolbar inherits Rectangle {
                     height: 100%;
                     accessible-label: "Sort Order";
                     accessible-description: "The order of the library list.";
-                    model: ["Catalogue Order", "Title", "Newest", "Recently Edited"];
+                    model: ["Catalog Order", "Title", "Newest", "Recently Edited"];
                     current-index <=> LibraryModel.sort_order_index;
                     selected(val) => { LibraryModel.filters_changed(); }
                 }

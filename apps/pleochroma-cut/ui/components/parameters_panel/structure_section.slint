@@ -75,7 +75,7 @@ export component StructureSection inherits VerticalLayout {
 
             StoneSlider {
                 label: "Color Range, Low End";
-                hint: "Color Range: the shortest wavelength the patches reflect when seen\nstraight on, in nanometres. Around 450 is blue, 550 green, 650 red." + root.saved_note;
+                hint: "Color Range: the shortest wavelength the patches reflect when seen\nstraight on, in nanometers. Around 450 is blue, 550 green, 650 red." + root.saved_note;
                 value_text: Math.round(RenderEffectsModel.structure_low_nm) + " nm";
                 minimum: 350.0;
                 maximum: 900.0;
@@ -86,7 +86,7 @@ export component StructureSection inherits VerticalLayout {
 
             StoneSlider {
                 label: "Color Range, High End";
-                hint: "Color Range: the longest wavelength the patches reflect when seen\nstraight on, in nanometres. The low end is never above this one." + root.saved_note;
+                hint: "Color Range: the longest wavelength the patches reflect when seen\nstraight on, in nanometers. The low end is never above this one." + root.saved_note;
                 value_text: Math.round(RenderEffectsModel.structure_high_nm) + " nm";
                 minimum: 350.0;
                 maximum: 900.0;

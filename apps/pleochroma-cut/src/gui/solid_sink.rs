@@ -259,10 +259,13 @@ fn sync_planes_and_check_trace_match(
             .map(|&(normal, offset)| GpuFacetPlane::new(normal, -offset))
             .collect();
         let mut ctx = RenderContext::lock(render_ctx);
-        // A Library selection owns the slot until the editor claims it again with
-        // a load or edit; a trailing solid frame must not flip the viewport back.
+        // A Library selection or a job view owns the slot until the editor claims it again
+        // with a load or edit; a trailing solid frame must not flip the viewport back.
         if generation != 0
-            && !matches!(ctx.planes_owner, PlanesOwner::Catalogue { .. })
+            && !matches!(
+                ctx.planes_owner,
+                PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. }
+            )
             && (!planes_equal_within(
                 ctx.active_planes.as_slice(),
                 &converted,

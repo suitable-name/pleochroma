@@ -24,6 +24,8 @@ use uiprobe::screenshot::{self, Shot};
 pub const MAIN_SIZE: (u32, u32) = (1920, 1152);
 /// Physical pixels per logical pixel (`HiDPI` shots).
 pub const SCALE: f32 = 2.0;
+/// The window's logical size in the `_640` shots, the smallest size the app is designed for.
+pub const SMALL_SIZE: (u32, u32) = (640, 480);
 /// A live render that was seen running is photographed no earlier than this after the wait began.
 const MIN_SETTLE: Duration = Duration::from_millis(1500);
 /// A live render that was never seen running (it converged within one frame) is photographed
@@ -257,6 +259,35 @@ fn visible_texts(view: &WindowView) -> Vec<String> {
     texts
 }
 
+/// Defines two shot functions from one `fn(&mut Sc, bool)`: `$full` at the normal window size
+/// and `$small` with `small == true` (the function calls [`Sc::small`] when it is set).
+macro_rules! sized_shots {
+    ($doc:literal, $full:ident, $small:ident, $run:ident) => {
+        #[doc = $doc]
+        ///
+        /// # Errors
+        ///
+        /// The state is not reached, or the capture fails.
+        pub fn $full(sc: &mut crate::kit::Sc<'_, '_>) -> Result<uiprobe::screenshot::Shot, String> {
+            $run(sc, false)
+        }
+
+        #[doc = $doc]
+        ///
+        /// The same state with the window at 640 x 480.
+        ///
+        /// # Errors
+        ///
+        /// The state is not reached, or the capture fails.
+        pub fn $small(
+            sc: &mut crate::kit::Sc<'_, '_>,
+        ) -> Result<uiprobe::screenshot::Shot, String> {
+            $run(sc, true)
+        }
+    };
+}
+pub(crate) use sized_shots;
+
 /// What a shot needs: the app (on the library copy) and the run's configuration.
 pub struct Sc<'a, 'b> {
     /// The running app, the profile and the report.
@@ -266,6 +297,11 @@ pub struct Sc<'a, 'b> {
 }
 
 impl Sc<'_, '_> {
+    /// Shrinks the main window to [`SMALL_SIZE`] (the `_640` shots), at [`SCALE`].
+    pub fn small(&self) {
+        size_window(self.ctx.app.ui(), SMALL_SIZE);
+    }
+
     /// A strong handle on the main window.
     #[must_use]
     pub fn ui(&self) -> MainWindow {

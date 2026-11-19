@@ -5,6 +5,7 @@
 use crate::{
     EditorModel, MainWindow, ViewportModel,
     gui::{
+        commands,
         render::material::{ExplicitApply, apply_explicit_material},
         show_toast,
     },
@@ -50,6 +51,10 @@ pub(super) fn current_material(ui: &MainWindow) -> String {
 
 /// "Preview As": shows `name` in the viewport without touching the design. A library design
 /// takes it as its view selection, as the Stone tab's material pick does.
+///
+/// The Material Reference is its own window, so the main window may be on the Cutting
+/// Instructions or the Files tab, where no viewport shows: the 3D tab is brought forward (its
+/// Live Render or Edit view as it was left; the 3D tab is never locked by a guide).
 pub(super) fn preview_as(ui: &MainWindow, name: &str) {
     let viewport = ui.global::<ViewportModel>();
     let name = SharedString::from(name);
@@ -58,6 +63,7 @@ pub(super) fn preview_as(ui: &MainWindow, name: &str) {
     } else {
         viewport.invoke_library_material_chosen(name);
     }
+    commands::show_tab(ui, commands::TAB_3D);
 }
 
 /// The entries of the Material Editor's Load Preset Template picker that start from a built-in
@@ -117,6 +123,9 @@ fn color_row_of(options: &ModelRc<SharedString>, label: &str) -> Option<i32> {
 /// "Use for Design": sets the open design's color to variant `index` of `detail`, the same way
 /// a tile of the Stone tab's color list does (`EditorModel.apply_design_material`, one undo
 /// step). When the design is made of another material, that material is chosen first.
+///
+/// Once the color is applied the 3D tab is brought forward, like [`preview_as`]: the stone
+/// that changed is shown there. A refusal (toasted) leaves the main window as it is.
 pub(super) fn use_variant(ui: &MainWindow, detail: &MaterialDetail, index: usize) {
     if !design_is_open(ui) {
         show_toast(ui, "Open a design to use this color for it.", "info");
@@ -154,4 +163,5 @@ pub(super) fn use_variant(ui: &MainWindow, detail: &MaterialDetail, index: usize
         editor.get_ri_override_text(),
         row,
     );
+    commands::show_tab(ui, commands::TAB_3D);
 }

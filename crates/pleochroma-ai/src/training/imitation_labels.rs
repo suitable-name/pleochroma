@@ -14,6 +14,7 @@ pub(super) struct LabelRows {
     /// One entry per sample.
     pub(super) gain_target: Vec<f32>,
     pub(super) gain_mask: Vec<f32>,
+    pub(super) rejected: Vec<f32>,
     pub(super) sample_has_labels: Vec<bool>,
 }
 
@@ -42,6 +43,7 @@ pub(super) fn label_rows(batch: &ImitationBatch<'_>, idx: &[usize], max_tiers: u
             has_labels |= action.is_some();
         }
         let gain = Some(batch.oracle_gain[i]).filter(|g| g.is_finite());
+        rows.rejected.push(flag(batch.is_rejected_action(i)));
         rows.gain_target.push(gain.unwrap_or(0.0));
         rows.gain_mask.push(flag(gain.is_some()));
         rows.sample_has_labels.push(has_labels || gain.is_some());

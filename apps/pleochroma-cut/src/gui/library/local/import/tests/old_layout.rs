@@ -268,7 +268,7 @@ fn import_into_a_catalogue_created_in_the_old_column_layout_survives_the_migrati
         outcome.summary
     );
     assert!(
-        outcome.summary.contains("Imported 2 file(s)"),
+        outcome.summary.contains("Imported 2 files"),
         "expected exactly 2 imported: {}",
         outcome.summary
     );

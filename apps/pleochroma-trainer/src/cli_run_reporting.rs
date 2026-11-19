@@ -19,7 +19,7 @@ pub(super) struct RunRecords {
     pub(super) history: Vec<IterationMetricPoint>,
     pub(super) logs: Vec<(String, String, String)>,
     pub(super) evaluations: Vec<EvaluationSnapshot>,
-    /// Best validation score of the current validation identity.
+    /// Best score under the current validation identity's scoring revision.
     pub(super) best_validation_score: Option<f32>,
     #[serde(default)]
     pub(super) validation_identity: Option<String>,
@@ -208,6 +208,7 @@ const fn copy_validation_figures(
     fresh: &IterationMetricPoint,
 ) {
     recorded.val_score = fresh.val_score;
+    recorded.val_deployed_score = fresh.val_deployed_score;
     recorded.val_brilliance = fresh.val_brilliance;
     recorded.val_windowing = fresh.val_windowing;
     recorded.val_improvement = fresh.val_improvement;
@@ -250,10 +251,12 @@ mod tests {
         let mut recorded = point(18, 0.5, None);
         let mut fresh = point(19, 0.25, Some(41.5));
         fresh.val_designs = 16;
+        fresh.val_deployed_score = Some(39.5);
         copy_validation_figures(&mut recorded, &fresh);
         assert_eq!(recorded.update_of_iteration, Some(18));
         assert_eq!(recorded.imitation_loss, 0.5);
         assert_eq!(recorded.val_score, Some(41.5));
+        assert_eq!(recorded.val_deployed_score, Some(39.5));
         assert_eq!(recorded.val_designs, 16);
     }
 

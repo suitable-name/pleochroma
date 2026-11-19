@@ -15,7 +15,7 @@ use std::{
     cell::RefCell,
     ops::{Deref, DerefMut},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicU64, Ordering as AtomicOrdering},
     },
 };
@@ -333,6 +333,45 @@ impl EditorState {
         &self.file_extras.metadata.id
     }
 
+    /// The file extras a write (Save, Save As, autosave, an export) puts into the file.
+    ///
+    /// The RI range choice lives in `Design::ri_range_choice` while the design is open, so
+    /// that Undo and Redo move it; the file keeps it in the `[meta]` table. This is the one way
+    /// out: a copy of [`Self::file_extras`] whose `[meta]` states the design's choice. Metadata
+    /// that already agrees is left exactly as loaded, so an untouched design writes the same
+    /// bytes as before.
+    pub(in crate::gui::editor) fn file_extras_for_write(&self) -> DesignFileExtras {
+        let mut extras = self.file_extras.clone();
+        if extras.metadata.ri_range_choice() != self.session.design.ri_range_choice {
+            extras
+                .metadata
+                .set_ri_range_choice(self.session.design.ri_range_choice);
+        }
+        extras
+    }
+
+    /// Re-stamps a finished Deep Solve verdict and a pending Optimize result as current after
+    /// an edit that moved no geometry (the RI range choice).
+    ///
+    /// `generation_before` is the generation the edit started from. A result stamped with it
+    /// was current then, and still describes the design, so it takes the generation the edit
+    /// produced. A result that was already stale stays stale.
+    pub(in crate::gui::editor) fn keep_results_current(&mut self, generation_before: u64) {
+        let now = self.session.current_generation();
+        if self.deep_solve_result_generation == Some(generation_before) {
+            self.deep_solve_result_generation = Some(now);
+        }
+        let mut pending = self
+            .pending_optimize
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, started)) = pending.as_mut()
+            && *started == generation_before
+        {
+            *started = now;
+        }
+    }
+
     /// Replaces `self` with `replacement`, a new `New`, `Load Selected` or `Open` state.
     ///
     /// The `generation` and [`Self::design_epoch`] counters are carried over and bumped, not
@@ -359,6 +398,9 @@ impl EditorState {
             .design_epoch
             .fetch_add(1, AtomicOrdering::Relaxed);
         *self = replacement;
+        // The RI range choice is stored in the file's `[meta]`; the design holds it from here on,
+        // so Undo and Redo move it (see `Self::file_extras_for_write` for the way back out).
+        self.session.design.ri_range_choice = self.file_extras.metadata.ri_range_choice();
         // The design just opened is the new Baseline, and the figures of the one before it
         // are gone. This also clears the Baseline a previous design left behind.
         baseline::install(Origin::Opened, self);

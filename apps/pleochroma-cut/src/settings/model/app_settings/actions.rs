@@ -4,6 +4,7 @@ use super::{
     clamp_remote_batch_lanes, clamp_remote_preview_batch_size, migrate_legacy_workers,
     normalize_ui_scale_percent,
 };
+use pleochroma_editor::metric_deltas::normalize_display_tilt_window_deg;
 
 impl AppSettings {
     /// The remote endpoint's connection settings, if one is configured -- what every
@@ -77,6 +78,12 @@ impl AppSettings {
     /// percentage is kept, anything else becomes `0` (Automatic).
     pub fn set_ui_scale_percent(&mut self, percent: i32) {
         self.ui_scale_percent = normalize_ui_scale_percent(i64::from(percent));
+    }
+
+    /// Sets [`Self::tilt_average_range_deg`] through the one rule for it: an offered range
+    /// (15, 20, 30, 45, 60 or 90) is kept, anything else becomes 90.
+    pub fn set_tilt_average_range_deg(&mut self, degrees: i32) {
+        self.tilt_average_range_deg = normalize_display_tilt_window_deg(i64::from(degrees));
     }
 
     /// "Reset tutorial progress": forgets every finished tutorial. The welcome tour has

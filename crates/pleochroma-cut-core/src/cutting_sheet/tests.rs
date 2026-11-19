@@ -8,11 +8,12 @@ use super::{
 };
 use crate::{
     design::{
-        ConcaveTool, ConstraintTier, CutMeet, CutMeetAnchor, Design, ScheduleMeta, TierRef,
-        ToolMotion, compute_tier_labels, cutting_order::meet_inputs,
+        ConcaveTool, ConstraintTier, CutMeet, CutMeetAnchor, Design, MeetPlace, ScheduleMeta,
+        TierRef, ToolMotion, compute_tier_labels, cutting_order::meet_inputs,
     },
     material::MaterialSelection,
     preform::PreformSpec,
+    templates::TEMPLATES,
 };
 use pleochroma::{
     geometry::meet_solver::{MeetConstraint, MeetNameResolver, SolvedTier},
@@ -516,6 +517,247 @@ fn depth_placements_print_like_the_template() {
         .text(&codes),
         "Set to mast depth 0.5000"
     );
+}
+
+/// The two forms the cutter asked for: a meet at the centerpoint names its tiers and says so,
+/// without a full stop like every list of meets; the level girdle is a sentence and has one.
+#[test]
+fn the_centerpoint_and_level_girdle_forms_print_like_the_template() {
+    let tiers = vec![
+        named_tier("1", -41.0, MeetConstraint::ScaleReference(0.5)),
+        named_tier("G", 90.0, MeetConstraint::ScaleReference(1.0)),
+    ];
+    let codes = compute_tier_labels(&tiers);
+    assert_eq!(
+        DepthPlacement::MeetsAtCenterpoint(vec![0]).text(&codes),
+        "Meet P1 at centerpoint"
+    );
+    assert_eq!(
+        DepthPlacement::MeetsAtCenterpoint(vec![0, 1]).text(&codes),
+        "Meet P1, G1 at centerpoint"
+    );
+    assert_eq!(
+        DepthPlacement::CutToLevelGirdle.text(&codes),
+        "Cut to level girdle."
+    );
+    // `of` words a meet by where its points lie; every other meet keeps its list.
+    let meets = CutMeet::Meets(vec![0, 1]);
+    for (place, expected) in [
+        (
+            Some(MeetPlace::Centerpoint),
+            DepthPlacement::MeetsAtCenterpoint(vec![0, 1]),
+        ),
+        (
+            Some(MeetPlace::GirdleLine),
+            DepthPlacement::CutToLevelGirdle,
+        ),
+        (Some(MeetPlace::Other), DepthPlacement::Meets(vec![0, 1])),
+        (None, DepthPlacement::Meets(vec![0, 1])),
+    ] {
+        assert_eq!(
+            DepthPlacement::of(Some(&meets), place, 0.5, None),
+            expected,
+            "{place:?}"
+        );
+    }
+    // An anchor or a floating tier is worded as before, whatever the place says.
+    assert_eq!(
+        DepthPlacement::of(
+            Some(&CutMeet::Anchor(CutMeetAnchor::CutToCenterpoint)),
+            Some(MeetPlace::Centerpoint),
+            0.5,
+            None
+        ),
+        DepthPlacement::CutToCenterpoint
+    );
+}
+
+/// The Pentalume Sapphire re-issue (`designs/Pentalume_Sapphire/Pentalume_Sapphire.asc`), whose
+/// depths are meet points. Inlined verbatim, line endings aside.
+const PENTALUME: &str = "\
+GemCad 5.0
+g 80 0
+y 5 y
+I 1.7680773735046387
+H Pentalume Sapphire
+H Designed by Niklas Gussek
+a -44.6 0.7320997926 0 n P1_Five_broad_mains 16 32 48 64
+a 90 1 0 n G1_Five_long_sides 16 32 48 64 G Set stone size.
+a -41.9 0.7652954996 3 n P2_Ten_culet_splits 13 19 29 35 45 51 61 67 77
+a 90 1.1280169178 8 n G2_Five_clipping_flats 24 40 56 72
+a -44.4 0.8192817262 8 n P3_Five_corner_guards 24 40 56 72
+a 37.9 0.6474728844 0 n C1_Five_broad_bezels 16 32 48 64
+a 32 0.6334255166 8 n C2_Five_corner_bezels 24 40 56 72
+a 29.9 0.5941508544 4 n C3_Ten_stars 12 20 28 36 44 52 60 68 76
+a 0 0.3662153277 n Table
+";
+
+/// Cam's Portuguese (PC 45.140, by Greg Ninedorf, public domain by its own header), a true
+/// meet-point design that records its own notes. Inlined verbatim.
+const CAMS_PORTUGUESE: &str = "\
+GemCad 5.0_2017
+g 96 0.0
+y 12 y
+I 2.16
+H PC 45.140  Cam's Portuguese
+H by Greg Ninedorf, 2014
+H Copyright assigned to the public domain.
+a -90.00000 1.07325 96 n 1 88 80 72 64 56 48 40 32 24 16 8 G Set the size and shape
+a -61.71792 0.79638 96 n 2 88 80 72 64 56 48 40 32 24 16 8 G Set the girdle line
+a -51.97569 0.68189 92 n 3 84 76 68 60 52 44 36 28 20 12 4 G Meet the girdle line
+a -47.01841 0.65290 96 n 4 88 80 72 64 56 48 40 32 24 16 8 G Meet 2
+a -42.00000 0.64937 92 n 5 84 76 68 60 52 44 36 28 20 12 4 G Meet 3
+a 32.00000 0.88823 96 n a 8 16 24 32 40 48 56 64 72 80 88 G Set the girdle width
+a 28.00000 0.85428 4 n b 12 20 28 36 44 52 60 68 76 84 92 G Meet the girdle
+a 23.00000 0.83175 96 n c 8 16 24 32 40 48 56 64 72 80 88 G Meet a
+a 0.00000 0.68812 96 n t G Meet b
+F This design works for R.I. 1.76 - 2.16
+";
+
+/// A design read from `.asc` text the way the app opens a bare `.asc` file: every tier pinned to
+/// its recorded depth, the recorded notes kept.
+fn design_from_asc(text: &str) -> Design {
+    let schedule = pleochroma_formats::asc::parse_asc(text).expect("the fixture parses");
+    let preform = PreformSpec::cylinder_for_schedule(&schedule, 3.0, 1.0, 3.0);
+    Design::from_asc_schedule(preform, &schedule)
+}
+
+/// The instruction printed on the row coded `code`.
+fn printed(sheet: &CuttingSheet, code: &str) -> String {
+    sheet
+        .rows
+        .iter()
+        .find(|row| row.code == code)
+        .unwrap_or_else(|| panic!("no row {code}"))
+        .meet_instruction
+        .clone()
+}
+
+/// The Pentalume re-issue's sheet, row by row: P2 meets P1 at the centerpoint, and P3, C2 and C3
+/// are cut to the level girdle. The anchors, the girdle tier G2 and the table keep their text.
+#[test]
+fn pentalume_prints_the_cutters_wording() {
+    let design = design_from_asc(PENTALUME);
+    let solved = design.solve().expect("every tier is pinned");
+    let sheet = design.cutting_sheet(&solved);
+    for (code, expected) in [
+        ("P1", "Cut to centerpoint."),
+        ("G1", "Set stone size."),
+        ("P2", "Meet P1 at centerpoint"),
+        ("G2", "Meet P1, G1, P2"),
+        ("P3", "Cut to level girdle."),
+        ("C1", "Set girdle width."),
+        ("C2", "Cut to level girdle."),
+        ("C3", "Cut to level girdle."),
+        ("T", "Meet C1, C3"),
+    ] {
+        assert_eq!(printed(&sheet, code), expected, "{code}");
+    }
+}
+
+/// Cam's Portuguese records its own notes, so the sheet prints them verbatim, "Meet 3" and all:
+/// the designer's words win over the computed wording.
+#[test]
+fn cams_portuguese_keeps_its_own_words() {
+    let design = design_from_asc(CAMS_PORTUGUESE);
+    let solved = design.solve().expect("every imported tier is pinned");
+    let sheet = design.cutting_sheet(&solved);
+    let notes: Vec<&str> = sheet
+        .rows
+        .iter()
+        .map(|row| row.meet_instruction.as_str())
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            "Set the size and shape",
+            "Set the girdle line",
+            "Meet the girdle line",
+            "Meet 2",
+            "Meet 3",
+            "Set the girdle width",
+            "Meet the girdle",
+            "Meet a",
+            "Meet b",
+        ]
+    );
+}
+
+/// A design without a girdle tier has no girdle line, so no row says "Cut to level girdle.".
+#[test]
+fn a_design_without_a_girdle_tier_gets_no_level_girdle_row() {
+    let mut design = design_from_asc(PENTALUME);
+    design.tiers.retain(|tier| !tier.is_girdle());
+    let solved = design.solve().expect("every remaining tier is pinned");
+    assert_eq!(design.girdle_level(&solved), None);
+    let sheet = design.cutting_sheet(&solved);
+    assert!(
+        sheet
+            .rows
+            .iter()
+            .all(|row| row.meet_instruction != "Cut to level girdle."),
+        "{:?}",
+        instructions(&sheet)
+    );
+}
+
+/// A tier that cuts into the girdle keeps its list of meets, and the Check speaks. The first
+/// Pentalume's girdle is not level: P3 and C3 cut into it where G1 meets G2.
+#[test]
+fn a_tier_that_cuts_into_the_girdle_keeps_its_list() {
+    let design = design_from_asc(include_str!("../design/girdle_level/pentalume.asc"));
+    let solved = design.solve().expect("every tier is pinned");
+    let level = design.girdle_level(&solved).expect("a girdle line");
+    assert!(!level.cut_in.is_empty(), "the girdle is not level");
+    let sheet = design.cutting_sheet(&solved);
+    let codes = design.tier_codes();
+    for &tier in &level.cut_in {
+        assert_ne!(
+            printed(&sheet, &codes.flat[tier].code),
+            "Cut to level girdle.",
+            "tier {tier}"
+        );
+    }
+}
+
+/// The round brilliants' break facets are judged by rule B like any other tier, and the sheet
+/// words each row from the tier's place alone: whichever tiers pass, the text follows
+/// [`crate::design::CutMeets::place`], and a row that is not a meet is untouched.
+///
+/// This records the behaviour rather than a figure; the owner pins the rows once the fixture
+/// has run.
+#[test]
+fn the_round_brilliant_rows_follow_their_place() {
+    for spec in TEMPLATES
+        .iter()
+        .filter(|spec| spec.name.starts_with("Standard Round Brilliant"))
+    {
+        let design = Design::new(spec.preform.clone(), spec.schedule_meta(), spec.tiers());
+        let solved = design.solve().expect("every template tier is pinned");
+        let meets = design.cut_meets(&solved).expect("the stone closes");
+        let sheet = design.cutting_sheet(&solved);
+        let codes = design.tier_codes();
+        for (tier, meet) in meets.tiers.iter().enumerate() {
+            let flat = &design.tiers[tier];
+            // The designer's own words win: a named meet or a recorded note prints as written.
+            if matches!(flat.constraint, MeetConstraint::MeetNamed(_))
+                || flat.original_notes.is_some()
+            {
+                continue;
+            }
+            let text = printed(&sheet, &codes.flat[tier].code);
+            let level_girdle = text == "Cut to level girdle.";
+            assert_eq!(
+                level_girdle,
+                matches!(meet, CutMeet::Meets(_)) && meets.place[tier] == MeetPlace::GirdleLine,
+                "{}: {text}",
+                spec.name
+            );
+            if matches!(meet, CutMeet::Meets(_)) && meets.place[tier] == MeetPlace::Centerpoint {
+                assert!(text.ends_with(" at centerpoint"), "{}: {text}", spec.name);
+            }
+        }
+    }
 }
 
 /// The printed index lists are dash-separated, whole indices zero-padded to two digits,

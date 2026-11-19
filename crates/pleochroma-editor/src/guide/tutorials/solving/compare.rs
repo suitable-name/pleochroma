@@ -189,7 +189,7 @@ fn variants() -> Guide {
         )
         .actions([
             "Click Save as Variant...",
-            "Leave the name as Variant 1, or type one you will recognise. A note is optional.",
+            "Leave the name as Variant 1, or type one you will recognize. A note is optional.",
             "Click Save, or press Enter.",
         ])
         .check("a row with a picture, the name and the buttons Open, Rename, Note and Delete.")
@@ -299,8 +299,8 @@ fn snapshot_compare() -> Guide {
             "Set a Baseline",
             "The Baseline is a copy of the design and its solved depths, to compare against later. A Baseline is set when a design opens, so this step sets a fresh one on purpose.",
         )
-        .actions(["Click Set Baseline on the command bar, or Set as Baseline in the strip under the inspector's tabs."])
-        .check("a message says Baseline set, and the strip reads against it.")
+        .actions(["Open the Baseline menu on the command bar and click Set Baseline."])
+        .check("a message says Baseline set.")
         .why("The Baseline is not saved anywhere. It lives only in memory for this session: closing the design or the program, or setting a new Baseline, replaces or loses it. It is not written to the design file. A trial can also become the Baseline (see Keep Trials).")
         .goal(event(events::SNAPSHOT_TAKEN), "a Baseline set")
         .highlight("snapshot_button")
@@ -358,7 +358,7 @@ fn snapshot_compare() -> Guide {
         )
         .actions([
             "Side by Side shows the two stones next to each other. Split Slider shows one stone with a draggable divider, the before design to its left and the after design to its right. Dragging turns both stones together, the mouse wheel zooms both and a double-click resets them.",
-            "Solid is the flat grey view. Traced runs the path tracer at a modest fixed quality in each side's own material and starts once you stop turning the stone.",
+            "Solid is the flat gray view. Traced runs the path tracer at a modest fixed quality in each side's own material and starts once you stop turning the stone.",
             "Under the stones, a small table gives brilliance, windowing, extinction, fire and scintillation for both, with the change and the word better, worse or same. The figures are measured table up, in each side's own material, under the lighting chosen in the viewport when you opened Compare.",
             "A Baseline comparison only offers Close. Keep After and Discard belong to the Retarget and Optimize comparisons.",
         ])
@@ -380,7 +380,7 @@ fn raw_text() -> Guide {
             "Set a Baseline",
             "The text comparison needs something to compare with. A design that has never been saved has no file, so use the Baseline.",
         )
-        .actions(["Click Set Baseline on the command bar."])
+        .actions(["Open the Baseline menu on the command bar and click Set Baseline."])
         .check("a message says Baseline set.")
         .why("A Baseline is set when a design opens, so this step only makes a fresh one.")
         .goal(event(events::SNAPSHOT_TAKEN), "a Baseline set")

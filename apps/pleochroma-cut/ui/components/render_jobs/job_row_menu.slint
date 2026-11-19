@@ -1,0 +1,199 @@
+import { Theme } from "../../theme.slint";
+import { RenderJobsModel, RenderJobRow } from "../../models/render_jobs.slint";
+import { KitIcon, KitIcons } from "../kit/icons.slint";
+import { TierMenuSurface, TierMenuItem, TierMenuSeparator } from "../editor_tier_table/tier_menu_parts.slint";
+
+// The "..." button of a job row and its menu, a `PopupWindow` (so no `changed` handler may be
+// written in here: a debug build of the build script panics on one). Three groups, each item shown
+// only when the row's `can_*` flags allow it, the row's own button never repeated:
+//   Run Next / Move Up / Move Down | Duplicate / Copy to Materials... / Load Job View |
+//   Restart / Cancel / Delete (red).
+//
+// Placement: below the button; when that does not fit the window, above it; when neither fits (ten
+// items at 480 px), clamped to the window with the items scrolling. `window_h` is the height of
+// the window the Jobs panel fills; the button's own position is read when the menu opens.
+export component JobRowMenu inherits Rectangle {
+    in property <RenderJobRow> job;
+    in property <length> window_h;
+    in property <bool> enabled: true;
+
+    // Restart is on the row itself for a cancelled job, and Cancel for a running one.
+    property <bool> show_restart: root.job.can_restart && root.job.primary_action != 4;
+    property <bool> show_cancel_item: root.job.can_cancel && !root.job.show_cancel;
+    property <int> n1: (root.job.can_run_next ? 1 : 0) + (root.job.can_move_up ? 1 : 0) + (root.job.can_move_down ? 1 : 0);
+    property <int> n2: (root.job.can_duplicate ? 1 : 0) + (root.job.can_copy ? 1 : 0) + (root.job.can_load_view ? 1 : 0);
+    property <int> n3: (root.show_restart ? 1 : 0) + (root.show_cancel_item ? 1 : 0) + (root.job.can_delete ? 1 : 0);
+    property <int> groups: (root.n1 > 0 ? 1 : 0) + (root.n2 > 0 ? 1 : 0) + (root.n3 > 0 ? 1 : 0);
+    property <length> menu_h: 8px + (root.n1 + root.n2 + root.n3) * 28px + (root.groups > 1 ? root.groups - 1 : 0) * 9px;
+
+    // The button's top edge in the window, read when the menu opens.
+    property <length> anchor_y: 0px;
+    property <length> room_below: root.window_h - (root.anchor_y + root.height + 4px) - 8px;
+    property <length> room_above: root.anchor_y - 4px - 8px;
+    property <bool> fits_below: root.menu_h <= root.room_below;
+    property <bool> fits_above: !root.fits_below && root.menu_h <= root.room_above;
+    property <length> pop_h: (root.fits_below || root.fits_above)
+        ? root.menu_h
+        : max(60px, min(root.menu_h, root.window_h - 16px));
+    property <length> pop_y: root.fits_below
+        ? root.height + 4px
+        : (root.fits_above ? -root.menu_h - 4px : 8px - root.anchor_y);
+
+    // Runs in this row, so the job it copies is this row's (see `RenderJobsModel.menu_job`).
+    public function open_menu() {
+        RenderJobsModel.menu_job = root.job;
+        root.anchor_y = root.absolute-position.y;
+        menu.show();
+    }
+
+    width: 30px;
+    height: 26px;
+    border-radius: Theme.radius-sm;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: dots_touch.has-hover && root.enabled ? Theme.surface-raised : Theme.surface-sunken;
+    border-width: dots_focus.has-focus ? 2px : 1px;
+    border-color: dots_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-dialog;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: "More actions";
+    accessible-description: "Run Next, Move Up and Down, Duplicate, Copy to Materials, Load Job View, Restart, Cancel and Delete.";
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.open_menu();
+        }
+    }
+
+    Tooltip { text: @markdown("More actions for this job."); }
+
+    dots_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.open_menu();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    KitIcon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        d: KitIcons.more;
+        size: 14px;
+        ink: Theme.text-secondary;
+    }
+
+    dots_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.open_menu(); }
+    }
+
+    // Acts on `RenderJobsModel.menu_job`, which `open_menu()` copied from this row: the popup reads
+    // no job of the row itself, only its placement.
+    menu := PopupWindow {
+        property <RenderJobRow> job: RenderJobsModel.menu_job;
+        property <bool> show_restart: self.job.can_restart && self.job.primary_action != 4;
+        property <bool> show_cancel_item: self.job.can_cancel && !self.job.show_cancel;
+        property <int> n1: (self.job.can_run_next ? 1 : 0) + (self.job.can_move_up ? 1 : 0) + (self.job.can_move_down ? 1 : 0);
+        property <int> n2: (self.job.can_duplicate ? 1 : 0) + (self.job.can_copy ? 1 : 0) + (self.job.can_load_view ? 1 : 0);
+        property <int> n3: (self.show_restart ? 1 : 0) + (self.show_cancel_item ? 1 : 0) + (self.job.can_delete ? 1 : 0);
+        x: root.width - 210px;
+        y: root.pop_y;
+        width: 210px;
+        height: root.pop_h;
+        close-policy: close-on-click-outside;
+
+        TierMenuSurface {
+            width: parent.width;
+            height: parent.height;
+            clip: true;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: "Job Actions";
+
+            Flickable {
+                width: parent.width;
+                height: parent.height;
+                content-height: col.preferred-height;
+
+                col := VerticalLayout {
+                    padding: 4px;
+
+                    if menu.job.can_run_next: TierMenuItem {
+                        text: "Run Next";
+                        label: "Run Next";
+                        hint: "Move this job to the top, so it is the next one to render.";
+                        icon: KitIcons.play;
+                        activated => { RenderJobsModel.run_next(menu.job.id); menu.close(); }
+                    }
+                    if menu.job.can_move_up: TierMenuItem {
+                        text: "Move Up";
+                        label: "Up";
+                        hint: "Move this job one place up.";
+                        icon: "M6 15 L12 9 L18 15";
+                        activated => { RenderJobsModel.move_job(menu.job.id, -1); menu.close(); }
+                    }
+                    if menu.job.can_move_down: TierMenuItem {
+                        text: "Move Down";
+                        label: "Down";
+                        hint: "Move this job one place down.";
+                        icon: KitIcons.chevron-down;
+                        activated => { RenderJobsModel.move_job(menu.job.id, 1); menu.close(); }
+                    }
+
+                    if menu.n1 > 0 && menu.n2 + menu.n3 > 0: TierMenuSeparator { }
+
+                    if menu.job.can_duplicate: TierMenuItem {
+                        text: "Duplicate";
+                        label: "Duplicate";
+                        hint: "Add a copy of this job to the queue, as a waiting job.";
+                        icon: KitIcons.copy;
+                        activated => { RenderJobsModel.duplicate_job(menu.job.id); menu.close(); }
+                    }
+                    if menu.job.can_copy: TierMenuItem {
+                        text: "Copy to Materials\u{2026}";
+                        label: "Copy to Materials";
+                        hint: "Add one copy of this job for each material you choose.";
+                        icon: KitIcons.gem;
+                        activated => { RenderJobsModel.open_copy_dialog(menu.job.id); menu.close(); }
+                    }
+                    if menu.job.can_load_view: TierMenuItem {
+                        text: "Load Job View";
+                        label: "Load Job View";
+                        hint: "Show this job's stone, material, lighting and camera in the live view.";
+                        icon: KitIcons.eye;
+                        activated => { RenderJobsModel.load_job_view(menu.job.id); menu.close(); }
+                    }
+
+                    if menu.n2 > 0 && menu.n3 > 0: TierMenuSeparator { }
+
+                    if menu.show_restart: TierMenuItem {
+                        text: "Restart";
+                        label: "Restart";
+                        hint: "Render this job again from the beginning.";
+                        icon: KitIcons.reset;
+                        activated => { RenderJobsModel.restart_job(menu.job.id); menu.close(); }
+                    }
+                    if menu.show_cancel_item: TierMenuItem {
+                        text: "Cancel";
+                        label: "Cancel";
+                        hint: "Stop this job for good. Restart can bring it back.";
+                        icon: KitIcons.close;
+                        activated => { RenderJobsModel.cancel_job(menu.job.id); menu.close(); }
+                    }
+                    if menu.job.can_delete: TierMenuItem {
+                        text: "Delete";
+                        label: "Delete";
+                        hint: "Remove this job from the list. Files it already wrote stay on disk.";
+                        // A trash can; the kit has no such icon.
+                        icon: "M5 7 H19 M9 7 V5 H15 V7 M7 7 L8 20 H16 L17 7";
+                        ink: Theme.danger;
+                        activated => { RenderJobsModel.delete_job(menu.job.id); menu.close(); }
+                    }
+                }
+            }
+        }
+    }
+}

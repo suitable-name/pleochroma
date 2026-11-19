@@ -571,8 +571,10 @@ pub fn print_summary(
     }
     if let Some(v) = s.last_validation.as_ref().filter(|v| v.designs > 0) {
         println!(
-            "  validation             score {:.2}, {}, {:.2} evals/step, brilliance {:.1}%, \
+            "  validation             deployed Full {}, diagnostic rollout {:.2}, {}, {:.2} evals/step, brilliance {:.1}%, \
              windowing {:.1}%",
+            v.mean_deployed_score
+                .map_or_else(|| "n/a".to_owned(), |s| format!("{s:.3}")),
             v.mean_final_score,
             describe_drops(
                 v.mean_improvement,

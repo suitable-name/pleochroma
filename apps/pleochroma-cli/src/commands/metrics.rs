@@ -1,8 +1,14 @@
 //! `metrics`: the optical and geometric figures of a design, as text, JSON or one CSV row.
 //!
 //! The optical figures are the ones the Optimize tab and the sweep score with: one table-up
-//! measurement under the lighting preset at the canonical light pose, and with `--tilt` the mean
-//! over four axes and 181 tilt angles. The proportions and the yield come from the solid.
+//! measurement under the lighting preset at the canonical light pose. With `--tilt` the tilt
+//! averages are the mean over every tilt to 90 degrees on four axes (181 angles each, the
+//! scoring tools' figure); `--tilt-range DEG` (15, 20, 30, 45, 60 or 90) narrows the mean to the
+//! tilts up to that range (`average_axis_profiles_within`), as the app's Tilt Average Range
+//! does for Compare and Baseline, and the report then names the range. The command line never
+//! reads the app's settings file. With `--ri-range` the stone is traced across refractive
+//! indices and the report adds the range it works in (the `ri_report` module). The proportions
+//! and the yield come from the solid.
 //!
 //! A design with concave tiers is measured as the stone with its tools, the stone the Compare
 //! window draws and Optimize scores (`Design::tools_for_scoring`, `StoneGeometry`): the optics
@@ -48,22 +54,27 @@ use crate::{
 use pleochroma::{
     color::metrics::{
         ASET_GRID, AsetAreaShares, AsetSpotGrid, FinishedStone, GemOpticalMetrics,
-        evaluate_aset_spot_grid_finished, evaluate_gem_optical_metrics_finished, pattern_contrast,
+        evaluate_all_axes_profiles_finished_threaded, evaluate_aset_spot_grid_finished,
+        evaluate_gem_optical_metrics_finished, pattern_contrast,
     },
     geometry::{
         StoneGeometry,
         meet_solver::SolvedTier,
         stone_metrics::{StoneProportions, measure_solid},
     },
-    optics::LightingPreset,
+    optics::{LightingPreset, materials::GemMaterial, raytracer::EnvironmentSource},
 };
 use pleochroma_cut_core::{
-    Design, ObjectiveComponents, ObjectiveFidelity, evaluate_objective_finished_under,
+    Design,
     optimize::{CANONICAL_LIGHT_PITCH, CANONICAL_LIGHT_YAW},
     volumetric_yield,
 };
 use pleochroma_editor::{
-    optimize_view::facet_count_from_solved, solve_policy::design_to_gpu_planes_from_solved,
+    metric_deltas::{DEFAULT_DISPLAY_TILT_WINDOW_DEG, average_axis_profiles_within},
+    optimize_view::facet_count_from_solved,
+    ri_range::RiRange,
+    solve_policy::design_to_gpu_planes_from_solved,
+    sweep::TiltAverages,
     view_model::girdle_reading::GirdleReading,
 };
 use serde_json::{Map, Value, json};
@@ -72,8 +83,22 @@ use std::fmt::Write as _;
 /// The heading of the table-up figures.
 const GROUP_TABLE_UP: &str = "Optics, table up";
 
-/// The heading of the tilt averages.
+/// The heading of the tilt averages over every tilt, the default range.
 const GROUP_TILT: &str = "Optics, tilt average over 4 axes and 181 angles";
+
+/// The heading of the tilt averages for a range of `range_deg` each way: the heading of every
+/// tilt at 90, else one that names the range and its angle count (2 x range + 1). A table of
+/// `&'static str`, because a figure's group is static.
+fn tilt_group(range_deg: u8) -> &'static str {
+    match range_deg {
+        15 => "Optics, tilt average to ±15° over 4 axes and 31 angles",
+        20 => "Optics, tilt average to ±20° over 4 axes and 41 angles",
+        30 => "Optics, tilt average to ±30° over 4 axes and 61 angles",
+        45 => "Optics, tilt average to ±45° over 4 axes and 91 angles",
+        60 => "Optics, tilt average to ±60° over 4 axes and 121 angles",
+        _ => GROUP_TILT,
+    }
+}
 
 /// The heading of the proportions.
 const GROUP_PROPORTIONS: &str = "Proportions";
@@ -217,7 +242,9 @@ struct Measured {
     table_up: GemOpticalMetrics,
     /// The Blue share of every spot of the face-up grid, when it was asked for (`--aset-grid`).
     aset_grid: Option<AsetSpotGrid>,
-    tilt: Option<ObjectiveComponents>,
+    tilt: Option<TiltAverages>,
+    /// The range the tilt averages cover, in degrees each way (90: every tilt).
+    tilt_range_deg: u8,
     proportions: StoneProportions,
     /// The thinnest girdle thickness at its line, percent of the width ([`girdle_line_percent`]).
     girdle_line_pct: Option<f64>,
@@ -229,8 +256,8 @@ struct Measured {
     warnings: usize,
 }
 
-/// Measures the stone of `design`, whose solve is `solved` and whose analysis is `analysis`.
-/// `aset_grid` also reads the grid of Blue shares Contrast is computed from.
+/// [`measure_within`] with the tilt averages over every tilt when `tilt` is set.
+#[cfg(test)]
 fn measure(
     design: &Design,
     analysis: &Analysis,
@@ -238,6 +265,24 @@ fn measure(
     scoring: &Scoring,
     lighting: LightingPreset,
     tilt: bool,
+    aset_grid: bool,
+) -> Result<Measured, CliError> {
+    let range = tilt.then_some(DEFAULT_DISPLAY_TILT_WINDOW_DEG);
+    measure_within(
+        design, analysis, solved, scoring, lighting, range, aset_grid,
+    )
+}
+
+/// Measures the stone of `design`, whose solve is `solved` and whose analysis is `analysis`.
+/// `tilt_range` also averages the tilts up to that many degrees each way; `aset_grid` also reads
+/// the grid of Blue shares Contrast is computed from.
+fn measure_within(
+    design: &Design,
+    analysis: &Analysis,
+    solved: &[SolvedTier],
+    scoring: &Scoring,
+    lighting: LightingPreset,
+    tilt_range: Option<u8>,
     aset_grid: bool,
 ) -> Result<Measured, CliError> {
     let planes_gpu = design_to_gpu_planes_from_solved(design, solved);
@@ -263,8 +308,7 @@ fn measure(
     } else {
         None
     };
-    let tilt = tilt
-        .then(|| evaluate_objective_finished_under(stone, gem, ObjectiveFidelity::Full, lighting));
+    let tilt = tilt_range.map(|range| tilt_average(stone, gem, environment, range));
     let solid = measure_solid(&planes)
         .ok_or_else(|| CliError::design("the stone cannot be measured: it has no usable volume"))?;
     let mesh = analysis
@@ -293,6 +337,7 @@ fn measure(
         table_up,
         aset_grid,
         tilt,
+        tilt_range_deg: tilt_range.unwrap_or(DEFAULT_DISPLAY_TILT_WINDOW_DEG),
         proportions,
         girdle_line_pct,
         vol_w3,
@@ -302,6 +347,19 @@ fn measure(
         tiers: design.tiers.len(),
         warnings: analysis.warnings.len(),
     })
+}
+
+/// The tilt average of `stone`: the mean over the tilts up to `range_deg` each way on the four
+/// axes, from the same 724 poses the scoring tools trace. At 90 it is the mean of every tilt, bit
+/// for bit what `average_axis_profiles` gives.
+fn tilt_average(
+    stone: FinishedStone<'_>,
+    gem: &GemMaterial,
+    environment: EnvironmentSource<'_>,
+    range_deg: u8,
+) -> TiltAverages {
+    let axes = evaluate_all_axes_profiles_finished_threaded(stone, gem, environment, None);
+    average_axis_profiles_within(&axes, f32::from(range_deg))
 }
 
 /// The girdle's thinnest thickness at its LINE as a percentage of the width: the corners where
@@ -366,21 +424,22 @@ fn optics_figures(measured: &Measured) -> Vec<Figure> {
     ];
     figures.extend(zone_figures(table.aset));
     if let Some(tilt) = &measured.tilt {
+        let group = tilt_group(measured.tilt_range_deg);
         figures.extend([
             Figure::percent(
-                GROUP_TILT,
+                group,
                 "tilt_brilliance_pct",
                 "Brilliance",
-                Some(f64::from(tilt.tilt_brilliance_pct)),
+                Some(f64::from(tilt.brilliance_pct)),
             ),
             Figure::percent(
-                GROUP_TILT,
+                group,
                 "tilt_windowing_pct",
                 "Windowing",
                 Some(f64::from(tilt.windowing_pct)),
             ),
             Figure::percent(
-                GROUP_TILT,
+                group,
                 "tilt_extinction_pct",
                 "Extinction",
                 Some(f64::from(tilt.extinction_pct)),
@@ -507,8 +566,13 @@ struct Built {
     n_d: f64,
     lighting: &'static str,
     figures: Vec<Figure>,
+    /// The tilt range as `--tilt-range` gave it; `None` without the flag, when neither the JSON
+    /// nor the CSV names a range.
+    tilt_range_deg: Option<u8>,
     /// The Blue shares of the face-up grid, printed under the figures of the text report.
     aset_grid: Option<AsetSpotGrid>,
+    /// The traced range of refractive indices, when it was asked for (`--ri-range`).
+    ri_range: Option<RiRange>,
     notes: Vec<String>,
 }
 
@@ -521,15 +585,24 @@ fn build(loaded: &Loaded, catalogue: &Catalogue, args: &MetricsArgs) -> Result<B
     let scoring = resolve_scoring(&loaded.design, catalogue, args.material.as_ref())?;
     let analysis = analyze(&loaded.design);
     let solved = analysis.require_stone(&loaded.design)?;
-    let measured = measure(
+    let tilt_range = args.tilt.then(|| {
+        args.tilt_range_deg
+            .unwrap_or(DEFAULT_DISPLAY_TILT_WINDOW_DEG)
+    });
+    let measured = measure_within(
         &loaded.design,
         &analysis,
         solved,
         &scoring,
         args.lighting,
-        args.tilt,
+        tilt_range,
         args.aset_grid && matches!(args.format, ReportFormat::Text),
     )?;
+    let ri_range = if args.ri_range {
+        Some(ri_report::trace(&loaded.design, solved, &scoring)?)
+    } else {
+        None
+    };
     let mut notes = loaded.notes.clone();
     notes.extend(scoring.note.clone());
     Ok(Built {
@@ -539,7 +612,9 @@ fn build(loaded: &Loaded, catalogue: &Catalogue, args: &MetricsArgs) -> Result<B
         n_d: scoring.n_d(),
         lighting: lighting_name(args.lighting),
         figures: figures(&measured),
+        tilt_range_deg: args.tilt_range_deg.filter(|_| args.tilt),
         aset_grid: measured.aset_grid,
+        ri_range,
         notes,
     })
 }
@@ -632,6 +707,10 @@ fn text_report(built: &Built) -> String {
     ]);
     text.push('\n');
     text.push_str(&figure_lines(&built.figures));
+    if let Some(range) = &built.ri_range {
+        text.push('\n');
+        text.push_str(&ri_report::text(range));
+    }
     if let Some(grid) = &built.aset_grid {
         text.push('\n');
         text.push_str(&aset_grid_text(grid));
@@ -649,7 +728,7 @@ fn json_report(built: &Built) -> String {
     for figure in &built.figures {
         figures.insert(figure.key.to_string(), figure.json());
     }
-    json_text(&json!({
+    let mut report = json!({
         "design": built.name,
         "file": built.file,
         "material": built.material,
@@ -657,13 +736,25 @@ fn json_report(built: &Built) -> String {
         "lighting": built.lighting,
         "figures": figures,
         "notes": built.notes,
-    }))
+    });
+    if let Some(degrees) = built.tilt_range_deg {
+        report["tilt_range_deg"] = json!(degrees);
+    }
+    if let Some(range) = &built.ri_range {
+        report["ri_range"] = ri_report::json(range);
+    }
+    json_text(&report)
 }
 
 /// The CSV report: a header line and one row. A figure the stone has no value for is left
 /// empty. The figures of [`APPENDED_CSV_KEYS`] come last, after every older column. Notes are
-/// not part of it (they go to standard error).
+/// not part of it (they go to standard error). `tilt_range_deg` is the last column, and only when
+/// `--tilt-range` was given. With `--ri-range` the CSV is the table of the
+/// traced range instead ([`ri_report::csv`]).
 fn csv_report(built: &Built) -> String {
+    if let Some(range) = &built.ri_range {
+        return ri_report::csv(&built.name, &built.material, built.lighting, range);
+    }
     let mut header: Vec<String> = ["design", "material", "refractive_index", "lighting"]
         .iter()
         .map(ToString::to_string)
@@ -685,13 +776,23 @@ fn csv_report(built: &Built) -> String {
         header.push(figure.key.to_string());
         row.push(figure.csv());
     }
+    // The range goes last, and only when `--tilt-range` was given.
+    if let Some(degrees) = built.tilt_range_deg {
+        header.push("tilt_range_deg".to_owned());
+        row.push(degrees.to_string());
+    }
     let mut text = csv_line(&header);
     text.push_str(&csv_line(&row));
     text
 }
 
+mod ri_report;
+
 #[cfg(test)]
 mod tests_concave;
+
+#[cfg(test)]
+mod tests_ri_range;
 
 #[cfg(test)]
 mod tests_frosted;
@@ -735,7 +836,9 @@ mod tests {
             design: PathBuf::new(),
             material: Some(MaterialArg::Ri(1.76)),
             tilt,
+            tilt_range_deg: None,
             aset_grid: false,
+            ri_range: false,
             format,
             lighting: CANONICAL_LIGHTING_PRESET,
             out: None,
@@ -1191,6 +1294,157 @@ mod tests {
             let reading = figures[key].as_f64().unwrap_or(-1.0);
             assert!((0.0..=100.0).contains(&reading), "{key} = {reading}");
         }
+        let text = testing::run(&["metrics", &input, "--ri", "1.76", "--tilt"]);
+        assert_eq!(text.exit, EXIT_OK, "{}", text.stderr);
+        assert!(
+            text.stdout
+                .contains("\nOptics, tilt average over 4 axes and 181 angles:\n  Brilliance"),
+            "{}",
+            text.stdout
+        );
+        assert!(
+            !value
+                .as_object()
+                .is_some_and(|map| map.contains_key("tilt_range_deg"))
+        );
+    }
+
+    #[test]
+    fn the_tilt_heading_is_the_old_one_at_ninety_and_names_a_narrower_range() {
+        assert_eq!(DEFAULT_DISPLAY_TILT_WINDOW_DEG, 90);
+        assert_eq!(
+            tilt_group(90),
+            "Optics, tilt average over 4 axes and 181 angles"
+        );
+        assert_eq!(tilt_group(90), GROUP_TILT);
+        for (range, angles) in [(15_u8, 31), (20, 41), (30, 61), (45, 91), (60, 121)] {
+            assert_eq!(
+                tilt_group(range),
+                format!("Optics, tilt average to ±{range}° over 4 axes and {angles} angles"),
+                "{range}"
+            );
+            assert_eq!(
+                u16::try_from(angles).expect("small"),
+                pleochroma_editor::metric_deltas::tilt_angles_within(range)
+            );
+        }
+        assert_eq!(
+            tilt_group(0),
+            GROUP_TILT,
+            "an unlisted value reads as every tilt"
+        );
+    }
+
+    #[test]
+    fn a_narrower_range_names_itself_in_the_report_and_gives_other_figures() {
+        let input = testing::write_design("metrics-e2e-tilt-range.psdd", &testing::template());
+        let narrow = testing::run(&[
+            "metrics",
+            &input,
+            "--ri",
+            "1.76",
+            "--tilt",
+            "--tilt-range",
+            "30",
+            "--json",
+        ]);
+        assert_eq!(narrow.exit, EXIT_OK, "{}", narrow.stderr);
+        let narrow: Value = serde_json::from_str(&narrow.stdout).expect("valid JSON");
+        assert_eq!(narrow["tilt_range_deg"], 30);
+        let full = testing::run(&["metrics", &input, "--ri", "1.76", "--tilt", "--json"]);
+        assert_eq!(full.exit, EXIT_OK, "{}", full.stderr);
+        let full: Value = serde_json::from_str(&full.stdout).expect("valid JSON");
+        assert_ne!(
+            narrow["figures"]["tilt_brilliance_pct"], full["figures"]["tilt_brilliance_pct"],
+            "a window of 30 degrees reads other means than every tilt"
+        );
+        assert_eq!(
+            narrow["figures"]["table_up_brilliance_pct"],
+            full["figures"]["table_up_brilliance_pct"],
+            "the table-up figures never follow the range"
+        );
+        let text = testing::run(&[
+            "metrics",
+            &input,
+            "--ri",
+            "1.76",
+            "--tilt",
+            "--tilt-range",
+            "30",
+        ]);
+        assert_eq!(text.exit, EXIT_OK, "{}", text.stderr);
+        assert!(
+            text.stdout.contains(
+                "\nOptics, tilt average to ±30° over 4 axes and 61 angles:\n  Brilliance"
+            ),
+            "{}",
+            text.stdout
+        );
+        let csv = testing::run(&[
+            "metrics",
+            &input,
+            "--ri",
+            "1.76",
+            "--tilt",
+            "--tilt-range",
+            "45",
+            "--csv",
+        ]);
+        assert_eq!(csv.exit, EXIT_OK, "{}", csv.stderr);
+        let lines: Vec<&str> = csv.stdout.lines().collect();
+        assert!(lines[0].ends_with(",tilt_range_deg"), "{}", csv.stdout);
+        assert!(lines[1].ends_with(",45"), "{}", csv.stdout);
+    }
+
+    #[test]
+    fn the_tilt_range_with_ninety_still_names_the_range_in_json_only_when_given() {
+        let input = testing::write_design("metrics-e2e-tilt-90.psdd", &testing::template());
+        let given = testing::run(&[
+            "metrics",
+            &input,
+            "--ri",
+            "1.76",
+            "--tilt",
+            "--tilt-range",
+            "90",
+            "--json",
+        ]);
+        assert_eq!(given.exit, EXIT_OK, "{}", given.stderr);
+        let given: Value = serde_json::from_str(&given.stdout).expect("valid JSON");
+        assert_eq!(given["tilt_range_deg"], 90);
+        let plain = testing::run(&["metrics", &input, "--ri", "1.76", "--tilt", "--json"]);
+        let plain: Value = serde_json::from_str(&plain.stdout).expect("valid JSON");
+        assert_eq!(
+            given["figures"], plain["figures"],
+            "the flag at 90 is the default figures, bit for bit"
+        );
+    }
+
+    #[test]
+    fn the_range_flag_needs_the_tilt_flag_and_a_listed_value() {
+        let input = testing::write_design("metrics-e2e-tilt-usage.psdd", &testing::template());
+        let alone = testing::run(&["metrics", &input, "--ri", "1.76", "--tilt-range", "30"]);
+        assert_eq!(alone.exit, EXIT_USAGE, "{}", alone.stdout);
+        assert!(
+            alone.stderr.contains("--tilt-range needs --tilt"),
+            "{}",
+            alone.stderr
+        );
+        let odd = testing::run(&[
+            "metrics",
+            &input,
+            "--ri",
+            "1.76",
+            "--tilt",
+            "--tilt-range",
+            "25",
+        ]);
+        assert_eq!(odd.exit, EXIT_USAGE, "{}", odd.stdout);
+        assert!(
+            odd.stderr.contains("15, 20, 30, 45, 60 or 90"),
+            "{}",
+            odd.stderr
+        );
     }
 
     #[test]

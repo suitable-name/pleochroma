@@ -138,7 +138,8 @@ impl Film<'_> {
                     .clipped_to(&current_viewport, view.size)
                     .ok_or_else(|| format!("Parameters control {label:?} is no longer visible"))?;
                 panel_occlusion::ensure_guide_clear_of(self, &clipped)?;
-                let (x, y) = clipped.center();
+                // The right end of a row can lie under the panel's scroll bar.
+                let (x, y) = self.clear_of_panel_scroll_bar(clipped).center();
                 self.rec.click_at(self.ui.window(), (x, y), (0.0, 0.0))?;
                 pump(60);
                 self.hold(Duration::from_millis(150))?;
@@ -156,7 +157,7 @@ impl Film<'_> {
         if (menu, item) == ("Library", "Plan Rough...") {
             self.extra_click("Library")?;
             self.hold(pacing::MENU_HOLD)?;
-            // Library omits the three batch commands in Simple mode. Verify the actual popup
+            // Library omits the four batch commands in Simple mode. Verify the actual popup
             // order and use keyboard selection, as native MenuBar popups do not reliably take
             // pointer activation on their rows.
             let advanced = !self.ui.global::<PreferencesModel>().get_simple_mode()
@@ -170,6 +171,7 @@ impl Film<'_> {
                         !batch.get_preview_batch_running(),
                     ),
                     ("Regenerate Tilt Curves...", !batch.get_tilt_batch_running()),
+                    ("Compute RI Ranges...", !batch.get_tilt_batch_running()),
                     (
                         "Regenerate Both...",
                         !batch.get_preview_batch_running() && !batch.get_tilt_batch_running(),
@@ -179,9 +181,28 @@ impl Film<'_> {
             } else {
                 vec![("Plan Rough...", true)]
             };
+            // The count of Down presses below is right only while `entries` is the whole popup
+            // above the wanted row. The rows have one pitch, so a row of app.slint that is not
+            // listed here shows as a wider gap (or a wrong order) between two listed rows.
+            let mut tops = Vec::with_capacity(entries.len());
             for (title, _) in &entries {
-                if targets::run_label(&self.view(), title).is_none() {
+                let Some(row) = targets::run_label(&self.view(), title) else {
                     return Err(format!("Library menu entry {title:?} is missing"));
+                };
+                tops.push(row.y);
+            }
+            if let [first, second, ..] = tops[..] {
+                let pitch = second - first;
+                for (at, pair) in tops.windows(2).enumerate() {
+                    if pitch <= 0.0 || (pair[1] - pair[0] - pitch).abs() > 1.0 {
+                        return Err(format!(
+                            "the Library menu rows are not the ones the driver lists: {:?} is at y={}, {:?} at y={} (row pitch {pitch}); update the entries of extra_menu from app.slint",
+                            entries[at].0,
+                            pair[0],
+                            entries[at + 1].0,
+                            pair[1]
+                        ));
+                    }
                 }
             }
             let target_index = entries
@@ -348,9 +369,18 @@ impl Film<'_> {
                 if model.get_step_state() == 1 {
                     return Err("cutting step is already marked done".into());
                 }
+                // The button marks the step and goes on to the next one, so the step now showing
+                // is not the marked one: the count of done steps is the readback.
+                let done_before = model.get_done_count();
                 self.extra_click("Mark Step Done")?;
-                if model.get_step_state() != 1 || model.get_done_count() < 1 {
-                    return Err("Mark Step Done did not update cutting progress".into());
+                if !pacing::wait_real(pacing::START_TIMEOUT, || {
+                    model.get_done_count() == done_before + 1
+                }) {
+                    return Err(format!(
+                        "Mark Step Done did not update cutting progress: done_count={} (was {done_before}), step_state={}",
+                        model.get_done_count(),
+                        model.get_step_state()
+                    ));
                 }
                 self.hold(pacing::RESULT_HOLD)?;
                 self.rec
@@ -541,6 +571,7 @@ impl Film<'_> {
                 slider.x + thumb.w / 2.0 + (slider.w - thumb.w) * target as f32 / steps as f32,
                 start.1,
             );
+            let picture_before = self.solid_picture_hash();
             self.gesture(start, end, None, false, false)?;
             let expected_cutoff = if target == 0 {
                 -2
@@ -559,9 +590,48 @@ impl Film<'_> {
                     model.get_tier_cutoff()
                 ));
             }
+            // The slider's label and position change at once, but the stone is drawn by a worker:
+            // wait until the picture has changed and then stopped changing.
+            self.settle_solid_picture(picture_before);
             self.hold(pacing::RESULT_HOLD)?;
         }
         Ok(())
+    }
+
+    /// A hash of the pixels of the Solid view's picture; `None` when it is not readable on the CPU.
+    fn solid_picture_hash(&self) -> Option<u64> {
+        use std::hash::{Hash, Hasher};
+        let pixels = self
+            .ui
+            .global::<SolidPreviewModel>()
+            .get_image()
+            .to_rgba8()?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        pixels.as_bytes().hash(&mut hasher);
+        Some(hasher.finish())
+    }
+
+    /// Waits in real time until the Solid view's picture differs from `before` (when `before` is
+    /// known) and then stays the same for 300 ms. Both waits are capped; a picture that cannot be
+    /// read is not waited for.
+    fn settle_solid_picture(&self, before: Option<u64>) {
+        if before.is_none() {
+            return;
+        }
+        let _ = pacing::wait_real(std::time::Duration::from_secs(5), || {
+            self.solid_picture_hash() != before
+        });
+        let mut last = self.solid_picture_hash();
+        let mut since = std::time::Instant::now();
+        let _ = pacing::wait_real(std::time::Duration::from_secs(3), || {
+            let now = self.solid_picture_hash();
+            if now != last {
+                last = now;
+                since = std::time::Instant::now();
+                return false;
+            }
+            since.elapsed() >= std::time::Duration::from_millis(300)
+        });
     }
 
     pub(crate) fn film_context_help(&mut self) -> Result<(), String> {

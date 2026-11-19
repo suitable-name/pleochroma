@@ -59,7 +59,7 @@ binary_architectures() {
 }
 
 if [[ "$preflight" == true ]]; then
-    for tool in xcrun ditto install awk mktemp mkdir rm cat; do
+    for tool in xcrun ditto install awk mktemp mkdir rm cat codesign; do
         command -v "$tool" >/dev/null || fail "Packaging tool not found: $tool"
     done
     if [[ "$product" == cut ]]; then
@@ -138,8 +138,12 @@ HDR maps are transferred and cached at runtime; PLEOCHROMA_ASSET_CACHE_DIR can
 select a writable cache directory. Run from a writable working directory or
 configure explicit paths for your data and certificate directories.
 
-This executable is unsigned and has not been notarized.
+This executable is ad-hoc signed (no Developer ID) and has not been notarized.
 README
+    # An arm64 executable carries only the linker's ad-hoc signature; sign it properly, as
+    # the Cut bundle below is signed.
+    codesign --force --sign - "$package/$binary_name"
+    codesign --verify --strict --verbose=2 "$package/$binary_name"
 else
     app="$stage_dir/Pleochroma Cut.app"
     package="$app"
@@ -182,10 +186,19 @@ else
 </plist>
 PLIST
     plutil -lint "$app/Contents/Info.plist"
+
+    # Ad-hoc sign the finished bundle. Apple's linker signs an arm64 executable by itself,
+    # but that signature covers the executable alone; inside an unsigned bundle (Info.plist
+    # and Resources unsealed) macOS reports a downloaded copy as "damaged and can't be
+    # opened". Signing the bundle seals its resources and re-signs the executable with them.
+    # With no Developer ID this is still an unidentified app: macOS asks the user once
+    # ("Open Anyway" in Privacy & Security) instead of refusing it.
+    codesign --force --sign - "$app"
+    codesign --verify --deep --strict --verbose=2 "$app"
 fi
 
 # Keep executable modes and the package directory intact through artifact upload.
-# No Developer ID signing, notarization or release publishing is performed.
+# Ad-hoc signing only: no Developer ID signing, notarization or release publishing.
 mkdir -p dist
 # Unversioned, so releases/latest/download/<name> links stay valid; the version is
 # inside (Info.plist, the worker's folder name and README).

@@ -245,9 +245,13 @@ pub struct RenderContext {
     /// The editor's design generation counter (`EditorState` keeps the one `Arc` for its whole
     /// life), registered by the editor's setup; `None` before that.
     pub editor_generation: Option<Arc<AtomicU64>>,
-    /// The editor generation that was current when a Library selection last claimed the slot;
-    /// `None` while anything else owns it. See [`Self::library_took_over_since`].
+    /// The editor generation that was current when a Library selection or a job view last
+    /// claimed the slot; `None` while anything else owns it. See
+    /// [`Self::library_took_over_since`].
     pub catalogue_over_generation: Option<u64>,
+    /// The names of the design of the job whose stone shows while [`Self::planes_owner`] is
+    /// [`PlanesOwner::Job`]; `None` under every other owner.
+    pub job_design: Option<JobDesignNames>,
     /// Why the design cannot be traced honestly, as a cutter-facing message. `None` when
     /// tracing is valid. Set when a design has no material name and its refractive index
     /// matches no built-in preset, or when it names a material that is neither a built-in
@@ -481,6 +485,42 @@ pub enum PlanesOwner {
         /// The catalogue row's database id.
         entry_id: i64,
     },
+    /// A render job's own stone, shown by Load Job View and tagged by the job's id. The editor
+    /// document and the Library selection are untouched; like a catalogue entry it must not be
+    /// replaced silently by a late editor solve.
+    Job {
+        /// The render job's id.
+        job_id: i64,
+    },
+}
+
+/// The names of the design a render job was made from, as the export file names use them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JobDesignNames {
+    /// The design title.
+    pub title: String,
+    /// The designer.
+    pub designer: String,
+    /// The shape name.
+    pub shape: String,
+    /// The refractive index, as text.
+    pub ri: String,
+}
+
+/// Everything [`RenderContext::claim_job_geometry`] puts on the viewport for a render job.
+pub struct JobStone {
+    /// The job's facet planes.
+    pub planes: Arc<Vec<GpuFacetPlane>>,
+    /// The job's concave tools, empty for a planar stone.
+    pub tools: Arc<Vec<ToolPrimitive>>,
+    /// `(concave tier, placement)` of each tool, parallel to `tools`.
+    pub placements: Vec<(usize, usize)>,
+    /// The frosted planes, indices into `planes`, ascending.
+    pub frosted: Vec<u32>,
+    /// The job's render effects (inclusions, play-of-color, facet surfaces, abraded edge).
+    pub effects: SceneEffects,
+    /// The names of the job's design.
+    pub design: JobDesignNames,
 }
 
 /// The pose the render loop and the scene identity use: `pose` clamped while the Live Render
@@ -594,25 +634,33 @@ impl RenderContext {
         self.active_placements = placements;
         self.design_gear = design_gear;
         self.planes_owner = owner;
-        self.catalogue_over_generation =
-            matches!(owner, PlanesOwner::Catalogue { .. }).then(|| {
-                self.editor_generation
-                    .as_ref()
-                    .map_or(0, |generation| generation.load(Ordering::Relaxed))
-            });
+        if !matches!(owner, PlanesOwner::Job { .. }) {
+            self.job_design = None;
+        }
+        self.catalogue_over_generation = matches!(
+            owner,
+            PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. }
+        )
+        .then(|| {
+            self.editor_generation
+                .as_ref()
+                .map_or(0, |generation| generation.load(Ordering::Relaxed))
+        });
         true
     }
 
-    /// Whether a Library selection took the slot after the editor's design reached
-    /// `started_generation`. A background solve of that design that finishes now must leave
-    /// the Library row on the viewport. The editor's next load or edit has a newer
-    /// generation and claims the slot back.
+    /// Whether a Library selection or a job view took the slot after the editor's design
+    /// reached `started_generation`. A background solve of that design that finishes now must
+    /// leave the Library row or the job stone on the viewport. The editor's next load or edit
+    /// has a newer generation and claims the slot back.
     #[must_use]
     pub fn library_took_over_since(&self, started_generation: u64) -> bool {
-        matches!(self.planes_owner, PlanesOwner::Catalogue { .. })
-            && self
-                .catalogue_over_generation
-                .is_some_and(|floor| started_generation <= floor)
+        matches!(
+            self.planes_owner,
+            PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. }
+        ) && self
+            .catalogue_over_generation
+            .is_some_and(|floor| started_generation <= floor)
     }
 
     /// Sets the frosted planes of the stone [`Self::claim_active_geometry`] just claimed
@@ -625,19 +673,54 @@ impl RenderContext {
         }
     }
 
-    /// Keeps the editor's viewport material across a Library selection: stashed when a
-    /// catalogue claim takes the slot from the editor (before the row writes its own),
-    /// restored when the editor claims it back.
+    /// Claims the slot for a render job's stone (Load Job View): the planes, tools and
+    /// placements of the job's scene, tagged [`PlanesOwner::Job`], followed by the frosted
+    /// planes and the render effects the claim clears. Returns `false` and changes nothing
+    /// when the claim is refused. The job has no gear data, so `design_gear` becomes `None`.
+    ///
+    /// The facet surface words ride inside `stone.effects`; the per-plane `surface_table`
+    /// stays empty, as the job holds the finished words only. The names of the job's design
+    /// are kept for the export file names ([`Self::job_design`]). Does NOT set `dirty`, like
+    /// the claim.
+    pub fn claim_job_geometry(&mut self, job_id: i64, stone: JobStone) -> bool {
+        let JobStone {
+            planes,
+            tools,
+            placements,
+            frosted,
+            effects,
+            design,
+        } = stone;
+        if !self.claim_active_geometry(planes, tools, placements, None, PlanesOwner::Job { job_id })
+        {
+            return false;
+        }
+        self.claim_active_frosted(frosted);
+        self.scene_effects = effects;
+        self.sync_machine_into_effects();
+        self.job_design = Some(design);
+        true
+    }
+
+    /// Keeps the editor's viewport material across a Library selection or a job view: stashed
+    /// when a catalogue or job claim takes the slot from the editor (before it writes its
+    /// own), restored when the editor claims it back.
     fn swap_editor_material(&mut self, new_owner: PlanesOwner) {
         match (self.planes_owner, new_owner) {
-            (PlanesOwner::Editor { .. }, PlanesOwner::Catalogue { .. }) => {
+            (
+                PlanesOwner::Editor { .. },
+                PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. },
+            ) => {
                 self.editor_material_stash = Some(MaterialStash {
                     name: self.material_name.clone(),
                     material_override: self.material_override.clone(),
                     unresolved: self.material_unresolved.clone(),
                 });
             }
-            (PlanesOwner::Catalogue { .. }, PlanesOwner::Editor { .. }) => {
+            (
+                PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. },
+                PlanesOwner::Editor { .. },
+            ) => {
                 self.restore_editor_material();
             }
             _ => {}

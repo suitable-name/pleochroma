@@ -2,8 +2,10 @@ import { Theme } from "../../theme.slint";
 import { RenderJobsModel, RenderJobRow } from "../../models/render_jobs.slint";
 import { GuideModel } from "../../models/guide.slint";
 import { ActionButton } from "../chip_toggle.slint";
+import { JobRowMenu } from "job_row_menu.slint";
 
-// One button of a job row: small, so up to nine fit in the 760 px window.
+// One button of a job row: small, so three buttons and the "..." button fit the 600 px card
+// of a 640 px window.
 component RowButton inherits ActionButton {
     width: 74px;
     height: 26px;
@@ -11,12 +13,47 @@ component RowButton inherits ActionButton {
     ink: Theme.text-secondary;
 }
 
-// One render job in the Jobs window: number, name and state, what it renders, its progress,
-// a failure note, and the buttons its state allows (`can_*`, computed by
-// `gui::render_jobs::rows` from the state machine, so a button shows exactly when its
-// command applies). Every text arrives ready from Rust.
+// A small pill: the compute of the job, or its state.
+component RowBadge inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <color> ink;
+
+    width: badge_text.preferred-width + 16px;
+    height: 20px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: root.ink;
+    background: Theme.surface-sunken;
+    badge_text := Text {
+        x: 8px;
+        height: 100%;
+        text: root.text;
+        font-size: 10px;
+        font-weight: 700;
+        color: root.ink;
+        vertical-alignment: center;
+        accessible-role: AccessibleRole.text;
+        accessible-label: root.label;
+    }
+}
+
+// One render job in the Jobs window: number, name, compute and state, what it renders, its
+// progress, a failure note, and at most three buttons plus the "..." menu. The row's own button
+// (Pause, Resume, Show or Restart) and Edit... or Cancel sit on the row; everything else is in the
+// menu. Which of them show is decided in Rust (`gui::render_jobs::rows`, from the state machine),
+// so a button shows exactly when its command applies. Every text arrives ready from Rust.
+//
+// While the Jobs window is in pick mode (`RenderJobsModel.pick_view_mode`, Load Job View) the buttons
+// are off and a click on the row loads that job's view.
 export component JobRowCard inherits Rectangle {
     in property <RenderJobRow> job;
+    // The height of the window, for the placement of the "..." menu.
+    in property <length> window_h: 480px;
+
+    property <bool> pick: RenderJobsModel.pick_view_mode;
+    // A state this version does not know: shown plainly, in the waiting grey.
+    property <bool> unknown: root.job.unknown_state;
 
     // The state colour: running cyan, done green, failed red, waiting and paused in the
     // quiet text colour, cancelled in the muted one.
@@ -29,15 +66,18 @@ export component JobRowCard inherits Rectangle {
     background: Theme.bg-card;
     border-radius: Theme.radius-sm;
     border-width: 1px;
-    border-color: root.job.state_word == "running" ? Theme.accent-cyan : Theme.border-subtle;
+    border-color: root.pick && root.job.can_load_view && pick_touch.has-hover
+        ? Theme.accent-cyan
+        : (root.job.state_word == "running" ? Theme.accent-cyan : Theme.border-subtle);
+    opacity: root.pick && !root.job.can_load_view ? 0.45 : 1.0;
 
     content := VerticalLayout {
         padding: 10px;
         spacing: 6px;
 
-        // Line 1: number, name, state badge. A stretching layout, not `alignment: center`: the
-        // centred one ignores the name's stretch and floats number, name and badge in the
-        // middle of the row, away from the left-aligned lines below.
+        // Line 1: number, name, compute badge, state badge. A stretching layout, not
+        // `alignment: center`: the centred one ignores the name's stretch and floats number, name
+        // and badges in the middle of the row, away from the left-aligned lines below.
         HorizontalLayout {
             spacing: 8px;
 
@@ -52,36 +92,34 @@ export component JobRowCard inherits Rectangle {
                 accessible-role: AccessibleRole.text;
             }
 
-            Text {
+            // The name elides; the whole of it is the tooltip when it does.
+            Rectangle {
                 horizontal-stretch: 1;
                 min-width: 0px;
-                text: root.job.label;
-                font-size: 12px;
-                font-weight: 700;
-                color: Theme.text-primary;
-                vertical-alignment: center;
-                overflow: elide;
-                accessible-role: AccessibleRole.text;
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.job.label;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
+                }
+                if root.job.label_tooltip != "": Tooltip { text: @markdown("\{root.job.label_tooltip}"); }
             }
 
-            Rectangle {
-                width: badge_text.preferred-width + 16px;
-                height: 20px;
-                border-radius: 10px;
-                border-width: 1px;
-                border-color: root.state_color;
-                background: Theme.surface-sunken;
-                badge_text := Text {
-                    x: 8px;
-                    height: 100%;
-                    text: root.job.state_text;
-                    font-size: 10px;
-                    font-weight: 700;
-                    color: root.state_color;
-                    vertical-alignment: center;
-                    accessible-role: AccessibleRole.text;
-                    accessible-label: "State: " + root.job.state_text;
-                }
+            if root.job.compute_label != "" && !root.unknown: RowBadge {
+                text: root.job.compute_label;
+                label: "Compute: " + root.job.compute_label;
+                ink: Theme.text-secondary;
+            }
+
+            RowBadge {
+                text: root.unknown ? "Unknown" : root.job.state_text;
+                label: "State: " + (root.unknown ? "Unknown" : root.job.state_text);
+                ink: root.state_color;
             }
         }
 
@@ -133,58 +171,76 @@ export component JobRowCard inherits Rectangle {
             accessible-role: AccessibleRole.text;
         }
 
-        // The buttons its state allows.
-        HorizontalLayout {
+        // The buttons: the row's own action, Cancel (while it runs or waits) or Edit..., the menu.
+        if root.job.primary_action != 0 || root.job.show_cancel || root.job.can_edit || root.job.has_menu: HorizontalLayout {
             spacing: 6px;
             alignment: end;
 
-            if root.job.can_run_next: RowButton {
-                text: "Run Next";
-                hint: "Move this job to the top, so it is the next one to render.";
-                clicked => { RenderJobsModel.run_next(root.job.id); }
-            }
-            if root.job.can_move_up: RowButton {
-                text: "Up";
-                hint: "Move this job one place up.";
-                clicked => { RenderJobsModel.move_job(root.job.id, -1); }
-            }
-            if root.job.can_move_down: RowButton {
-                text: "Down";
-                hint: "Move this job one place down.";
-                clicked => { RenderJobsModel.move_job(root.job.id, 1); }
-            }
-            if root.job.can_pause: RowButton {
+            if root.job.primary_action == 1: RowButton {
                 text: "Pause";
                 hint: "Stop this job. A tilt video keeps its finished frames.";
+                enabled: !root.pick;
                 clicked => { RenderJobsModel.pause_job(root.job.id); }
             }
-            if root.job.can_resume: RowButton {
+            if root.job.primary_action == 2: RowButton {
                 text: "Resume";
                 hint: "Put this job back in line. A tilt video goes on with its first missing frame.";
+                enabled: !root.pick;
                 highlighted: GuideModel.highlight_target == "job_resume_button";
                 clicked => { RenderJobsModel.resume_job(root.job.id); }
             }
-            if root.job.can_restart: RowButton {
-                text: "Restart";
-                hint: "Render this job again from the beginning.";
-                clicked => { RenderJobsModel.restart_job(root.job.id); }
-            }
-            if root.job.can_cancel: RowButton {
-                text: "Cancel";
-                hint: "Stop this job for good. Restart can bring it back.";
-                clicked => { RenderJobsModel.cancel_job(root.job.id); }
-            }
-            if root.job.can_show: RowButton {
+            if root.job.primary_action == 3: RowButton {
                 text: "Show";
                 hint: "Open the folder with the finished file.";
+                enabled: !root.pick;
                 clicked => { RenderJobsModel.show_result(root.job.id); }
             }
-            if root.job.can_delete: RowButton {
-                text: "Delete";
-                hint: "Remove this job from the list. Files it already wrote stay on disk.";
-                ink: Theme.danger;
-                clicked => { RenderJobsModel.delete_job(root.job.id); }
+            if root.job.primary_action == 4: RowButton {
+                text: "Restart";
+                hint: "Render this job again from the beginning.";
+                enabled: !root.pick;
+                clicked => { RenderJobsModel.restart_job(root.job.id); }
             }
+            if root.job.show_cancel: RowButton {
+                text: "Cancel";
+                hint: "Stop this job for good. Restart can bring it back.";
+                enabled: !root.pick;
+                clicked => { RenderJobsModel.cancel_job(root.job.id); }
+            }
+            if root.job.can_edit: RowButton {
+                text: "Edit\u{2026}";
+                hint: "Change this job: its size, quality, compute, material and output.";
+                enabled: !root.pick;
+                clicked => { RenderJobsModel.edit_job(root.job.id); }
+            }
+            if root.job.has_menu: JobRowMenu {
+                job: root.job;
+                window_h: root.window_h;
+                enabled: !root.pick;
+            }
+        }
+    }
+
+    // Pick mode: the whole row is one button that loads the job's view and ends the mode. A row
+    // that cannot show its view takes the click and does nothing.
+    pick_touch := TouchArea {
+        enabled: root.pick;
+        mouse-cursor: root.pick && root.job.can_load_view ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            if root.job.can_load_view {
+                RenderJobsModel.pick_view_mode = false;
+                RenderJobsModel.load_job_view(root.job.id);
+            }
+        }
+    }
+
+    if root.pick && root.job.can_load_view: Rectangle {
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Load the view of job " + root.job.number_text;
+        accessible-description: "Show this job's view in the live view.";
+        accessible-action-default => {
+            RenderJobsModel.pick_view_mode = false;
+            RenderJobsModel.load_job_view(root.job.id);
         }
     }
 }

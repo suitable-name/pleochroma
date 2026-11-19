@@ -14,7 +14,10 @@ use pleochroma::{
         evaluate_gem_optical_metrics_with_tone_finished_core,
     },
     geometry::{GpuFacetPlane, StoneGeometry},
-    optics::{materials::GemMaterial, raytracer::LightingPreset},
+    optics::{
+        materials::GemMaterial,
+        raytracer::{EnvironmentSource, LightingPreset},
+    },
 };
 
 /// The canonical camera-independent light pose every fixed-pose measurement in this
@@ -42,6 +45,20 @@ pub const CANONICAL_LIGHT_PITCH: f32 = 0.95;
 /// so the same design scores differently under another one; a caller that optimizes for
 /// the preset the user has selected uses [`evaluate_objective_under`] instead.
 pub const CANONICAL_LIGHTING_PRESET: LightingPreset = LightingPreset::IsoHemisphere;
+
+/// The standard every tilt curve is scored under: [`CANONICAL_LIGHTING_PRESET`] at
+/// [`CANONICAL_LIGHT_YAW`]/[`CANONICAL_LIGHT_PITCH`] with the default 16-degree observer head
+/// shadow.
+///
+/// The Tilt Performance chart, the tilt video's curves, the Compare window's tilt run, the
+/// library's stored curves and the browser app's chart all use it, whatever lighting, light pose,
+/// head-shadow size or HDR map the viewport shows, so the curves of two designs, or of one design
+/// in two sessions, compare. The head shadow is part of the figures, not of the view: a ray
+/// leaving inside the observer's cone counts as extinction.
+#[must_use]
+pub const fn canonical_environment() -> EnvironmentSource<'static> {
+    CANONICAL_LIGHTING_PRESET.studio(1.0, CANONICAL_LIGHT_YAW, CANONICAL_LIGHT_PITCH)
+}
 
 /// User-visible, user-adjustable weights for [`ObjectiveComponents`].
 ///
@@ -703,3 +720,36 @@ pub(super) mod full_sweep_runs {
 #[cfg(test)]
 #[path = "objective_cancel_tests.rs"]
 mod cancel_tests;
+
+#[cfg(test)]
+mod canonical_environment_tests {
+    use super::{
+        CANONICAL_LIGHT_PITCH, CANONICAL_LIGHT_YAW, CANONICAL_LIGHTING_PRESET,
+        canonical_environment,
+    };
+    use pleochroma::optics::raytracer::{DEFAULT_HEAD_SHADOW_DEG, EnvironmentSource};
+
+    /// Every tilt curve is scored under this one standard: the grading preset at the canonical
+    /// light pose, exposure 1 and the default 16-degree head shadow.
+    #[test]
+    fn the_tilt_standard_is_the_grading_preset_with_the_default_head_shadow() {
+        let environment = canonical_environment();
+        let EnvironmentSource::Studio {
+            preset,
+            exposure,
+            light_yaw,
+            light_pitch,
+            head_shadow_deg,
+            ..
+        } = environment
+        else {
+            panic!("the tilt standard is a studio preset, not an HDR map");
+        };
+        assert_eq!(preset, CANONICAL_LIGHTING_PRESET);
+        assert_eq!(exposure.to_bits(), 1.0f32.to_bits());
+        assert_eq!(light_yaw.to_bits(), CANONICAL_LIGHT_YAW.to_bits());
+        assert_eq!(light_pitch.to_bits(), CANONICAL_LIGHT_PITCH.to_bits());
+        assert_eq!(head_shadow_deg.to_bits(), DEFAULT_HEAD_SHADOW_DEG.to_bits());
+        assert_eq!(DEFAULT_HEAD_SHADOW_DEG.to_bits(), 16.0f32.to_bits());
+    }
+}

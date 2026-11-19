@@ -2,10 +2,7 @@
 //! stage navigation button on the tutorial guide panel.
 
 use super::{drive::wait_real, start_builtin};
-use crate::{
-    scenarios::main_window::click,
-    support::{Ctx, app::pump, coverage, query::is_clickable_role},
-};
+use crate::support::{Ctx, app::pump, coverage, query::is_clickable_role};
 use pleochroma_cut::{EditorModel, GuideModel, LibraryModel, harness_support};
 use pleochroma_editor::guide::{GuideCatalog, WORKED_EXAMPLE_ID, stage_for};
 use slint::ComponentHandle;
@@ -20,6 +17,25 @@ fn has_show_me_where_button(ctx: &Ctx<'_>) -> bool {
         .by_label(BUTTON_LABEL)
         .into_iter()
         .any(|e| e.accessible_role().is_some_and(is_clickable_role))
+}
+
+/// Presses the button and records the press for the coverage gate. This scenario is the only
+/// place that is sure to show the button: a guide applies its step's stage when it starts, so
+/// the click-through passes never meet a mismatched stage. `false` when the button is not there.
+fn press_show_me_where(ctx: &Ctx<'_>) -> bool {
+    let view = ctx.app.main_view();
+    let Some(element) = view
+        .by_label(BUTTON_LABEL)
+        .into_iter()
+        .find(|e| e.accessible_role().is_some_and(is_clickable_role))
+    else {
+        return false;
+    };
+    coverage::record_activation(&element);
+    coverage::record_wrappers(&view.root, &element, false);
+    element.invoke_accessible_default_action();
+    pump(80);
+    true
 }
 
 /// Drives the Show Me Where button from a mismatched stage back to the guide's stage, then
@@ -113,7 +129,7 @@ pub fn run(ctx: &mut Ctx<'_>) {
     }
 
     // 3. Interactive click via harness.
-    if !click(ctx.app, BUTTON_LABEL) {
+    if !press_show_me_where(ctx) {
         ctx.report.add_simple(
             "MainWindow",
             "show-me-where-click-failed",
@@ -208,7 +224,7 @@ pub fn run(ctx: &mut Ctx<'_>) {
             "show-me-where-drift-not-detected",
             format!("{SCOPE}: manual tab drift did not re-enable '{BUTTON_LABEL}'"),
         );
-    } else if click(ctx.app, BUTTON_LABEL) {
+    } else if press_show_me_where(ctx) {
         pump(100);
         let ui = ctx.app.ui();
         if ui.global::<EditorModel>().get_inspector_tab() != 0

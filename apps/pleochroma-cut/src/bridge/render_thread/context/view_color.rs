@@ -434,6 +434,9 @@ mod tests {
         assert_eq!(color_target(false, EDITOR), ColorTarget::View);
         assert_eq!(color_target(true, LIBRARY), ColorTarget::View);
         assert_eq!(color_target(false, LIBRARY), ColorTarget::View);
+        let job = PlanesOwner::Job { job_id: 4 };
+        assert_eq!(color_target(true, job), ColorTarget::View);
+        assert_eq!(color_target(false, job), ColorTarget::View);
         assert_eq!(color_target(true, PlanesOwner::Builtin), ColorTarget::View);
         assert_eq!(color_target(false, PlanesOwner::Builtin), ColorTarget::View);
     }

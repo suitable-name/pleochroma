@@ -34,6 +34,7 @@ fn only_the_editor_owning_the_viewport_shows_the_cut() {
     assert!(shows_editor_design(PlanesOwner::Editor { generation: 4 }));
     assert!(!shows_editor_design(PlanesOwner::Builtin));
     assert!(!shows_editor_design(PlanesOwner::Catalogue { entry_id: 9 }));
+    assert!(!shows_editor_design(PlanesOwner::Job { job_id: 9 }));
 }
 
 /// A one-tier design that cannot be solved: its only tier meets nothing.

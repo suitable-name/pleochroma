@@ -1,6 +1,7 @@
 use super::*;
 use crate::env::features::absorption_summary;
-use pleochroma_cut_core::ObjectivePreset;
+use pleochroma::geometry::stone_metrics::{SolidStatus, StoneProportions, build_solid_mesh_geom};
+use pleochroma_cut_core::{ObjectivePreset, volumetric_yield};
 
 fn fixture_settings() -> CoreSettings {
     CoreSettings {
@@ -18,6 +19,22 @@ fn fixture_settings() -> CoreSettings {
         only_tiers: None,
         angle_bounds: std::collections::BTreeMap::new(),
     }
+}
+
+#[test]
+fn step_and_probe_must_survive_both_float_conversion_and_normalization() {
+    for degrees in [f64::MAX, f64::MIN_POSITIVE, f64::from(f32::from_bits(45))] {
+        let mut settings = fixture_settings();
+        settings.max_step_deg = degrees;
+        assert!(settings.validate().is_err());
+        let mut settings = fixture_settings();
+        settings.probe_scale_deg = degrees;
+        assert!(settings.validate().is_err());
+    }
+    let mut settings = fixture_settings();
+    settings.probe_scale_deg = f64::from(f32::from_bits(46)); // normalizes to the least positive f32
+    settings.max_step_deg = f64::from(f32::MAX);
+    assert!(settings.validate().is_ok());
 }
 
 #[test]

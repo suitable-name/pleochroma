@@ -2,8 +2,8 @@
 //! prunes the old tilt-curve columns.
 //!
 //! The side tables are `diagram_previews`, tilt curves, solid extents and hull, saved rough
-//! plans, planner exclusions, per-design variants, cutting progress and lighting, render jobs
-//! and tags. Each migration is idempotent, and its SQL text lives in [`super::schema`], shared
+//! plans, planner exclusions, per-design variants, cutting progress and lighting, render jobs,
+//! RI ranges and tags. Each migration is idempotent, and its SQL text lives in [`super::schema`], shared
 //! verbatim with `create_tables_if_not_exist`.
 
 use super::{
@@ -13,7 +13,7 @@ use super::{
         DESIGN_CUT_PROGRESS_TABLE_SQL, DESIGN_LIGHTING_TABLE_SQL, DESIGN_VARIANTS_TABLE_SQL,
         DIAGRAM_PLANNER_EXCLUSIONS_TABLE_SQL, DIAGRAM_PREVIEWS_REORDERED_TABLE_SQL,
         DIAGRAM_PREVIEWS_TABLE_SQL, DIAGRAM_SOLID_EXTENTS_TABLE_SQL, DIAGRAM_SOLID_HULL_TABLE_SQL,
-        OBSOLETE_TILT_CURVE_AGGREGATE_COLUMNS, RENDER_JOBS_TABLE_SQL,
+        OBSOLETE_TILT_CURVE_AGGREGATE_COLUMNS, RENDER_JOBS_TABLE_SQL, RI_RANGES_TABLE_SQL,
         SAVED_ROUGH_PLANS_SUMMARY_COLUMN, SAVED_ROUGH_PLANS_TABLE_SQL, TAG_TABLES_SQL,
         diagram_tilt_curves_reordered_table_sql, diagram_tilt_curves_table_sql,
     },
@@ -513,6 +513,25 @@ impl Database {
         self.conn
             .execute_batch(RENDER_JOBS_TABLE_SQL)
             .context("Failed to create render_jobs table")?;
+        Ok(())
+    }
+
+    /// Creates `ri_ranges` for a database created before a design's traced refractive-index
+    /// range could be stored -- see [`Self::put_ri_range`](Database::put_ri_range)/
+    /// [`Self::ri_range`](Database::ri_range).
+    ///
+    /// A side table keyed by `entry_id`, cascading off `diagram_entries`, like
+    /// [`Self::migrate_planner_exclusion_table`]. Every pre-existing design starts with no
+    /// row, which readers treat as "not computed yet". Additive and naturally idempotent via
+    /// `CREATE TABLE IF NOT EXISTS`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if creating the table fails.
+    pub(in crate::db::sqlite) fn migrate_ri_ranges_table(&self) -> Result<()> {
+        self.conn
+            .execute_batch(RI_RANGES_TABLE_SQL)
+            .context("Failed to create ri_ranges table")?;
         Ok(())
     }
 

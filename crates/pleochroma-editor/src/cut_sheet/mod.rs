@@ -54,8 +54,8 @@ pub use diagram::{
 };
 pub use html::{cutting_sheet_html, cutting_sheet_html_with, cutting_sheet_html_with_default};
 pub use layout::{
-    BlockCount, FacetData, NO_VALUE, SectionLine, SheetLayout, SizeData, UNTITLED_HEADING,
-    template_instruction,
+    BlockCount, FacetData, LINE_BREAK, NO_VALUE, SectionLine, SheetLayout, SizeData,
+    UNTITLED_HEADING, template_instruction,
 };
 pub use orientation::{AxisDiagram, AxisLine, axis_diagram};
 pub use summary::{StoneSummary, SummaryRow};

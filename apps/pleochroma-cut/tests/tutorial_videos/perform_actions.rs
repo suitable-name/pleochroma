@@ -20,6 +20,12 @@ use std::time::Duration;
 
 const FIELD_PAUSE: Duration = Duration::from_millis(200);
 
+/// Mock time held before the Solve button is clicked: the app's auto-solve debounce and a little
+/// more, so an auto-solve armed by the edit before it has started (and can be waited for) before
+/// the click sets off.
+pub(crate) const AUTO_SOLVE_SETTLE: Duration =
+    pleochroma_editor::solve_policy::AUTO_SOLVE_DEBOUNCE.saturating_add(Duration::from_millis(50));
+
 /// The component that holds the Steps / Mirror panel. The Tier form in the inspector carries
 /// fields with the same labels ("Index Positions"), so every lookup is scoped to it.
 const TOOLBAR_COMPONENT: &str = "TierTableToolbar";
@@ -696,6 +702,13 @@ impl Film<'_> {
             return Ok(());
         }
         if id == CMD_SOLVE {
+            // An edit made just before arms the app's auto-solve, which starts a background
+            // solve once its debounce has run out on mock time. While that solve runs the Solve
+            // button reads "Solving..." and takes no click, and the cursor's glide to the button
+            // is long enough for the debounce to end under it: the click would then do nothing
+            // and the step would wait for a solve nobody asked for. So the debounce is let run
+            // out here, and whatever it started is waited for, before the cursor sets off.
+            self.hold(AUTO_SOLVE_SETTLE)?;
             let ui = self.ui;
             let _ = pacing::wait_real(Duration::from_secs(10), || {
                 !ui.global::<EditorModel>().get_solve_running()
@@ -703,6 +716,35 @@ impl Film<'_> {
         }
         if id == CMD_DELETE {
             return self.click_selected_row_remove();
+        }
+        // Snap and Slice are toggles of the Solid view's toolbar; a narrow view folds them into
+        // its Show menu, which opens first and closes after the click.
+        let solid_toggle = match id {
+            "view.snap" => Some("Snap"),
+            "view.slice" => Some("Slice"),
+            _ => None,
+        };
+        if let Some(label) = solid_toggle {
+            self.click_solid_toggle(label)?;
+            pump(60);
+            return self.hold(Duration::from_millis(500));
+        }
+        // Adopt All is an item of the "Tier List Menu" above the tier table, which opens first.
+        if id == CMD_ADOPT_ALL {
+            // The bar above the tier table scrolls with the editor dock.
+            let menu = targets::role_label(
+                &self.view(),
+                "Tier List Menu",
+                uiprobe::AccessibleRole::Button,
+                None,
+            );
+            if menu.is_none() {
+                self.scroll_dock_to_top()?;
+            }
+            let item = self.tier_list_menu_item("Adopt All")?;
+            self.click_and_invoke(&item)?;
+            pump(60);
+            return self.hold(Duration::from_millis(500));
         }
         // Set Baseline and Compare are items of the command bar's Baseline menu: press the menu
         // button first, unless the menu is already open.
@@ -729,10 +771,7 @@ impl Film<'_> {
         let mut spot = self.command_spot(id);
         // The command bar scrolls with the editor dock: a tall tab (Optimize grows the dock)
         // can leave it above the dock's top edge, so scroll the dock back up, as a user would.
-        let in_command_bar = matches!(
-            id,
-            CMD_SOLVE | CMD_UNDO | CMD_ADOPT_ALL | "solve.snapshot" | CMD_COMPARE
-        );
+        let in_command_bar = matches!(id, CMD_SOLVE | CMD_UNDO | "solve.snapshot" | CMD_COMPARE);
         if spot.is_none() && in_command_bar {
             self.scroll_dock_to_top()?;
             spot = self.command_spot(id);
@@ -742,6 +781,11 @@ impl Film<'_> {
         self.click_and_invoke(&spot)?;
         pump(60);
         self.hold(Duration::from_millis(500))?;
+        if id == CMD_SOLVE {
+            // The Solve button's tooltip is a long line under the cursor that covers the guide's
+            // subtitle and the verdict banner: rest the cursor off the button.
+            self.glide_to(crate::config::WINDOW_CENTER)?;
+        }
         Ok(())
     }
 
@@ -754,19 +798,23 @@ impl Film<'_> {
         };
         match id {
             CMD_SOLVE => resolved("solve_button"),
-            CMD_UNDO => targets::run_label(&view, "Undo"),
-            CMD_ADOPT_ALL => targets::run_label(&view, "Adopt All"),
+            // The command bar's own button: the Solid view's "Facets were cut away" notice has
+            // an Undo button too, and it goes away when the next verdict lands.
+            CMD_UNDO => targets::role_label(
+                &view,
+                "Undo",
+                uiprobe::AccessibleRole::Button,
+                Some("EditorCommandBar"),
+            ),
             "solve.snapshot" => resolved("snapshot_button"),
             CMD_COMPARE => resolved("compare_button"),
             "view.live_render" => targets::live_render_pill(&view),
-            "view.snap" => resolved("snap_pill"),
-            "view.slice" => resolved("slice_pill"),
             _ => None,
         }
     }
 
     /// Wheels the editor dock back to its top, where the command bar sits.
-    fn scroll_dock_to_top(&mut self) -> Result<(), String> {
+    pub(crate) fn scroll_dock_to_top(&mut self) -> Result<(), String> {
         let view = self.view();
         let dock = targets::run(&view, &Query::Id("EditorView::dock_scroll"))
             .ok_or("editor dock scroll area is missing")?;
@@ -777,12 +825,7 @@ impl Film<'_> {
         self.hold(Duration::from_millis(180))
     }
 
-    /// Films clicking the trash button of the selected tier's row, the last column of the table.
-    ///
-    /// The button sits in the pinned ACTIONS group at the table's right edge.
-    /// [`Self::reveal_table_button`] turns the table sideways when it is off view, and the turns
-    /// are undone after the click. The button must lie on the selected row (within one row height
-    /// and inside the table's scrolling area), so a click never lands on another tier's button.
+    /// Films Delete on the selected tier: the item of that row's "Actions for Tier N" menu.
     /// The director checks that the tier is gone afterwards.
     fn click_selected_row_remove(&mut self) -> Result<(), String> {
         let selected = self.ui.global::<EditorModel>().get_selected_tier_index();

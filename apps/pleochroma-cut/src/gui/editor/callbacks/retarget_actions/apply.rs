@@ -290,8 +290,10 @@ fn finish_applied_retarget(
     show_toast(
         ui,
         &format!(
-            "Retargeted {} tier(s) for {}.",
-            done.applied, done.target_name
+            "Retargeted {} {} for {}.",
+            done.applied,
+            if done.applied == 1 { "tier" } else { "tiers" },
+            done.target_name
         ),
         "success",
     );

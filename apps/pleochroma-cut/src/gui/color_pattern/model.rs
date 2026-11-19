@@ -514,7 +514,7 @@ pub(super) fn shape_label(index: usize, zone: &PatternZone) -> String {
 /// One short line of the numbers of a zone, for the list.
 pub(super) fn zone_summary(index: usize, zone: &PatternZone, relative: bool) -> String {
     if index == 0 {
-        return "Fills what the other zones do not cover".to_owned();
+        return "Fills the rest of the stone".to_owned();
     }
     let scale = length_scale(relative);
     let length = |stored: f64| {

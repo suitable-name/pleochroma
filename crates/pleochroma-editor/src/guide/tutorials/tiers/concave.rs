@@ -52,7 +52,7 @@ fn cylinder_and_cone() -> Guide {
             "A concave tier is ground with a shaped tool instead of a flat lap, so it leaves a groove, a bowl or a dimple.",
         )
         .actions([
-            "It is written on two lines: the facet line (name, angle, indices) and the tool line (tool, theta, displacement, D/W).",
+            "It is written on two lines: the facet line (name, angle, indices) and the tool line (tool, Turn, D/W, Position).",
             "The concave form is in the Tier tab; Concave Tier in the Add Tier menu above the tier list opens it blank, in the Simple and the Advanced interface alike.",
         ])
         .why("Concave rows come after the flat ones in the table, and nothing can meet a concave tier by name.")
@@ -74,8 +74,8 @@ fn cylinder_and_cone() -> Guide {
             "Stroke: Back and Forth (Reciprocating).",
             "Click Add Concave Tier.",
         ])
-        .check("a Groove row with a Tool badge in the MEETS column and Tool cut in the SOLVE column.")
-        .why("D/W is the tool's diameter over the stone width, so 0.25 is a tool a quarter as wide as the stone. Theta and X / Y / Z may stay blank: blank means 0.")
+        .check("a Groove row whose detail line, under its indices, reads Concave tool.")
+        .why("D/W is the tool's diameter over the stone width, so 0.25 is a tool a quarter as wide as the stone. Turn and the Position fields (X / Y / Z) may stay blank: blank means 0.")
         .goal(
             check("a cylinder tier Groove at -42 degrees, reciprocating", |ctx| {
                 concave_is(ctx.design, "Groove", ConcaveTool::Cylinder, -42.0)
@@ -124,7 +124,7 @@ fn cylinder_and_cone() -> Guide {
             "Change a field, then click Save Concave Tier.",
             "The angle cell in the table is read-only for a concave row.",
         ])
-        .why("A concave tier moves only among the concave rows, can be duplicated with Ctrl+D, and removing one never asks Remove anyway?. Every control is unlocked again."),
+        .why("A concave tier moves only among the concave rows, can be duplicated with Ctrl+D, and removing one never asks \"Remove anyway?\" Every control is unlocked again."),
     )
 }
 
@@ -165,7 +165,7 @@ fn sphere_and_disc() -> Guide {
             "Stroke: One Way (plunge).",
             "Click Add Concave Tier.",
         ])
-        .check("a Dimple row in the table, and the Tool Angle field greyed out while Sphere is chosen.")
+        .check("a Dimple row in the table, and the Tool Angle field grayed out while Sphere is chosen.")
         .why("A sphere with a tool angle is refused: the form names the field it is about, in red.")
         .goal(
             check("a sphere tier Dimple at -40 degrees, plunged", |ctx| {

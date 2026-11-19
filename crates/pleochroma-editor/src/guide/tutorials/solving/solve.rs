@@ -99,7 +99,7 @@ fn solve() -> Guide {
             "In the Tier tab, change Angle (deg) to 36 and press Enter.",
         ])
         .check("the status strip reads: Not solved -- click Solve to compute masts and validate this design.")
-        .why("The MAST and SOLVE columns of the tier table show placeholders instead of numbers that might no longer be true, and the viewport keeps the last solved stone rather than a half-updated one.")
+        .why("The state mark at the right of each tier row changes from a tick to a triangle (Not solved yet) instead of claiming a result that might no longer be true, and the viewport keeps the last solved stone rather than a half-updated one.")
         .goal(
             Goal::tier("Crown Main", EDITED_CROWN),
             "Crown Main at 36.0",
@@ -127,7 +127,7 @@ fn solve() -> Guide {
         .actions([
             "The dot is green and the line reads Closed solid and the volume, in the app's model units cubed.",
             "The small state word at the right of the strip says Solved. The other words are Stale, Solving and Failed.",
-            "The MAST and SOLVE columns of the tier table show numbers again.",
+            "The state mark at the right of each tier row is a tick again.",
             "Click the link at the right end of the strip to see every current message in full.",
         ])
         .why("Closed solid means the facets enclose a finite stone with no gaps. The state word is only a summary: read the line for the actual cause when a solve fails (see Reading the solver status).")
@@ -474,7 +474,7 @@ fn verdict_fixes() -> Guide {
             "Start from a solved, sound stone.",
         )
         .actions(["Click Solve on the command bar, or press F5."])
-        .check("the strip reads Closed solid.")
+        .check("the status strip shows Solved with the tier and facet count. It may also report a manufacturability warning instead of Closed solid.")
         .goal(solved_by_button(), "a solve that closes the stone")
         .highlight("solve_button")
         .allow(SOLVE),
@@ -500,7 +500,7 @@ fn verdict_fixes() -> Guide {
             "The verdict is worked out again from each solve.",
         )
         .actions(["Click Solve, or wait for auto-solve."])
-        .check("the strip reads Closed solid and the verdict badge is no longer dimmed.")
+        .check("the status strip shows Solved and the verdict badge is no longer dimmed.")
         .goal(Goal::SolvedClosed, "the edited stone solved")
         .highlight("solve_button")
         .allow(SOLVE),
@@ -647,7 +647,7 @@ fn preform() -> Guide {
             "The rough's shape is Block or Cylinder. Both ranges are the same, because both have to enclose the same stone.",
             "The Simple interface keeps the shape, Half-Width, Length / Width, Depth, the proportions and the Girdle Diameter. The Girdle Y-Offset and the Specific Gravity Override are Advanced; they keep their values.",
         ])
-        .why("Switch to Advanced in Preferences to see them. The Yield group has its own lesson.")
+        .why("If you do not see them, switch to Advanced in Preferences. The Yield group has its own lesson.")
         .allow(PREFORM),
     )
 }
@@ -689,7 +689,7 @@ fn yield_and_carat() -> Guide {
     .step(
         GuideStep::new(
             "Give the stone a size",
-            "The design is drawn in model units. A real size in millimetres turns them into a weight.",
+            "The design is drawn in model units. A real size in millimeters turns them into a weight.",
         )
         .actions([
             "In the Yield group, set Stone width (Girdle Diameter, mm) to 8 and press Enter.",
@@ -722,7 +722,7 @@ fn yield_and_carat() -> Guide {
             "The yield is not only a number to read.",
         )
         .actions([
-            "The Optimize tab's Keep Weight objective favours angles that waste less of the rough.",
+            "The Optimize tab's Keep Weight objective favors angles that waste less of the rough.",
             "The angle sweep table has a Yield % column.",
             "The Rough Planner uses the carat estimate to fit stones into a rough.",
         ])

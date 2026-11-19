@@ -34,8 +34,11 @@ pub fn release_window_state() {
     batch::preview::release_window_state();
     batch::preview_cache::release_window_state();
     render::design_lighting::release_window_state();
+    render_jobs::view::session::release_window_state();
+    render_jobs::view::update::release_window_state();
     render::camera_handles::release_camera();
     render_jobs::controller::release_window_state();
+    render_jobs::edit::save::release_window_state();
     {
         super::rough_colour::material_zones::release_window_state();
         super::rough_colour::adopt_link::release_window_state();
@@ -59,6 +62,8 @@ pub fn live_holders() -> Vec<&'static str> {
     batch::preview_cache::note_holders(&mut held);
     render::design_lighting::note_holders(&mut held);
     render_jobs::controller::note_holders(&mut held);
+    render_jobs::edit::save::note_holders(&mut held);
+    render_jobs::view::update::note_holders(&mut held);
     rough_plan::note_holders(&mut held);
     if super::material_reference::holds_state() {
         held.push("material_reference (window, main-window handles)");

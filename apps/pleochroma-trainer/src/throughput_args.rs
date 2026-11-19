@@ -4,16 +4,20 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 use pleochroma_ai::{
     model::{ModelTier, TrainingMode},
-    training::{ImitationConfig, LrSchedule},
+    training::ImitationConfig,
 };
 use serde::Serialize;
 
 use crate::runner::{
-    Algorithm, DeviceChoice, ObjectiveSampling, RunConfig, config::default_workers,
+    Algorithm, DeviceChoice, ObjectiveSampling, RunConfig,
+    config::{bounded_schedule_for, default_workers, linear_schedule_for},
 };
 
-pub const HELP: &str = "pleochroma-throughput-probe --database PATH --output DIR [options]
-  --scenario pipeline|projection   Default pipeline; never runs validation
+pub const HELP: &str =
+    "pleochroma-throughput-probe [--database PATH] [--design-dir DIR] --output DIR [options]
+  --database PATH                  Read-only library, combined with --design-dir if both given
+  --design-dir DIR                 Read .psdd and .asc files using the trainer directory loader
+  --scenario pipeline|projection   Default pipeline
   --device cpu|cuda                Strict backend, default cuda; no automatic fallback
   --workers N                      Environment slots, default 3 x available CPU threads
   --warmup N                       Pipeline warm-up iterations, default 1
@@ -25,7 +29,8 @@ pub const HELP: &str = "pleochroma-throughput-probe --database PATH --output DIR
   --seed N                         Default 42
   --batch-size N                   Environment steps per iteration, default 256
   --mini-batch N                   Neural mini-batch rows, default 128
-  --updates-per-round N            Optimizer steps per iteration, default 16
+  --updates-per-round N            Optimizer steps per iteration, default 16; 0 uses full epochs
+  --validation-designs N            After training, measure deployment on up to N held-out designs
   --label-every N                  Default 2
   --max-seconds N                  Optional soft limit checked between operations
 The output directory must be new; metadata.json, events.jsonl and summary.json never overwrite.
@@ -42,6 +47,8 @@ pub enum Scenario {
 #[derive(Clone, Debug, Serialize)]
 pub struct Args {
     pub database: PathBuf,
+    pub design_dir: Option<PathBuf>,
+    pub validation_designs: Option<usize>,
     pub output: PathBuf,
     pub scenario: Scenario,
     pub device: DeviceChoice,
@@ -86,8 +93,10 @@ impl Args {
         cfg.imitation = ImitationConfig {
             learning_rate: 3e-4,
             // A 300-iteration horizon, independent of the diagnostic length.
-            lr_schedule: LrSchedule::Linear {
-                total_updates: 300_u64.saturating_mul(self.updates_per_round as u64),
+            lr_schedule: if self.updates_per_round == 0 {
+                linear_schedule_for(300, cfg.label_capacity, self.mini_batch, 2)
+            } else {
+                bounded_schedule_for(300, self.updates_per_round)
             },
             mini_batch_size: self.mini_batch,
             epochs_per_round: 2,
@@ -98,9 +107,9 @@ impl Args {
             gain_coeff: 0.1,
         };
         cfg.label_every = self.label_every;
-        // RunConfig requires positive validation fields. This driver never calls evaluate.
+        // Validation is explicit and outside the measured training window.
         cfg.validation_every = usize::MAX;
-        cfg.validation_designs = 16;
+        cfg.validation_designs = self.validation_designs.unwrap_or(16);
         cfg.validation_fidelity = crate::runner::EvalFidelity::Fast;
         cfg
     }
@@ -112,6 +121,8 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     }
     let mut parsed = Args {
         database: PathBuf::new(),
+        design_dir: None,
+        validation_designs: None,
         output: PathBuf::new(),
         scenario: Scenario::Pipeline,
         device: DeviceChoice::Cuda,
@@ -156,6 +167,8 @@ fn number<T: std::str::FromStr>(flag: &str, value: &str) -> Result<T, String> {
 fn assign(args: &mut Args, flag: &str, value: &str) -> Result<(), String> {
     match flag {
         "--database" => args.database = value.into(),
+        "--design-dir" => args.design_dir = Some(value.into()),
+        "--validation-designs" => args.validation_designs = Some(number(flag, value)?),
         "--output" => args.output = value.into(),
         "--scenario" => {
             args.scenario = match value {
@@ -204,22 +217,27 @@ fn assign(args: &mut Args, flag: &str, value: &str) -> Result<(), String> {
 }
 
 fn validate(args: &Args) -> Result<(), String> {
-    if args.database.as_os_str().is_empty() || args.output.as_os_str().is_empty() {
-        return Err("--database and --output are required".into());
+    if (args.database.as_os_str().is_empty() && args.design_dir.is_none())
+        || args.output.as_os_str().is_empty()
+    {
+        return Err("provide --database or --design-dir, and --output".into());
+    }
+    if args.validation_designs.is_some()
+        && (args.validation_designs == Some(0) || args.scenario != Scenario::Pipeline)
+    {
+        return Err("--validation-designs needs a positive count and the pipeline scenario".into());
     }
     if !(1..=crate::runner::MAX_WORKERS).contains(&args.workers)
         || args.iterations == 0
         || !(1..=16).contains(&args.repeats)
         || args.batch_size == 0
         || args.mini_batch == 0
-        || args.mini_batch > args.batch_size
-        || args.updates_per_round == 0
         || !(1..=64).contains(&args.label_every)
         || args.max_seconds == Some(0)
         || !(args.max_step_deg.is_finite() && args.max_step_deg > 0.0)
         || args.warmup.checked_add(args.iterations).is_none()
     {
-        return Err("invalid limits: counts must be positive (warmup may be zero), repeats <=16, mini-batch <= batch-size, workers <=1024, label-every <=64, finite positive step".into());
+        return Err("invalid limits: counts must be positive (warmup and updates-per-round may be zero), repeats <=16, workers <=1024, label-every <=64, finite positive step".into());
     }
     Ok(())
 }
@@ -227,6 +245,7 @@ fn validate(args: &Args) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pleochroma_ai::training::LrSchedule;
     fn args(extra: &[&str]) -> Vec<String> {
         ["--database", "library.sqlite", "--output", "new-output"]
             .into_iter()
@@ -261,6 +280,42 @@ mod tests {
         assert_eq!(cfg.objectives, ObjectiveSampling::Mixed);
         assert!(!parsed.sync_every_iteration);
     }
+    #[test]
+    fn directory_only_workload_preserves_explicit_settings_and_validation() {
+        let input = [
+            "--design-dir",
+            "native",
+            "--output",
+            "new",
+            "--validation-designs",
+            "3",
+            "--batch-size",
+            "16",
+            "--mini-batch",
+            "32",
+            "--updates-per-round",
+            "0",
+        ]
+        .map(str::to_owned);
+        let parsed = parse(&input).unwrap().unwrap();
+        let cfg = parsed.config();
+        assert_eq!(parsed.design_dir, Some(PathBuf::from("native")));
+        assert!(parsed.database.as_os_str().is_empty());
+        assert_eq!(
+            (
+                cfg.rollout_size,
+                cfg.imitation.mini_batch_size,
+                cfg.imitation.updates_per_round
+            ),
+            (16, 32, 0)
+        );
+        assert_eq!(
+            cfg.imitation.lr_schedule,
+            linear_schedule_for(300, 50_000, 32, 2)
+        );
+        assert_eq!(cfg.validation_designs, 3);
+    }
+
     #[test]
     fn strict_backend_and_invalid_or_duplicate_inputs_are_rejected() {
         for flags in [

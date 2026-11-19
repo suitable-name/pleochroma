@@ -87,9 +87,13 @@ fn while_opening<R>(f: impl FnOnce() -> R) -> R {
     result
 }
 
-/// Starts the load: shows the Edit view (the unsaved-changes guard is asked there), remembers
-/// the request, selects the design in the library and invokes Load Selected. The guard may ask
-/// first; a Cancel drops the request ([`clear`]).
+/// Starts the load: remembers the request, selects the design in the library and invokes Load
+/// Selected. The guard may ask first; a Cancel drops the request ([`clear`]).
+///
+/// The page of the main window is left alone here. The unsaved-changes question floats over
+/// every page, so a Cancel leaves the cutter where they were; the Edit view is shown when the
+/// design lands, like every Load Selected (`lifecycle::apply_loaded_design`). The planner's own
+/// caller raises the main window.
 ///
 /// Refused with a toast, and nothing remembered, when the entry is beyond the library's `int`
 /// range or the library does not select it (the design is gone or unreadable): Load Selected
@@ -103,7 +107,6 @@ pub(in crate::gui) fn open(ui: &MainWindow, request: PlannedStoneRequest) {
         );
         return;
     };
-    crate::gui::commands::show_edit_view(ui);
     let library = ui.global::<LibraryModel>();
     library.invoke_select_diagram(id);
     if library.get_selected_entry_id() != id {

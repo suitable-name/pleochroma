@@ -54,10 +54,10 @@ fn pick_material(material: &str, intro: &'static str, why: &'static str) -> Guid
 fn path_traced(intro: &'static str) -> GuideStep {
     GuideStep::new("Look at it in Path-Traced", intro)
         .actions([
-            "Click Path-Traced in the row of view pills above the picture, and give the picture a moment to settle.",
+            "Click Path-Traced in the row of view pills above the picture (it reads Path in a narrow window), and give the picture a moment to settle.",
         ])
         .check("The picture shows the stone lit with traced light, and the pills show Path-Traced as chosen, with Solid chosen as well or on its own.")
-        .why("The Solid view is flat-shaded and shows no color of the material. From Solid, the click gives Solid combined with Path-Traced, which shows it too; click Solid to turn the flat layer off.")
+        .why("The Solid view is flat-shaded and shows no color of the material. From Solid, the click gives Solid combined with Path-Traced, which shows it too; click Solid to turn the flat layer off. The traced picture also measures the light in the stone, so the verdict can turn to Problem and a red banner can appear for a stone that loses much light. That is the verdict at work, not an error in this lesson.")
         .goal(path_traced_view(), "The Path-Traced view")
         .perform(Perform::ViewMode(1))
         .highlight("view_modes")
@@ -99,9 +99,9 @@ fn sapphire() -> Guide {
             "A line over the stone shows where its axis lies.",
         )
         .actions([
-            "Click Crystal Axis in the row of pills above the picture. If the line is already showing, click it twice.",
+            "Click Crystal Axis in the toolbar above the picture. In a narrow view it is in the Show menu under the view pills: click Show, then Crystal Axis. If the line is already showing, click it twice.",
         ])
-        .check("A purple line crosses the stone with a round handle marked Axis at its upper end, and the Crystal Axis pill is lit.")
+        .check("A purple line crosses the stone with a round handle marked Axis at its upper end, and Crystal Axis is lit.")
         .why("The choice is remembered. The line also switches itself on, for the session, the first time you set an axis.")
         .goal(event(CRYSTAL_AXIS_TOGGLED), "The Crystal Axis button pressed")
         .highlight("crystal_axis_toggle")
@@ -139,10 +139,11 @@ fn sapphire() -> Guide {
     .step(
         GuideStep::new(
             "Read the Doubling",
-            "Two more numbers join the row over the picture once a stone has an axis.",
+            "Two more numbers join the FACE-UP card over the picture once a stone has an axis.",
         )
         .actions([
-            "In the row of numbers over the picture, after Extinction, Axis is the angle between the crystal axis and the table normal. It reads 0 degrees now.",
+            "If the FACE-UP card over the picture shows only one short line, click its arrow to open it. Axis and Doubling are in the open card only.",
+            "In the open card, after Extinction, Axis is the angle between the crystal axis and the table normal. It reads 0 degrees now.",
             "Doubling is how far apart, in arc-minutes, the two images of the stone fall. Looking straight along the axis it is close to zero. Choose In the Table Plane in the Stone tab and watch it grow.",
         ])
         .why("The Doubling figure is measured on the picture, so it appears a moment after the picture settles. An isotropic material has no Axis or Doubling to show.")
@@ -189,7 +190,7 @@ fn tourmaline() -> Guide {
             "Click In the Table Plane.",
         ])
         .check("The preset is lit, Tilt reads 90 degrees and the Path-Traced picture settles on a new color.")
-        .why("Choosing a preset turns on Set for This Stone for you. As Material goes back to the axis the material has.")
+        .why("Choosing a preset turns on Set for This Stone for you. The As Material option goes back to the axis the material has.")
         .goal(event(CRYSTAL_AXIS_PRESET_CHOSEN), "A preset chosen")
         .highlight("stone_tab")
         .allow(EFFECTS),
@@ -339,7 +340,7 @@ fn set_axis() -> Guide {
             "The handle is part of the line over the stone.",
         )
         .actions([
-            "Click Crystal Axis in the row of pills above the picture. If the line is already showing, click it twice.",
+            "Click Crystal Axis in the toolbar above the picture. In a narrow view it is in the Show menu under the view pills: click Show, then Crystal Axis. If the line is already showing, click it twice.",
         ])
         .check("A purple line crosses the stone with a round handle marked Axis at its upper end.")
         .why("The choice is remembered. The line also switches itself on, for the session, the first time you set an axis.")

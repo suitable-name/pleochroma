@@ -32,15 +32,20 @@ pub(super) fn tier_row_values(ui: &MainWindow, at: i32) -> Option<TierRowValues>
         })
 }
 
-/// Finds a tier row's NAME cell by its displayed label: the first text with that label to the
-/// right of the ANGLE cell (`after_x`, its right edge). The CODE cell left of ANGLE carries the
-/// block as its label ("G1" reads "Girdle"), so the Girdle tier has two "Girdle" texts.
-pub(super) fn name_cell(row: &ElementHandle, label: &str, after_x: f32) -> Option<Spot> {
+/// Finds the text of a tier row that shows the tier's name. The row has no NAME column: the name
+/// stands in the detail line under the index positions ("Pavilion Main, scale 0.7" with a middle
+/// dot), whose accessible label starts with `label_start` ("Tier N detail:"). It is the first
+/// such text to the right of the ANGLE cell (`after_x`, its right edge).
+pub(super) fn name_cell(row: &ElementHandle, label_start: &str, after_x: f32) -> Option<Spot> {
     row.query_descendants()
         .match_accessible_role(uiprobe::AccessibleRole::Text)
         .find_all()
         .into_iter()
-        .filter(|element| element.accessible_label().is_some_and(|text| text == label))
+        .filter(|element| {
+            element
+                .accessible_label()
+                .is_some_and(|text| text.starts_with(label_start))
+        })
         .map(|element| Spot::of(&element))
         .filter(|spot| spot.x >= after_x - 1.0)
         .min_by(|left, right| left.x.total_cmp(&right.x))
@@ -60,13 +65,15 @@ pub(super) fn angle_cell(row: &ElementHandle) -> Option<Spot> {
         .map(|element| Spot::of(&element))
 }
 
-/// Returns a center hit point only when enough of the NAME cell remains visibly clickable.
+/// Returns a center hit point only when enough of the NAME cell remains visibly clickable. The
+/// name stands in a one-line 10 px text about 12 px high, so 6 px of it (inside a 2 px inset)
+/// are enough.
 pub(super) fn visible_name_point(cell: &Spot, safe: &Spot) -> Option<(f32, f32)> {
     let left = cell.x.max(safe.x) + 2.0;
     let right = (cell.x + cell.w).min(safe.x + safe.w) - 2.0;
     let top = cell.y.max(safe.y) + 2.0;
     let bottom = (cell.y + cell.h).min(safe.y + safe.h) - 2.0;
-    if right - left < 24.0 || bottom - top < 8.0 {
+    if right - left < 24.0 || bottom - top < 6.0 {
         return None;
     }
     // The centre of the visible band: a user clicks what can be seen.
@@ -286,15 +293,9 @@ pub(super) fn reveal_tier_row(
         }
     }
     let idx = found_idx.ok_or_else(|| format!("tier {wanted:?} not found in tier table"))?;
-    let row_data = tiers
-        .row_data(usize::try_from(idx).map_err(|_| "invalid row index")?)
-        .ok_or_else(|| format!("tier {wanted:?}: row data disappeared"))?;
-    let display_name = if row_data.name.trim().is_empty() {
-        "(unnamed)".to_owned()
-    } else {
-        row_data.name.to_string()
-    };
     let prefix = format!("Tier {},", idx + 1);
+    // The row's detail line, which shows the tier's name (see `name_cell`).
+    let detail_prefix = format!("Tier {} detail:", idx + 1);
     let viewport = film.safe_tier_table_viewport()?;
     film.wheel_across(&viewport, 3000.0)?;
     film.wheel_over(&viewport, 3000.0)?;
@@ -303,6 +304,8 @@ pub(super) fn reveal_tier_row(
 
     let mut last_row_y: Option<f32> = None;
     let mut last_bounds = None;
+    // The cell the last look did not find, for the message when the row never comes into view.
+    let mut last_missing: Option<&str> = None;
     for _ in 0..24 {
         let view = film.view();
         let viewport = film.safe_tier_table_viewport()?;
@@ -317,10 +320,37 @@ pub(super) fn reveal_tier_row(
         };
         last_bounds = Some((row.x, row.y, row.w, row.h));
         let row_element = row.handle.as_ref().ok_or("tier row handle is missing")?;
-        let angle_cell = angle_cell(row_element)
-            .ok_or_else(|| format!("tier {wanted:?}: ANGLE cell is missing"))?;
-        let name_cell = name_cell(row_element, &display_name, angle_cell.x + angle_cell.w)
-            .ok_or_else(|| format!("tier {wanted:?}: NAME cell is missing"))?;
+        let angle = angle_cell(row_element);
+        let name = angle
+            .as_ref()
+            .and_then(|angle| name_cell(row_element, &detail_prefix, angle.x + angle.w));
+        let missing = if angle.is_none() { "ANGLE" } else { "NAME" };
+        let (Some(angle_cell), Some(name_cell)) = (angle, name) else {
+            // A row that only touches the table's edge is in the tree while its cells, which are
+            // wholly outside, are not: turn the row towards the middle and look again. A cell
+            // that is missing from a row wholly on view, or from a row the wheel no longer
+            // moves, is really missing.
+            let whole = row.y >= viewport.y - 0.5 && row.y + row.h <= viewport.y + viewport.h + 0.5;
+            let stuck = last_row_y.is_some_and(|y| (y - row.y).abs() <= 0.5);
+            if whole || stuck {
+                return Err(format!(
+                    "tier {wanted:?}: {missing} cell is missing (row bounds {:?}, safe viewport \
+                     {:?})",
+                    (row.x, row.y, row.w, row.h),
+                    (viewport.x, viewport.y, viewport.w, viewport.h)
+                ));
+            }
+            last_missing = Some(missing);
+            last_row_y = Some(row.y);
+            let center_y = viewport.y + viewport.h / 2.0;
+            let delta = (row.center().1 - center_y).clamp(-120.0, 120.0);
+            let wheel = if delta.abs() >= 1.0 { -delta } else { -80.0 };
+            film.wheel_over(&viewport, wheel)?;
+            film.rec.hold(Duration::from_millis(200))?;
+            pump(60);
+            continue;
+        };
+        last_missing = None;
         crate::debug_log::debug_check_with(
             "tier row NAME / ANGLE cells (safe viewport vs cells)",
             &(viewport.x, viewport.y, viewport.w, viewport.h),
@@ -369,6 +399,6 @@ pub(super) fn reveal_tier_row(
     }
     Err(format!(
         "tier {wanted:?}, row {idx}: NAME and ANGLE text centers never had a safe visible area \
-         (last row bounds {last_bounds:?})"
+         (last row bounds {last_bounds:?}, cell not found at the last look: {last_missing:?})"
     ))
 }

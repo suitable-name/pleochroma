@@ -29,8 +29,8 @@ use super::sheet::{ConcaveRowInfo, CutSheetRow, CuttingSheet};
 use crate::{
     crystal_axis::CrystalOrientation,
     design::{
-        ConcaveTier, ConstraintTier, CutMeet, CutMeetAnchor, Design, SolveMismatch, TierLabelInfo,
-        TierRef, cutting_order::meet_inputs,
+        ConcaveTier, ConstraintTier, CutMeet, CutMeetAnchor, Design, MeetPlace, SolveMismatch,
+        TierLabelInfo, TierRef, cutting_order::meet_inputs,
     },
     edit::EditError,
 };
@@ -79,6 +79,15 @@ fn placed_by_depth(tier: &ConstraintTier) -> bool {
     !matches!(tier.constraint, MeetConstraint::MeetNamed(_)) && recorded_notes(tier).is_none()
 }
 
+/// The codes of `tiers`, joined with `", "` (`P1, G1, P2`).
+fn tier_codes(tiers: &[usize], codes: &[TierLabelInfo]) -> String {
+    tiers
+        .iter()
+        .filter_map(|&tier| codes.get(tier).map(|label| label.code.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// What the sheet prints for a tier placed by an explicit depth ([`placed_by_depth`]), from its
 /// meet on the stone cut so far ([`Design::cut_meets`], [`DepthPlacement::of`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -107,6 +116,13 @@ pub(super) enum DepthPlacement {
     /// vertices its facets pass through on the stone cut so far, in cutting order. Never empty.
     /// `"Meet P1, P2, G1"`, without a full stop, as the cutting-instructions template writes it.
     Meets(Vec<usize>),
+    /// A meet whose points all lie on the stone's axis ([`MeetPlace::Centerpoint`]): the same
+    /// tiers as [`Self::Meets`], worded with the place. `"Meet P1 at centerpoint"`, without a
+    /// full stop.
+    MeetsAtCenterpoint(Vec<usize>),
+    /// A crown or pavilion tier cut to the girdle line the earlier tiers set
+    /// ([`MeetPlace::GirdleLine`]). `"Cut to level girdle."`
+    CutToLevelGirdle,
     /// The stone cut so far has vertices, but a facet of the tier passes through none of them,
     /// so the cutter has no point to stop at: its depth, worded as [`Self::Depth`]'s. The
     /// editor's Checks name these tiers; the sheet does not warn on each row.
@@ -129,16 +145,26 @@ pub(super) enum DepthPlacement {
 
 impl DepthPlacement {
     /// The placement of a tier whose cut-so-far meet is `meet` ([`Design::cut_meets`]; `None`
-    /// when the stone does not close or nothing needed it) and whose solved mast is `mast`
+    /// when the stone does not close or nothing needed it), where its meet points lie is `place`
+    /// ([`crate::design::CutMeets::place`]; `None` when there is no meet) and whose solved mast is `mast`
     /// (`depth_mm` in millimetres when known).
-    fn of(meet: Option<&CutMeet>, mast: f64, depth_mm: Option<f64>) -> Self {
+    fn of(
+        meet: Option<&CutMeet>,
+        place: Option<MeetPlace>,
+        mast: f64,
+        depth_mm: Option<f64>,
+    ) -> Self {
         match meet {
+            Some(CutMeet::Meets(tiers)) => match place {
+                Some(MeetPlace::Centerpoint) => Self::MeetsAtCenterpoint(tiers.clone()),
+                Some(MeetPlace::GirdleLine) => Self::CutToLevelGirdle,
+                Some(MeetPlace::Other) | None => Self::Meets(tiers.clone()),
+            },
             Some(CutMeet::Anchor(CutMeetAnchor::SetStoneSize)) => Self::SetStoneSize,
             Some(CutMeet::Anchor(CutMeetAnchor::CutToCenterpoint)) => Self::CutToCenterpoint,
             Some(CutMeet::Anchor(CutMeetAnchor::SetGirdleWidth)) => Self::SetGirdleWidth,
             Some(CutMeet::Anchor(CutMeetAnchor::SetTableSize)) => Self::SetTableSize,
             Some(CutMeet::Anchor(CutMeetAnchor::SetGirdleLine)) => Self::SetGirdleLine,
-            Some(CutMeet::Meets(tiers)) => Self::Meets(tiers.clone()),
             Some(CutMeet::Floats { .. }) => Self::NoMeetPoint { mast, depth_mm },
             Some(CutMeet::Anchor(CutMeetAnchor::NothingToMeet)) | None => {
                 Self::Depth { mast, depth_mm }
@@ -154,14 +180,11 @@ impl DepthPlacement {
             Self::SetGirdleWidth => "Set girdle width.".to_string(),
             Self::SetTableSize => "Set table size.".to_string(),
             Self::SetGirdleLine => "Set girdle line.".to_string(),
-            Self::Meets(tiers) => format!(
-                "Meet {}",
-                tiers
-                    .iter()
-                    .filter_map(|&tier| codes.get(tier).map(|label| label.code.as_str()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            Self::Meets(tiers) => format!("Meet {}", tier_codes(tiers, codes)),
+            Self::MeetsAtCenterpoint(tiers) => {
+                format!("Meet {} at centerpoint", tier_codes(tiers, codes))
+            }
+            Self::CutToLevelGirdle => "Cut to level girdle.".to_string(),
             Self::NoMeetPoint {
                 depth_mm: Some(mm), ..
             }
@@ -474,6 +497,9 @@ impl Design {
             } else {
                 DepthPlacement::of(
                     cut_meets.as_ref().and_then(|meets| meets.tiers.get(i)),
+                    cut_meets
+                        .as_ref()
+                        .and_then(|meets| meets.place.get(i).copied()),
                     solved_tier.mast,
                     depth_mm,
                 )

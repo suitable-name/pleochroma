@@ -6,7 +6,7 @@ use glam::DVec3;
 use pleochroma::{geometry::stone_metrics::SolidMesh, optics::raytracer::Camera};
 
 /// The smallest raster height, in pixels, whose orientation caption may move to the
-/// bottom-left corner ([`SolidStyle::orientation_caption_bottom`]).
+/// bottom-right corner ([`SolidStyle::orientation_caption_bottom`]).
 const BOTTOM_CAPTION_MIN_HEIGHT: u32 = 300;
 
 /// Which of [`SolidRasterizer::draw_facet_edges`]'s ordered passes an edge segment
@@ -227,7 +227,14 @@ impl SolidRasterizer {
         if let (Some(from), Some(to)) = (project(camera, origin, w, h), project(camera, tip, w, h))
         {
             self.draw_edge(from, to, marker_color, 2);
-            let (label_w, label_h) = diagram2d::text_size("0", text_scale);
+            // The "0" at the end of the reference line is one glyph, so in a viewport raster it
+            // is drawn a step larger than the caption to stay legible at video resolution.
+            let tip_scale = if bottom_caption {
+                text_scale + 1
+            } else {
+                text_scale
+            };
+            let (label_w, label_h) = diagram2d::text_size("0", tip_scale);
             diagram2d::draw_text_into_buffer(
                 diagram2d::TextCanvas {
                     color_buf: &mut self.color,
@@ -237,7 +244,7 @@ impl SolidRasterizer {
                 to.0 - label_w as f32 / 2.0,
                 to.1 - 3.0 - label_h as f32,
                 "0",
-                text_scale,
+                tip_scale,
                 marker_color,
                 None,
             );
@@ -251,15 +258,18 @@ impl SolidRasterizer {
             "PAVILION"
         };
         let scale = text_scale;
+        let (text_w, text_h) = diagram2d::text_size(side_label, scale);
         let (x, y) = if bottom_caption {
+            // Bottom-right, lifted above the viewport's bottom row: the bottom-left corner
+            // holds the gestures button and the status line, and the Cut To slider covers
+            // the bottom edge, so a caption drawn there was clipped or doubled up.
             let margin = 8.0 * scale as f32;
-            let (_, text_h) = diagram2d::text_size(side_label, scale);
-            (margin, h - margin - text_h as f32)
+            let lift = 36.0 * scale as f32;
+            (w - margin - text_w as f32, h - lift - text_h as f32)
         } else {
             (8.0, 8.0)
         };
-        let (text_w, _) = diagram2d::text_size(side_label, scale);
-        if bottom_caption && (y < 0.0 || 2.0f32.mul_add(x, text_w as f32) > w) {
+        if bottom_caption && (y < 0.0 || x < 0.0) {
             return;
         }
         diagram2d::draw_text_into_buffer(

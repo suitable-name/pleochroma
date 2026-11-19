@@ -99,6 +99,12 @@ pub fn snap_to_step(value: f64, step: f64) -> f64 {
     }
 }
 
+/// A free (unsnapped) drag value held to four decimals, the precision every field shows. The
+/// pointer travel is an `f32`, so without this a value reads `34.70000000298023` in the form.
+fn round_free_drag(value: f64) -> f64 {
+    (value * 1e4).round() / 1e4
+}
+
 /// Pointer travel from the drag start, projected on the unit screen direction `dir`,
 /// expressed in units at `pixels_per_unit`. Zero when the handle is edge-on.
 fn travel_units(start: &DragStart, pointer: ScreenPoint, dir: (f32, f32), per_unit: f32) -> f64 {
@@ -123,7 +129,7 @@ fn angle_value(start: &DragStart, pointer: ScreenPoint, snap: SnapMode) -> DragV
     let raw = side.mul_add(degrees, start.start_angle_deg);
     let snapped = snap
         .angle_step_deg()
-        .map_or(raw, |step| snap_to_step(raw, step));
+        .map_or_else(|| round_free_drag(raw), |step| snap_to_step(raw, step));
     let capped = if snapped.abs() > MAX_ANGLE_DEG {
         MAX_ANGLE_DEG.copysign(snapped)
     } else {
@@ -143,7 +149,7 @@ fn mast_value(start: &DragStart, pointer: ScreenPoint, snap: SnapMode) -> DragVa
     let raw = (start.start_mast.abs() + units).max(0.0);
     let magnitude = snap
         .mast_step()
-        .map_or(raw, |step| snap_to_step(raw, step))
+        .map_or_else(|| round_free_drag(raw), |step| snap_to_step(raw, step))
         .max(0.0);
     DragValue::Mast(magnitude.copysign(start.start_mast))
 }

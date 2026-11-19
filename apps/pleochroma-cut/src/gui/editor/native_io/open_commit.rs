@@ -32,7 +32,10 @@ use crate::{
         solid_preview::preview_state::SolidPreviewState,
     },
 };
-use pleochroma_cut_core::{History, native::LoadedDesign as DesignFileLoaded};
+use pleochroma_cut_core::{
+    History,
+    native::{LoadedDesign as DesignFileLoaded, RiRangeChoice},
+};
 use pleochroma_editor::{EditorSession, material_lookup::with_pattern_notice};
 use restore_material::restore_custom_material;
 use slint::ComponentHandle;
@@ -221,6 +224,9 @@ pub(super) fn open_design_file(
 /// Opens a bare `.asc`, built the way a catalogue attachment is (`design_from_asc_text`): no
 /// meet-intent overlay, fingerprint or draft flag, since there is no design file. Replaces
 /// `state` wholesale, then runs [`finish_state_replace`] like [`open_design_file`] does.
+///
+/// Returns whether the design landed in the editor: `false` for a file that does not parse
+/// (toasted), which replaces nothing.
 pub(super) fn open_plain_asc(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -229,7 +235,7 @@ pub(super) fn open_plain_asc(
     solid_last_solved: &crate::gui::editor::view::SolidLastSolved,
     asc_path: &Path,
     asc_text: &str,
-) {
+) -> bool {
     let file_name = asc_path.file_name().map_or_else(
         || "design.asc".to_string(),
         |n| n.to_string_lossy().into_owned(),
@@ -259,8 +265,12 @@ pub(super) fn open_plain_asc(
                     "success"
                 },
             );
+            true
         }
-        Err(e) => show_toast(ui, &format!("Cannot open: {e}"), "error"),
+        Err(e) => {
+            show_toast(ui, &format!("Cannot open: {e}"), "error");
+            false
+        }
     }
 }
 
@@ -271,6 +281,8 @@ pub(super) fn open_plain_asc(
 /// new `.psdd` file and cannot overwrite the `.gem`/`.gcs`. The window title still names the
 /// file opened. Reader and converter warnings go into the toast, which then stays up as a
 /// warning.
+///
+/// Returns whether the design landed in the editor, like [`open_plain_asc`].
 pub(super) fn open_converted_design(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -278,17 +290,23 @@ pub(super) fn open_converted_design(
     preview_state: &Arc<SolidPreviewState>,
     solid_last_solved: &crate::gui::editor::view::SolidLastSolved,
     picked: ConvertedPick,
-) {
+) -> bool {
     let ConvertedPick {
         source_path,
         asc_file_name,
         asc_text,
         warnings,
         frosting,
+        ri_range,
     } = picked;
     match crate::gui::editor::loading::design_from_asc_text(&asc_file_name, &asc_text, None) {
         Ok(mut loaded) => {
             loaded.design.apply_imported_frosting(&frosting);
+            // A schedule has no RI range of its own: the range a `.gcs` states travels in the
+            // design's `[meta]` (the choice "From File"), kept by the next Save.
+            if ri_range != RiRangeChoice::Off {
+                loaded.metadata.set_ri_range_choice(ri_range);
+            }
             let (pattern_note, pattern_problem) = with_pattern_notice("", &loaded.design);
             commit_plain_design(
                 ui,
@@ -321,8 +339,12 @@ pub(super) fn open_converted_design(
                     "warning"
                 },
             );
+            true
         }
-        Err(e) => show_toast(ui, &format!("Cannot open: {e}"), "error"),
+        Err(e) => {
+            show_toast(ui, &format!("Cannot open: {e}"), "error");
+            false
+        }
     }
 }
 
@@ -369,7 +391,10 @@ fn commit_plain_design(
         // A design-file/plain-`.asc` open carries a real recorded
         // schedule, never the angle-table reconstruction fallback.
         used_placeholder: false,
-        file_extras: DesignFileExtras::default().with_design_uuid_assigned_for_file(source_path),
+        // The `[meta]` the loader built: empty for a bare `.asc`, the stated RI range for a
+        // `.gcs` ([`open_converted_design`]).
+        file_extras: DesignFileExtras::new(loaded.metadata, Vec::new())
+            .with_design_uuid_assigned_for_file(source_path),
         has_design: true,
     });
     finish_state_replace(ui, render_ctx, preview_state, solid_last_solved, state);
@@ -379,6 +404,10 @@ fn commit_plain_design(
 /// is stored: refresh the viewport and panel, reset the selection (a selected tier index
 /// would name an unrelated row) and mark the state clean. Load Selected and New run the same
 /// reset.
+///
+/// The refresh here is not deferred, so the viewport is claimed (or a background solve is on
+/// its way) when this returns. The caller then reports the landing, which shows the Edit view
+/// unless the file came from the command line (`open_native::dispatch_picked`).
 fn finish_state_replace(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,

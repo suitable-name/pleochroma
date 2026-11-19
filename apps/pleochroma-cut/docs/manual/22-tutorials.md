@@ -23,6 +23,13 @@ There are four ways to open the **tutorial browser**, and they all show the same
   begin from a design that already exists. It shows the library and puts the cursor in
   its search box. Pick a design there and use **Load Selected** (Chapter 3).
 
+When a tutorial starts, the window shows what its first step is about: the Edit view
+or the Live Render, the panel and the tab the step points at. This happens once, at
+the start, also when the tutorial first makes or loads its own design. From the
+second step on the page is left alone, and **Show Me Where** takes you to a step's
+controls when they are not on screen. A step that keeps the view tabs locked is never
+moved to the Live Render.
+
 The browser is a small window over the main window. It shows:
 
 - **Sections.** Tutorials are grouped under headings that follow a learning path, such
@@ -233,7 +240,7 @@ Section **Meets, Relations and Concave Tiers**:
   shows a rename following the tiers that meet the renamed one. It starts from the
   Standard Round Brilliant, whose crown and pavilion each keep other tiers with an exact
   scale value, so the stone still solves when one tier leaves its depth to the solver.
-- **Meets in Millimetres** states a depth, a table width and a girdle thickness in
+- **Meets in Millimeters** states a depth, a table width and a girdle thickness in
   millimetres, after giving the stone a girdle diameter.
 - **Pin to Mast** freezes the depth the solver found as an exact scale value. It also
   starts from the Standard Round Brilliant.

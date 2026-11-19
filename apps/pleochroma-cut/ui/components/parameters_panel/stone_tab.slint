@@ -4,6 +4,8 @@ import { SettingsModel } from "../../models/settings.slint";
 import { ViewportModel } from "../../models/viewport.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
+import { RiRangeModel } from "../../models/ri_range.slint";
+import { RiChartModel } from "../../models/ri_chart.slint";
 import { ParametersModel } from "../../models/parameters.slint";
 import { BodyColorEditorModel } from "../../models/body_color_editor.slint";
 import { PhysicscolorModel } from "../../models/physics_color.slint";
@@ -48,7 +50,8 @@ component PatternThumb inherits Rectangle {
 component GemFacts inherits VerticalLayout {
     in property <bool> editable: true;
     spacing: 8px;
-    if EditorModel.gem_sg != "" || EditorModel.gem_mohs != "" || EditorModel.gem_toughness != "": HorizontalLayout {
+    // SG and Mohs share a row; Toughness (the longest text) has its own, so no value is elided.
+    if EditorModel.gem_sg != "" || EditorModel.gem_mohs != "": HorizontalLayout {
         spacing: 6px;
         alignment: start;
         if EditorModel.gem_sg != "": StoneChip {
@@ -61,7 +64,10 @@ component GemFacts inherits VerticalLayout {
             label: "Mohs hardness " + EditorModel.gem_mohs;
             hint: "Mohs is an order of scratch hardness, not a measure.";
         }
-        if EditorModel.gem_toughness != "": StoneChip {
+    }
+    if EditorModel.gem_toughness != "": HorizontalLayout {
+        alignment: start;
+        StoneChip {
             text: EditorModel.gem_toughness;
             label: EditorModel.gem_toughness;
             hint: "How well the stone resists chipping and breaking.";
@@ -278,7 +284,10 @@ export component StoneTab inherits VerticalLayout {
                         label: "Critical Angle " + EditorModel.gem_critical;
                         hint: "Critical angle: below this angle light leaks out of a pavilion facet. See the glossary.";
                     }
-                    if EditorModel.gem_dispersion != "": StoneChip {
+                }
+                if EditorModel.gem_dispersion != "": HorizontalLayout {
+                    alignment: start;
+                    StoneChip {
                         text: "Dispersion " + EditorModel.gem_dispersion;
                         label: "Dispersion " + EditorModel.gem_dispersion;
                         hint: "Dispersion in the B-G convention: how widely the material spreads white light into colors. See the glossary.";
@@ -358,7 +367,15 @@ export component StoneTab inherits VerticalLayout {
     if root.design_shown: VerticalLayout {
         spacing: 14px;
 
-        if ViewportModel.previewing: PreviewBadge { row_height: 36px; }
+        // The badge has a fixed width (its text and the button), and a fixed-width row sets the
+        // least width of the whole tab: the long wording was wider than the 360 px dock, so the
+        // tab scrolled sideways and the identity card's "..." button left the view. The short
+        // wording with a capped name fits; the note under the pickers says the rest.
+        if ViewportModel.previewing: PreviewBadge {
+            compact: true;
+            row_height: 36px;
+            name_max_width: 190px;
+        }
 
         // The identity card: the material at a glance. The "..." menu holds the rarer actions.
         KitCard {
@@ -407,6 +424,7 @@ export component StoneTab inherits VerticalLayout {
                 }
 
                 // Refractive index, critical angle and dispersion. The RI chip opens the override.
+                // RI and Critical share a row; Dispersion has its own, so no chip has to elide its value.
                 HorizontalLayout {
                     spacing: 6px;
                     alignment: start;
@@ -427,7 +445,10 @@ export component StoneTab inherits VerticalLayout {
                         label: "Critical Angle " + (EditorModel.critical_angle_text == "" ? "not known" : EditorModel.critical_angle_text);
                         hint: "Critical angle: below this angle light leaks out of a pavilion\nfacet instead of bouncing back (see the tier list's MARGIN\ncolumn). It follows from the refractive index. See the glossary.";
                     }
-                    if EditorModel.material_dispersion_text != "": StoneChip {
+                }
+                if EditorModel.material_dispersion_text != "": HorizontalLayout {
+                    alignment: start;
+                    StoneChip {
                         text: "Dispersion " + EditorModel.material_dispersion_text;
                         label: "Dispersion " + EditorModel.material_dispersion_text;
                         hint: EditorModel.material_dispersion_tip;
@@ -436,6 +457,26 @@ export component StoneTab inherits VerticalLayout {
 
                 // SG, Mohs, Toughness and the cleavage line (the former Gem Data card).
                 if EditorModel.gem_card_shown: GemFacts { editable: root.unlocked; }
+
+                // The RI range row, on its own line: a fourth chip in the RI row is clipped at the
+                // 360 px dock. The geometric hint (muted, read only) shows until the traced range
+                // is computed; then the traced chip replaces it and a click opens the RI chart.
+                if RiRangeModel.chip_state == 1: HorizontalLayout {
+                    alignment: start;
+                    StoneChip {
+                        text: RiRangeModel.chip_text;
+                        hint: RiRangeModel.chip_hover;
+                        ink: Theme.text-muted;
+                    }
+                }
+                if RiRangeModel.chip_state == 2: HorizontalLayout {
+                    alignment: start;
+                    StoneChipButton {
+                        text: RiRangeModel.chip_text;
+                        hint: RiRangeModel.chip_hover;
+                        clicked => { RiRangeModel.chip_clicked(); }
+                    }
+                }
 
                 // The "..." menu, an inline list under the chips.
                 if root.menu_open: Rectangle {
@@ -469,6 +510,23 @@ export component StoneTab inherits VerticalLayout {
                             clicked => {
                                 root.menu_open = false;
                                 EditorModel.open_material_reference(EditorModel.gem_name != "" ? EditorModel.gem_name : root.material_name);
+                            }
+                        }
+                        StoneMenuItem {
+                            text: "RI Chart\u{2026}";
+                            hint: "Open the chart of how this design's windowing, brilliance and extinction hold\nup across refractive indices, with the range it works in.";
+                            clicked => {
+                                root.menu_open = false;
+                                RiChartModel.open_chart();
+                            }
+                        }
+                        StoneMenuItem {
+                            text: "Queue Material Check Set";
+                            hint: "Queue one render job per material of the check set, to see this design\nin several materials side by side.";
+                            enabled: RiChartModel.can_queue_check_set;
+                            clicked => {
+                                root.menu_open = false;
+                                RiChartModel.queue_check_set();
                             }
                         }
                         if ViewportModel.previewing: StoneMenuItem {
@@ -515,14 +573,13 @@ export component StoneTab inherits VerticalLayout {
                 }
 
                 // Change the material, or preview another one (view only).
-                HorizontalLayout {
+                VerticalLayout {
                     spacing: 8px;
-                    // Two equal columns (preferred-width 0 and stretch 1 split the width 1:1). A
-                    // ComboBox measures its widest entry, so each sits in a 32 px Rectangle that
-                    // clips it to its column instead of pushing the second one past the card.
+                    // Stacked, each at the full card width: side by side each column was about 147 px
+                    // and cut names like "Precious Opal (Black)". A ComboBox measures its widest
+                    // entry, so each sits in a 32 px Rectangle that clips it to the card instead of
+                    // pushing it past the card.
                     VerticalLayout {
-                        horizontal-stretch: 1;
-                        preferred-width: 0px;
                         min-width: 0px;
                         spacing: 3px;
                         SettingLabel {
@@ -548,8 +605,6 @@ export component StoneTab inherits VerticalLayout {
                         }
                     }
                     VerticalLayout {
-                        horizontal-stretch: 1;
-                        preferred-width: 0px;
                         min-width: 0px;
                         spacing: 3px;
                         SettingLabel {
@@ -654,8 +709,10 @@ export component StoneTab inherits VerticalLayout {
 
             // The chosen entry's name and what it looks like (for a stone with two or three
             // colors, the color of each direction).
-            if !root.color_picker_open && EditorModel.body_color_options.length > 0: HorizontalLayout {
-                spacing: 6px;
+            // The tip wraps under the name: a pleochroic stone's "Along the Axis: ... / Across the
+            // Axis: ..." line is too long for one line of the dock.
+            if !root.color_picker_open && EditorModel.body_color_options.length > 0: VerticalLayout {
+                spacing: 2px;
                 Text {
                     text: EditorModel.body_color_options[EditorModel.body_color_index] == "Material Default"
                         ? "Default"
@@ -666,13 +723,10 @@ export component StoneTab inherits VerticalLayout {
                     vertical-alignment: center;
                 }
                 Text {
-                    horizontal-stretch: 1;
-                    min-width: 0px;
                     text: EditorModel.body_color_tips[EditorModel.body_color_index];
                     font-size: 11px;
                     color: Theme.text-muted;
-                    vertical-alignment: center;
-                    overflow: elide;
+                    wrap: word-wrap;
                     accessible-role: AccessibleRole.text;
                 }
             }

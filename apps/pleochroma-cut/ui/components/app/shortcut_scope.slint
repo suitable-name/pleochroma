@@ -20,6 +20,9 @@ export component ShortcutScope inherits FocusScope {
     callback active_tab_changed(int);
     in-out property <int> render_view_tab: 0;
     callback render_view_tab_changed(int);
+    // The Edit view was brought back on screen without `render_view_tab` changing
+    // (`MainWindow.edit_view_entered`).
+    callback edit_view_entered();
     // The Parameters panel floats over the window: Esc folds it away first.
     in property <bool> params_floating: false;
     in-out property <bool> toast_visible: false;
@@ -72,9 +75,9 @@ export component ShortcutScope inherits FocusScope {
             // filter, not the catalogue search -- the cutter is looking at a
             // schedule, not a library. Everywhere else it keeps its usual target.
             if root.active_tab == 0 && root.render_view_tab == 1 && EditorModel.enabled {
-                // The filter box lives in the tier table; show it first.
-                EditorModel.tier_table_collapsed = false;
-                EditorModel.filter_focus_pulse += 1;
+                // The filter box lives in the tier table: the table is unfolded and, in the
+                // short one-pane layout, the tier editor pane brought up first.
+                EditorModel.focus_tier_filter();
             } else {
                 root.focus_search();
             }
@@ -94,7 +97,21 @@ export component ShortcutScope inherits FocusScope {
             // only meaningful (and only offered as a pill at all) while the Edit
             // sub-tab exists. Back to Edit always works; over to Live Render
             // only while the guide leaves the view tabs unlocked.
-            if EditorModel.enabled && (root.render_view_tab == 0 || GuideModel.allows_view_tabs()) {
+            // From the Cutting Instructions or Files tab neither view is on screen, so there is
+            // nothing to toggle: the key goes to the 3D tab's Edit view (never locked by a
+            // guide), like the palette's "Show Edit Tab".
+            if EditorModel.enabled && root.active_tab != 0 {
+                root.active_tab = 0;
+                root.active_tab_changed(0);
+                if root.render_view_tab != 1 {
+                    root.render_view_tab = 1;
+                    root.render_view_tab_changed(1);
+                } else {
+                    // The view did not change, so `MainWindow`'s own handler does not run: the
+                    // editor's design takes the viewport back from a library stone here.
+                    root.edit_view_entered();
+                }
+            } else if EditorModel.enabled && (root.render_view_tab == 0 || GuideModel.allows_view_tabs()) {
                 root.render_view_tab = root.render_view_tab == 0 ? 1 : 0;
                 root.render_view_tab_changed(root.render_view_tab);
             }
@@ -169,6 +186,9 @@ export component ShortcutScope inherits FocusScope {
             // typed anywhere else (the 3D Gem tab, or a text field that already
             // consumed it before this handler ever saw it -- `TextInput`
             // swallows unmodified printable keys while focused) is left alone.
+            // In the short one-pane layout the Edit view may be showing the tier editor: the
+            // key then brings the 3D view up, so the mode it sets is seen.
+            EditorModel.request_pane(0);
             if event.text == "1" {
                 SolidPreviewModel.view_mode = 0;
             } else if event.text == "2" {

@@ -32,7 +32,7 @@ const MIN_DRAWN_SHARE: f64 = 0.01;
 ///
 /// The comparison is the pane inside the main editor viewport (`OptimizerComparePane`), not a
 /// separate window.
-fn open_compare(sc: &Sc<'_, '_>) -> Result<(), String> {
+pub fn open_compare(sc: &Sc<'_, '_>) -> Result<(), String> {
     run_optimize(sc)?;
     pick_best_candidate(sc);
     let ui = sc.ui();
@@ -49,7 +49,7 @@ fn open_compare(sc: &Sc<'_, '_>) -> Result<(), String> {
 }
 
 /// Waits until the pane shows a finished frame; a timeout is a note.
-fn settle_compare(sc: &mut Sc<'_, '_>) {
+pub fn settle_compare(sc: &mut Sc<'_, '_>) {
     let ui = sc.ui();
     let model = ui.global::<CompareModel>();
     let seconds = sc.cfg.render_timeout.as_secs();
@@ -65,7 +65,7 @@ fn settle_compare(sc: &mut Sc<'_, '_>) {
 }
 
 /// Presses the pill called `label` in the comparison pane.
-fn press_pill(sc: &Sc<'_, '_>, label: &str) -> Result<(), String> {
+pub fn press_pill(sc: &Sc<'_, '_>, label: &str) -> Result<(), String> {
     let view = sc.view();
     let pane = rect_of(&view, "OptimizerComparePane")?;
     let pill = view
@@ -83,7 +83,7 @@ fn press_pill(sc: &Sc<'_, '_>, label: &str) -> Result<(), String> {
 }
 
 /// The main window with the comparison pane kept: the pane's own rectangle.
-fn snap_compare(sc: &Sc<'_, '_>) -> Result<Shot, String> {
+pub fn snap_compare(sc: &Sc<'_, '_>) -> Result<Shot, String> {
     let shot = sc.snap_main()?;
     Ok(rect_of(&sc.view(), "OptimizerComparePane")?.crop(&shot))
 }

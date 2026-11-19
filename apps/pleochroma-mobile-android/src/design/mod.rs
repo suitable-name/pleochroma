@@ -67,6 +67,9 @@ pub fn wire(window: &AppWindow, state: &Shared) {
                     document::handle_dialog_result(&window, &state, id, confirmed)
                 }
                 DialogOwner::Checks => props::handle_dialog_result(&window, &state, id, confirmed),
+                DialogOwner::Developer => {
+                    crate::commands::handle_developer_dialog_result(&window, &state, id, confirmed)
+                }
             };
             if !claimed {
                 tracing::debug!(id, confirmed, "dialog answer nobody claimed");
@@ -88,12 +91,15 @@ enum DialogOwner {
     Remote,
     /// The Checks tab (the question before a planned fix is applied).
     Checks,
+    /// The Developer page (Delete selected logs, Delete all logs).
+    Developer,
 }
 
 /// The owner of dialog `id`: ids below 2000 belong to the document (1001-1003), 2000-2999
 /// to the Cut destination (2001-2002), 3000-3099 to the Library, 4000-4099 to the
 /// Remote page (4001 forget, 4002 render on the computer, 4003 copy its designs) and
-/// 5000-5099 to the Checks tab (5001). Other ids from 2000 up go to
+/// 5000-5099 to the Checks tab (5001) and 6000-6099 to the Developer page (6001, 6002).
+/// Other ids from 2000 up go to
 /// the Cut destination, which does not claim them, so the shell logs them. A new page's
 /// range must be added here before its dialogs can be answered.
 const fn dialog_owner(id: i32) -> DialogOwner {
@@ -101,7 +107,8 @@ const fn dialog_owner(id: i32) -> DialogOwner {
         5000..=5099 => DialogOwner::Checks,
         4000..=4099 => DialogOwner::Remote,
         3000..=3099 => DialogOwner::Library,
-        2000..=2999 | 3100..=3999 | 4100..=4999 | 5100.. => DialogOwner::Cut,
+        6000..=6099 => DialogOwner::Developer,
+        2000..=2999 | 3100..=3999 | 4100..=4999 | 5100..=5999 | 6100.. => DialogOwner::Cut,
         _ => DialogOwner::Document,
     }
 }
@@ -204,5 +211,9 @@ mod tests {
         assert_eq!(dialog_owner(5000), DialogOwner::Checks);
         assert_eq!(dialog_owner(5099), DialogOwner::Checks);
         assert_eq!(dialog_owner(5100), DialogOwner::Cut);
+        assert_eq!(dialog_owner(5999), DialogOwner::Cut);
+        assert_eq!(dialog_owner(6000), DialogOwner::Developer);
+        assert_eq!(dialog_owner(6099), DialogOwner::Developer);
+        assert_eq!(dialog_owner(6100), DialogOwner::Cut);
     }
 }

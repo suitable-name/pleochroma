@@ -62,6 +62,40 @@ const ALL_PASSES: EvalPasses = EvalPasses {
 };
 
 #[test]
+fn deployment_selection_uses_only_complete_certified_endpoints() {
+    let case = |base, deployed_score| {
+        let mut outcome = done(&scores(12.0, 2.0, None, None), 0.0, (1, 1));
+        if let Ok(DesignResult::Figures(figures)) = &mut outcome {
+            figures.case.deployment_base_score = base;
+            figures.case.deployed_score = deployed_score;
+        }
+        outcome
+    };
+    let report = |cases| reduce(EvalFidelity::Fast, EvalPasses::default(), cases).unwrap();
+    let improved = || case(Some(12.0), Some(8.0));
+    let unchanged = || case(Some(10.0), Some(10.0));
+    let complete = report(vec![improved(), unchanged()]);
+    assert_eq!(complete.mean_deployed_score, Some(9.0));
+    assert_eq!(complete.mean_final_score, 2.0);
+    for (before, after) in [
+        (Some(12.0), None),
+        (Some(12.0), Some(f32::NAN)),
+        (None, Some(8.0)),
+        (Some(f32::INFINITY), Some(8.0)),
+        (Some(7.0), Some(8.0)),
+    ] {
+        assert_eq!(
+            report(vec![unchanged(), case(before, after)]).mean_deployed_score,
+            None
+        );
+    }
+    assert_eq!(
+        report(vec![unchanged(), failed("unscorable")]).mean_deployed_score,
+        None
+    );
+}
+
+#[test]
 fn evaluation_context_reports_sampled_and_authored_physical_sizes() {
     let mut split = DatasetSplit::fixture();
     let entry = &mut split.entries[0];

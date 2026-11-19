@@ -114,11 +114,17 @@ export component LiveFigures inherits Rectangle {
 
     // "How the Face-Up Figures Are Measured": opens beside the card, at its right edge plus 12 px
     // and at the same top, so it stays next to the "?" that opened it. Its height follows its
-    // content up to the room the viewport has.
+    // content up to the room the viewport has. Where the view has under 280 px beside the card (a
+    // small window with the library open), it opens over the card instead, as wide as the view
+    // allows, so it never leaves the view and the window.
+    property <length> help_room: root.view_right - root.absolute-position.x - root.width - 12px;
+    property <bool> help_over: root.help_room < 280px;
     if ViewportModel.figures_help_open && !TiltModel.dialog_open && !ExportModel.is_open && !ViewportModel.material_editor_open: FiguresHelp {
-        x: root.width + 12px;
+        x: root.help_over ? 0px : root.width + 12px;
         y: 0px;
-        width: min(460px, max(280px, root.view_right - root.absolute-position.x - root.width - 12px));
-        height: min(self.content_height, max(200px, root.view_bottom - root.absolute-position.y));
+        width: root.help_over
+            ? max(200px, min(460px, root.view_right - root.absolute-position.x))
+            : min(460px, root.help_room);
+        height: min(self.content_height, max(root.help_over ? 120px : 200px, root.view_bottom - root.absolute-position.y));
     }
 }

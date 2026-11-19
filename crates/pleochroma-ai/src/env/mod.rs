@@ -42,7 +42,7 @@ pub use observation::{
     CROWN_MAX_ANGLE_DEG, CROWN_MIN_ANGLE_DEG, GLOBAL_DIM, GemstoneObservation, GlobalFeature,
     IMMOBILE_INDEX, MOBILITY_INDEX, OBS_LAYOUT_VERSION, ObservationError,
     PAVILION_CRITICAL_MARGIN_DEG, PAVILION_MAX_ANGLE_DEG, TASK_KIND_INDEX, TIER_DIM, TierFeature,
-    WEIGHT_FRACTION_INDEX, angle_envelope, flat_len, objective_coefficients, split_flat,
+    WEIGHT_FRACTION_INDEX, angle_envelope, flat_len, is_observable_displacement, objective_coefficients, split_flat,
     weight_fractions,
 };
 pub use optimizer_env::{OptimizerEnv, OptimizerEnvConfig};

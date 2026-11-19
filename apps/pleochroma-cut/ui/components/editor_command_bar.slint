@@ -22,7 +22,7 @@ export { UndoRedoLabels } from "editor_command_bar/edit_groups.slint";
 
 // The Edit sub-tab's command bar: ONE row,
 //
-//   [Undo][Redo] | [Solved · 47 ms v][Deep Solve] | [Retarget...][Tilt Curves][Tilt Chart][Cut Mode]
+//   [Undo][Redo] | [Solved v][Deep Solve] | [Retarget...][Tilt Curves][Tilt Chart][Cut Mode]
 //                | [Baseline v] |                                                       [File v] ?
 //
 // The solve state IS the Solve button (`SolveGroup`): its body solves again and its chevron opens
@@ -33,7 +33,8 @@ export { UndoRedoLabels } from "editor_command_bar/edit_groups.slint";
 // Up/Down per row) or the inspector (the Optimize tab's own Run and Cancel) already offers
 // is deliberately NOT repeated here. Each group is its own component.
 //
-// The row keeps one line at every dock width by dropping words, never buttons: from
+// A dock too narrow for the icon-only row (`two_rows`) puts the Retarget-to-Baseline groups on a
+// second row. Above that the row keeps one line by dropping words, never buttons: from
 // `EditorModel.dock_width` of `all_text_dock` (990 px) every button shows its name; from
 // `some_text_dock` (840 px) Deep Solve, Retarget and Cut Mode do; narrower, icons only (each keeps its
 // name as the accessible label and in its tooltip), and the Solve button its shortest wording.
@@ -56,41 +57,68 @@ export component EditorCommandBar inherits Rectangle {
     property <bool> some_text: EditorModel.dock_width >= 840px;
     property <bool> compact: EditorModel.dock_width < 760px;
 
-    // The bar's size is that of its row (the hint overlay below is not part of it), stated
-    // outright because a `Rectangle` with two children no longer takes it from the one layout.
-    min-width: bar_col.min-width;
-    min-height: bar_col.min-height;
-    preferred-width: bar_col.preferred-width;
-    preferred-height: bar_col.preferred-height;
-    max-height: bar_col.max-height;
+    // The width the dock gives this bar (`EditorView` passes its own width less the padding).
+    // External like `dock_width`, so reading it is no binding loop. Unlike `dock_width` it is also
+    // right in the narrow stack, where the dock is as wide as the window allows.
+    in property <length> available: 100000px;
+    // Under `two_rows_below` the icon-only bar no longer fits one row (it needs about 610 px):
+    // Retarget, the tilt buttons, Cut Mode and Baseline move to a second row, so File and the
+    // manual button stay inside the dock instead of being cut off at its right edge.
+    property <length> two_rows_below: 614px;
+    property <bool> two_rows: root.available < root.two_rows_below;
+    property <length> row_height: 32px;
+    property <length> gap: 6px;
 
-    // Above the hover hint below, so an open menu covers it, not the other way round.
-    bar_col := VerticalLayout {
-        z: 1;
-        spacing: 2px;
+    // The bar's size is stated outright (the hint overlay below is not part of it): the three
+    // groups are placed by hand, each exactly once, so the same buttons serve both arrangements.
+    min-width: root.two_rows
+        ? max(lead.preferred-width + root.gap + trail.preferred-width, tools.preferred-width)
+        : lead.preferred-width + tools.preferred-width + trail.preferred-width + 2 * root.gap;
+    preferred-width: self.min-width;
+    min-height: root.two_rows ? 2 * root.row_height + 2px : root.row_height;
+    preferred-height: self.min-height;
+    max-height: self.min-height;
 
-        // Every row is 32 px, the height of its buttons, so nothing sits a pixel or two off its
-        // neighbours' centre line.
-        HorizontalLayout {
-            z: 1;
-            height: 32px;
-            spacing: 6px;
-            UndoRedoGroup {}
-            BarDivider {}
-            SolveGroup { deep_text: root.some_text; compact: root.compact; }
-            BarDivider {}
-            AnalysisGroup { some_text: root.some_text; all_text: root.all_text; }
-            if GuideModel.shows_advanced(): BarDivider {}
-            SnapshotGroup { show_text: root.all_text; }
-            Rectangle { horizontal-stretch: 1; }
-            FileMenu {}
-            // The manual page on this bar, level with the buttons.
-            VerticalLayout {
-                alignment: center;
-                HelpButton {
-                    topic: HelpTopics.command-bar;
-                    hint: "Open the manual page on the command bar";
-                }
+    // Every row is 32 px, the height of its buttons, so nothing sits a pixel or two off its
+    // neighbours' centre line. The groups sit above the hover hint below, so an open menu covers
+    // it, and the first row above the second, so the Solve menu covers the second row.
+    lead := HorizontalLayout {
+        x: 0px;
+        y: 0px;
+        z: 3;
+        width: self.preferred-width;
+        height: root.row_height;
+        spacing: root.gap;
+        UndoRedoGroup {}
+        BarDivider {}
+        SolveGroup { deep_text: root.some_text; compact: root.compact; }
+    }
+    tools := HorizontalLayout {
+        x: root.two_rows ? 0px : lead.width + root.gap;
+        y: root.two_rows ? root.row_height + 2px : 0px;
+        z: 2;
+        width: self.preferred-width;
+        height: root.row_height;
+        spacing: root.gap;
+        if !root.two_rows: BarDivider {}
+        AnalysisGroup { some_text: root.some_text; all_text: root.all_text; }
+        if GuideModel.shows_advanced(): BarDivider {}
+        SnapshotGroup { show_text: root.all_text; }
+    }
+    trail := HorizontalLayout {
+        x: root.width - self.width;
+        y: 0px;
+        z: 4;
+        width: self.preferred-width;
+        height: root.row_height;
+        spacing: root.gap;
+        FileMenu {}
+        // The manual page on this bar, level with the buttons.
+        VerticalLayout {
+            alignment: center;
+            HelpButton {
+                topic: HelpTopics.command-bar;
+                hint: "Open the manual page on the command bar";
             }
         }
     }

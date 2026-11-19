@@ -15,7 +15,7 @@ fn status_text_reports_preform_only_for_a_fresh_tierless_design() {
     // cut yet," not `Closed solid` with the bare preform's own L/W, H/W as if
     // they belonged to a finished stone.
     let (text, is_problem) = status_text_and_is_problem(&EditorSession::fresh().design);
-    assert_eq!(text, "Preform only -- add tiers.");
+    assert_eq!(text, "Preform only. Add tiers.");
     assert!(!is_problem);
 }
 

@@ -1,0 +1,781 @@
+// More > Developer (`Shell.more-page` 6): the tracer log switch, the Last Start notice, the
+// GPU probe and the log list. It is unlocked for one session by five taps on the name and
+// version block of About (`Developer.about-tapped`). The log viewer is `log_viewer.slint`.
+//
+// Direction rule as in `models.slint`: Rust pushes properties, the page reports taps through
+// callbacks. Rust owns the selection and rebuilds `logs` after every change.
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { Shell } from "../models.slint";
+import { TopBar } from "../shell/top_bar.slint";
+import { PageScroll } from "../shell/page_scroll.slint";
+import { ListRow } from "../shell/list_row.slint";
+import { Icon } from "../shell/icon.slint";
+import { Toggle } from "../shell/toggle.slint";
+import { PrimaryButton, TonalButton, TextButton } from "../shell/buttons.slint";
+import { StateLayer } from "../shell/state_layer.slint";
+import { PageColumn, GroupHeader } from "fields.slint";
+
+// One file of the log list. `binary` marks a crash snapshot (`.pb`): listed last, never part
+// of Select all, not openable. `locked` marks a file being written (tracer log, probe log).
+export struct LogRow {
+    name: string,
+    detail: string,
+    binary: bool,
+    locked: bool,
+    selected: bool,
+}
+
+// One group of the GPU probe. `state`: 0 waiting, 1 running, 2 ok, 3 failed.
+export struct ProbeGroupRow {
+    title: string,
+    detail: string,
+    note: string,
+    state: int,
+}
+
+export global Developer {
+    // Unlocked for this session; the More page shows the Developer row while it is true.
+    in-out property <bool> unlocked: false;
+    // True in a build with debug assertions: the page then offers "Crash in a GPU step".
+    in property <bool> debug-build: false;
+
+    // Tracer log.
+    in property <bool> tracer-on: false;
+    in property <string> tracer-note: "";
+    in property <bool> tracer-warning: false;
+
+    // Last Start (the newest crash or interruption entry).
+    in property <bool> last-start-visible: false;
+    in property <string> last-start-text: "";
+    in property <string> last-start-detail: "";
+    // True for a crash (warning icon), false for an interruption (info icon).
+    in property <bool> last-start-crash: true;
+
+    // GPU probe.
+    in property <bool> probe-running: false;
+    in property <bool> probe-has-result: false;
+    in property <bool> probe-can-run: true;
+    in property <string> probe-title: "";
+    in property <string> probe-detail: "";
+    in property <float> probe-progress: 0;
+    in property <[ProbeGroupRow]> probe-groups: [];
+    in property <string> probe-last: "Not run yet";
+    in property <string> probe-line: "";
+
+    // Logs.
+    in property <[LogRow]> logs: [];
+    in property <[LogRow]> snapshots: [];
+    in property <bool> all-selected: false;
+    in property <bool> can-select-all: false;
+    in property <bool> can-email: false;
+    in property <bool> can-delete: false;
+    in property <bool> can-delete-all: false;
+    in property <string> delete-note: "";
+
+    // The log viewer (`more-page` 7).
+    in property <string> viewer-name: "";
+    in property <string> viewer-info: "";
+    in property <string> viewer-text: "";
+
+    callback about-tapped();
+    // The page was created; Rust refreshes it and starts watching.
+    callback page-opened();
+    callback tracer-toggled(bool);
+    callback last-start-view();
+    callback probe-run();
+    callback probe-cancel();
+    callback probe-view-log();
+    callback select-all-clicked();
+    callback log-toggled(int);
+    callback log-opened(int);
+    callback email-selected();
+    callback delete-selected();
+    callback delete-all();
+    callback crash-in-gpu-step();
+    callback viewer-copy();
+    callback viewer-email();
+}
+
+// A caption line under a row or a button: secondary text, optionally with a leading icon.
+component NoteLine inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <color> tint: Theme.text-secondary;
+    // Inset of the text, so it lines up under a row's title.
+    in property <length> inset: Theme.space-lg;
+
+    min-height: 0px;
+    preferred-height: line.preferred-height + Theme.space-sm;
+
+    line := HorizontalLayout {
+        padding-left: root.inset;
+        padding-right: Theme.space-lg;
+        padding-bottom: Theme.space-sm;
+        spacing: Theme.space-sm;
+
+        if root.icon.width > 0: Rectangle {
+            width: 16px;
+
+            Icon {
+                y: 0px;
+                source: root.icon;
+                tint: root.tint;
+                glyph: 16px;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.text;
+            color: root.tint;
+            font-size: Theme.text-label;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// The round tick at the start of a log row.
+component Tick inherits Rectangle {
+    in property <bool> checked;
+    in property <string> label;
+    callback toggled();
+
+    width: Theme.touch;
+    height: Theme.touch;
+    accessible-role: AccessibleRole.checkbox;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        root.toggled();
+    }
+
+    Rectangle {
+        width: 24px;
+        height: 24px;
+        border-radius: 12px;
+        border-width: root.checked ? 0px : 2px;
+        border-color: Theme.outline;
+        background: root.checked ? Theme.accent : transparent;
+
+        if root.checked: Icon {
+            source: Icons.check;
+            tint: Theme.on-primary;
+            glyph: 16px;
+        }
+    }
+
+    TouchArea {
+        clicked => {
+            root.toggled();
+        }
+    }
+}
+
+component LogItem inherits Rectangle {
+    in property <LogRow> entry;
+    callback toggled();
+    callback opened();
+
+    min-height: Theme.row-height;
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.entry.name + ", " + root.entry.detail;
+    accessible-enabled: !root.entry.binary;
+    accessible-action-default => {
+        if (!root.entry.binary) {
+            root.opened();
+        }
+    }
+
+    StateLayer {
+        pressed: open-touch.pressed;
+        hovered: open-touch.has-hover;
+        enabled: !root.entry.binary;
+    }
+
+    open-touch := TouchArea {
+        enabled: !root.entry.binary;
+        clicked => {
+            root.opened();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-xs;
+        padding-right: Theme.space-lg;
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-xs;
+        spacing: Theme.space-xs;
+
+        Tick {
+            checked: root.entry.selected;
+            label: "Select " + root.entry.name;
+            toggled => {
+                root.toggled();
+            }
+        }
+
+        // `min-width: 0` and the elided names: a long file name never widens the window.
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            alignment: center;
+
+            Text {
+                text: root.entry.name;
+                color: Theme.on-surface;
+                font-size: Theme.text-body-large;
+                overflow: elide;
+                min-width: 0px;
+            }
+
+            Text {
+                text: root.entry.detail;
+                color: Theme.text-secondary;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
+                min-width: 0px;
+            }
+
+            if root.entry.binary: HorizontalLayout {
+                spacing: Theme.space-xs;
+
+                Rectangle {
+                    width: 16px;
+
+                    Icon {
+                        y: 2px;
+                        source: Icons.warning;
+                        tint: Theme.warning;
+                        glyph: 16px;
+                    }
+                }
+
+                Text {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    text: "Contains a memory snapshot of the app at the crash. Not part of Select all.";
+                    color: Theme.warning;
+                    font-size: Theme.text-label;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        if root.entry.locked: Rectangle {
+            width: 24px;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "Being written";
+
+            Icon {
+                source: Icons.lock;
+                tint: Theme.text-secondary;
+            }
+        }
+
+        if !root.entry.binary && !root.entry.locked: Rectangle {
+            width: 24px;
+
+            Icon {
+                source: Icons.chevron-right;
+                tint: Theme.text-secondary;
+            }
+        }
+    }
+}
+
+// One group of the probe: a state mark, the title, "6 of 6 built · 4.1 s" and a failure note.
+component ProbeGroupItem inherits Rectangle {
+    in property <ProbeGroupRow> group;
+
+    min-height: 40px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.group.title + ", " + root.group.detail + (root.group.note != "" ? ", " + root.group.note : "");
+
+    HorizontalLayout {
+        spacing: Theme.space-md;
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-xs;
+
+        Rectangle {
+            width: 24px;
+
+            if root.group.state == 2: Icon {
+                source: Icons.check;
+                tint: Theme.success;
+                glyph: 20px;
+            }
+
+            if root.group.state == 3: Icon {
+                source: Icons.close;
+                tint: Theme.error;
+                glyph: 20px;
+            }
+
+            if root.group.state < 2: Rectangle {
+                x: 4px;
+                y: 2px;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: root.group.state == 1 ? Theme.accent : Theme.outline;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0px;
+
+            Text {
+                text: root.group.title;
+                color: root.group.state == 0 ? Theme.text-secondary : Theme.on-surface;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
+            }
+
+            if root.group.detail != "": Text {
+                text: root.group.detail;
+                color: Theme.text-secondary;
+                font-size: Theme.text-label;
+                wrap: word-wrap;
+            }
+
+            if root.group.note != "": Text {
+                text: root.group.note;
+                color: Theme.error;
+                font-size: Theme.text-label;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+component ProbeCard inherits Rectangle {
+    background: Theme.surface-container;
+    border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
+    min-height: 0px;
+    preferred-height: content.preferred-height;
+
+    content := VerticalLayout {
+        padding: Theme.space-lg;
+        spacing: Theme.space-sm;
+
+        Text {
+            text: Developer.probe-title;
+            color: Theme.on-surface;
+            font-size: Theme.text-body-large;
+            wrap: word-wrap;
+        }
+
+        if Developer.probe-running: Rectangle {
+            height: 4px;
+            border-radius: 2px;
+            background: Theme.surface-highest;
+
+            Rectangle {
+                x: 0px;
+                width: parent.width * max(0.0, min(1.0, Developer.probe-progress));
+                border-radius: 2px;
+                background: Theme.accent;
+            }
+        }
+
+        Text {
+            text: Developer.probe-detail;
+            color: Theme.text-secondary;
+            font-size: Theme.text-body;
+            wrap: word-wrap;
+        }
+
+        for group in Developer.probe-groups: ProbeGroupItem {
+            group: group;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-sm;
+            alignment: start;
+
+            if Developer.probe-running: TonalButton {
+                text: "Cancel";
+                clicked => {
+                    Developer.probe-cancel();
+                }
+            }
+
+            if !Developer.probe-running && Developer.probe-has-result: TonalButton {
+                text: "View log";
+                clicked => {
+                    Developer.probe-view-log();
+                }
+            }
+
+            if !Developer.probe-running && Developer.probe-has-result: TextButton {
+                text: "Run again";
+                enabled: Developer.probe-can-run;
+                clicked => {
+                    Developer.probe-run();
+                }
+            }
+        }
+    }
+}
+
+// E-mail selected and Delete selected: side by side, or one above the other when a larger
+// system font makes them too wide for one row (as `DialogHost` stacks its actions).
+component LogActions inherits Rectangle {
+    min-width: 0px;
+    preferred-width: 0px;
+    horizontal-stretch: 1;
+    height: stacked ? 2 * Theme.touch + Theme.space-sm : Theme.touch;
+
+    // Never shown: its width decides whether the two buttons fit in one row.
+    measure := HorizontalLayout {
+        x: 0px;
+        y: 0px;
+        visible: false;
+        spacing: Theme.space-sm;
+
+        PrimaryButton {
+            text: "E-mail selected";
+            icon: Icons.mail;
+            accessible-role: none;
+        }
+
+        TonalButton {
+            text: "Delete selected";
+            accessible-role: none;
+        }
+    }
+
+    property <bool> stacked: measure.preferred-width > root.width;
+
+    if !root.stacked: HorizontalLayout {
+        spacing: Theme.space-sm;
+
+        PrimaryButton {
+            text: "E-mail selected";
+            icon: Icons.mail;
+            enabled: Developer.can-email;
+            horizontal-stretch: 1;
+            clicked => {
+                Developer.email-selected();
+            }
+        }
+
+        TonalButton {
+            text: "Delete selected";
+            enabled: Developer.can-delete;
+            horizontal-stretch: 1;
+            clicked => {
+                Developer.delete-selected();
+            }
+        }
+    }
+
+    if root.stacked: VerticalLayout {
+        spacing: Theme.space-sm;
+
+        PrimaryButton {
+            text: "E-mail selected";
+            icon: Icons.mail;
+            enabled: Developer.can-email;
+            clicked => {
+                Developer.email-selected();
+            }
+        }
+
+        TonalButton {
+            text: "Delete selected";
+            enabled: Developer.can-delete;
+            clicked => {
+                Developer.delete-selected();
+            }
+        }
+    }
+}
+
+export component DeveloperPage inherits Rectangle {
+    init => {
+        Developer.page-opened();
+    }
+
+    VerticalLayout {
+        TopBar {
+            title: "Developer";
+            show-back: true;
+            back-clicked => {
+                Shell.request-back();
+            }
+        }
+
+        PageScroll {
+            PageColumn {
+                GroupHeader {
+                    text: "TRACER LOG";
+                }
+
+                ListRow {
+                    icon: Icons.developer;
+                    title: "Tracer log";
+                    supporting: "Writes what the renderer and the graphics card do, until the app is closed.";
+                    clicked => {
+                        Developer.tracer-toggled(!Developer.tracer-on);
+                    }
+
+                    Toggle {
+                        checked: Developer.tracer-on;
+                        toggled(value) => {
+                            Developer.tracer-toggled(value);
+                        }
+                    }
+                }
+
+                if Developer.tracer-note != "" && !Developer.tracer-warning: NoteLine {
+                    text: Developer.tracer-note;
+                    tint: Theme.accent;
+                    inset: Theme.space-lg + 24px + Theme.space-lg;
+                }
+
+                if Developer.tracer-note != "" && Developer.tracer-warning: NoteLine {
+                    text: Developer.tracer-note;
+                    icon: Icons.warning;
+                    tint: Theme.warning;
+                    inset: Theme.space-lg + 24px + Theme.space-lg;
+                }
+
+                if Developer.last-start-visible: GroupHeader {
+                    text: "LAST START";
+                }
+
+                if Developer.last-start-visible: Rectangle {
+                    min-height: 0px;
+                    preferred-height: start-card.preferred-height + Theme.space-sm;
+
+                    Rectangle {
+                        x: Theme.space-lg;
+                        y: 0px;
+                        width: parent.width - 2 * Theme.space-lg;
+                        height: start-card.preferred-height;
+                        background: Theme.surface-container;
+                        border-radius: Theme.radius-lg;
+                        border-width: 1px;
+                        border-color: Theme.glass-edge;
+
+                        start-card := VerticalLayout {
+                            padding: Theme.space-lg;
+                            spacing: Theme.space-sm;
+
+                            HorizontalLayout {
+                                spacing: Theme.space-md;
+
+                                Rectangle {
+                                    width: 24px;
+
+                                    Icon {
+                                        y: 0px;
+                                        source: Developer.last-start-crash ? Icons.warning : Icons.info;
+                                        tint: Developer.last-start-crash ? Theme.warning : Theme.text-secondary;
+                                    }
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    spacing: Theme.space-xs;
+
+                                    Text {
+                                        text: Developer.last-start-text;
+                                        color: Theme.on-surface;
+                                        font-size: Theme.text-body-large;
+                                        wrap: word-wrap;
+                                    }
+
+                                    if Developer.last-start-detail != "": Text {
+                                        text: Developer.last-start-detail;
+                                        color: Theme.text-secondary;
+                                        font-size: Theme.text-body;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: start;
+
+                                TonalButton {
+                                    text: "View";
+                                    clicked => {
+                                        Developer.last-start-view();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                GroupHeader {
+                    text: "GPU PROBE";
+                }
+
+                HorizontalLayout {
+                    padding-left: Theme.space-lg;
+                    padding-right: Theme.space-lg;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: "Builds every shader of both renderers and traces one tiny picture with each.";
+                        color: Theme.text-secondary;
+                        font-size: Theme.text-body;
+                        wrap: word-wrap;
+                    }
+                }
+
+                HorizontalLayout {
+                    padding: Theme.space-lg;
+                    spacing: Theme.space-md;
+                    alignment: start;
+
+                    TonalButton {
+                        text: Developer.probe-running ? "GPU probe running…" : "Run GPU probe";
+                        enabled: Developer.probe-can-run && !Developer.probe-running;
+                        clicked => {
+                            Developer.probe-run();
+                        }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: Developer.probe-last;
+                        color: Theme.text-secondary;
+                        font-size: Theme.text-body;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+
+                if Developer.probe-line != "": NoteLine {
+                    text: Developer.probe-line;
+                }
+
+                if Developer.probe-running || Developer.probe-has-result: Rectangle {
+                    min-height: 0px;
+                    preferred-height: card.preferred-height + Theme.space-lg;
+
+                    card := ProbeCard {
+                        x: Theme.space-lg;
+                        y: 0px;
+                        width: parent.width - 2 * Theme.space-lg;
+                        height: self.preferred-height;
+                    }
+                }
+
+                HorizontalLayout {
+                    height: Theme.touch + Theme.space-sm;
+                    padding-left: Theme.space-lg;
+                    padding-right: Theme.space-xs;
+                    padding-top: Theme.space-sm;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "LOGS";
+                        color: Theme.text-secondary;
+                        font-size: Theme.text-label;
+                        font-weight: 700;
+                        letter-spacing: 1px;
+                        vertical-alignment: center;
+                    }
+
+                    TextButton {
+                        text: Developer.all-selected ? "Clear" : "Select all";
+                        enabled: Developer.can-select-all;
+                        clicked => {
+                            Developer.select-all-clicked();
+                        }
+                    }
+                }
+
+                if Developer.logs.length == 0 && Developer.snapshots.length == 0: HorizontalLayout {
+                    padding-left: Theme.space-lg;
+                    padding-right: Theme.space-lg;
+                    padding-bottom: Theme.space-lg;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: "No logs yet. Switch the tracer log on, or run the GPU probe.";
+                        color: Theme.text-secondary;
+                        font-size: Theme.text-body;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // Text logs first; the crash snapshots follow behind a divider. Rust numbers
+                // the rows as one list: the snapshots continue after the last text log.
+                for row[index] in Developer.logs: LogItem {
+                    entry: row;
+                    toggled => {
+                        Developer.log-toggled(index);
+                    }
+                    opened => {
+                        Developer.log-opened(index);
+                    }
+                }
+
+                if Developer.snapshots.length > 0: Rectangle {
+                    height: 1px;
+                    background: Theme.outline-variant;
+                }
+
+                for row[index] in Developer.snapshots: LogItem {
+                    entry: row;
+                    toggled => {
+                        Developer.log-toggled(Developer.logs.length + index);
+                    }
+                    opened => {
+                        Developer.log-opened(Developer.logs.length + index);
+                    }
+                }
+
+                VerticalLayout {
+                    padding: Theme.space-lg;
+                    spacing: Theme.space-sm;
+
+                    LogActions { }
+
+                    if Developer.delete-note != "": Text {
+                        text: Developer.delete-note;
+                        color: Theme.text-secondary;
+                        font-size: Theme.text-body;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        alignment: start;
+
+                        TextButton {
+                            text: "Delete all logs";
+                            enabled: Developer.can-delete-all;
+                            clicked => {
+                                Developer.delete-all();
+                            }
+                        }
+                    }
+
+                    if Developer.debug-build: TonalButton {
+                        text: "Crash in a GPU step";
+                        clicked => {
+                            Developer.crash-in-gpu-step();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

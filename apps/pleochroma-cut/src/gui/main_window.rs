@@ -183,7 +183,10 @@ pub fn build_main_window() -> anyhow::Result<MainWindowHandle> {
     // one-time question once the GPU adapter is known, and the restart both end in.
     crate::gui::radv_workaround::setup_radv_workaround(&ui, &settings_store);
 
-    // The app opens on the 3D tab's Live Render view in Solid mode, never on the editor.
+    // The app opens on the 3D tab's Live Render view in Solid mode, never on the editor: a
+    // design given on the command line shows there too. The Edit view comes up later, when a
+    // design lands in the editor by the cutter's own choice (New, Open, Load Selected, or
+    // accepting the start-up offer to reopen a design; `gui::editor::landing`).
     // Startup forces both view modes to Solid. It takes the same path as a click on the pill,
     // and runs after every handler is connected, so the visibility gate sees the real view.
     crate::gui::commands::enter_live_render_view(&ui);

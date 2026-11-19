@@ -17,6 +17,7 @@ pub mod curve_path;
 pub mod girdle_reading;
 pub mod live_margin;
 pub mod meet_pick_row;
+pub mod ri_hint;
 pub mod row_format;
 pub mod rows;
 pub mod solid_status;

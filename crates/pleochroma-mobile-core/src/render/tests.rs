@@ -14,9 +14,9 @@ use pleochroma_editor::EditorSession;
 use pleochroma_web_core::{render::handle_trace_chunk, scene::OwnedScene};
 
 use super::{
-    CANCELLED, ExportColorSpace, ExportRequest, GovernorInputs, PauseReason, RenderFrame,
-    RenderStatus, RenderView, base_workers, export_job, govern, live_target_spp, needs_restart,
-    scene, start,
+    CANCELLED, ExportColorSpace, ExportRequest, GovernorInputs, PROBE_WAIT_SENTENCE, PauseReason,
+    RenderFrame, RenderStatus, RenderView, base_workers, export_job, govern, live_target_spp,
+    needs_restart, scene, start,
 };
 use crate::{
     app_state::{AppState, Lifecycle},
@@ -602,4 +602,87 @@ fn export_estimates_its_time_from_the_live_render() {
         .estimate_seconds()
         .expect("the live render was measured");
     assert!(seconds.is_finite() && seconds > 0.0, "{seconds}");
+}
+
+#[test]
+fn a_render_and_an_export_asked_for_during_the_probe_wait_and_run_after_it() {
+    let mut state = solved_state();
+    state.render.set_probe_running(Some(true));
+    assert!(state.render.held_by_probe());
+    assert_eq!(
+        start(&mut state, SMALL),
+        Err(PROBE_WAIT_SENTENCE.to_owned())
+    );
+    assert_eq!(
+        state.render.status(),
+        RenderStatus::Idle,
+        "nothing launched"
+    );
+    let refused = export_job(&state, &request(32, 16, ExportColorSpace::Srgb));
+    assert_eq!(refused.err(), Some(PROBE_WAIT_SENTENCE.to_owned()));
+
+    // While it runs, resuming runs nothing; once it ended, the remembered start runs.
+    state.render.resume_after_probe();
+    assert!(!state.render.take_restart_wanted());
+    state.render.set_probe_running(Some(false));
+    state.render.resume_after_probe();
+    assert!(state.render.take_restart_wanted());
+    start(&mut state, SMALL).expect("starts after the probe");
+    wait_done(&state);
+    assert!(export_job(&state, &request(32, 16, ExportColorSpace::Srgb)).is_ok());
+}
+
+#[test]
+fn the_cpu_choice_of_the_session_is_per_engine_and_never_touches_cpu_or_remote() {
+    use super::{CpuReason, cpu_reason};
+    use crate::settings::RenderBackend;
+    use pleochroma::diag::Engine;
+
+    let mut state = unsolved_state();
+    for backend in [RenderBackend::Automatic, RenderBackend::DeviceGpu] {
+        assert_eq!(cpu_reason(&state, Engine::PathTraced, backend), None);
+    }
+    state.render.use_cpu_for_session(Engine::PathTraced);
+    for backend in [RenderBackend::Automatic, RenderBackend::DeviceGpu] {
+        assert_eq!(
+            cpu_reason(&state, Engine::PathTraced, backend),
+            Some(CpuReason::Session),
+            "{backend:?}"
+        );
+        assert_eq!(
+            cpu_reason(&state, Engine::RayTraced, backend),
+            None,
+            "the other engine keeps the graphics card"
+        );
+    }
+    for backend in [RenderBackend::DeviceCpu, RenderBackend::Remote] {
+        assert_eq!(cpu_reason(&state, Engine::PathTraced, backend), None);
+    }
+}
+
+#[test]
+fn the_cpu_choice_of_the_session_reaches_the_backend_of_the_next_start() {
+    use crate::settings::RenderBackend;
+    let mut state = solved_state();
+    state.settings.render.backend = RenderBackend::Automatic;
+    state
+        .render
+        .use_cpu_for_session(pleochroma::diag::Engine::PathTraced);
+    start(&mut state, SMALL).expect("starts on the CPU");
+    assert_eq!(
+        state.render.shared.backend.requested(),
+        RenderBackend::DeviceCpu,
+        "Automatic became the CPU for this session"
+    );
+    assert_eq!(
+        state.settings.render.backend,
+        RenderBackend::Automatic,
+        "the setting itself is untouched"
+    );
+    wait_done(&state);
+    assert!(
+        state.render.backend_report().starts_with("Device CPU"),
+        "{}",
+        state.render.backend_report()
+    );
 }

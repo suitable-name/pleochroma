@@ -68,7 +68,7 @@ struct File {
 /// The embedded data files, in listing order: the main file (schema notes) and one file per
 /// material group, so each group's entries are written and reviewed on their own. Every file
 /// has the same schema; keys are unique across all of them.
-const DATA_FILES: [(&str, &str); 6] = [
+const DATA_FILES: [(&str, &str); 7] = [
     (
         "color_variants.toml",
         include_str!("../../../../data/color_variants.toml"),
@@ -94,6 +94,10 @@ const DATA_FILES: [(&str, &str); 6] = [
     (
         "color_variants/diamond.toml",
         include_str!("../../../../data/color_variants/diamond.toml"),
+    ),
+    (
+        "color_variants/nanosital.toml",
+        include_str!("../../../../data/color_variants/nanosital.toml"),
     ),
 ];
 

@@ -1,16 +1,49 @@
 import { CompareModel } from "../../models/compare.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { GuideModel } from "../../models/guide.slint";
+import { LibraryModel } from "../../models/library.slint";
 import { RetargetModel } from "../../models/retarget.slint";
 import { EditorStatusStrip } from "../editor_status_strip.slint";
 import { EditorView } from "../editor_view.slint";
 import { GemViewportView } from "../gem_viewport.slint";
 import { GuidePanel } from "../guide_panel.slint";
+import { KitSegment, KitSegmentBar } from "../kit/kit.slint";
 import { OptimizerComparePane } from "../optimizer_compare_pane.slint";
 import { ParametersDock } from "../parameters_panel/parameters_dock.slint";
 import { SolidViewportView } from "../solid_viewport.slint";
 import { SplitHandle } from "../split_handle.slint";
 import { EditorViewportOverlay } from "viewport_overlay.slint";
+
+// The pane switch of the short narrow stack ("3D View", "Tier Editor"); see `one_pane` below.
+component PaneSwitch inherits KitSegmentBar {
+    // 0 the 3D view, 1 the tier editor.
+    in property <int> pane;
+    callback picked(int);
+
+    height: 28px;
+    width: pane_segments.preferred-width + 4px;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Edit Pane";
+    pane_segments := HorizontalLayout {
+        x: 2px;
+        padding: 2px;
+        spacing: 2px;
+        KitSegment {
+            height: 24px;
+            text: "3D View";
+            hint: "Show the stone. This window is too short to show it together with the tiers.";
+            on: root.pane == 0;
+            picked => { root.picked(0); }
+        }
+        KitSegment {
+            height: 24px;
+            text: "Tier Editor";
+            hint: "Show the design settings, the tier list and the inspector.";
+            on: root.pane == 1;
+            picked => { root.picked(1); }
+        }
+    }
+}
 
 // The 3D Gem tab's body: the Live Render row (viewport and Parameters dock) or the Edit view
 // (solid viewport, guide column, inspector dock, Parameters dock and status strip). Split out of
@@ -31,6 +64,8 @@ export component Tab3dContent inherits VerticalLayout {
     in property <bool> guide_parked: false;
     // The window's height (`EditorStatusStrip` picks its compact form from it).
     in property <length> window_height: 0px;
+    // The window's width: whether the pane switch and the status strip fit one row.
+    in property <length> window_width: 1600px;
     in property <[string]> recent_native_files: [];
     callback open_recent_native_file(string);
 
@@ -44,6 +79,107 @@ export component Tab3dContent inherits VerticalLayout {
             min(1000px, max(600px, available - 380px - 6px - 24px - (GuideModel.open ? 272px : 0px) - root.params_edit_extent))
         );
         EditorModel.layout_changed();
+    }
+
+    // --- The narrow stack on a short window: one pane at a time ------------------------------
+    // The narrow stack shares the body's height 2:3 between the 3D view and the dock. Under a
+    // 700px window that leaves the view under about 180px (76px at the 720x480 minimum) and
+    // the dock little more, so neither is usable. There the stack shows ONE of the two at full
+    // height, and a two-segment switch at the left of the status strip picks which.
+    // The decision reads the window height, not this layout's own height, so mounting a pane
+    // can never feed back into it.
+    property <bool> one_pane: !root.edit_wide && root.window_height < 700px;
+    // 0 the 3D view, 1 the tier editor. Until the switch is used it follows the design: the 3D
+    // view while there is none (its start cards are the way in), the tier editor once there is
+    // one. A pick by hand replaces this binding for as long as the 3D tab stays mounted.
+    property <int> narrow_pane: EditorModel.has_design ? 1 : 0;
+    // Beside the pane switch the status strip needs about 400px to keep "Details" inside the
+    // window. In a column under 560px (a small window with the library list open) the strip
+    // goes on a row of its own under the switch. The column's width is worked out from the
+    // window's, as `DetailHeaderView.column_width` does, not read from this layout.
+    property <bool> strip_below: root.one_pane
+        && root.window_width - 24px - (LibraryModel.panel_collapsed ? 52px : 352px) < 560px;
+    // A guide step that outlines something in the other pane brings that pane up, so a lesson
+    // never points at a control that is not on screen.
+    property <string> guide_pane_target: GuideModel.highlight_target;
+    // The pane the guide step's target is in: 0 the 3D view, 1 the tier editor, -1 when the step
+    // points at neither (or no guide runs).
+    pure function guide_pane() -> int {
+        if root.guide_pane_target == "solid_viewport" || root.guide_pane_target == "cut_slider"
+            || root.guide_pane_target == "view_modes" {
+            return 0;
+        }
+        if root.guide_pane_target == "tier_table" || root.guide_pane_target == "design_settings"
+            || root.guide_pane_target == "inspector_tier" || root.guide_pane_target == "preform_tab"
+            || root.guide_pane_target == "optimize_tab" || root.guide_pane_target == "history_tab"
+            || root.guide_pane_target == "solve_button" || root.guide_pane_target == "auto_solve"
+            || root.guide_pane_target == "deep_solve_button" || root.guide_pane_target == "save_button"
+            || root.guide_pane_target == "open_button" || root.guide_pane_target == "load_button"
+            || root.guide_pane_target == "export_asc_button" || root.guide_pane_target == "export_menu"
+            || root.guide_pane_target == "retarget_button" || root.guide_pane_target == "cutting_mode_button"
+            || root.guide_pane_target == "snapshot_button" || root.guide_pane_target == "compare_button"
+            || root.guide_pane_target == "tune_accept_button" {
+            return 1;
+        }
+        return -1;
+    }
+    function follow_guide_target() {
+        if root.guide_pane() >= 0 {
+            root.narrow_pane = root.guide_pane();
+        }
+    }
+    changed guide_pane_target => {
+        if root.one_pane {
+            root.follow_guide_target();
+        }
+    }
+    // An action asked for a pane (`EditorModel.request_pane`, see `models/editor.slint`). Read
+    // here in `init` as well as on a change: this component is mounted only while the 3D tab
+    // shows, so a request made from the Cutting Instructions or Files tab is waiting when it
+    // mounts. Only the one-pane layout acts on it; a guide step that points into a pane wins.
+    // Writing `narrow_pane` replaces its default binding, exactly as a pick on the switch does,
+    // and a later pick still wins.
+    property <int> pane_pulse: EditorModel.pane_pulse;
+    function consume_pane_request() {
+        if EditorModel.pane_seen == EditorModel.pane_pulse {
+            return;
+        }
+        EditorModel.pane_seen = EditorModel.pane_pulse;
+        let temporary = EditorModel.pane_temporary;
+        EditorModel.pane_temporary = false;
+        EditorModel.pane_return = -1;
+        if !root.one_pane {
+            return;
+        }
+        if root.guide_pane() >= 0 {
+            root.narrow_pane = root.guide_pane();
+            return;
+        }
+        if EditorModel.pane_request != 0 && EditorModel.pane_request != 1 {
+            return;
+        }
+        if root.narrow_pane != EditorModel.pane_request {
+            // A short visit remembers the pane it left (`release_temporary_pane`).
+            if temporary {
+                EditorModel.pane_return = root.narrow_pane;
+            }
+            root.narrow_pane = EditorModel.pane_request;
+        }
+    }
+    changed pane_pulse => { root.consume_pane_request(); }
+    init => { root.consume_pane_request(); }
+    // A pick on the pane switch: the user's choice, so a short visit has nothing to go back to.
+    function pick_pane(pane: int) {
+        EditorModel.pane_return = -1;
+        root.narrow_pane = pane;
+    }
+    // The optimizer's side-by-side comparison is drawn in the 3D view's place: opening it (from
+    // the inspector) brings that pane up.
+    property <bool> inline_compare_open: CompareModel.optimizer_inline_open;
+    changed inline_compare_open => {
+        if root.one_pane && root.inline_compare_open {
+            root.narrow_pane = 0;
+        }
     }
 
     // The Live Render/Edit view pills live in the shared
@@ -156,7 +292,8 @@ export component Tab3dContent inherits VerticalLayout {
         }
 
         // The narrow stack (`!edit_wide`) has no drag handle, since nothing horizontal is left
-        // to drag, so a fixed 2:3 (viewport:dock) `vertical-stretch` ratio takes its place.
+        // to drag, so a fixed 2:3 (viewport:dock) `vertical-stretch` ratio takes its place. On a
+        // short window only one of the two is mounted (`one_pane`, `narrow_pane` above).
         if !root.edit_wide: HorizontalLayout {
             spacing: 8px;
             vertical-stretch: 1;
@@ -164,7 +301,7 @@ export component Tab3dContent inherits VerticalLayout {
             VerticalLayout {
                 spacing: 8px;
                 horizontal-stretch: 1;
-            Rectangle {
+            if !root.one_pane || root.narrow_pane == 0: Rectangle {
                 vertical-stretch: 2;
 
                 if !CompareModel.optimizer_inline_open || RetargetModel.is_open: SolidViewportView {
@@ -186,13 +323,47 @@ export component Tab3dContent inherits VerticalLayout {
                 }
             }
 
-            EditorView {
+            if !root.one_pane || root.narrow_pane == 1: EditorView {
                 vertical-stretch: 3;
             }
             }
             ParametersDock { rail_only: true; }
         }
 
-        EditorStatusStrip { window_height: root.window_height; }
+        // The pane switch on a row of its own, where the strip does not fit beside it
+        // (`strip_below`).
+        if root.one_pane && root.strip_below: HorizontalLayout {
+            alignment: start;
+            PaneSwitch {
+                pane: root.narrow_pane;
+                picked(pane) => { root.pick_pane(pane); }
+            }
+        }
+
+        // The status strip, with the pane switch of the short narrow stack at its left
+        // (`one_pane`): in the strip's own row, so it costs the panes no height (2px: its
+        // segments are 24px high, the smallest easy target).
+        HorizontalLayout {
+            spacing: 8px;
+
+            if root.one_pane && !root.strip_below: PaneSwitch {
+                pane: root.narrow_pane;
+                picked(pane) => { root.pick_pane(pane); }
+            }
+
+            // The strip reads its own width (which details fit), so it is placed explicitly in a
+            // cell of its height: its constraints must not feed this row's layout.
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                height: root.one_pane ? 28px : 26px;
+                EditorStatusStrip {
+                    x: 0px;
+                    y: (parent.height - self.height) / 2;
+                    width: parent.width;
+                    window_height: root.window_height;
+                }
+            }
+        }
     }
 }

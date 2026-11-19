@@ -13,6 +13,7 @@ use crate::{
         is_legacy_123_abc,
     },
     material::MaterialSelection,
+    native::RiRangeChoice,
     preform::PreformSpec,
 };
 use pleochroma::geometry::meet_solver::MeetConstraint;
@@ -92,6 +93,11 @@ pub enum Edit {
     /// hand-off) -- see [`crate::crystal_axis::CrystalAxisPlan`]. `None` (or a blank record)
     /// clears it. Mast-inert, like [`Edit::SetRenderEffects`].
     SetCrystalAxisPlan { plan: Option<CrystalAxisPlan> },
+    /// Replaces who states the refractive-index range the cutting sheet prints -- see
+    /// [`crate::design::Design::ri_range_choice`]. Mast-inert and plane-inert, like
+    /// [`Edit::SetRenderEffects`], so [`crate::resolve::resolve_after_edit`] never re-solves for
+    /// it. Inverse: the same variant holding the previous choice.
+    SetRiRangeChoice { choice: RiRangeChoice },
     /// Replaces the design's header fields and gear reference angle.
     ///
     /// The fields are [`crate::design::ScheduleMeta::headers`] (the `.asc` `H` lines; the
@@ -315,6 +321,7 @@ impl Edit {
             Self::SetMaterial { material } => describe_set_material(material, design),
             Self::SetRenderEffects { .. } => "Change stone render effects".to_string(),
             Self::SetCrystalAxisPlan { .. } => "Change crystal axis plan".to_string(),
+            Self::SetRiRangeChoice { .. } => "Change RI range".to_string(),
             Self::SetMeta { .. } => "Change design details".to_string(),
             Self::SetCheaterOffset { index, offset_deg } => {
                 let label = tier_label_at(design, *index);

@@ -296,6 +296,64 @@ fn migrating_an_old_database_creates_the_saved_rough_plans_table_idempotently() 
     let _ = std::fs::remove_file(&path);
 }
 
+const RI_RANGES_COLUMNS: [&str; 5] = [
+    "entry_id",
+    "planes_hash",
+    "threshold_version",
+    "n_low",
+    "n_high",
+];
+
+#[test]
+fn a_fresh_database_already_has_the_ri_ranges_table() {
+    let path = temp_db_path("fresh_ri_ranges");
+    let db = Database::new(Some(path.to_str().unwrap())).expect("create fresh db");
+    for column in RI_RANGES_COLUMNS {
+        assert!(
+            Database::column_exists(&db.conn, "ri_ranges", column).unwrap(),
+            "fresh ri_ranges must already have column {column}"
+        );
+    }
+    assert!(
+        db.ri_range(1).unwrap().is_none(),
+        "a fresh database has no stored range"
+    );
+    drop(db);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn migrating_an_old_database_creates_the_ri_ranges_table_idempotently() {
+    let path = temp_db_path("migrate_ri_ranges");
+    seed_pre_migration_db(&path, &[("A", "local://a", None, None, None, None, None)]);
+
+    let db = Database::new(Some(path.to_str().unwrap())).expect("open + migrate");
+    for column in RI_RANGES_COLUMNS {
+        assert!(
+            Database::column_exists(&db.conn, "ri_ranges", column).unwrap(),
+            "migration must create ri_ranges.{column}"
+        );
+    }
+    assert!(
+        db.ri_range(1).unwrap().is_none(),
+        "every design that predates the table has no range"
+    );
+
+    // The migrated table is live: a row written now survives a re-run of the migration.
+    let range = crate::model::ri_range::StoredRiRange {
+        entry_id: 1,
+        planes_hash: 7,
+        threshold_version: 1,
+        n_low: Some(1.5),
+        n_high: None,
+    };
+    db.put_ri_range(&range).unwrap();
+    db.migrate_ri_ranges_table().expect("re-run migration");
+    assert_eq!(db.ri_range(1).unwrap(), Some(range));
+    drop(db);
+    let _ = std::fs::remove_file(&path);
+}
+
 const PLANNER_EXCLUSION_COLUMNS: [&str; 1] = ["entry_id"];
 
 #[test]

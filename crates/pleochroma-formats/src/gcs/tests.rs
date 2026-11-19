@@ -5,10 +5,13 @@
 //! `PLEOCHROMA_FORMAT_CORPUS_DIR`.
 
 use super::{
-    GcsDesign, GcsParseError, GcsWriteError, gcs_to_asc_schedule, parse_gcs, parse_gcs_bytes,
-    side_rule_index_angle, to_gcs_string,
+    GcsDesign, GcsParseError, GcsWriteError, gcs_ri_range_choice, gcs_to_asc_schedule, parse_gcs,
+    parse_gcs_bytes, side_rule_index_angle, to_gcs_string, to_gcs_string_with_ri_range,
 };
-use crate::asc::{AscSchedule, AscTier};
+use crate::{
+    asc::{AscSchedule, AscTier},
+    native::design::RiRangeChoice,
+};
 
 mod asymmetric;
 mod frosting;
@@ -647,6 +650,94 @@ fn converts_to_an_asc_schedule() {
     assert!((tier.angle_deg + 53.610_000_610_351_58).abs() < 1e-9);
     assert!((tier.mast - 0.666_425_032_825_342_6).abs() < 1e-12);
     crate::asc::to_asc_string(&schedule).expect("the converted schedule writes as .asc");
+}
+
+#[test]
+fn the_import_reads_the_stated_range_as_the_designers() {
+    let design = parse_gcs(GCS_OCTABAR_X_EXCERPT).expect("parses");
+    match gcs_ri_range_choice(&design) {
+        RiRangeChoice::Designer { low, high } => {
+            assert!((low - 1.7).abs() < 1e-12, "{low}");
+            let high = high.expect("the file states ri_max");
+            assert!((high - 2.15).abs() < 1e-6, "{high}");
+        }
+        other => panic!("expected the designer's range, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_import_states_no_range_without_a_usable_ri_min() {
+    let with_info = |attributes: &str| {
+        let text = format!(
+            "<GemCutStudio version=\"1000\"><index gear=\"64\"/>\
+             <tier angle=\"0\" depth=\"1\"><facet index_angle=\"0\" nx=\"0\" ny=\"0\" nz=\"1\"/></tier>\
+             <info title=\"t\"{attributes}/></GemCutStudio>"
+        );
+        gcs_ri_range_choice(&parse_gcs(&text).expect("parses"))
+    };
+    assert_eq!(with_info(""), RiRangeChoice::Off);
+    assert_eq!(with_info(" ri_max=\"2.1\""), RiRangeChoice::Off);
+    assert_eq!(
+        with_info(" ri_min=\"junk\" ri_max=\"2.1\""),
+        RiRangeChoice::Off
+    );
+    assert_eq!(
+        with_info(" ri_min=\"1.6\""),
+        RiRangeChoice::Designer {
+            low: 1.6,
+            high: None
+        }
+    );
+    assert_eq!(
+        with_info(" ri_min=\"1.6\" ri_max=\"1.5\""),
+        RiRangeChoice::Designer {
+            low: 1.6,
+            high: None
+        },
+        "a high end below the low end is dropped"
+    );
+}
+
+#[test]
+fn the_writer_carries_a_designers_range_and_nothing_else() {
+    let schedule = octagon_schedule();
+    let plain = to_gcs_string(&schedule).expect("writable");
+    assert!(!plain.contains("ri_min") && !plain.contains("ri_max"));
+
+    let write = |choice| to_gcs_string_with_ri_range(&schedule, &[], choice).expect("writable");
+    assert_eq!(write(RiRangeChoice::Off), plain, "Off writes the same text");
+    assert_eq!(
+        write(RiRangeChoice::Estimate),
+        plain,
+        "an estimate is never written into a .gcs"
+    );
+
+    let both = write(RiRangeChoice::Designer {
+        low: 1.7,
+        high: Some(2.15),
+    });
+    assert!(both.contains("ri_min=\"1.7\"") && both.contains("ri_max=\"2.15\""));
+    assert_eq!(
+        gcs_ri_range_choice(&parse_gcs(&both).expect("the writer's output parses")),
+        RiRangeChoice::Designer {
+            low: 1.7,
+            high: Some(2.15)
+        },
+        "the range survives a write and a read"
+    );
+
+    let low_only = write(RiRangeChoice::Designer {
+        low: 1.63,
+        high: None,
+    });
+    assert!(low_only.contains("ri_min=\"1.63\"") && !low_only.contains("ri_max"));
+    assert_eq!(
+        gcs_ri_range_choice(&parse_gcs(&low_only).expect("parses")),
+        RiRangeChoice::Designer {
+            low: 1.63,
+            high: None
+        }
+    );
 }
 
 /// Every `.gcs` file in `PLEOCHROMA_FORMAT_CORPUS_DIR/gcs`, sorted by name.

@@ -47,6 +47,10 @@ use pleochroma::{
     optics::raytracer::{EnvironmentSource, LightingPreset},
     renderer::env_map::{EnvRotation, EnvironmentMap},
 };
+use pleochroma_cut_core::{
+    CANONICAL_LIGHTING_PRESET,
+    optimize::{CANONICAL_LIGHT_PITCH, CANONICAL_LIGHT_YAW, canonical_environment},
+};
 use serde::{Deserialize, Serialize};
 
 use super::{SolveHooks, SolveRequest, SolveResponse};
@@ -150,21 +154,13 @@ impl ScoredUnder {
     }
 }
 
-/// What the Tilt dialog says the sweep was scored under.
-///
-/// Always the preset's rig at the current light (the desktop's sweep never uses the HDR
-/// map), with a reminder that a loaded map is not applied when `map_loaded`.
+/// What the Tilt dialog says the sweep was scored under: the tilt standard
+/// ([`canonical_environment`]), as on the desktop, whatever lighting or HDR map the viewport
+/// shows.
 #[must_use]
-pub fn tilt_lighting_note(preset_index: i32, map_loaded: bool) -> String {
-    let label = LightingPreset::from_index(preset_index).label();
-    if map_loaded {
-        format!(
-            "Scored under the {label} rig at the current light; the loaded HDR map is not \
-             used for this sweep, as in the desktop's dialog."
-        )
-    } else {
-        format!("Scored under the {label} rig at the current light.")
-    }
+pub const fn tilt_lighting_note() -> &'static str {
+    "Scored under the Grading tray with a 16\u{b0} head shadow, as Optimize and the desktop \
+     are. Your lighting, light position and HDR map do not change these curves."
 }
 
 /// The pose metrics (`GemOpticalMetrics`) as plain data, and what they were scored
@@ -269,7 +265,8 @@ impl MetricsResultData {
     }
 }
 
-/// What a tilt-sweep job needs: the stone, its facet finishes, the material and the light.
+/// What a tilt-sweep job needs: the stone, its facet finishes and the material. The light is
+/// always the tilt standard ([`canonical_environment`]).
 ///
 /// The camera is not an input (the sweep moves it itself) and the material's render-time
 /// overrides are ignored (see the module doc comment), except the stone size.
@@ -280,11 +277,14 @@ pub struct TiltParams {
     /// The material; only its name, custom list, linked-design part and
     /// `overrides.stone_width_mm` are used.
     pub material: MaterialSpec,
-    /// The lighting preset the sweep is scored under (`LightingPreset::index`).
+    /// The tilt standard's preset (`LightingPreset::index`): [`TiltParams::from_scene`] always
+    /// fills in [`CANONICAL_LIGHTING_PRESET`], and [`run_tilt`] scores under the standard
+    /// whatever a request carries. Kept so the request's wire layout stays the same.
     pub preset_index: i32,
-    /// Light yaw in radians.
+    /// The tilt standard's light yaw in radians ([`CANONICAL_LIGHT_YAW`]); see `preset_index`.
     pub light_yaw: f32,
-    /// Light pitch in radians.
+    /// The tilt standard's light pitch in radians ([`CANONICAL_LIGHT_PITCH`]); see
+    /// `preset_index`.
     pub light_pitch: f32,
     /// The facet finishes the sweep scores. A frosted facet scatters light, so the curves of
     /// a frosted stone are not its polished ones.
@@ -298,15 +298,17 @@ impl TiltParams {
     /// inclusions or edge rounding give equal params, so changing those does not stale the
     /// curves, while a new stone width (which changes the absorption the sweep scores) does, and
     /// so does a new Crystal Axis or Second Axis, and a change of the facet finishes (the
-    /// frosted-girdle setting, the design's frosted facets).
+    /// frosted-girdle setting, the design's frosted facets). The scene's lighting is not an
+    /// input: the curves are scored under the tilt standard, so a new preset, light position or
+    /// HDR map does not stale them.
     #[must_use]
     pub fn from_scene(spec: &SceneSpec) -> Self {
         Self {
             planes: spec.planes.clone(),
             material: tilt_material_spec(&spec.material),
-            preset_index: spec.lighting.preset_index,
-            light_yaw: spec.lighting.light_yaw,
-            light_pitch: spec.lighting.light_pitch,
+            preset_index: CANONICAL_LIGHTING_PRESET.index(),
+            light_yaw: CANONICAL_LIGHT_YAW,
+            light_pitch: CANONICAL_LIGHT_PITCH,
             finishes: spec.finishes.clone(),
         }
     }
@@ -576,7 +578,8 @@ pub fn run_tilt_with_geometry(
             &finishes,
         ),
         &material,
-        job_environment(params.preset_index, params.light_yaw, params.light_pitch),
+        // Every tilt curve is scored under the tilt standard, whatever the request carries.
+        canonical_environment(),
         threads,
         &mut |progress| {
             (hooks.on_sweep)(progress);

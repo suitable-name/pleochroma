@@ -141,7 +141,7 @@ fn scratch_direction() -> Guide {
         )
         .actions([
             "The stone travels across the lap while it is polished, so the scratches on one facet fan out instead of running parallel.",
-            "Where they point depends on your machine. With the arm pointing at the lap centre the scratches run parallel to the girdle. With the mast to the side they run at an angle to it.",
+            "Where they point depends on your machine. With the arm pointing at the lap center the scratches run parallel to the girdle. With the mast to the side they run at an angle to it.",
             "That is why the direction is a setting of your faceting machine in Preferences, and not a part of the design. The same design shows the scratches of each cutter's machine.",
         ])
         .why("A grade, however, is part of the design. Only the direction comes from the machine.")
@@ -175,10 +175,10 @@ fn scratch_direction() -> Guide {
             "A view aid draws the grades and the scratch directions over the stone.",
         )
         .actions([
-            "Click Surface Finish in the row of pills above the picture. In the inspector, the Show Surface Finish checkbox does the same.",
+            "Click Surface Finish in the toolbar above the picture. In a narrow view it is in the Show menu under the view pills: click Show, then Surface Finish. In the inspector, the Show Surface Finish checkbox does the same.",
             "Look at the pavilion facets: each finished facet has a dot tinted by its grade, and a short tick along the direction of its scratches.",
         ])
-        .check("The Surface Finish pill is lit, and the pavilion facets show dots with ticks.")
+        .check("Surface Finish is lit, and the pavilion facets show dots with ticks.")
         .why("The overlay is for looking only. It is not saved, and it is hidden in the Diagram view.")
         .highlight("solid_viewport")
         .allow(VIEWPORT),
@@ -191,7 +191,7 @@ fn scratch_direction() -> Guide {
         .actions([
             "Choose Edit, then Preferences... (or press Ctrl+,). Find the Faceting Machine section.",
             "Click Mast to the Side and, under it, set the Mast Position. The small picture of the lap seen from above shows the white ticks turn.",
-            "Click Arm Points at the Lap Centre to go back, then choose a Sweep Range: Narrow, Typical or Wide. A wider range fans the scratches out more.",
+            "Click Arm Points at the Lap Center to go back, then choose a Sweep Range: Narrow, Typical or Wide. A wider range fans the scratches out more.",
             "Click Reset to the Plain Machine if you only wanted to look, then click Done.",
         ])
         .check("After Done, the ticks over the stone follow the machine you left set.")

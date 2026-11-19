@@ -16,9 +16,10 @@
 //!
 //! # Lighting
 //!
-//! The sweep is scored under the lighting preset's rig at the current light, as the
-//! desktop's dialog does: a loaded HDR map lights the viewport and the metrics HUD, but
-//! not this sweep. The dialog says so while a map is loaded
+//! The sweep is scored under the tilt standard (the Grading tray at the canonical light pose
+//! with a 16-degree head shadow), as the desktop's dialog is: the preset, the light position and
+//! a loaded HDR map light the viewport and the metrics HUD, but never this sweep, so changing
+//! them does not stale the curves. The dialog says so
 //! (`pleochroma_web_core::solve::tilt_lighting_note`).
 //!
 //! # What differs from the desktop
@@ -81,7 +82,7 @@ fn opened(ctx: &Ctx) {
     start_poll(ctx);
     match current_inputs(ctx) {
         Ok((params, name)) => {
-            show_inputs(ctx, &params, &name);
+            show_inputs(ctx, &name);
             let current = RUNTIME.with(|rt| rt.borrow().computed.as_ref() == Some(&params));
             if current {
                 set_stale(ctx, false);
@@ -96,18 +97,12 @@ fn opened(ctx: &Ctx) {
     }
 }
 
-/// Names the traced material and what the sweep for `params` is scored under.
-fn show_inputs(ctx: &Ctx, params: &TiltJob, material: &str) {
+/// Names the traced material and what the sweep is scored under (always the tilt standard).
+fn show_inputs(ctx: &Ctx, material: &str) {
     if let Some(ui) = ctx.ui.upgrade() {
         let model = ui.global::<TiltModel>();
         model.set_material_name(material.into());
-        model.set_lighting_note(
-            tilt_lighting_note(
-                params.params.preset_index,
-                crate::render::hdr_lights_viewport(),
-            )
-            .into(),
-        );
+        model.set_lighting_note(tilt_lighting_note().into());
     }
 }
 
@@ -147,7 +142,7 @@ fn poll(ctx: &Ctx) {
     let Ok((params, name)) = current_inputs(ctx) else {
         return;
     };
-    show_inputs(ctx, &params, &name);
+    show_inputs(ctx, &name);
     let (computed, wants_run) = RUNTIME.with(|rt| {
         let rt = rt.borrow();
         (rt.computed.clone(), rt.wants_run)
@@ -186,7 +181,7 @@ fn run(ctx: &Ctx) {
         rt.wants_run = false;
         rt.epoch
     });
-    show_inputs(ctx, &params, &name);
+    show_inputs(ctx, &name);
     if let Some(ui) = ctx.ui.upgrade() {
         let model = ui.global::<TiltModel>();
         model.set_running(true);

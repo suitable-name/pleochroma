@@ -55,7 +55,8 @@ pub fn built_in_specific_gravity(material_name: &str) -> Option<SpecificGravity>
     // Source keys in the comments below: HoM = Handbook of Mineralogy, measured density unless
     // noted; WM = webmineral.com; GIA-E = GIA gem encyclopedia facts box; IGS-T = the International
     // Gem Society table "Specific Gravity Values of Selected Gems"; GG97 = Gems & Gemology, Winter
-    // 1997, Table 1 (Synthetic Moissanite article).
+    // 1997, Table 1 (Synthetic Moissanite article); GG26 = Gems & Gemology 62(2), Summer 2026
+    // (glass-ceramics, hydrostatic SG of 60 samples).
     const TABLE: &[(&str, f64, (f64, f64))] = &[
         ("Diamond", 3.52, (3.50, 3.53)),
         // Sapphire & Ruby: same corundum host lattice, same SG.
@@ -145,6 +146,10 @@ pub fn built_in_specific_gravity(material_name: &str) -> Option<SpecificGravity>
             3.92,
             (3.83, 4.00),
         ),
+        // Derived (see DERIVED): GG26 measured 2.85-3.42 over all 60 samples (Table 1) and prints
+        // no single figure; 3.0 is the mean of its three faceted glass-ceramics (Table 2: 3.06,
+        // 2.93, 2.97). The trade figure 3.5-4.0 (the manufacturer) lies above every measurement.
+        ("Nanosital", 3.0, (2.85, 3.42)),
     ];
     // Rows whose representative is computed from cited figures, with the note shown beside it.
     const DERIVED: &[(&str, &str)] = &[
@@ -156,6 +161,11 @@ pub fn built_in_specific_gravity(material_name: &str) -> Option<SpecificGravity>
             "Color-Change Garnet (Pyrope-Spessartine)",
             "Derived: range merged from two Gems & Gemology studies (3.83-3.88 and 3.93-4.00); \
              representative is its midpoint.",
+        ),
+        (
+            "Nanosital",
+            "Derived: mean of the three faceted glass-ceramics in Gems & Gemology 62(2), 2026 \
+             (3.06, 2.93, 2.97), 2.99, rounded to 3.0; the study measured 2.85-3.42.",
         ),
     ];
     TABLE

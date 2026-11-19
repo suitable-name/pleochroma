@@ -3,7 +3,7 @@
 //! The pieces [`super::rows`]'s row builders share, plus the helpers other editor actions
 //! call directly (multi-select, the symmetry-preview and meet-name-resolution checks).
 
-use super::{IndexChip, TierRow};
+use super::{IndexChip, TierRow, rows::tidy_text};
 use pleochroma::geometry::meet_solver::{
     Block, MeetConstraint, MeetNameResolver, TokenResolution, classify_blocks,
 };
@@ -23,9 +23,9 @@ pub(super) fn constraint_kind_and_text(
 ) -> (i32, String) {
     if let Some(target) = target {
         return match target {
-            TierTarget::DepthMm(mm) => (3, mm.to_string()),
-            TierTarget::GirdleThicknessMm(mm) => (4, mm.to_string()),
-            TierTarget::TableWidthMm(mm) => (5, mm.to_string()),
+            TierTarget::DepthMm(mm) => (3, tidy_text(mm)),
+            TierTarget::GirdleThicknessMm(mm) => (4, tidy_text(mm)),
+            TierTarget::TableWidthMm(mm) => (5, tidy_text(mm)),
         };
     }
     match constraint {
@@ -34,7 +34,8 @@ pub(super) fn constraint_kind_and_text(
         // Rust's shortest round-trippable `f64` Display, not a fixed decimal count --
         // this feeds back into the form's `LineEdit`, so it must read back exactly
         // what `solve` (or the user) produced.
-        MeetConstraint::ScaleReference(value) => (2, value.to_string()),
+        // (noise below 1e-8 is dropped: `0.6525000000000001` reads `0.6525`)
+        MeetConstraint::ScaleReference(value) => (2, tidy_text(*value)),
     }
 }
 

@@ -69,7 +69,8 @@ component SizeRow inherits VerticalLayout {
             }
         }
         Rectangle {
-            width: 76px;
+            // Wide enough for "1.8000" beside the focused field's clear button.
+            width: 100px;
             Tooltip { text: @markdown("\{root.tooltip}"); }
             LineEdit {
                 width: parent.width;
@@ -117,11 +118,14 @@ component UnitField inherits Rectangle {
     callback blurred();
     callback focused();
 
-    width: root.w;
+    // The unit sits to the right of the box, so the focused field's clear button never covers it.
+    property <length> suffix_w: root.suffix == "" ? 0px : 30px;
+    width: root.w + root.suffix_w;
     height: 32px;
     if root.tooltip != "": Tooltip { text: @markdown("\{root.tooltip}"); }
     LineEdit {
-        width: parent.width;
+        x: 0px;
+        width: root.w;
         height: parent.height;
         enabled: root.enabled;
         text <=> root.value;
@@ -139,7 +143,7 @@ component UnitField inherits Rectangle {
         }
     }
     Text {
-        x: parent.width - self.preferred-width - 12px;
+        x: root.w + 8px;
         height: parent.height;
         text: root.suffix;
         font-size: 11px;
@@ -662,7 +666,8 @@ export component PreformTab inherits VerticalLayout {
             accessible-role: AccessibleRole.text;
         }
     }
-    MaterialGuessBadge { }
+    // Not instantiated without a guess: a hidden item would still take its layout space.
+    if EditorModel.material_guess_text != "": MaterialGuessBadge { }
     HorizontalLayout {
         spacing: 10px;
         height: 32px;

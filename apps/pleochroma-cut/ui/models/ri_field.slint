@@ -1,0 +1,30 @@
+// The RI range field of Design Settings' MATERIAL section, and the wait at export. Rust-driven:
+// `gui::editor::ri_range::field` (the field) and `gui::editor::ri_range::export_wait` (the wait).
+// The choice is stored in the metadata of the design file (`ri_min`, `ri_max`, `ri_range_source`);
+// the estimate is never stored as a number.
+//
+// Exported from `app.slint` so Rust can reach it.
+
+export global RiFieldModel {
+    // 0 Off, 1 From File, 2 Pleochroma estimate, 3 Type.
+    in-out property <int> source_index: 0;
+    // The loaded file states a range of its own (so "From File" is offered).
+    in property <bool> file_states_range: false;
+    // "Type": the two ends as the user typed them.
+    in-out property <string> typed_low: "";
+    in-out property <string> typed_high: "";
+    // What the cutting sheet will print: "1.63 and up (Sapphire 1.768)".
+    in property <string> preview: "";
+    in property <string> error: "";
+    // An export waits for the traced estimate ("Computing the RI range...").
+    in property <bool> export_waiting: false;
+
+    callback source_chosen(int);
+    // One of the two typed boxes was edited.
+    callback typed_edited();
+    // Cancel of the waiting export.
+    callback cancel_export_wait();
+    // The sheet opened, was dropped with Esc, or another design is underneath: Rust writes the
+    // stored choice back into the properties above.
+    callback refresh_requested();
+}

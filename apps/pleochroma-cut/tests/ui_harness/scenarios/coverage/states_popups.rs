@@ -335,20 +335,17 @@ fn edit_states() -> Vec<State> {
             },
         },
         State {
-            // The header's "..." menu: Export as Gem Cut Studio File, Delete This Design (with its
-            // confirmation inside the menu).
-            name: "Edit view, header Design Actions Menu",
-            base: Base::Design,
-            scope: None,
+            // The header's "..." menu: Build This Design, Edit Metadata, Export as Gem Cut Studio
+            // File, Delete This Design. The header shows its actions only for a selected library
+            // design (`detail.title`), so the base is the library, not a template design. The
+            // menu is a popup: the scope names no component, so the pass takes the controls the
+            // opener added (the question behind Delete and a design with a web page are states
+            // of `reach_presses.rs`).
+            name: "Header, Design Actions Menu",
+            base: Base::Library,
+            scope: Some("DesignActionsMenuPopup"),
             deny: NONE,
-            open: |a| {
-                edit_tab(a);
-                settle(a);
-                if !press(a, "More Actions", None) {
-                    println!("states_popups: the More Actions button was not pressed");
-                }
-                pump(250);
-            },
+            open: super::reach_presses::open_design_actions,
         },
         State {
             // The "Design Checks" chip of the command bar opens the verdict popover.

@@ -150,22 +150,13 @@ pub(in super::super) fn step_slot(
         })
         .flatten();
     let fresh_label = pending.labelled && cached_label.is_none();
-    let pending = [PendingStep {
-        free: pending.free.clone(),
-        raw: pending.raw.clone(),
-        log_prob: pending.log_prob,
-        value: pending.value,
-        action: pending.action.clone(),
-        state: pending.state.clone(),
-        labelled: pending.labelled,
-    }];
     let fresh_labels = [fresh_label];
     let probe_sizes = [probe_size];
     let cached_labels = [cached_label];
     let (mut outcomes, seconds) = step_pass_with_limits(
         std::slice::from_mut(slot),
         PassContext {
-            pending: &pending,
+            pending: std::slice::from_ref(pending),
             fresh_labels: &fresh_labels,
             probe_sizes: &probe_sizes,
             cached_labels: &cached_labels,

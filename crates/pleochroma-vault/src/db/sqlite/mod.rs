@@ -49,6 +49,7 @@ mod preview_material;
 mod previews;
 mod read_access;
 mod render_jobs;
+mod ri_ranges;
 mod saved_rough_plans;
 mod search;
 mod solid_extents;
@@ -63,6 +64,7 @@ mod variants;
 mod zoning_store;
 
 pub use materials::CustomMaterialParams;
+pub use render_jobs::{ExpectedRow, UpdatedJob};
 pub use search::{DisplayFilters, SEARCH_RESULT_CAP, SortOrder};
 
 // Test-only imports, so the `tests` module can `use super::*;`. Production code reaches these
@@ -319,6 +321,7 @@ impl Database {
         db.migrate_design_cut_progress_table()?;
         db.migrate_design_lighting_table()?;
         db.migrate_render_jobs_table()?;
+        db.migrate_ri_ranges_table()?;
         // The rough-colour side tables (see `zoning_store`).
         db.migrate_zoning_tables()?;
         // The Color Pattern side tables (see `pattern_store`).
@@ -440,7 +443,7 @@ impl Database {
         // SQL text. The tilt-curve table's 6 generated aggregate columns are not safe to
         // hand-transcribe twice.
         let diagram_tilt_curves_sql = migrations::diagram_tilt_curves_table_sql();
-        let shared_sections: [&str; 13] = [
+        let shared_sections: [&str; 14] = [
             // Cached preview renders and tilt curves, keyed by entry_id so they survive a
             // diagram_details re-sync; see migrate_diagram_previews_table.
             migrations::DIAGRAM_PREVIEWS_TABLE_SQL,
@@ -467,6 +470,8 @@ impl Database {
             migrations::DESIGN_LIGHTING_TABLE_SQL,
             // The desktop render queue; see migrate_render_jobs_table's own doc comment.
             migrations::RENDER_JOBS_TABLE_SQL,
+            // The traced RI range per library design; see migrate_ri_ranges_table.
+            migrations::RI_RANGES_TABLE_SQL,
             // Flat tag set plus its many-to-many join table; see migrate_tag_tables's
             // own doc comment for why this is a side table pair, not a column on
             // diagram_entries.

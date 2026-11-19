@@ -4,6 +4,8 @@
 //! ([`pleochroma_cut_core::Design::meet_pick_states`]) and returns the state, the chip text and
 //! the explanation under the row, ready for any front end to show. The row is a function of its
 //! own, so the shared tier-row struct and the web and mobile row code stay as they are.
+//! [`meet_pick_row_while_solving`] is the row while the masts on hand are older than the design:
+//! it says the solve is running instead of judging the pick by them.
 //! [`meet_pick_blocked_text`] words why a tier cannot take a pick at all.
 
 use super::row_format::format_index_value;
@@ -31,11 +33,14 @@ pub enum MeetPickRowState {
     OffStone,
     /// The corner cannot be formed; the tier is solved by its names.
     Lost,
+    /// The design changed after the last solve, and how the pick stands depends on the solve
+    /// that is running: the row waits for it ([`meet_pick_row_while_solving`]).
+    Solving,
 }
 
 impl MeetPickRowState {
     /// The number the Slint `EditorModel.meet_pick_state` property carries: `0` none, `1` met,
-    /// `2` dormant, `3` off the stone, `4` lost.
+    /// `2` dormant, `3` off the stone, `4` lost, `5` solving.
     #[must_use]
     pub const fn code(self) -> i32 {
         match self {
@@ -44,6 +49,7 @@ impl MeetPickRowState {
             Self::Dormant => 2,
             Self::OffStone => 3,
             Self::Lost => 4,
+            Self::Solving => 5,
         }
     }
 }
@@ -142,9 +148,17 @@ fn missing_facet(
 
 /// The row of a tier without a pick.
 fn unpicked_row(tier: &ConstraintTier, label: &str) -> MeetPickRow {
-    let chip = match tier.constraint {
-        MeetConstraint::MeetNamed(_) => "Shallowest of the names",
-        MeetConstraint::MeetExisting => "Chosen by the solver",
+    let (chip, note) = match tier.constraint {
+        MeetConstraint::MeetNamed(_) => (
+            "Shallowest of the names",
+            format!(
+                "No corner picked: {label} meets the shallowest point where its named facets meet."
+            ),
+        ),
+        MeetConstraint::MeetExisting => (
+            "Chosen by the solver",
+            format!("No corner picked: {label} meets the shallowest vertex the solver finds."),
+        ),
         MeetConstraint::ScaleReference(_) => {
             return MeetPickRow::default();
         }
@@ -152,9 +166,7 @@ fn unpicked_row(tier: &ConstraintTier, label: &str) -> MeetPickRow {
     MeetPickRow {
         state: MeetPickRowState::None,
         chip: chip.to_string(),
-        note: format!(
-            "No corner picked: {label} meets the shallowest point where its named facets meet."
-        ),
+        note,
     }
 }
 
@@ -232,6 +244,42 @@ pub fn meet_pick_row(design: &Design, solved: &[SolvedTier], index: usize) -> Me
                 ),
             }
         }
+    }
+}
+
+/// The chip of a picked tier whose solve has not landed yet ([`meet_pick_row_while_solving`]).
+pub const MEET_PICK_SOLVING_CHIP: &str = "Solving\u{2026}";
+
+/// The Meet Point row of tier `index` while `stale`, the masts on hand, are those of a solve
+/// from before the design's last change.
+///
+/// Whether the tier reaches its picked corner, and whether that corner is still on the stone,
+/// can only be read from the masts of the design as it is now. Judged by older masts, a tier
+/// just cut to a corner does not pass through it and would read "corner cut away". Such a row
+/// therefore says that the solve is running ([`MeetPickRowState::Solving`]) and says nothing
+/// about the corner.
+///
+/// What the masts do not decide reads as in [`meet_pick_row`]: a tier without a pick, a pick
+/// that is not in use and a pick that is lost.
+#[must_use]
+pub fn meet_pick_row_while_solving(
+    design: &Design,
+    stale: &[SolvedTier],
+    index: usize,
+) -> MeetPickRow {
+    let row = meet_pick_row(design, stale, index);
+    if !matches!(
+        row.state,
+        MeetPickRowState::Met | MeetPickRowState::OffStone
+    ) {
+        return row;
+    }
+    MeetPickRow {
+        state: MeetPickRowState::Solving,
+        chip: MEET_PICK_SOLVING_CHIP.to_string(),
+        note: "The design is being solved. This row shows how the picked corner stands when \
+               the solve is done."
+            .to_string(),
     }
 }
 
@@ -463,6 +511,85 @@ mod tests {
             "{}",
             row.note
         );
+    }
+
+    #[test]
+    fn a_pick_whose_solve_has_not_landed_says_solving() {
+        let mut session = brilliant_session();
+        let before = session.design.solve().expect("every tier is pinned");
+        let corner = session
+            .design
+            .pick_corners(&before, LOWER_GIRDLE)
+            .expect("the stone closes")
+            .into_iter()
+            .find(|corner| corner.tiers == [GIRDLE, PAVILION_MAIN])
+            .expect("the girdle and the mains form a corner");
+        session
+            .pick_meet_corner(LOWER_GIRDLE, &corner)
+            .expect("the corner can be picked");
+        let design = session.design;
+
+        // Judged by the masts of the solve before the pick, the tier misses its corner.
+        assert_eq!(
+            meet_pick_row(&design, &before, LOWER_GIRDLE).state,
+            MeetPickRowState::OffStone
+        );
+        // The row of those masts waits for the solve instead.
+        let row = meet_pick_row_while_solving(&design, &before, LOWER_GIRDLE);
+        assert_eq!(row.state, MeetPickRowState::Solving);
+        assert_eq!(row.state.code(), 5);
+        assert_eq!(row.chip, "Solving\u{2026}");
+        assert_eq!(row.chip, MEET_PICK_SOLVING_CHIP);
+        assert_eq!(
+            row.note,
+            "The design is being solved. This row shows how the picked corner stands when the \
+             solve is done."
+        );
+        // So does a row without masts, and one whose old masts happen to pass through the corner.
+        assert_eq!(meet_pick_row_while_solving(&design, &[], LOWER_GIRDLE), row);
+        let solved = design.solve().expect("the picked design solves");
+        assert_eq!(
+            meet_pick_row_while_solving(&design, &solved, LOWER_GIRDLE),
+            row
+        );
+        // The masts of the pick's own solve give the row its state.
+        assert_eq!(
+            meet_pick_row(&design, &solved, LOWER_GIRDLE).state,
+            MeetPickRowState::Met
+        );
+    }
+
+    #[test]
+    fn what_the_masts_do_not_decide_reads_the_same_while_solving() {
+        let (mut design, solved) = picked();
+        let stored = *design
+            .tier_meet_pick(LOWER_GIRDLE)
+            .expect("the tier is picked");
+
+        // A tier without a pick.
+        assert_eq!(
+            meet_pick_row_while_solving(&design, &solved, PAVILION_MAIN),
+            meet_pick_row(&design, &solved, PAVILION_MAIN)
+        );
+        assert_eq!(
+            meet_pick_row_while_solving(&design, &solved, 99),
+            MeetPickRow::default()
+        );
+
+        // A lost pick.
+        let mut removed = stored;
+        removed.facets[0].tier = TierId(9_999);
+        set_pick(&mut design, removed);
+        let row = meet_pick_row_while_solving(&design, &solved, LOWER_GIRDLE);
+        assert_eq!(row.state, MeetPickRowState::Lost);
+        assert_eq!(row, meet_pick_row(&design, &solved, LOWER_GIRDLE));
+
+        // A pick that is not in use.
+        set_pick(&mut design, stored);
+        design.tiers[LOWER_GIRDLE].constraint = MeetConstraint::MeetNamed(vec!["Girdle".into()]);
+        let row = meet_pick_row_while_solving(&design, &solved, LOWER_GIRDLE);
+        assert_eq!(row.state, MeetPickRowState::Dormant);
+        assert_eq!(row, meet_pick_row(&design, &solved, LOWER_GIRDLE));
     }
 
     #[test]

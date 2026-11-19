@@ -3,12 +3,18 @@
 //! that has to live somewhere.
 
 use pleochroma::{geometry::meet_solver::SolvedTier, optics::materials::GemMaterial};
-use pleochroma_cut_core::{CrystalOrientation, Design};
+use pleochroma_cut_core::{
+    CrystalOrientation, Design,
+    native::{DesignMetadata, RiRangeChoice},
+};
 #[cfg(test)]
 use pleochroma_editor::cut_sheet::cutting_sheet_document;
-use pleochroma_editor::cut_sheet::{
-    SheetDetails, cutting_sheet_document_with_default, cutting_sheet_pdf_with_default,
-    diagram_export_png,
+use pleochroma_editor::{
+    cut_sheet::{
+        SheetDetails, cutting_sheet_document_with_default, cutting_sheet_pdf_with_default,
+        diagram_export_png,
+    },
+    ri_range::RiStatement,
 };
 use std::path::{Path, PathBuf};
 
@@ -70,6 +76,31 @@ pub fn write_cutting_sheet_html(
 ) -> Result<(), String> {
     let html = cutting_sheet_document(design, solved, custom);
     write_bytes(dest, html.as_bytes())
+}
+
+/// The header details the cutting sheet of `design` prints.
+///
+/// They are the file's own words ([`SheetDetails::from_metadata`]) and the "RI range" row of the
+/// design's RI range choice:
+///
+/// - Off: the row prints the design's own index, with no range.
+/// - From File and Type (`Designer`): the range as stated, whatever `estimate` is.
+/// - Pleochroma estimate: `estimate`, the traced range of the design as it is when the sheet is
+///   written. With `None` (the export was cancelled while the range was computing, or no range
+///   was found) the row prints no range. The estimate is never read from the file: it is not
+///   stored as a number.
+#[must_use]
+pub fn sheet_details(
+    design: &Design,
+    metadata: &DesignMetadata,
+    date_text: &str,
+    estimate: Option<RiStatement>,
+) -> SheetDetails {
+    let mut details = SheetDetails::from_metadata(design, metadata, date_text);
+    if metadata.ri_range_choice() == RiRangeChoice::Estimate {
+        details.ri_range = estimate;
+    }
+    details
 }
 
 /// Builds the cutting sheet with explicit header `details` (the open design's title,
@@ -146,6 +177,81 @@ pub fn write_diagram_png(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pleochroma_cut_core::{ConstraintTier, PreformSpec, ScheduleMeta};
+    use pleochroma_editor::ri_range::RiSource;
+
+    fn round_brilliant() -> Design {
+        Design::new(
+            PreformSpec::block(2.0, 1.0, 2.0),
+            ScheduleMeta::standard_round_brilliant(),
+            ConstraintTier::standard_round_brilliant(),
+        )
+    }
+
+    fn metadata_with(choice: RiRangeChoice) -> DesignMetadata {
+        let mut metadata = DesignMetadata::default();
+        metadata.set_ri_range_choice(choice);
+        metadata
+    }
+
+    fn traced() -> RiStatement {
+        RiStatement {
+            low: 1.63,
+            high: None,
+            source: RiSource::Estimate,
+        }
+    }
+
+    #[test]
+    fn the_estimate_is_stated_on_the_sheet_only_when_the_design_chose_it() {
+        let design = round_brilliant();
+        let details = sheet_details(
+            &design,
+            &metadata_with(RiRangeChoice::Estimate),
+            "May 2026",
+            Some(traced()),
+        );
+        assert_eq!(details.ri_range, Some(traced()));
+        assert_eq!(details.date_text, "May 2026");
+
+        // Off: the traced range is ignored and the row stays the design's own index.
+        let off = sheet_details(
+            &design,
+            &metadata_with(RiRangeChoice::Off),
+            "May 2026",
+            Some(traced()),
+        );
+        assert_eq!(off.ri_range, None);
+    }
+
+    #[test]
+    fn a_cancelled_or_missing_estimate_writes_the_sheet_without_the_range() {
+        let details = sheet_details(
+            &round_brilliant(),
+            &metadata_with(RiRangeChoice::Estimate),
+            "",
+            None,
+        );
+        assert_eq!(details.ri_range, None);
+    }
+
+    #[test]
+    fn a_designers_range_is_printed_as_stated_and_never_replaced_by_the_estimate() {
+        let stated = RiRangeChoice::Designer {
+            low: 1.7,
+            high: Some(2.15),
+        };
+        let details = sheet_details(
+            &round_brilliant(),
+            &metadata_with(stated),
+            "",
+            Some(traced()),
+        );
+        let statement = details.ri_range.expect("the stated range");
+        assert_eq!(statement.source, RiSource::Designer);
+        assert!((statement.low - 1.7).abs() < 1e-9);
+        assert!((statement.high.expect("a high end") - 2.15).abs() < 1e-9);
+    }
 
     #[test]
     fn the_pdf_item_always_writes_a_pdf_name() {

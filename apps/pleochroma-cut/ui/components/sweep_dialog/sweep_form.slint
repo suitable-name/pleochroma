@@ -3,6 +3,7 @@
 import { ComboBox, LineEdit } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
 import { SweepModel } from "../../models/sweep.slint";
+import { TiltWindows } from "../../shared/tilt_windows.slint";
 import { TipBox, FieldCaption } from "../tip_box.slint";
 import { SweepButton } from "sweep_button.slint";
 
@@ -223,7 +224,7 @@ export component SweepForm inherits VerticalLayout {
         spacing: 16px;
         SweepCheck {
             label: "Also Average the Tilt Performance (Slower)";
-            hint: "Also work out the tilt performance of every angle and average it, so the table and chart can show it. It gives a fuller picture but makes the sweep much slower.";
+            hint: "Also work out the tilt performance of every angle and average it, so the table and chart can show it. It gives a fuller picture but makes the sweep much slower. The sweep averages all tilts to " + TiltWindows.scored + ".";
             checked <=> SweepModel.tilt_average;
             enabled: !SweepModel.running;
             toggled => { SweepModel.form_changed(); }

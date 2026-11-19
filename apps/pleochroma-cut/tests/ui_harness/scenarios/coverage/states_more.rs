@@ -626,7 +626,7 @@ fn trials_kept(a: &HarnessApp) {
 /// for steps 0 and 3, one for the form steps).
 /// `step`: 0 the list, 1 the save form open, 2 the note form of the newest variant, 3 the text
 /// comparison of the newest against the older one.
-fn variants_saved(a: &HarnessApp, step: u8) {
+pub(super) fn variants_saved(a: &HarnessApp, step: u8) {
     inspector(a, 4);
     let variants = a.ui().global::<VariantsModel>();
     variants.set_view(1);

@@ -8,7 +8,9 @@
 use pleochroma::geometry::stone_metrics::ExternalProportions;
 use pleochroma_cut_core::{
     Design,
-    native::{CustomMaterialSnapshot, DesignLoadError, DesignMetadata, design_from_str},
+    native::{
+        CustomMaterialSnapshot, DesignLoadError, DesignMetadata, RiRangeChoice, design_from_str,
+    },
 };
 use pleochroma_editor::loading::{
     LoadedDesign, default_preform_for_schedule, design_from_asc_text,
@@ -65,6 +67,40 @@ impl AttachedDesign {
             custom_material: None,
         }
     }
+}
+
+/// The refractive-index range a `.gcs` file states in its `<info>` element, as the designer's own
+/// statement ([`RiRangeChoice::Designer`]), or [`RiRangeChoice::Off`] when the bytes do not read as
+/// a `.gcs` or state no range.
+///
+/// Both the library import and the file open use it, so a `.gcs` that states a range opens with
+/// that range in the editor state (the choice "From File"); an `.asc` schedule has no place for it.
+/// Reading runs inside the importer's own per-file guard.
+pub(in crate::gui::editor) fn gcs_bytes_ri_range(bytes: &[u8]) -> RiRangeChoice {
+    crate::gui::library::local::catch_file_panic(std::panic::AssertUnwindSafe(|| {
+        pleochroma_formats::gcs::parse_gcs_bytes(bytes).map_or(RiRangeChoice::Off, |design| {
+            pleochroma_formats::gcs::gcs_ri_range_choice(&design)
+        })
+    }))
+    .unwrap_or(RiRangeChoice::Off)
+}
+
+/// The range the first `.gcs` attached to `full` states, or [`RiRangeChoice::Off`].
+///
+/// A library import of a `.gcs` attaches the converted `.asc` first and the original `.gcs` beside
+/// it, and the `.asc` is what opens, so the range is looked for in the `.gcs` beside it.
+fn attached_gcs_ri_range(
+    full: &pleochroma_vault::model::entry::FullDiagramRecord,
+) -> RiRangeChoice {
+    full.attached_files
+        .iter()
+        .filter(|file| {
+            pleochroma_vault::local::DesignFileKind::from_file_name(&file.name)
+                == Some(pleochroma_vault::local::DesignFileKind::Gcs)
+        })
+        .map(|file| gcs_bytes_ri_range(&file.content))
+        .find(|choice| *choice != RiRangeChoice::Off)
+        .unwrap_or(RiRangeChoice::Off)
 }
 
 /// The design built from `full`'s self-contained `.psdd` attachment, if it has one that reads.
@@ -213,9 +249,15 @@ pub(super) fn design_from_attachment(
     } else {
         pleochroma_vault::model::frosting::StoredTierFrosting::to_gcs(&full.frosting)
     };
+    let stated_range = attached_gcs_ri_range(full);
     let loaded = design_from_asc_text(&file.asc_file_name, &file.asc_text, lw_ratio)
         .map(|mut loaded| {
             loaded.design.apply_imported_frosting(&frosting);
+            // A schedule has no RI range of its own, so the range a `.gcs` states travels in the
+            // design's `[meta]` (the choice "From File").
+            if stated_range != RiRangeChoice::Off {
+                loaded.metadata.set_ri_range_choice(stated_range);
+            }
             AttachedDesign::without_snapshot(loaded)
         })
         .map_err(AttachmentError::plain);
@@ -690,5 +732,114 @@ mod tests {
     fn design_from_full_record_errors_with_no_schedule_data_at_all() {
         let full = empty_full_record();
         assert!(design_from_full_record(&full).is_err());
+    }
+
+    /// A `.gcs` that states an RI range, as the importer attaches it.
+    fn gcs_stating(choice: RiRangeChoice) -> Vec<u8> {
+        use pleochroma_cut_core::{ConstraintTier, PreformSpec, ScheduleMeta};
+        let design = Design::new(
+            PreformSpec::block(2.0, 1.0, 2.0),
+            ScheduleMeta::standard_round_brilliant(),
+            ConstraintTier::standard_round_brilliant(),
+        );
+        let schedule = design.to_asc_schedule().expect("the design exports");
+        pleochroma_formats::gcs::to_gcs_string_with_ri_range(&schedule, &[], choice)
+            .expect("the schedule writes as .gcs")
+            .into_bytes()
+    }
+
+    /// The range a `.gcs` states, with its tolerance for the text round trip.
+    fn assert_designer_range(choice: RiRangeChoice, low: f64, high: Option<f64>) {
+        match choice {
+            RiRangeChoice::Designer {
+                low: got_low,
+                high: got_high,
+            } => {
+                assert!((got_low - low).abs() < 1e-9, "{choice:?}");
+                assert_eq!(got_high.is_some(), high.is_some(), "{choice:?}");
+                if let (Some(got), Some(want)) = (got_high, high) {
+                    assert!((got - want).abs() < 1e-9, "{choice:?}");
+                }
+            }
+            other => panic!("expected the designer's range, got {other:?}"),
+        }
+    }
+
+    /// A library import of a `.gcs` attaches the converted `.asc` first and the `.gcs` beside it:
+    /// the design that opens carries the range the `.gcs` states.
+    #[test]
+    fn a_library_design_from_a_gcs_with_an_ri_range_opens_with_that_range() {
+        let mut full = empty_full_record();
+        full.attached_files.push(AttachedFile {
+            name: "rb.asc".to_string(),
+            url: String::new(),
+            content: b"GemCad 5.0\ng 96 0.0\ny 4 y\nI 1.54\na -41.000000 0.64991234 92 n 1 84\n"
+                .to_vec(),
+        });
+        full.attached_files.push(AttachedFile {
+            name: "rb.gcs".to_string(),
+            url: String::new(),
+            content: gcs_stating(RiRangeChoice::Designer {
+                low: 1.7,
+                high: Some(2.15),
+            }),
+        });
+        let loaded = design_from_full_record(&full).expect("opens");
+        assert_designer_range(loaded.metadata.ri_range_choice(), 1.7, Some(2.15));
+
+        // A `.gcs` that states only the low end is an open-ended range.
+        full.attached_files[1].content = gcs_stating(RiRangeChoice::Designer {
+            low: 1.63,
+            high: None,
+        });
+        let loaded = design_from_full_record(&full).expect("opens");
+        assert_designer_range(loaded.metadata.ri_range_choice(), 1.63, None);
+    }
+
+    /// A `.gcs` alone (no converted `.asc` beside it) carries its range in too.
+    #[test]
+    fn a_gcs_only_record_carries_its_ri_range() {
+        let mut full = empty_full_record();
+        full.attached_files.push(AttachedFile {
+            name: "rb.gcs".to_string(),
+            url: String::new(),
+            content: gcs_stating(RiRangeChoice::Designer {
+                low: 1.7,
+                high: Some(2.15),
+            }),
+        });
+        let loaded = design_from_full_record(&full).expect("opens");
+        assert_designer_range(loaded.metadata.ri_range_choice(), 1.7, Some(2.15));
+    }
+
+    /// A `.gcs` that states no range, and a record with no `.gcs`, leave the choice Off; the
+    /// estimate is never written by an import.
+    #[test]
+    fn no_stated_range_leaves_the_choice_off() {
+        let mut full = empty_full_record();
+        full.attached_files.push(AttachedFile {
+            name: "rb.gcs".to_string(),
+            url: String::new(),
+            content: gcs_stating(RiRangeChoice::Off),
+        });
+        let loaded = design_from_full_record(&full).expect("opens");
+        assert_eq!(loaded.metadata.ri_range_choice(), RiRangeChoice::Off);
+
+        let mut plain = empty_full_record();
+        plain.attached_files.push(AttachedFile {
+            name: "design.asc".to_string(),
+            url: String::new(),
+            content: b"GemCad 5.0\ng 96 0.0\ny 4 y\nI 1.54\na -41.000000 0.64991234 92 n 1 84\n"
+                .to_vec(),
+        });
+        let loaded = design_from_full_record(&plain).expect("opens");
+        assert_eq!(loaded.metadata.ri_range_choice(), RiRangeChoice::Off);
+    }
+
+    /// Bytes that are no `.gcs` state no range and never panic.
+    #[test]
+    fn gcs_bytes_that_do_not_read_state_no_range() {
+        assert_eq!(gcs_bytes_ri_range(b"not a gcs"), RiRangeChoice::Off);
+        assert_eq!(gcs_bytes_ri_range(&[]), RiRangeChoice::Off);
     }
 }

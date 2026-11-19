@@ -4,7 +4,8 @@
 //! The compare window shows the table-up figures of the "before" and the "after" stone
 //! ([`OpticalFigures`]: brilliance, windowing, extinction, fire, scintillation and, when
 //! the stone was traced, Contrast and the zone shares) and
-//! can add the tilt averages ([`TiltAverages`], the mean over four axes and 181 angles).
+//! can add the tilt averages ([`TiltAverages`], the mean over four axes and the tilts up to
+//! the displayed range from table up, by default every tilt to 90 degrees).
 //! [`describe_metric_deltas`] turns the two sets into one to three short sentences,
 //! [`metric_rows`] into the rows of the small table beside them.
 //!
@@ -30,7 +31,7 @@ use crate::sweep::TiltAverages;
 use pleochroma::{
     color::metrics::{
         AsetAreaShares, AxisProfile, FinishedStone, GemOpticalMetrics, SweepProgress,
-        evaluate_all_axes_profiles_stepped_finished_threaded,
+        TILT_ANGLES_DEG, evaluate_all_axes_profiles_stepped_finished_threaded,
         evaluate_gem_optical_metrics_finished,
     },
     geometry::{GpuFacetPlane, StoneGeometry},
@@ -94,9 +95,9 @@ pub const FIRE_NOISE_FLOOR: f32 = 0.5;
 
 /// Changes of a tilt average under this many percentage points read "about the same".
 ///
-/// A tilt average is the mean of 724 poses (four axes, 181 tilts each), so the grid
-/// jitter of single poses largely cancels out. One point is already a difference worth
-/// naming.
+/// A tilt average is the mean of at least 124 poses (four axes, 31 tilts each at the narrowest
+/// offered range of 15 degrees; 724 at the default), so the grid jitter of single poses
+/// largely cancels out. One point is already a difference worth naming.
 pub const TILT_NOISE_POINTS: f32 = 1.0;
 
 /// Changes of the yield under this many percentage points read "about the same".
@@ -233,7 +234,128 @@ pub fn measure_tilt_average_finished(
         .map(|axes| average_axis_profiles(&axes))
 }
 
-/// The mean brilliance, windowing and extinction over every point of `axes`.
+/// The range of the displayed tilt average when the user chose nothing: every tilt.
+pub const DEFAULT_DISPLAY_TILT_WINDOW_DEG: u8 = 90;
+
+/// The ranges the preference and the command line offer, in degrees from table up.
+pub const DISPLAY_TILT_WINDOW_CHOICES_DEG: [u8; 6] = [15, 20, 30, 45, 60, 90];
+
+/// `raw` when it is one of the choices, else 90.
+///
+/// The one rule a loaded, hand-edited, dialog-chosen or command-line value passes through.
+#[must_use]
+pub fn normalize_display_tilt_window_deg(raw: i64) -> u8 {
+    DISPLAY_TILT_WINDOW_CHOICES_DEG
+        .iter()
+        .copied()
+        .find(|choice| i64::from(*choice) == raw)
+        .unwrap_or(DEFAULT_DISPLAY_TILT_WINDOW_DEG)
+}
+
+/// "to ±90°": the words after "Tilt average " in a caption.
+#[must_use]
+pub fn display_tilt_window_caption(window_deg: u8) -> String {
+    format!("to \u{b1}{window_deg}\u{b0}")
+}
+
+/// "to 90°": the words inside a sentence ("tilted up to 90° each way").
+#[must_use]
+pub fn display_tilt_window_plain(window_deg: u8) -> String {
+    format!("to {window_deg}\u{b0}")
+}
+
+/// The tilts kept on one axis for a window of `window_deg` each way: 181 at 90, 61 at 30.
+#[must_use]
+pub const fn tilt_angles_within(window_deg: u8) -> u16 {
+    2 * window_deg as u16 + 1
+}
+
+/// How the sentence about the tilt averages begins: "Averaged over all tilts" at 90 and
+/// "Averaged over tilts up to 30°" below it.
+#[must_use]
+pub fn tilt_sentence_lead(window_deg: u8) -> String {
+    if window_deg >= DEFAULT_DISPLAY_TILT_WINDOW_DEG {
+        "Averaged over all tilts".to_owned()
+    } else {
+        format!("Averaged over tilts up to {window_deg}\u{b0}")
+    }
+}
+
+/// The four 181-point axis profiles of `stone`, or `None` when `step` stopped the sweep.
+///
+/// The caller keeps them and averages them again with [`average_axis_profiles_within`]
+/// whenever the displayed range changes, so a change never traces a pose again.
+#[must_use]
+pub fn measure_tilt_profiles_finished(
+    stone: FinishedStone<'_>,
+    material: &GemMaterial,
+    environment: EnvironmentSource<'_>,
+    step: &mut dyn FnMut(SweepProgress) -> bool,
+) -> Option<Vec<AxisProfile>> {
+    evaluate_all_axes_profiles_stepped_finished_threaded(stone, material, environment, None, step)
+}
+
+/// [`measure_tilt_average_finished`] over the tilts up to `max_tilt_deg` only.
+///
+/// The same 724 poses are traced; the mean keeps the entries with `|tilt| <= max_tilt_deg`
+/// ([`average_axis_profiles_within`]). `step` can stop the sweep by answering `false`.
+#[must_use]
+pub fn measure_tilt_average_within_finished(
+    stone: FinishedStone<'_>,
+    material: &GemMaterial,
+    environment: EnvironmentSource<'_>,
+    max_tilt_deg: f32,
+    step: &mut dyn FnMut(SweepProgress) -> bool,
+) -> Option<TiltAverages> {
+    evaluate_all_axes_profiles_stepped_finished_threaded(stone, material, environment, None, step)
+        .map(|axes| average_axis_profiles_within(&axes, max_tilt_deg))
+}
+
+/// The mean brilliance, windowing and extinction over the tilts of `axes` up to
+/// `max_tilt_deg` from table up, both ways.
+///
+/// Each axis holds 181 points, one per degree from -90 to +90 (`TILT_ANGLES_DEG`). A window of
+/// 30 degrees keeps 61 points on each of the four axes, 244 in all. No new pose is traced.
+#[must_use]
+pub fn average_axis_profiles_within(axes: &[AxisProfile], max_tilt_deg: f32) -> TiltAverages {
+    let mut brilliance = 0.0_f64;
+    let mut windowing = 0.0_f64;
+    let mut extinction = 0.0_f64;
+    let mut samples = 0_u32;
+    for axis in axes {
+        for (index, tilt) in TILT_ANGLES_DEG.iter().enumerate() {
+            if tilt.abs() <= max_tilt_deg {
+                brilliance += f64::from(axis.brilliance[index]);
+                windowing += f64::from(axis.windowing[index]);
+                extinction += f64::from(axis.extinction[index]);
+                samples += 1;
+            }
+        }
+    }
+    let samples = f64::from(samples.max(1));
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "f32 is the UI/storage precision; the averages are percentages in 0..=100"
+    )]
+    let [brilliance_pct, windowing_pct, extinction_pct] = [
+        brilliance / samples,
+        windowing / samples,
+        extinction / samples,
+    ]
+    .map(|mean| mean as f32);
+    TiltAverages {
+        brilliance_pct,
+        windowing_pct,
+        extinction_pct,
+    }
+}
+
+/// The mean brilliance, windowing and extinction over every point of `axes` (all tilts to
+/// +-90 degrees).
+///
+/// This is the score of Optimize, Angle Sweep, Retarget and Tune. The figure a person reads
+/// for a design is [`average_axis_profiles_within`] with the displayed range, which is this
+/// same mean at the default of [`DEFAULT_DISPLAY_TILT_WINDOW_DEG`].
 #[must_use]
 pub fn average_axis_profiles(axes: &[AxisProfile]) -> TiltAverages {
     let mut brilliance = 0.0_f64;
@@ -458,6 +580,29 @@ pub fn describe_metric_deltas(
     describe_metric_deltas_for(DEFAULT_SUBJECT, before, after, tilt)
 }
 
+/// [`describe_metric_deltas_for`] with the range the tilt pair was averaged over.
+///
+/// At [`DEFAULT_DISPLAY_TILT_WINDOW_DEG`] the tilt sentence reads "Averaged over all tilts, …";
+/// below it, "Averaged over tilts up to 30°, …".
+#[must_use]
+pub fn describe_metric_deltas_within(
+    subject: &str,
+    before: &OpticalFigures,
+    after: &OpticalFigures,
+    tilt: Option<(&TiltAverages, &TiltAverages)>,
+    tilt_window_deg: u8,
+) -> Vec<String> {
+    let judged: Vec<MetricChange> = DeltaMetric::ALL
+        .iter()
+        .filter_map(|&metric| judge(metric, metric.value(before), metric.value(after), false))
+        .collect();
+    let mut lines = table_up_lines(subject, &judged);
+    if let Some((tilt_before, tilt_after)) = tilt {
+        lines.push(tilt_line(subject, tilt_before, tilt_after, tilt_window_deg));
+    }
+    lines
+}
+
 /// The sentences about what changed from `before` to `after`, with `subject` ("The after
 /// design", "The current design") as the thing that changed.
 ///
@@ -466,7 +611,8 @@ pub fn describe_metric_deltas(
 /// Contrast ("It also ..."); then the figures that stayed within their noise threshold ("Fire is
 /// about the same."). When nothing moved beyond its threshold the answer is the single
 /// sentence "No clear optical difference.". With `tilt` (the before and after tilt
-/// averages) one more sentence follows, about the tilt averages.
+/// averages) one more sentence follows, about the tilt averages, taken over every tilt to
+/// 90 degrees; [`describe_metric_deltas_within`] names another range.
 #[must_use]
 pub fn describe_metric_deltas_for(
     subject: &str,
@@ -474,15 +620,13 @@ pub fn describe_metric_deltas_for(
     after: &OpticalFigures,
     tilt: Option<(&TiltAverages, &TiltAverages)>,
 ) -> Vec<String> {
-    let judged: Vec<MetricChange> = DeltaMetric::ALL
-        .iter()
-        .filter_map(|&metric| judge(metric, metric.value(before), metric.value(after), false))
-        .collect();
-    let mut lines = table_up_lines(subject, &judged);
-    if let Some((tilt_before, tilt_after)) = tilt {
-        lines.push(tilt_line(subject, tilt_before, tilt_after));
-    }
-    lines
+    describe_metric_deltas_within(
+        subject,
+        before,
+        after,
+        tilt,
+        DEFAULT_DISPLAY_TILT_WINDOW_DEG,
+    )
 }
 
 /// The one to three sentences about the table-up figures.
@@ -522,8 +666,9 @@ fn table_up_lines(subject: &str, judged: &[MetricChange]) -> Vec<String> {
     lines
 }
 
-/// The sentence about the tilt averages.
-fn tilt_line(subject: &str, before: &TiltAverages, after: &TiltAverages) -> String {
+/// The sentence about the tilt averages, which were taken over `window_deg` each way.
+fn tilt_line(subject: &str, before: &TiltAverages, after: &TiltAverages, window_deg: u8) -> String {
+    let lead = tilt_sentence_lead(window_deg);
     let pairs = [
         (
             DeltaMetric::Brilliance,
@@ -548,13 +693,9 @@ fn tilt_line(subject: &str, before: &TiltAverages, after: &TiltAverages) -> Stri
         .map(|change| direction_phrase(change, true))
         .collect();
     if phrases.is_empty() {
-        "Averaged over all tilts, there is no clear difference.".to_owned()
+        format!("{lead}, there is no clear difference.")
     } else {
-        format!(
-            "Averaged over all tilts, {} {}.",
-            lower_first(subject),
-            join_list(&phrases)
-        )
+        format!("{lead}, {} {}.", lower_first(subject), join_list(&phrases))
     }
 }
 

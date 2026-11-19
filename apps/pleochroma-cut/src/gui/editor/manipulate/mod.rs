@@ -502,5 +502,5 @@ pub(super) fn on_frame_landed(ui: &MainWindow, generation: u64) {
         handles::refresh_handles(ui, &ctx);
     }
     // After the handles, so the pick-mode hint is the last word on the hint line.
-    meet_pick::refresh(ui, &ctx);
+    meet_pick::on_frame_landed(ui, &ctx, generation);
 }

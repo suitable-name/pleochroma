@@ -67,11 +67,13 @@ mod color_shots;
 mod config;
 mod dialog_shots;
 mod editor_shots;
+mod job_shots;
 mod kit;
 mod library_shots;
 mod manual_shots;
 mod nav;
 mod physics_shots;
+mod ri_shots;
 #[path = "../ui_harness/support/mod.rs"]
 mod support;
 mod window_shots;
@@ -100,7 +102,7 @@ type SharedApp = Rc<RefCell<HarnessApp>>;
 type ShotFn = fn(&mut Sc<'_, '_>) -> Result<Shot, String>;
 
 /// Every shot, in the order it is taken: the file stem and the function that makes it.
-const SHOTS: [(&str, ShotFn); 70] = [
+const SHOTS: [(&str, ShotFn); 105] = [
     ("main", library_shots::main_window),
     ("solid_rendering", library_shots::solid_rendering),
     ("cutting_instructions", library_shots::cutting_instructions),
@@ -156,7 +158,7 @@ const SHOTS: [(&str, ShotFn); 70] = [
     ("history_trials", editor_shots::history_trials),
     ("cutting_mode", manual_shots::cutting_mode),
     ("angle_sweep", manual_shots::angle_sweep),
-    ("render_jobs", manual_shots::render_jobs),
+    ("render_jobs", job_shots::render_jobs),
     ("crystal_axis_stone_tab", axis_shots::stone_tab_sapphire),
     ("crystal_axis_second_axis", axis_shots::stone_tab_tanzanite),
     ("crystal_axis_overlay", axis_shots::overlay_sapphire),
@@ -201,6 +203,83 @@ const SHOTS: [(&str, ShotFn); 70] = [
     ("color_variants_section", color_shots::variants_section),
     ("color_pattern_variant", color_shots::pattern_variant),
     ("color_variants_live_render", color_shots::live_render_popup),
+    ("render_jobs_640", job_shots::render_jobs_640),
+    (
+        "render_jobs_640_row_menu",
+        job_shots::render_jobs_640_row_menu,
+    ),
+    (
+        "render_jobs_640_compute_menu",
+        job_shots::render_jobs_640_compute_menu,
+    ),
+    (
+        "render_jobs_640_menu_first_row",
+        job_shots::render_jobs_640_menu_first_row,
+    ),
+    (
+        "render_jobs_640_paused_ray_rows",
+        job_shots::render_jobs_640_paused_ray_rows,
+    ),
+    ("render_job_edit", job_shots::render_job_edit),
+    ("render_job_edit_640", job_shots::render_job_edit_640),
+    ("render_job_edit_video", job_shots::render_job_edit_video),
+    (
+        "render_job_edit_video_640",
+        job_shots::render_job_edit_video_640,
+    ),
+    (
+        "render_job_copy_materials",
+        job_shots::render_job_copy_materials,
+    ),
+    (
+        "render_job_copy_materials_640",
+        job_shots::render_job_copy_materials_640,
+    ),
+    ("render_job_view_banner", job_shots::render_job_view_banner),
+    (
+        "render_job_view_banner_640",
+        job_shots::render_job_view_banner_640,
+    ),
+    ("stone_ri_hint", ri_shots::stone_ri_hint),
+    ("stone_ri_hint_640", ri_shots::stone_ri_hint_640),
+    ("stone_ri_traced", ri_shots::stone_ri_traced),
+    ("stone_ri_traced_640", ri_shots::stone_ri_traced_640),
+    (
+        "design_settings_ri_range",
+        ri_shots::design_settings_ri_range,
+    ),
+    (
+        "design_settings_ri_range_640",
+        ri_shots::design_settings_ri_range_640,
+    ),
+    ("ri_chart", ri_shots::ri_chart),
+    ("ri_chart_640", ri_shots::ri_chart_640),
+    (
+        "material_reference_designs",
+        ri_shots::material_reference_designs,
+    ),
+    (
+        "material_reference_designs_640",
+        ri_shots::material_reference_designs_640,
+    ),
+    ("ri_range_batch", ri_shots::ri_range_batch),
+    ("ri_range_batch_640", ri_shots::ri_range_batch_640),
+    ("compare_tilt", ri_shots::compare_tilt),
+    ("compare_tilt_640", ri_shots::compare_tilt_640),
+    ("baseline_tilt", ri_shots::baseline_tilt),
+    ("baseline_tilt_640", ri_shots::baseline_tilt_640),
+    ("compare_tilt_range_30", ri_shots::compare_tilt_range_30),
+    (
+        "compare_tilt_range_30_640",
+        ri_shots::compare_tilt_range_30_640,
+    ),
+    ("baseline_tilt_range_30", ri_shots::baseline_tilt_range_30),
+    (
+        "baseline_tilt_range_30_640",
+        ri_shots::baseline_tilt_range_30_640,
+    ),
+    ("preferences_figures", ri_shots::preferences_figures),
+    ("preferences_figures_640", ri_shots::preferences_figures_640),
 ];
 
 fn main() -> ExitCode {

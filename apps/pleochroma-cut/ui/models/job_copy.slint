@@ -1,0 +1,54 @@
+// The Copy to Materials dialog (Render Jobs window > the "..." menu of a row): one new queued job
+// per ticked material, each placed after the source job. Rust-driven:
+// `gui::render_jobs::edit::copy` seeds the properties, owns the ticks and the search text,
+// recomputes `preview` when they change, and creates the jobs on `copy`.
+//
+// Exported from `app.slint` so Rust can reach it.
+
+// One new job as the list of the dialog previews it.
+export struct JobCopyPreview {
+    material: string,
+    label: string,
+    // The file name of a picture, or the frame folder name of a video.
+    file_name: string,
+}
+
+export global JobCopyModel {
+    in-out property <bool> open: false;
+    // The source job.
+    in property <int> job_id: -1;
+    // The label and the one-line summary of the source job ("From job 7").
+    in property <string> source_label: "";
+    in property <string> source_summary: "";
+    // The material of the source job: shown greyed and marked "this job".
+    in property <string> source_material: "";
+    // Every material the copy can go to, in the Stone tab's order.
+    in property <[string]> materials: [];
+    // The rows of the checklist: the materials that match `query`, and for each whether it is
+    // ticked (the two lists have the same length).
+    in property <[string]> choice_names: [];
+    in property <[bool]> choice_ticked: [];
+    // The ticked materials, in checklist order: what the Copy button passes to `copy`.
+    in property <[string]> picked: [];
+    // The search text of the checklist.
+    in-out property <string> query: "";
+    // "Haze, crystal axes and ... are reset to each new material; ..."
+    in property <string> reset_note: "";
+    in property <[JobCopyPreview]> preview: [];
+    in property <bool> is_video: false;
+    // The copies are being made (a video measures its curves first).
+    in property <bool> busy: false;
+    // "Measuring... 2 of 3"
+    in property <string> busy_text: "";
+    in property <string> message: "";
+
+    // The ticked materials were replaced as a whole.
+    callback selection_changed([string]);
+    // One row of the checklist was clicked.
+    callback toggle(string);
+    // The search text changed.
+    callback query_changed(string);
+    callback copy([string]);
+    // Closes the dialog, or while the copies are being made stops before the next one.
+    callback cancel();
+}

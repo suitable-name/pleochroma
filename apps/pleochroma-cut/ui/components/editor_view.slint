@@ -197,6 +197,23 @@ export component EditorView inherits Rectangle {
             root.design_fold_locked = true;
         }
     }
+    // The tier filter's focus pulse (Ctrl+F, "Filter Tiers"; `EditorModel.focus_tier_filter`).
+    // While this view is mounted, `EditorTierTable` answers the pulse itself and this only notes
+    // it as seen. In the short one-pane layout the pulse can arrive while the 3D view is up and
+    // this view does not exist: `init` below then finds it unseen and focuses the box one moment
+    // later, once the fresh table is laid out.
+    property <int> tracked_filter_focus_pulse: EditorModel.filter_focus_pulse;
+    changed tracked_filter_focus_pulse => {
+        EditorModel.filter_focus_seen = EditorModel.filter_focus_pulse;
+    }
+    filter_focus_after_mount := Timer {
+        interval: 50ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            tier_table.focus_filter();
+        }
+    }
     // A single `init` (Slint rejects a second one on the same element) for the dock reclamp and
     // the remount re-seed. `app.slint` recreates this view on each Edit-tab visit, so a fresh
     // `inspector` starts on its compiled defaults. `tracked_selected_tier_index` already equals
@@ -224,6 +241,12 @@ export component EditorView inherits Rectangle {
         // clean; otherwise the first tier click warns about unsaved changes to the new tier draft.
         inspector.snapshot_form();
         inspector.load_tier_into_form(EditorModel.selected_tier_index);
+        // A filter-focus pulse sent while this view was not mounted (see
+        // `tracked_filter_focus_pulse`).
+        if EditorModel.filter_focus_seen != EditorModel.filter_focus_pulse {
+            EditorModel.filter_focus_seen = EditorModel.filter_focus_pulse;
+            filter_focus_after_mount.running = true;
+        }
     }
     changed height => {
         root.fold_design_when_short();
@@ -238,18 +261,22 @@ export component EditorView inherits Rectangle {
     // height-constrained parent to stretch into.
     //
     // The same goes sideways: the column is never narrower than its own minimum width (the
-    // widest child's minimum, and 560px at least: the two-row command bar and the DESIGN fields
-    // are laid out for a 600px dock). A dock squeezed below that scrolls horizontally instead of
-    // clipping "Deep Solve", Apply Symmetry or the inspector's tab pills at the dock's edge.
+    // widest child's minimum). The command bar goes to two rows on a narrow dock, so that minimum
+    // is under the 490px a 640px window leaves. A dock squeezed below it scrolls horizontally
+    // instead of clipping the inspector's tab pills at the dock's edge.
     dock_scroll := ScrollView {
         VerticalLayout {
-        width: max(dock_scroll.visible-width, max(self.min-width, 560px));
+        width: max(dock_scroll.visible-width, self.min-width);
         height: max(dock_scroll.visible-height, self.min-height);
         padding: 12px;
         spacing: 8px;
 
         // Keep the inline File menu above later dock sections while it is open.
-        cmd := EditorCommandBar { z: 1; }
+        cmd := EditorCommandBar {
+            z: 1;
+            // The dock's own width less the column's padding: what the bar has to fit into.
+            available: root.width - 24px;
+        }
         settings := EditorDesignSettings {}
 
         // `vertical-stretch`/`min-height`/`max-height` follow

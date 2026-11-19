@@ -18,13 +18,13 @@ export component ProposalTable inherits VerticalLayout {
     property <length> col_gap: 4px;
     property <length> w_block: 44px;
     property <length> w_angle: 46px;
-    property <length> w_margin: 66px;
-    property <length> w_risk: 62px;
+    property <length> w_margin: 80px;
+    property <length> w_risk: 80px;
     // The table's width as its parent lays it out, passed in: the table's own width cannot
     // decide whether the Block column is shown, because that column changes the table's
     // minimum width (a binding loop).
     in property <length> avail_width: 1000px;
-    property <length> block_min_width: 330px;
+    property <length> block_min_width: 362px;
     property <bool> show_block: root.avail_width >= root.block_min_width;
 
     // Shown when the proposal was computed for an older design (`RetargetModel.stale`).

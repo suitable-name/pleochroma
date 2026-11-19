@@ -40,7 +40,7 @@ fn welcome_tour() -> GuideOverlay {
             "The File menu at the top of the window holds New Design..., Open, Save and the exports.",
         ))
         .step(StepOverlay::of("The inspector").line(
-            "The cutting order is on the Cutting Instructions page, in the places segment of the design header.",
+            "The cutting order is on the Cutting Instructions tab of the design header.",
             "The Schedule tab holds the cutting sheet.",
         ))
         .step(StepOverlay::of("The tier table").line(

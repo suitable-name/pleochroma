@@ -42,8 +42,24 @@ export global RenderModel {
     in property <float> light-dial-y: 0.0;
     in property <string> light-readout: "";
     in property <bool> light-moving: false;
-    // A solve is current: there is something to render and export.
+    // A solve is current and nothing holds the render back: there is something to render and
+    // export. The GPU probe turns it off, so the pill shows no Retry chip meanwhile.
     in property <bool> can-render: false;
+    // The GPU probe holds renders and exports back. The export button is dimmed but a tap
+    // still reaches Rust, which answers with a toast.
+    in property <bool> probe-held: false;
+
+    // ---- the long-step offer ---------------------------------------------------------
+    // After 45 s in one preparing step: a sentence and a button that renders on the CPU.
+    // The card sits above the pill, or is the settings tray's first row while it is open.
+    in property <bool> offer-visible: false;
+    in property <string> offer-sentence: "";
+    in property <string> offer-button: "";
+    callback use-cpu-requested();
+
+    // The lines Render Details adds under the engineering report: the CPU sentence, the
+    // shader cache and the preparation time, one per line.
+    in property <string> details-lines: "";
 
     in property <int> backend: 0;
     in property <string> backend-report;

@@ -46,6 +46,8 @@ export component BarButton inherits Rectangle {
     // At least this wide (the Deep Solve slot keeps one width while its text changes).
     in property <length> min_w: 0px;
     in property <bool> expanded: false;
+    // The hint this button last put in the hover strip, so leaving clears it even after the hint changed.
+    property <string> shown_hint: "";
     callback clicked();
 
     public function take_focus() {
@@ -109,13 +111,18 @@ export component BarButton inherits Rectangle {
         mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
         clicked => { root.clicked(); }
         changed has-hover => {
-            if root.hint == "" {
-                return;
-            }
             if self.has-hover {
-                EditorModel.hover_hint = root.hint;
-            } else if EditorModel.hover_hint == root.hint {
-                EditorModel.hover_hint = "";
+                if root.hint != "" {
+                    root.shown_hint = root.hint;
+                    EditorModel.hover_hint = root.hint;
+                }
+            } else if root.shown_hint != "" {
+                // Clears what this button put up, even if its hint changed since (Undo's
+                // hint changes when the click empties the undo stack).
+                if EditorModel.hover_hint == root.shown_hint || EditorModel.hover_hint == root.hint {
+                    EditorModel.hover_hint = "";
+                }
+                root.shown_hint = "";
             }
         }
     }

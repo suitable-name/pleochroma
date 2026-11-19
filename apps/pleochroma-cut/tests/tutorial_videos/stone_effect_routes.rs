@@ -55,12 +55,48 @@ impl Film<'_> {
                 // The guide may have moved: find the control again at its current place.
                 let view = self.view();
                 return find(&view)
+                    .map(|spot| self.clear_of_panel_scroll_bar(spot))
                     .ok_or_else(|| format!("{what} disappeared after the guide moved"));
             }
             self.wheel_over(&wheel_point, -250.0)?;
             self.hold(Duration::from_millis(120))?;
         }
         Err(format!("{what} did not scroll into view in the Stone tab"))
+    }
+
+    /// `spot` narrowed to its part left of the Parameters panel's vertical scroll bar, when the
+    /// bar lies over its centre.
+    ///
+    /// The bar is drawn over the right edge of the panel, and the right end of a row (the
+    /// Material Menu button of the Stone tab) can reach under it: a click on the centre of such
+    /// a control would land on the bar. A control that is not under the bar is returned as it is.
+    pub(crate) fn clear_of_panel_scroll_bar(&self, spot: Spot) -> Spot {
+        let bar = self
+            .view()
+            .root
+            .query_descendants()
+            .match_inherits("ParametersPanel")
+            .find_first()
+            .and_then(|panel| {
+                panel
+                    .query_descendants()
+                    .match_inherits("ScrollBar")
+                    .find_all()
+                    .iter()
+                    .map(Spot::of)
+                    .find(|bar| bar.h > bar.w && bar.w >= 2.0)
+            });
+        let Some(bar) = bar else {
+            return spot;
+        };
+        let (x, y) = spot.center();
+        let under_bar =
+            x >= bar.x - 1.0 && x <= bar.x + bar.w + 1.0 && y >= bar.y && y <= bar.y + bar.h;
+        let room = bar.x - 2.0 - spot.x;
+        if !under_bar || room < 6.0 {
+            return spot;
+        }
+        Spot { w: room, ..spot }
     }
 
     /// Opens the Stone tab's fold card `label` when it is folded. The cards (Crystal Axis 1,

@@ -248,6 +248,18 @@ pub(super) fn reduce(
     }
     if report.designs > 0 {
         let n = report.designs as f32;
+        if report.failed == 0 {
+            report.mean_deployed_score = report
+                .cases
+                .iter()
+                .try_fold(0.0f64, |sum, case| {
+                    let before = case.deployment_base_score?;
+                    let after = case.deployed_score?;
+                    (before.is_finite() && after.is_finite() && after <= before)
+                        .then(|| sum + f64::from(after))
+                })
+                .map(|sum| (sum / report.designs as f64) as f32);
+        }
         report.mean_base_score = base_score / n;
         report.mean_final_score = final_score / n;
         report.mean_improvement = report.mean_base_score - report.mean_final_score;

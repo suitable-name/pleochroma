@@ -3,7 +3,10 @@
 //! generation/design-epoch counters, and `result_is_stale`.
 
 use super::super::*;
-use pleochroma_cut_core::{ConstraintTier, Edit, FreshDesignSpec, MaterialSelection};
+use pleochroma_cut_core::{
+    ConstraintTier, Edit, FreshDesignSpec, MaterialSelection,
+    native::{DesignMetadata, RiRangeChoice},
+};
 
 #[test]
 fn editor_state_add_tier_then_undo_then_redo_round_trips() {
@@ -475,4 +478,102 @@ fn replace_wholesale_carries_over_the_replacements_own_unset_deep_solve_result()
     state.deep_solve_result_generation = Some(3);
     state.replace_wholesale(EditorState::fresh());
     assert_eq!(state.deep_solve_result_generation, None);
+}
+
+// --- the RI range choice ---
+
+const STATED_RANGE: RiRangeChoice = RiRangeChoice::Designer {
+    low: 1.63,
+    high: None,
+};
+
+#[test]
+fn the_ri_range_choice_undoes_and_redoes_like_any_design_setting() {
+    let mut state = EditorState::fresh();
+    assert_eq!(state.design.ri_range_choice, RiRangeChoice::Off);
+    assert!(!state.is_dirty());
+
+    state
+        .apply(Edit::SetRiRangeChoice {
+            choice: STATED_RANGE,
+        })
+        .expect("a range choice names no tier, so it applies");
+    assert_eq!(state.design.ri_range_choice, STATED_RANGE);
+    assert!(state.is_dirty());
+    assert_eq!(state.undo_hint(), "Change RI range");
+
+    assert!(state.undo().unwrap());
+    assert_eq!(state.design.ri_range_choice, RiRangeChoice::Off);
+    assert!(state.history.can_redo());
+
+    assert!(state.redo().unwrap());
+    assert_eq!(state.design.ri_range_choice, STATED_RANGE);
+}
+
+#[test]
+fn a_save_after_an_undo_writes_the_reverted_choice() {
+    let mut state = EditorState::fresh();
+    state
+        .apply(Edit::SetRiRangeChoice {
+            choice: STATED_RANGE,
+        })
+        .expect("applies");
+
+    // Every write goes through `file_extras_for_write`: the `[meta]` states the design's choice,
+    // while the loaded extras are left as they were.
+    assert_eq!(
+        state.file_extras_for_write().metadata.ri_range_choice(),
+        STATED_RANGE
+    );
+    assert_eq!(
+        state.file_extras.metadata.ri_range_choice(),
+        RiRangeChoice::Off
+    );
+
+    assert!(state.undo().unwrap());
+    let reverted = state.file_extras_for_write();
+    assert_eq!(reverted.metadata.ri_range_choice(), RiRangeChoice::Off);
+    assert!(!reverted.metadata.unknown.contains_key("ri_min"));
+    assert!(!reverted.metadata.unknown.contains_key("ri_range_source"));
+
+    assert!(state.redo().unwrap());
+    assert_eq!(
+        state.file_extras_for_write().metadata.ri_range_choice(),
+        STATED_RANGE
+    );
+}
+
+#[test]
+fn a_design_that_never_touched_the_choice_writes_its_meta_as_loaded() {
+    let state = EditorState::fresh();
+    assert_eq!(
+        state.file_extras_for_write().metadata,
+        state.file_extras.metadata
+    );
+}
+
+#[test]
+fn opening_a_design_takes_the_range_its_file_states_into_the_design() {
+    let mut opened = EditorState::fresh();
+    let mut metadata = DesignMetadata::default();
+    metadata.set_ri_range_choice(STATED_RANGE);
+    opened.file_extras = DesignFileExtras::new(metadata, Vec::new());
+
+    let mut state = EditorState::fresh();
+    state.replace_wholesale(opened);
+    assert_eq!(state.design.ri_range_choice, STATED_RANGE);
+    assert!(!state.history.can_undo(), "opening is not an edit");
+    assert!(!state.is_dirty());
+    // An Undo of the first edit goes back to what the file stated.
+    state
+        .apply(Edit::SetRiRangeChoice {
+            choice: RiRangeChoice::Estimate,
+        })
+        .expect("applies");
+    assert!(state.undo().unwrap());
+    assert_eq!(state.design.ri_range_choice, STATED_RANGE);
+    assert_eq!(
+        state.file_extras_for_write().metadata.ri_range_choice(),
+        STATED_RANGE
+    );
 }

@@ -361,10 +361,11 @@ pub fn optimize_availability(
         return (
             true,
             format!(
-                "Turns {movable} tier(s) about the edge each keeps on the girdle, scored on \
+                "Turns {movable} tier{} about the edge each keeps on the girdle, scored on \
                  windowing, extinction and tilt brilliance, and the face-up tone when a tone \
                  objective is chosen, under a fixed canonical light pose. It runs in the \
-                 background and can be cancelled."
+                 background and can be cancelled.",
+                if movable == 1 { "" } else { "s" }
             ),
         );
     }

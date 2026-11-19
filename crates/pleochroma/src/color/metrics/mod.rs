@@ -180,6 +180,7 @@ mod prepared;
 mod profile;
 mod ray_trace;
 mod scintillation;
+pub mod small_tilt;
 mod sweep;
 mod tone;
 mod types;

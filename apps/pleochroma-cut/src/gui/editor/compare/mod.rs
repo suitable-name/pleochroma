@@ -30,7 +30,9 @@
 //! viewport's lighting, the change between them coloured by better or worse, and a few
 //! plain sentences ([`metrics`], with the wording and the noise thresholds in
 //! `pleochroma_editor::metric_deltas`). A "Tilt average" button adds the means over
-//! four axes and 181 tilts on a worker thread of its own, which can be cancelled. The
+//! four axes and every tilt on a worker thread of its own, which can be cancelled; the rows
+//! show the mean over the Preferences range "Tilt Average Range" (all tilts to 90 degrees by
+//! default), averaged again from the kept profiles when that range changes. The
 //! snapshot dialog shows the same sentence ([`snapshot_summary`]).
 //!
 //! # Module layout

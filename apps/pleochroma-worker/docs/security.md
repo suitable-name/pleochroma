@@ -9,7 +9,7 @@ makes two questions load-bearing: *who may connect*, and *what may they make thi
 machine do*. They are answered by different mechanisms and it is worth keeping them
 apart.
 
-This page describes wire protocol **45** (Pleochroma 0.12.0). Every app, the coordinator
+This page describes wire protocol **45** (Pleochroma 0.12.1). Every app, the coordinator
 and every worker must run the same version; a peer on another protocol is refused at
 the handshake. The window (the default) and `--headless` use the same code paths, so
 everything below holds for both.

@@ -115,7 +115,7 @@ pub fn status_text_and_is_problem_from_result(
     solved: &Result<Vec<SolvedTier>, DesignSolveError>,
 ) -> (String, bool) {
     if design.tiers.is_empty() {
-        return ("Preform only -- add tiers.".to_string(), false);
+        return ("Preform only. Add tiers.".to_string(), false);
     }
     match solved {
         Ok(solved) => status_text_and_is_problem_from_solved(design, solved),
@@ -135,7 +135,7 @@ pub fn status_text_and_is_problem_from_solved(
 ) -> (String, bool) {
     // See `status_text_and_is_problem`'s identical guard just above.
     if design.tiers.is_empty() {
-        return ("Preform only -- add tiers.".to_string(), false);
+        return ("Preform only. Add tiers.".to_string(), false);
     }
     let planes = design.planes_from_solved(solved);
     match build_solid_mesh(&planes) {
@@ -309,7 +309,7 @@ mod tests {
         let bare = EditorSession::fresh().design;
         assert_eq!(
             status_text_and_is_problem_from_result(&bare, &bare.solve()),
-            ("Preform only -- add tiers.".to_string(), false)
+            ("Preform only. Add tiers.".to_string(), false)
         );
     }
 }

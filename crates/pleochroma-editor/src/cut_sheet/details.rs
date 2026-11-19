@@ -4,7 +4,11 @@
 //! Everything here is plain data. Nothing reads a clock or a file: the caller (the desktop,
 //! the command line) decides what the export date is and where the rest comes from.
 
-use pleochroma_cut_core::{Design, native::DesignMetadata};
+use crate::ri_range::{RiSource, RiStatement};
+use pleochroma_cut_core::{
+    Design,
+    native::{DesignMetadata, RiRangeChoice},
+};
 
 /// What a cutting sheet prints besides the design's own geometry.
 ///
@@ -25,8 +29,11 @@ pub struct SheetDetails {
     pub shape: String,
     /// Free-text comment lines, printed in their own block.
     pub comments: Vec<String>,
-    /// The refractive-index range the design is meant for, low to high.
-    pub ri_range: Option<(f64, f64)>,
+    /// The refractive-index range the sheet states, and who stated it.
+    ///
+    /// The "RI range" row prints it on two lines: the range, then the material and the design's
+    /// own index, with "Pleochroma estimate" there when [`RiSource::Estimate`] stated it.
+    pub ri_range: Option<RiStatement>,
     /// The size range the design suits, in millimetres, small to large.
     pub size_range_mm: Option<(f64, f64)>,
 }
@@ -82,6 +89,10 @@ impl SheetDetails {
     /// [`Self::from_design`] with a native design file's own details laid over it: the file's
     /// title, designer and shape replace the fallback when they are not empty, the file's notes
     /// are appended to the comments (one comment per non-blank line), and `date_text` is set.
+    ///
+    /// A range the designer stated in the file (`ri_range_choice` is `Designer`) becomes
+    /// `ri_range`, as stated. The Pleochroma estimate is not here: its number is traced when the
+    /// sheet is written, so the caller sets `ri_range` from the traced range for `Estimate`.
     #[must_use]
     pub fn from_metadata(design: &Design, metadata: &DesignMetadata, date_text: &str) -> Self {
         let mut details = Self::from_design(design);
@@ -106,6 +117,13 @@ impl SheetDetails {
                 .map(str::to_string),
         );
         details.date_text = date_text.trim().to_string();
+        if let RiRangeChoice::Designer { low, high } = metadata.ri_range_choice() {
+            details.ri_range = Some(RiStatement {
+                low,
+                high,
+                source: RiSource::Designer,
+            });
+        }
         details
     }
 }

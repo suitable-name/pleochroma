@@ -169,6 +169,10 @@ impl Design {
                 );
                 Ok(Edit::SetCrystalAxisPlan { plan: previous })
             }
+            Edit::SetRiRangeChoice { choice } => {
+                let previous = std::mem::replace(&mut self.ri_range_choice, choice);
+                Ok(Edit::SetRiRangeChoice { choice: previous })
+            }
             Edit::SetMeta {
                 headers,
                 footnotes,

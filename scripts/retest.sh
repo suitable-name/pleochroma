@@ -2,7 +2,7 @@
 # Retest: the stall reproduction in three arms (02s, 02r and 02t), the changed twins (the
 # companion direction match, the exit collection of the event wavefront and the staged kernel),
 # the sorted wavefront (opt-in; steps 02 and 02d), the preview-only path cache, the GPU lifecycle
-# turn, the beam gating (the default build has no beam tracer) and the handshake of version 0.11.0.
+# turn, the beam gating (the default build has no beam tracer) and the handshake of version 0.12.1.
 # Tests that passed in an earlier run and whose code has not changed are left out (list below);
 # the tests that take over 60 s run on request instead
 # (scripts/run_tests_on_request.sh), except the exit-splitting test (02x) and the GPU twin tests of
@@ -25,6 +25,7 @@
 #   bash scripts/retest.sh [--repo DIR] [--steps LIST] [--timeout DURATION]
 #                          [--stall SECONDS] [--gate-repro N] [--hang-repro N]
 #                          [--exit-repro N] [--with-adaptive] [--with-long]
+#                          [--stock-driver]
 #
 #   --repo DIR          repository root (default: the current directory)
 #   --steps LIST        run only the steps whose number is in the comma list (for example
@@ -46,6 +47,9 @@
 #                       05c (pleochroma-worker) and 06e (pleochroma-cli), each built with it
 #   --with-long         accepted and ignored: the long beam rows moved to
 #                       scripts/run_beam_tests.sh --with-long
+#   --stock-driver      run without the RADV scheduler workaround (scripts/radv_workaround.sh, which
+#                       otherwise applies it on an AMD GPU as the app does): the GPU tests then use
+#                       Mesa's stock shader compiler, to check whether a newer Mesa fixed it
 #
 # Steps (each runs even when an earlier one failed):
 #   01  clippy on the whole workspace, the default feature set (no beam tracer)
@@ -109,7 +113,7 @@
 #       and the theme-token guard test (tests/theme_tokens.rs)
 #   04q pleochroma-editor: the tutorial lessons whose texts follow the pattern
 #       window (guide::tutorials)
-#   05a pleochroma-net: the handshake (BUILD_ID of version 0.11.0)
+#   05a pleochroma-net: the handshake (BUILD_ID of version 0.12.1)
 #   05b pleochroma-worker: the serve, coordinator, validate and render_core modules (beam gating
 #       with the default build's refusal of beam tiles, render round trip, cached live pass), the
 #       HDR map's orientation in the asset path, the RADV workaround flag
@@ -157,6 +161,7 @@ HANG_REPRO=0
 EXIT_REPRO=0
 WITH_ADAPTIVE=0
 WITH_LONG=0
+RADV=on
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
@@ -168,6 +173,7 @@ while [ $# -gt 0 ]; do
         --exit-repro) EXIT_REPRO="$2"; shift 2 ;;
         --with-adaptive) WITH_ADAPTIVE=1; shift ;;
         --with-long) WITH_LONG=1; shift ;;
+        --stock-driver) RADV=off; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -185,6 +191,9 @@ export PLEOCHROMA_GPU_TEST_WATCHDOG="${PLEOCHROMA_GPU_TEST_WATCHDOG:-report}"
 # engine (the staged megakernel for a plain class, step 02d); the staged twins compare it with the
 # single megakernel.
 unset PLEOCHROMA_GATED_LOOP PLEOCHROMA_STAGED PLEOCHROMA_SORTED PLEOCHROMA_GPU_PIPELINE
+# The GPU tests run with the driver workaround the app runs with (scripts/radv_workaround.sh).
+. "$REPO/scripts/radv_workaround.sh"
+radv_test_workaround "$RADV" "$REPO"
 OUT_DIR="$REPO/owner-run-logs/retest-$(date +%Y-%m-%d_%H%M%S)"
 mkdir -p "$OUT_DIR"
 SUMMARY="$OUT_DIR/summary.md"
@@ -197,6 +206,7 @@ SUMMARY="$OUT_DIR/summary.md"
     # (owner-run-logs left out), the same on any machine.
     echo "Repo: $REPO (git: $(git describe --always --dirty 2>/dev/null || echo unknown), version: $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1), sources: $(sources_hash)), cores: $(nproc)"
     echo "Toolchain: $(rustc -V 2>/dev/null || echo unknown), $(cargo -V 2>/dev/null || echo unknown)"
+    echo "GPU driver: $RADV_STATUS"
     echo
     echo "| step | exit | minutes |"
     echo "| --- | --- | --- |"
@@ -677,7 +687,7 @@ warnings_of 01d-clippy-all-features
 # The worker's `worker` feature without `beam`. No workspace member enables
 # it, so 01 lints the worker without serve/connection/requests.rs, and 01d brings `worker` only
 # together with `beam`: the default build's refusal of beam tiles is linted nowhere else.
-step 01e-clippy-worker cargo clippy -p pleochroma-worker --features worker --all-targets
+step 01e-clippy-worker cargo clippy -p pleochroma-worker --no-default-features --features worker --all-targets
 warnings_of 01e-clippy-worker
 # Adaptive sampling is a non-default feature of the cut, the CLI and the worker: no other step
 # compiles it, so each crate is linted with it here, every round.
@@ -686,7 +696,7 @@ warnings_of 01f-clippy-adaptive-cut
 step 01f-clippy-adaptive-cli cargo clippy -p pleochroma-cli --all-targets --features adaptive-sampling
 warnings_of 01f-clippy-adaptive-cli
 step 01f-clippy-adaptive-worker cargo clippy -p pleochroma-worker --all-targets \
-    --features worker,adaptive-sampling
+    --no-default-features --features worker,adaptive-sampling
 warnings_of 01f-clippy-adaptive-worker
 
 # The lib test binary of every 02* step but 02e (the `raytracer_tests` and `white_point` targets)
@@ -875,7 +885,7 @@ step 04d-pleochroma-cut-hybrid-export env PLEOCHROMA_REQUIRE_GPU=1 cargo test --
     bridge::export_thread::hybrid_export_tests::a_carried_split_runs_concurrent_batches_and_settles_on_a_valid_share
 check_ran 04d-pleochroma-cut-hybrid-export
 
-# The handshake with the BUILD_ID of version 0.11.0 (two of its tests need `render`).
+# The handshake with the BUILD_ID of version 0.12.1 (two of its tests need `render`).
 step 05a-net-version cargo test --no-fail-fast -p pleochroma-net --features render --lib -- \
     handshake::
 check_ran 05a-net-version
@@ -897,7 +907,7 @@ check_ran 05f-render-jobs
 
 # The modules of the worker's beam gating (serve, coordinator, validate, render_core) in the
 # default `worker` build, which does not pull in pleochroma/beam.
-step 05b-pleochroma-worker cargo test --no-fail-fast -p pleochroma-worker --features worker -- \
+step 05b-pleochroma-worker cargo test --no-fail-fast -p pleochroma-worker --no-default-features --features worker -- \
     serve:: coordinator:: validate:: render_core:: assets::tests::environment_source \
     radv_workaround::
 check_ran 05b-pleochroma-worker
@@ -934,7 +944,7 @@ if [ "$WITH_ADAPTIVE" -eq 1 ]; then
         bridge::render_thread::adaptive_view
     check_ran 04a-pleochroma-cut-adaptive
     step 05c-pleochroma-worker-adaptive cargo test --no-fail-fast -p pleochroma-worker \
-        --features worker,adaptive-sampling -- \
+        --no-default-features --features worker,adaptive-sampling -- \
         serve::tests::live_pass coordinator::tests::live_pass render_core::live validate::
     check_ran 05c-pleochroma-worker-adaptive
     step 06e-cli-adaptive cargo test --no-fail-fast -p pleochroma-cli \

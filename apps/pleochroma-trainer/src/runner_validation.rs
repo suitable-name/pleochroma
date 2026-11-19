@@ -29,7 +29,9 @@ impl TrainingRunner {
     /// ([`EvalReport::mean_improvement_sampled`]) and/or one finite-difference oracle episode
     /// ([`EvalReport::mean_improvement_oracle`]). Retarget targets and objective weights are
     /// drawn from `seed` and the entry, so every pass scores the same stone against the same
-    /// target under the same weights.
+    /// target under the same weights. The report also records the default deployment policy's
+    /// certified Full endpoint. When diagnostics use another rollout fidelity, step size or
+    /// line search, a separate deterministic episode supplies that endpoint.
     ///
     /// The designs are handed one at a time to the persistent CPU pool, at most one thread per
     /// design. Every outcome lands in the slot of its entry and the reduction runs serially

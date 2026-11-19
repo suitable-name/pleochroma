@@ -6,8 +6,13 @@
 //! scintillation, [`pleochroma_editor::metric_deltas::measure_table_up_finished`], concave
 //! tools and frosted facets and girdle included) in its own material and under the
 //! viewport's lighting, right after the session is built, on the solve's worker thread.
-//! The strip can then add the tilt averages over four axes and 181 tilts (2 x 724
-//! evaluations) on a worker thread of their own that the cutter can cancel.
+//! The strip can then add the tilt averages over four axes (2 x 724 traced poses) on a worker
+//! thread of their own that the cutter can cancel. They are scored under the tilt standard
+//! (`pleochroma_cut_core::optimize::canonical_environment`), as every tilt curve is, not under
+//! the viewport's lighting. The run keeps the four 181-point profiles of
+//! each side; the rows are their mean over the Preferences range "Tilt Average Range" (every
+//! tilt to 90 degrees by default), taken when the strip is built, so a change of the range
+//! shows at once without tracing again.
 //!
 //! Everything here is Slint-free. [`SessionMetrics`] is the state, with the transitions of
 //! a tilt run ([`SessionMetrics::begin_tilt`], [`SessionMetrics::cancel_tilt`],
@@ -24,7 +29,7 @@ mod tilt_run;
 use super::session::{CompareSession, CompareSide, resolve_metrics_material, sized_for_design};
 use crate::gui::solid_preview::cut_slider::cut_geometry_no_solve;
 use pleochroma::{
-    color::metrics::{AsetAreaShares, FinishedStone, total_evaluations},
+    color::metrics::{AsetAreaShares, AxisProfile, FinishedStone, total_evaluations},
     geometry::{
         facet_finishes_with_frosted,
         meet_solver::SolvedTier,
@@ -38,8 +43,9 @@ use pleochroma_cut_core::{
 };
 use pleochroma_editor::{
     metric_deltas::{
-        MetricRow, OpticalFigures, aset_change_text, describe_metric_deltas,
-        describe_metric_deltas_for, measure_table_up_finished, metric_rows,
+        DEFAULT_SUBJECT, MetricRow, OpticalFigures, aset_change_text, average_axis_profiles_within,
+        describe_metric_deltas_for, describe_metric_deltas_within, measure_table_up_finished,
+        metric_rows,
     },
     sweep::TiltAverages,
 };
@@ -107,12 +113,12 @@ enum TiltState {
         /// Evaluations in all.
         total: usize,
     },
-    /// Both averages are in.
+    /// Both sides' profiles are in; the averages are taken when the strip is built.
     Done {
-        /// The "before" side's averages.
-        before: TiltAverages,
-        /// The "after" side's averages.
-        after: TiltAverages,
+        /// The "before" side's four axis profiles.
+        before: Vec<AxisProfile>,
+        /// The "after" side's four axis profiles.
+        after: Vec<AxisProfile>,
     },
     /// The run stopped without a result (an internal error, or the thread would not
     /// start); the sentence says so.
@@ -122,7 +128,6 @@ enum TiltState {
 /// The measurements of one session and the state of its tilt run.
 #[derive(Debug)]
 pub(super) struct SessionMetrics {
-    lighting: LightingPreset,
     before: Option<OpticalFigures>,
     after: Option<OpticalFigures>,
     tilt: TiltState,
@@ -191,11 +196,11 @@ pub(super) struct StripText {
 }
 
 impl SessionMetrics {
-    /// Measures both sides of `session` under `lighting`.
+    /// Measures both sides of `session` table up under `lighting`. A later tilt run is scored
+    /// under the tilt standard instead (`tilt_run`).
     #[must_use]
     pub(super) fn measure(session: &CompareSession, lighting: LightingPreset) -> Self {
         Self {
-            lighting,
             before: figures_for(&session.before, lighting),
             after: figures_for(&session.after, lighting),
             tilt: TiltState::NotRun,
@@ -242,7 +247,6 @@ impl SessionMetrics {
                 finishes: side.finishes(),
                 material: side.metrics_material.clone(),
             }),
-            lighting: self.lighting,
         })
     }
 
@@ -277,8 +281,11 @@ impl SessionMetrics {
         if !matches!(&self.tilt, TiltState::Running { run: current, .. } if *current == run) {
             return false;
         }
-        self.tilt = match *outcome {
-            TiltOutcome::Averages { before, after } => TiltState::Done { before, after },
+        self.tilt = match outcome {
+            TiltOutcome::Profiles { before, after } => TiltState::Done {
+                before: before.clone(),
+                after: after.clone(),
+            },
             TiltOutcome::Stopped => TiltState::Failed(
                 "The tilt average stopped after an internal error. Press Tilt Average to try again."
                     .to_owned(),
@@ -305,32 +312,50 @@ impl SessionMetrics {
         }
     }
 
-    /// The tilt averages, once both are in.
-    const fn tilt_pair(&self) -> Option<(&TiltAverages, &TiltAverages)> {
+    /// The tilt averages over the tilts up to `window_deg` each way, once both sides' profiles
+    /// are in. Nothing is traced: this is the mean of the kept profiles.
+    fn tilt_pair(&self, window_deg: u8) -> Option<(TiltAverages, TiltAverages)> {
         match &self.tilt {
-            TiltState::Done { before, after } => Some((before, after)),
+            TiltState::Done { before, after } => {
+                let max_tilt = f32::from(window_deg);
+                Some((
+                    average_axis_profiles_within(before, max_tilt),
+                    average_axis_profiles_within(after, max_tilt),
+                ))
+            }
             _ => None,
         }
     }
 
-    /// What the strip shows now.
+    /// What the strip shows now, with the tilt rows averaged over the range in force
+    /// ([`crate::gui::preferences::display_tilt_window_deg`]).
     #[must_use]
     pub(super) fn strip(&self) -> StripText {
+        self.strip_within(crate::gui::preferences::display_tilt_window_deg())
+    }
+
+    /// [`SessionMetrics::strip`] with the tilt rows and the tilt sentence over the tilts up to
+    /// `window_deg` each way.
+    #[must_use]
+    pub(super) fn strip_within(&self, window_deg: u8) -> StripText {
+        let tilt_pair = self.tilt_pair(window_deg);
         let running = matches!(self.tilt, TiltState::Running { .. });
         let mut text = StripText {
             tilt_available: self.can_begin_tilt(),
             tilt_running: running,
-            tilt_done: self.tilt_pair().is_some(),
+            tilt_done: tilt_pair.is_some(),
             tilt_progress: self.progress_fraction(),
             ..StripText::default()
         };
         if let (Some(before), Some(after)) = (&self.before, &self.after) {
-            let tilt = self.tilt_pair();
+            let tilt = tilt_pair.as_ref().map(|(was, now)| (was, now));
             text.rows = metric_rows(before, after, tilt);
             if let (Some(was), Some(now)) = (&before.aset, &after.aset) {
                 text.zones = Some(ZonesRow::between(was, now));
             }
-            text.summary = describe_metric_deltas(before, after, tilt).join("\n");
+            text.summary =
+                describe_metric_deltas_within(DEFAULT_SUBJECT, before, after, tilt, window_deg)
+                    .join("\n");
             if let TiltState::Failed(reason) = &self.tilt {
                 text.note.clone_from(reason);
             }
@@ -424,6 +449,9 @@ mod tests {
     use pleochroma::{geometry::meet_solver::MeetConstraint, optics::raytracer::FacetFinish};
     use pleochroma_cut_core::{
         ConstraintTier, Edit, MaterialSelection, PreformSpec, ScheduleMeta, TierFrosting,
+    };
+    use pleochroma_editor::metric_deltas::{
+        DEFAULT_DISPLAY_TILT_WINDOW_DEG, average_axis_profiles,
     };
     use std::{
         sync::Mutex,
@@ -519,12 +547,28 @@ mod tests {
         LightingPreset::RingLights
     }
 
-    fn averages(brilliance: f32) -> TiltAverages {
-        TiltAverages {
-            brilliance_pct: brilliance,
-            windowing_pct: 10.0,
-            extinction_pct: 20.0,
-        }
+    /// Four axes whose brilliance is `brilliance` at table up and rises with the square of the
+    /// tilt, so a narrower window gives a lower mean; windowing and extinction are flat.
+    fn profiles(brilliance: f32) -> Vec<AxisProfile> {
+        (0..4)
+            .map(|_| AxisProfile {
+                brilliance: std::array::from_fn(|index| {
+                    let tilt = index as f32 - 90.0;
+                    tilt.mul_add(tilt * 0.001, brilliance)
+                }),
+                windowing: [10.0; 181],
+                extinction: [20.0; 181],
+            })
+            .collect()
+    }
+
+    /// A metrics state whose tilt run has finished with `before` and `after` profiles.
+    fn finished_with(before: Vec<AxisProfile>, after: Vec<AxisProfile>) -> SessionMetrics {
+        let session = session(round_brilliant(), steeper_crown());
+        let mut metrics = SessionMetrics::measure(&session, lighting());
+        let _request = metrics.begin_tilt(&session).expect("started");
+        assert!(metrics.tilt_finished(1, &TiltOutcome::Profiles { before, after }));
+        metrics
     }
 
     #[test]
@@ -744,9 +788,9 @@ mod tests {
 
         assert!(metrics.tilt_finished(
             1,
-            &TiltOutcome::Averages {
-                before: averages(50.0),
-                after: averages(53.0),
+            &TiltOutcome::Profiles {
+                before: profiles(50.0),
+                after: profiles(53.0),
             }
         ));
         let strip = metrics.strip();
@@ -771,6 +815,63 @@ mod tests {
         assert!(
             !metrics.tilt_finished(1, &TiltOutcome::Stopped),
             "the run is over"
+        );
+    }
+
+    #[test]
+    fn the_default_range_gives_the_plus_minus_ninety_mean_bit_for_bit() {
+        let before = profiles(50.0);
+        let after = profiles(53.0);
+        let full_before = average_axis_profiles(&before);
+        let full_after = average_axis_profiles(&after);
+        let metrics = finished_with(before, after);
+        let strip = metrics.strip_within(DEFAULT_DISPLAY_TILT_WINDOW_DEG);
+        let expected = metric_rows(
+            &metrics.before.expect("measured"),
+            &metrics.after.expect("measured"),
+            Some((&full_before, &full_after)),
+        );
+        assert_eq!(
+            strip.rows, expected,
+            "every tilt row is the plus-minus 90 mean"
+        );
+        assert!(
+            strip
+                .summary
+                .lines()
+                .last()
+                .is_some_and(|line| line.starts_with("Averaged over all tilts, ")),
+            "{}",
+            strip.summary
+        );
+    }
+
+    #[test]
+    fn a_new_range_averages_the_kept_profiles_again_and_back_to_ninety_is_bit_equal() {
+        let metrics = finished_with(profiles(50.0), profiles(53.0));
+        let first = metrics.strip_within(90);
+        let narrow = metrics.strip_within(30);
+        assert_ne!(
+            first.rows, narrow.rows,
+            "a window of 30 degrees reads other means"
+        );
+        assert!(narrow.tilt_done && !narrow.tilt_running);
+        assert!(
+            narrow
+                .summary
+                .lines()
+                .last()
+                .is_some_and(|line| line.starts_with("Averaged over tilts up to 30°, ")),
+            "{}",
+            narrow.summary
+        );
+        let again = metrics.strip_within(90);
+        assert_eq!(first, again, "back at 90 the first rows return bit for bit");
+        let hand = average_axis_profiles_within(&profiles(50.0), 30.0);
+        assert_eq!(
+            narrow.rows[6].before,
+            format!("{:.1} %", hand.brilliance_pct),
+            "the 30 degree row is the mean of the kept profiles"
         );
     }
 

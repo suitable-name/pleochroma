@@ -1,12 +1,44 @@
 //! The verdict reasons popup during the reading steps of the verdict lessons.
 
 use super::{Film, Snap};
-use crate::{pacing, support::app::pump, targets::Spot};
-use pleochroma_cut::GuideModel;
+use crate::{debug_log, pacing, support::app::pump, targets::Spot};
+use pleochroma_cut::{EditorModel, GuideModel, VerdictModel};
 use slint::ComponentHandle;
 use uiprobe::AccessibleRole;
 
+/// How long the verdict of a finished solve may take to reach the badge, real time.
+const VERDICT_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl Film<'_> {
+    /// Waits, before the cursor goes to the verdict badge, until the verdict describes the design
+    /// on screen: no solve is running, the badge is there and it is not marked out of date.
+    ///
+    /// The app works the verdict out on a worker thread, a moment after the solve lands and again
+    /// after the solid preview's own frame of that solve; until then the badge is hidden (a
+    /// design's first verdict) or dimmed. The director's holds run on mock time, so without this
+    /// wait it can reach the badge before that thread has had any real time. In a video the wait
+    /// is a cut.
+    ///
+    /// Nothing fails here: a badge that is still missing is the caller's finding when it looks
+    /// the badge up, and a design left "Not solved" keeps its dimmed badge.
+    pub(crate) fn settle_verdict(&self) {
+        let editor = self.ui.global::<EditorModel>();
+        let verdict = self.ui.global::<VerdictModel>();
+        let settled = pacing::wait_real(VERDICT_SETTLE, || {
+            !editor.get_solve_running() && verdict.get_level() >= 0 && !verdict.get_stale()
+        });
+        debug_log::debug_check_with(
+            "verdict before the badge (solve running, level, out of date)",
+            &"(false, 0 or more, false)",
+            &(
+                editor.get_solve_running(),
+                verdict.get_level(),
+                verdict.get_stale(),
+            ),
+            settled,
+        );
+    }
+
     /// Whether the `VerdictPopover`'s own reading heading is visible. The Slint model has no
     /// popover-open property, so this checks the visible popover subtree through accessibility.
     pub(super) fn verdict_reading_popup_open(&self) -> bool {

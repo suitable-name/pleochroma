@@ -3,7 +3,9 @@
 //! callbacks on the `EditorModel`/`SolidPreviewModel` globals and is called once from
 //! [`super::setup_editor_callbacks`].
 
-use super::{auto_solve, edit_intent, native_io, stall_guard, state::EditorState, view};
+use super::{
+    auto_solve, edit_intent, landing::Landing, native_io, stall_guard, state::EditorState, view,
+};
 use crate::{
     MainWindow,
     bridge::render_thread::RenderContext,
@@ -61,6 +63,9 @@ pub(super) fn setup_solve_cancel_callback(ui: &MainWindow) {
 ///
 /// A design named on the command line (`pleochroma-cut <file>`) outranks both and opens at
 /// once. A leftover autosave stays on disk and is offered at the next start.
+///
+/// Accepting the offer shows the Edit view once the design has landed. A design from the
+/// command line leaves the window on Live Render, the page the app starts on.
 pub(super) fn setup_startup_restore(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
@@ -116,6 +121,9 @@ pub(super) fn setup_startup_restore(
                 &preview_accept,
                 &solved_accept,
                 std::path::PathBuf::from(path.as_str()),
+                // The cutter chose to go on with this design, so it shows the Edit view when
+                // it lands, although the app starts on Live Render.
+                Landing::ShowEditView,
             );
         });
 
@@ -193,6 +201,9 @@ fn open_requested_design(
             &preview_state,
             &solid_last_solved,
             path,
+            // Start-up stays on Live Render: the design shows there, and nobody asked for
+            // the editor.
+            Landing::StayOnPage,
         );
     });
 }

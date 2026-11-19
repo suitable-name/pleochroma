@@ -439,6 +439,11 @@ fn apply(ui: &MainWindow, deps: &Deps) {
         Applied::Done => {
             clear_selection(ui);
             close(ui, deps);
+            // The Files tab shows nothing of the design, so the change would be invisible
+            // there: the Edit view is shown. Every other page shows the design and stays.
+            if ui.get_active_tab() == crate::gui::commands::TAB_FILES {
+                crate::gui::commands::show_edit_view(ui);
+            }
             show_toast(
                 ui,
                 "Applied the text. Undo takes it back in one step.",

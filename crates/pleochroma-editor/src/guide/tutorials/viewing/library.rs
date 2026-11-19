@@ -92,7 +92,7 @@ fn search() -> Guide {
     .starting(StartingState::CurrentDesign)
     .step(
         GuideStep::new(
-            "The catalogue",
+            "The catalog",
             "The Catalog panel on the left lists every design that matches your search and filters.",
         )
         .actions([
@@ -152,7 +152,7 @@ fn filters() -> Guide {
     Guide::new(
         "library-filters",
         "Filter and Sort the Library",
-        "Narrow the catalogue by shape, gear and ranges, and put it in the order you like.",
+        "Narrow the catalog by shape, gear and ranges, and put it in the order you like.",
         GuideCategory::Library,
     )
     .starting(StartingState::CurrentDesign)
@@ -179,7 +179,7 @@ fn filters() -> Guide {
             "Click outside the panel to close it.",
         ])
         .check("The Filters button turns amber with a dot while a filter is active.")
-        .why("Each slider spans the range your catalogue really has. RI Match centres a tolerance band on a refractive index, and Use Current Material takes the one in the viewport. Tilt Performance filters narrow by windowing, extinction or brilliance.")
+        .why("Each slider spans the range your catalog really has. RI Match centers a tolerance band on a refractive index, and Use Current Material takes the one in the viewport. Tilt Performance filters narrow by windowing, extinction or brilliance.")
         .goal(event(LIBRARY_FILTERED), "A range filter changed")
         .highlight("library_filters")
         .allow(VIEWPORT),
@@ -191,7 +191,7 @@ fn filters() -> Guide {
         )
         .actions(["Open the Sort drop-down and choose Newest."])
         .check("The designs added last are at the top.")
-        .why("The other orders are Catalogue Order, Title and Recently Edited.")
+        .why("The other orders are Catalog Order, Title and Recently Edited. Sorting works on the designs the filters leave. If the list is empty, no design matches the shape you chose in step 1: choose All Shapes to see the order.")
         .goal(event(LIBRARY_FILTERED), "The sort order changed")
         .highlight("library_filters")
         .allow(VIEWPORT),
@@ -286,7 +286,7 @@ fn rough_planner() -> Guide {
             "The ROUGH section describes the piece you hold.",
         )
         .actions([
-            "Choose Block, Cylinder, Pebble or Mesh (OBJ), then type its size in millimetres (Rough X, Y and Z for a block).",
+            "Choose Block, Cylinder, Pebble or Mesh (OBJ), then type its size in millimeters (Rough X, Y and Z for a block).",
             "The live readout under the material shows the model's volume and weight in carats. Type your scale's weight over the Carat field to see a weight check, and Fit to Weight scales the model to it.",
             "Take flat cuts off the shape with +Edge, +Corner and +Face, or by clicking an edge, a corner or a face in the 3D view.",
         ])
@@ -304,7 +304,7 @@ fn rough_planner() -> Guide {
             "Click Plan, or press Ctrl+Enter.",
         ])
         .check("The stage line and a percentage show the progress, then up to ten result cards appear on the right.")
-        .why("The first plan measures every design it may use, once, and keeps the measurements, so later plans start straight away. Plan is greyed out while the model is not valid; the red message under ROUGH says why.")
+        .why("The first plan measures every design it may use, once, and keeps the measurements, so later plans start straight away. Plan is grayed out while the model is not valid; the red message under ROUGH says why.")
         .goal(event(ROUGH_PLAN_FINISHED), "A plan finished")
         .allow(VIEWPORT),
     )
@@ -314,9 +314,9 @@ fn rough_planner() -> Guide {
             "Each card is one layout, ranked by the weight of finished stone.",
         )
         .actions([
-            "Show All in Library filters the library to the designs of the results.",
-            "Save Selected and Save All keep plans; Saved Plans in the title bar reopens them, and a plan can be shared as a file.",
-            "A design that keeps winning but that you do not want to cut can be excluded with the Exclude pill on its row.",
+            "Show in Library filters the library to the designs of the results.",
+            "Save Starred... and Save All... keep plans; the Saved Plans tab in the right column reopens them, and a plan can be shared as a file.",
+            "A design that keeps winning but that you do not want to cut can be excluded with Exclude from Planner, in the ... menu of its row.",
         ])
         .why("Every control is unlocked again."),
     )

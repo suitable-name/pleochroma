@@ -160,6 +160,72 @@ component PillAction inherits Rectangle {
     }
 }
 
+// The long-step offer: a sentence and a button that renders on the CPU. It is a card above
+// the pill, or the settings tray's first row while the tray is open. The same card serves both.
+component OfferCard inherits Rectangle {
+    height: 64px;
+    background: Theme.surface-container;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.glass-edge;
+
+    // The card swallows touches so none reach the picture's gestures under it.
+    TouchArea { }
+
+    HorizontalLayout {
+        padding-left: Theme.space-md;
+        padding-right: Theme.space-sm;
+        padding-top: Theme.space-sm;
+        padding-bottom: Theme.space-sm;
+        spacing: Theme.space-sm;
+
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: RenderModel.offer-sentence;
+            color: Theme.on-surface;
+            font-size: Theme.text-body;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
+
+        Rectangle {
+            width: use-cpu-label.preferred-width + 2 * Theme.space-lg;
+            height: Theme.touch;
+            border-radius: Theme.touch / 2;
+            border-width: 1px;
+            border-color: Theme.outline;
+            accessible-role: AccessibleRole.button;
+            accessible-label: RenderModel.offer-button;
+            accessible-action-default => { RenderModel.use-cpu-requested(); }
+
+            StateLayer {
+                pressed: use-cpu-touch.pressed;
+                hovered: use-cpu-touch.has-hover;
+                border-radius: parent.border-radius;
+            }
+
+            use-cpu-label := Text {
+                x: Theme.space-lg;
+                width: parent.width - 2 * Theme.space-lg;
+                height: parent.height;
+                text: RenderModel.offer-button;
+                color: Theme.on-surface;
+                font-size: Theme.text-label-large;
+                font-weight: 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            use-cpu-touch := TouchArea {
+                clicked => { RenderModel.use-cpu-requested(); }
+            }
+        }
+    }
+}
+
 // The glass pill along the foot of the picture.
 component RenderPill inherits Rectangle {
     callback settings-toggled();
@@ -225,16 +291,27 @@ component RenderPill inherits Rectangle {
             clicked => { root.settings-toggled(); }
         }
 
-        IconButton {
-            icon: Icons.share;
-            label: "Export";
-            enabled: RenderModel.can-render;
-            clicked => { RenderModel.export-requested(); }
+        // Dimmed while the GPU probe holds renders back; the layer over it still takes the
+        // tap so Rust can say why.
+        Rectangle {
+            width: Theme.touch;
+            height: Theme.touch;
+
+            IconButton {
+                icon: Icons.share;
+                label: "Export";
+                enabled: RenderModel.can-render;
+                clicked => { RenderModel.export-requested(); }
+            }
+
+            if RenderModel.probe-held: TouchArea {
+                clicked => { RenderModel.export-requested(); }
+            }
         }
     }
 
     function show-details() {
-        Shell.show-info("Render Details", RenderModel.pill-title + "\n" + RenderModel.pill-detail + "\n\n" + RenderModel.backend-report);
+        Shell.show-info("Render Details", RenderModel.pill-title + "\n" + RenderModel.pill-detail + "\n\n" + RenderModel.backend-report + (RenderModel.details-lines == "" ? "" : "\n\n" + RenderModel.details-lines));
     }
 }
 
@@ -255,12 +332,19 @@ export component RenderControls inherits Rectangle {
     property <length> pill-height: 56px;
     // The pill with its bottom margin, above the progress line.
     property <length> foot: 3px + root.pad-bottom + root.pill-height;
+    // The offer card above the pill, when the tray is closed (with the tray open the offer is
+    // the tray's first row).
+    property <bool> card-above: RenderModel.offer-visible && !RenderModel.controls-open;
+    property <length> card-height: 64px;
     property <length> tray-natural: root.choices-height + Theme.touch + 4 * Theme.space-xs
-        + (RenderModel.engine == 1 ? 72px : 0px) + 2 * Theme.space-xs;
+        + (RenderModel.engine == 1 ? 72px : 0px) + 2 * Theme.space-xs
+        + (RenderModel.offer-visible ? root.card-height + Theme.space-xs : 0px);
     property <length> tray-height: RenderModel.controls-open
         ? min(root.tray-natural, max(0px, root.height-budget - root.foot - Theme.space-sm))
         : 0px;
-    height: root.foot + (root.tray-height > 0px ? root.tray-height + Theme.space-sm : 0px);
+    height: root.foot
+        + (root.tray-height > 0px ? root.tray-height + Theme.space-sm : 0px)
+        + (root.card-above ? root.card-height + Theme.space-sm : 0px);
 
     // The progress line on the viewport's bottom edge.
     Rectangle {
@@ -284,6 +368,12 @@ export component RenderControls inherits Rectangle {
         width: max(1px, root.width - root.pad-left - root.pad-right);
         height: root.pill-height;
         settings-toggled => { root.settings-toggled(); }
+    }
+
+    if root.card-above: OfferCard {
+        x: root.pad-left;
+        y: 0px;
+        width: max(1px, root.width - root.pad-left - root.pad-right);
     }
 
     if root.tray-height > 0px: Rectangle {
@@ -310,6 +400,7 @@ export component RenderControls inherits Rectangle {
                 padding-top: Theme.space-xs;
                 padding-bottom: Theme.space-xs;
                 spacing: Theme.space-xs;
+                if RenderModel.offer-visible: OfferCard { }
                 RenderChoices { width: max(1px, root.width - root.pad-left - root.pad-right - 2 * Theme.space-sm); }
                 HorizontalLayout {
                     height: Theme.touch;

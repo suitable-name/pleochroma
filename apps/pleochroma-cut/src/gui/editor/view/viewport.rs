@@ -23,6 +23,7 @@ use crate::{
             camera_lighting::{contained_request_size, device_pixels, view_mode_index},
             fit_view::{self, auto_frame_distance},
         },
+        render_jobs::view::session::{EndReason, end},
         solid_preview::{
             cut_slider,
             preview_state::{CameraPose, SolidPreviewState},
@@ -345,10 +346,16 @@ pub(in crate::gui::editor) fn refresh_all_now(
 }
 
 /// Gives the shared viewport back to the editor's design when the Edit sub-tab is entered
-/// while a Library selection owns it (see [`RenderContext::may_claim_active_planes`]).
+/// while a Library selection or a job view owns it (see
+/// [`RenderContext::may_claim_active_planes`]).
 /// Does nothing when the editor already owns the viewport or has no design. Otherwise it
 /// runs the same refresh as a "Solve" click, which also restores the editor's material and
 /// panel.
+///
+/// One case needs no refresh: a design that has just landed (New, Open, Load Selected) and
+/// whose first solve is still on its way. That solve claims the viewport itself, so a refresh
+/// here would only solve the same design a second time. The Edit view is shown for every
+/// landing, which is when this case comes up (`gui::editor::landing`).
 pub(in crate::gui::editor) fn reclaim_viewport_for_editor(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<crate::bridge::render_thread::RenderContext>>,
@@ -356,25 +363,41 @@ pub(in crate::gui::editor) fn reclaim_viewport_for_editor(
     solid_last_solved: &SolidLastSolved,
     state: &EditorState,
 ) {
-    let catalogue_owns = {
+    // Entering the Edit view while a job's view shows ends that view (it restores the cutter's
+    // own stone first, so what is reclaimed below is what the editor left).
+    end(ui, EndReason::EditorEdit);
+    let generation = state.generation.load(AtomicOrdering::Relaxed);
+    let (catalogue_owns, library_took_over) = {
         let mut ctx = RenderContext::lock(render_ctx);
-        let owns = matches!(ctx.planes_owner, PlanesOwner::Catalogue { .. });
+        let owns = matches!(
+            ctx.planes_owner,
+            PlanesOwner::Catalogue { .. } | PlanesOwner::Job { .. }
+        );
         if owns && state.has_design {
             // Restored at once, not when a (possibly background) solve claims the planes, so
             // a Library row without a material does not leave tracing suspended.
             ctx.restore_editor_material();
         }
-        owns
+        (owns, ctx.library_took_over_since(generation))
     };
     if catalogue_owns && state.has_design {
-        refresh_all(
-            ui,
-            render_ctx,
-            preview_state,
-            solid_last_solved,
-            state,
-            false,
+        // A design that has just landed claims the viewport with its own first solve (see
+        // this function's doc comment); every other case is refreshed here.
+        let first_solve_claims = crate::gui::editor::landing::first_solve_claims_viewport(
+            generation,
+            ui.global::<EditorModel>().get_solve_running(),
+            library_took_over,
         );
+        if !first_solve_claims {
+            refresh_all(
+                ui,
+                render_ctx,
+                preview_state,
+                solid_last_solved,
+                state,
+                false,
+            );
+        }
         let name = RenderContext::lock(render_ctx).material_name.clone();
         let options = ui.global::<crate::ViewportModel>().get_material_options();
         if let Some(index) = crate::gui::startup_settings::find_option_index(&options, &name) {
@@ -426,6 +449,11 @@ pub(in crate::gui::editor) fn refresh_all(
     state: &EditorState,
     wholesale: bool,
 ) {
+    if !wholesale {
+        // An edit of the design ends the view of a render job, which restores the cutter's own
+        // stone, material and look before the edit claims the viewport.
+        end(ui, EndReason::EditorEdit);
+    }
     if wholesale {
         // A wholesale replacement is solved against a different design than the one
         // last measured, so the stored measurement (`auto_solve::last_solve`) is cleared
@@ -436,6 +464,8 @@ pub(in crate::gui::editor) fn refresh_all(
         // A new, opened or loaded design starts uncut: the Cut slider of the design it
         // replaced must not keep its label (or truncate the view) for this one.
         cut_slider::reset_to_finished(ui, &state.design);
+        // A job's view ends without showing the design's lighting: the call below does that.
+        end(ui, EndReason::DesignOpened);
         // The lighting this design remembered (or the normal lighting, if it has none)
         // replaces the one the design before it left showing.
         crate::gui::render::design_lighting::design_opened(

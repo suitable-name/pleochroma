@@ -291,11 +291,12 @@ pub use candidate::{
 };
 pub use objective::{
     CANONICAL_LIGHT_PITCH, CANONICAL_LIGHT_YAW, CANONICAL_LIGHTING_PRESET, ObjectiveComponents,
-    ObjectiveFidelity, ObjectiveWeights, ToneGoal, display_score, evaluate_objective,
-    evaluate_objective_finished_under, evaluate_objective_finished_under_threaded,
-    evaluate_objective_geom_under, evaluate_objective_geom_under_threaded,
-    evaluate_objective_threaded, evaluate_objective_under, evaluate_objective_under_threaded,
-    evaluate_objective_with_tone, evaluate_objective_with_tone_finished_under_threaded,
+    ObjectiveFidelity, ObjectiveWeights, ToneGoal, canonical_environment, display_score,
+    evaluate_objective, evaluate_objective_finished_under,
+    evaluate_objective_finished_under_threaded, evaluate_objective_geom_under,
+    evaluate_objective_geom_under_threaded, evaluate_objective_threaded, evaluate_objective_under,
+    evaluate_objective_under_threaded, evaluate_objective_with_tone,
+    evaluate_objective_with_tone_finished_under_threaded,
     evaluate_objective_with_tone_geom_under_threaded, evaluate_objective_with_tone_under,
     evaluate_objective_with_tone_under_threaded,
 };

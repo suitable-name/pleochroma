@@ -127,6 +127,9 @@ const HAZE_ONLY: &[&str] = &[
     "Opal",
     "Rutile",
     "Titanite (Sphene)",
+    // Its inclusions are minute gas bubbles, straight graining, conchoidal fractures and light
+    // cloudy patches (Gems & Gemology 62(2), 2026): none is an oriented family, so haze only.
+    "Nanosital",
     // Their color is the domain structure of `bragg`, not an oriented family.
     "Precious Opal (White)",
     "Precious Opal (Black)",

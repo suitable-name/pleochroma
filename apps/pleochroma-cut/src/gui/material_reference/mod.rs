@@ -8,6 +8,8 @@
 //!   Copy Table text). No Slint.
 //! - [`prefs`]: the sort, filter, search text and dispersion scale remembered in the settings.
 //! - [`push`]: copies a session and a `MaterialDetail` into `MaterialReferenceModel`.
+//! - [`designs`]: the details page's list "Your designs that work here", from the vault's stored
+//!   RI ranges.
 //! - [`actions`]: Preview As, Duplicate as Custom and Use for Design, through the app's
 //!   existing paths.
 //! - This file: creating, showing and focusing the window, and the callbacks between the
@@ -20,6 +22,7 @@
 //! UI thread.
 
 mod actions;
+mod designs;
 mod prefs;
 mod push;
 mod session;
@@ -27,7 +30,8 @@ mod session;
 mod tests;
 
 use crate::{
-    EditorModel, HelpModel, MainWindow, MaterialReferenceModel, MaterialReferenceWindow, RefRow,
+    EditorModel, HelpModel, LibraryModel, MainWindow, MaterialReferenceModel,
+    MaterialReferenceWindow, RefRow, RiBatchModel,
     bridge::render_thread::RenderContext,
     gui::{library::clipboard::copy_to_clipboard_with_toast, show_toast},
 };
@@ -117,12 +121,25 @@ pub(in crate::gui) fn release_window_state() {
     drop(old);
     let deps = DEPS.with(|cell| cell.borrow_mut().take());
     drop(deps);
+    designs::release();
+}
+
+pub(in crate::gui) use designs::set_database as set_designs_database;
+
+/// Refills the details page's list "Your designs that work here" after ranges were stored (the
+/// Compute RI Ranges batch ended). Does nothing while the window was never opened.
+pub(in crate::gui) fn designs_changed() {
+    let Some(host) = host() else {
+        return;
+    };
+    let ri = host.session.borrow().selected_ri();
+    designs::push(&host.window, ri);
 }
 
 /// Whether the window holds anything of a previous main window. UI harness only.
 #[cfg(feature = "ui-harness")]
 pub(in crate::gui) fn holds_state() -> bool {
-    host().is_some() || deps().is_some()
+    host().is_some() || deps().is_some() || designs::holds_database()
 }
 
 /// The window once created (it may be hidden). UI harness only.
@@ -330,6 +347,7 @@ fn refresh_detail(host: &Host, ui: &MainWindow) {
         |detail| push::push_detail(&model, detail, transmission, actions::design_is_open(ui)),
     );
     *host.detail.borrow_mut() = detail;
+    designs::push(&host.window, host.session.borrow().selected_ri());
 }
 
 /// Registers the table's callbacks: sort, filter, search, scale, and opening a row.
@@ -396,6 +414,24 @@ fn register_table_callbacks(model: &MaterialReferenceModel<'_>) {
     });
 }
 
+/// Brings the main window forward.
+fn show_main_window(ui: &MainWindow) {
+    ui.window().set_minimized(false);
+    let _ = ui.window().show();
+}
+
+/// Opens the design `id` of "Your designs that work here" in the main window's library.
+fn open_design(ui: &MainWindow, id: i32) {
+    ui.global::<LibraryModel>().invoke_select_diagram(id);
+    show_main_window(ui);
+}
+
+/// Opens the Compute RI Ranges dialog in the main window.
+fn open_ri_batch(ui: &MainWindow) {
+    ui.global::<RiBatchModel>().invoke_open_batch();
+    show_main_window(ui);
+}
+
 /// Registers the details page's callbacks: close, copy, preview, variants and the spectrum mode.
 fn register_detail_callbacks(model: &MaterialReferenceModel<'_>) {
     // Escape: the same as the title bar's close button.
@@ -439,6 +475,8 @@ fn register_detail_callbacks(model: &MaterialReferenceModel<'_>) {
             }
         });
     });
+    model.on_design_clicked(|id| with_host(|_, ui| open_design(ui, id)));
+    model.on_compute_ri_ranges(|| with_host(|_, ui| open_ri_batch(ui)));
     model.on_spectrum_mode(|mode| {
         with_host(|host, ui| {
             host.session.borrow_mut().set_transmission(mode == 1);

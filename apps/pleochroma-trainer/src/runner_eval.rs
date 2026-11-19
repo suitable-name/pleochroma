@@ -38,7 +38,7 @@ mod work;
 
 use pleochroma::{geometry::stone_metrics::measure_solid, optics::materials::GemMaterial};
 use pleochroma_ai::env::material_features::material_for_design;
-use pleochroma_ai::inference::score_design_at_fidelity;
+use pleochroma_ai::inference::{InferenceConfig, score_design_at_fidelity};
 use pleochroma_ai::{
     env::{ContinuousTierAction, EnvExecution, GemstoneObservation, action_from_direction},
     model::{GaussianPolicy, GemstoneSetAttentionNetwork, InferenceScratch, Prng, TrainingMode},
@@ -138,7 +138,7 @@ impl OracleKey {
             validation_fidelity: cfg.validation_fidelity,
             objective_sweep: cfg.objective_sweep,
             environment_math: cpu_environment_math(),
-            evaluation_revision: 3,
+            evaluation_revision: EvalReport::REVISION,
             noise_std: (cfg.algo == Algorithm::Imitation).then_some(cfg.explore_std),
         }
     }
@@ -200,6 +200,8 @@ type DesignOutcome = Result<DesignResult, RunnerError>;
 enum Pilot {
     /// The policy mean.
     Model,
+    /// The same policy mean in a separate deployment environment when diagnostics differ.
+    Deployment,
     /// One draw per step. `explore_std` is the exploration noise around the mean (imitation
     /// runs); `None` draws from the policy's own distribution (PPO runs).
     Sampled { rng: Prng, explore_std: Option<f32> },
@@ -213,6 +215,7 @@ impl Pilot {
     fn name(&self) -> &'static str {
         match self {
             Self::Model => "model",
+            Self::Deployment => "deployed model",
             Self::Sampled { .. } => "sampled",
             Self::Noise { .. } => "zero-mean noise",
             Self::Oracle => "oracle",
@@ -258,6 +261,37 @@ struct ReplayScore {
     restored_complete: bool,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DeploymentEndpoint {
+    base: f32,
+    score: f32,
+    steps: usize,
+    evaluations: usize,
+}
+
+fn deployment_endpoint(
+    env: &EnvKind,
+    played: &Played,
+    fidelity: ObjectiveFidelity,
+) -> Result<DeploymentEndpoint, pleochroma_ai::inference::InferenceError> {
+    let (base, score) = match env {
+        EnvKind::Optimizer(env) => {
+            let result = env.optimizer_result(fidelity, played.evaluations)?;
+            (result.outcome.before_score, result.outcome.after_score)
+        }
+        EnvKind::Retarget(env) => {
+            let result = env.retarget_result(fidelity, played.evaluations)?;
+            (result.proposal.base_score, result.proposal.target_score)
+        }
+    };
+    Ok(DeploymentEndpoint {
+        base,
+        score,
+        steps: played.steps,
+        evaluations: played.evaluations,
+    })
+}
+
 /// What every pass of one design shares: the target it is judged against and the objective
 /// weights it is scored with.
 struct DesignContext {
@@ -268,6 +302,27 @@ struct DesignContext {
 }
 
 impl EvalJob<'_> {
+    fn deployment_config(&self) -> InferenceConfig {
+        match self.cfg.mode {
+            TrainingMode::Optimizer => InferenceConfig::optimizer(),
+            TrainingMode::Retarget => InferenceConfig::retarget(),
+        }
+    }
+
+    fn needs_deployment_rollout(&self, env: &EnvKind, defaults: &InferenceConfig) -> bool {
+        let horizon = match env {
+            EnvKind::Optimizer(env) => env.config().max_steps,
+            EnvKind::Retarget(env) => env.config().max_steps,
+        };
+        self.backend != super::CPU_LABEL
+            || self.execution.is_some()
+            || self.inference.is_some()
+            || objective_fidelity(self.fidelity) != defaults.rollout_fidelity
+            || horizon != defaults.steps
+            || env.max_step_deg() != defaults.max_step_deg
+            || self.cfg.line_search != defaults.line_search
+    }
+
     fn check_execution(&self) -> Result<(), RunnerError> {
         if let Some(execution) = self.execution {
             execution.check().map_err(RunnerError::Data)?;
@@ -308,17 +363,16 @@ impl EvalJob<'_> {
         let max_step = env.max_step_deg();
         let raw = match pilot {
             Pilot::Oracle => return Ok(self.oracle_action(env, max_step, progress)),
-            Pilot::Model => self.policy(obs, scratch)?.mean,
+            Pilot::Model | Pilot::Deployment => self.policy_mean(obs, scratch)?,
             Pilot::Noise { rng, std } => {
                 let free = obs.free_tier_mask();
                 explore_raw(&vec![0.0; free.len()], &free, *std, rng)
             }
             Pilot::Sampled { rng, explore_std } => {
-                let policy = self.policy(obs, scratch)?;
                 let free = obs.free_tier_mask();
                 match *explore_std {
-                    Some(std) => explore_raw(&policy.mean, &free, std, rng),
-                    None => policy.sample_raw_masked(rng, &free).0,
+                    Some(std) => explore_raw(&self.policy_mean(obs, scratch)?, &free, std, rng),
+                    None => self.policy(obs, scratch)?.sample_raw_masked(rng, &free).0,
                 }
             }
         };
@@ -326,6 +380,24 @@ impl EvalJob<'_> {
     }
 
     /// Policy numbers come from the selected backend; RNG and action handling stay per case.
+    fn policy_mean(
+        &self,
+        obs: &GemstoneObservation,
+        scratch: &mut InferenceScratch,
+    ) -> Result<Vec<f32>, RunnerError> {
+        if let Some(inference) = self.inference {
+            inference.mean(obs)
+        } else if self.backend == super::CPU_LABEL {
+            Ok(self.net.forward_mean_with_scratch(
+                &obs.tier_tokens(),
+                &obs.global_token(),
+                scratch,
+            )?)
+        } else {
+            Err(self.missing_inference_worker())
+        }
+    }
+
     fn policy(
         &self,
         obs: &GemstoneObservation,
@@ -339,11 +411,15 @@ impl EvalJob<'_> {
                 .forward_with_scratch(&obs.tier_tokens(), &obs.global_token(), scratch)?
                 .0)
         } else {
-            Err(RunnerError::Data(format!(
-                "validation policy on {} has no inference worker",
-                self.backend,
-            )))
+            Err(self.missing_inference_worker())
         }
+    }
+
+    fn missing_inference_worker(&self) -> RunnerError {
+        RunnerError::Data(format!(
+            "validation policy on {} has no inference worker",
+            self.backend
+        ))
     }
 
     /// Plays `pilot` from the base design again and returns the final score.
@@ -472,6 +548,65 @@ impl EvalJob<'_> {
         let mut scratch = InferenceScratch::default();
 
         let model = self.play(&mut env, Pilot::Model, &mut scratch, progress, journal)?;
+        let started = Instant::now();
+        let endpoint = if let Some(saved) = journal
+            .map(|j| j.load("deployment-endpoint"))
+            .transpose()?
+            .flatten()
+        {
+            saved
+        } else {
+            let config = self.deployment_config();
+            let result = if self.needs_deployment_rollout(&env, &config) {
+                let mut cfg = self.cfg.clone();
+                cfg.line_search.clone_from(&config.line_search);
+                let mut deployed = match host_deployment_env(&env, &config) {
+                    Ok(env) => env,
+                    Err(error) => {
+                        case.failure =
+                            Some(format!("'{}': deployment baseline: {error}", item.title));
+                        return Ok(DesignResult::Failed(case));
+                    }
+                };
+                let job = EvalJob {
+                    cfg: &cfg,
+                    backend: super::CPU_LABEL,
+                    execution: None,
+                    inference: None,
+                    fidelity: EvalFidelity::Fast,
+                    ..*self
+                };
+                let played = job.play(
+                    &mut deployed,
+                    Pilot::Deployment,
+                    &mut scratch,
+                    progress,
+                    journal,
+                )?;
+                progress.stage("score Full endpoints and certify the deployed design");
+                deployment_endpoint(&deployed, &played, config.report_fidelity)
+            } else {
+                progress.stage("score Full endpoints and certify the deployed design");
+                deployment_endpoint(&env, &model, config.report_fidelity)
+            };
+            match result {
+                Ok(endpoint) => {
+                    if let Some(journal) = journal {
+                        journal.save("deployment-endpoint", &endpoint)?;
+                    }
+                    endpoint
+                }
+                Err(error) => {
+                    case.failure = Some(format!("'{}': deployment endpoint: {error}", item.title));
+                    return Ok(DesignResult::Failed(case));
+                }
+            }
+        };
+        case.deployment_base_score = Some(endpoint.base);
+        case.deployed_score = Some(endpoint.score);
+        case.deployment_steps = Some(endpoint.steps);
+        case.deployment_evaluations = Some(endpoint.evaluations);
+        let endpoint_seconds = started.elapsed().as_secs_f64();
         let final_optics = Optics::from_global(&model.obs.global);
         let (base_score, final_score, base, fin) = (
             env.base_score(),
@@ -511,7 +646,8 @@ impl EvalJob<'_> {
         figures.case.evaluations = figures.model_evaluations;
         figures.case.steps = figures.model_steps;
         // Keep model throughput separate from the optional comparator's CPU time.
-        figures.case.elapsed_seconds = Some((model.seconds + reference_seconds) as f32);
+        figures.case.elapsed_seconds =
+            Some((model.seconds + endpoint_seconds + reference_seconds) as f32);
         if let Some(budget) = self.cfg.classical_budget {
             progress.stage("classical optimizer comparison on CPU");
             self.classical_comparison(item, &ctx, budget, &mut figures.case);
@@ -663,6 +799,35 @@ impl EvalJob<'_> {
         }
         case.classical_seconds = Some(started.elapsed().as_secs_f32());
     }
+}
+
+/// Keep the exact case (including its measured probe scale) while rebuilding the base stone
+/// under the same host geometry, optics and horizon used by checkpoint inference.
+fn host_deployment_env(
+    source: &EnvKind,
+    defaults: &InferenceConfig,
+) -> Result<EnvKind, RunnerError> {
+    use pleochroma_ai::env::{OptimizerEnv, OptimizerEnvConfig, RetargetEnv, RetargetEnvConfig};
+    Ok(match source {
+        EnvKind::Optimizer(env) => EnvKind::Optimizer(Box::new(OptimizerEnv::new(
+            env.base_design().clone(),
+            OptimizerEnvConfig {
+                max_steps: defaults.steps,
+                max_step_deg: defaults.max_step_deg,
+                fidelity: defaults.rollout_fidelity,
+                ..env.config().clone()
+            },
+        )?)),
+        EnvKind::Retarget(env) => EnvKind::Retarget(Box::new(RetargetEnv::new(
+            env.base_design().clone(),
+            RetargetEnvConfig {
+                max_steps: defaults.steps,
+                max_step_deg: defaults.max_step_deg,
+                fidelity: defaults.rollout_fidelity,
+                ..env.config().clone()
+            },
+        )?)),
+    })
 }
 
 /// The core optimizer accepts a resolved material, not design orientation or size overrides.

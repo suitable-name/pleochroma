@@ -1,5 +1,5 @@
-//! Silk, play-of-color and per-ray curves in the editor: the Stone tab's Inclusions and
-//! Play-of-Color (Schiller) groups, and the Material Editor's Per-Axis Curves.
+//! Silk, play-of-color and per-ray curves in the editor: the Inclusions of the Stone tab's
+//! Clarity card, its Play-of-Color (Schiller) card, and the Material Editor's Per-Axis Curves.
 //!
 //! Manual chapters: "Inclusions and Silk", "Play-of-Color and Schiller" and "Materials".
 //!
@@ -8,6 +8,9 @@
 //! `effects_common.rs`); the Crystal Axis and a saved material report UI events instead. The
 //! Material Editor covers the guide panel while it is open, so its step carries every instruction
 //! it needs.
+//!
+//! Choosing a precious opal or a labradorite switches its play-of-color on (the Material list
+//! does that in the same undo step), so the step that shows the switch is a reading step.
 
 #![allow(
     clippy::too_many_lines,
@@ -18,7 +21,7 @@ use super::{
     VIEWPORT, check,
     effects_common::{
         EFFECTS, cats_eye_chosen, coverage_moved, inclusions_chosen, path_traced, pattern_pinfire,
-        pick_material, range_moved, reseeded, silk_turned, structure_on,
+        pick_material, range_moved, reseeded, silk_turned,
     },
     event,
 };
@@ -40,7 +43,7 @@ fn silk_sapphire() -> Guide {
     Guide::new(
         "materials-silk-sapphire",
         "Silk in a Sapphire",
-        "Give a sapphire its silk with the Stone tab's Inclusions, turn it about the Crystal Axis and see why a Cat's-Eye needs a Second Axis.",
+        "Give a sapphire its silk with the Inclusions of the Stone tab's Clarity card, turn it about the Crystal Axis and see why a Cat's-Eye needs a Second Axis.",
         GuideCategory::Materials,
     )
     .starting(StartingState::Template(5))
@@ -51,7 +54,7 @@ fn silk_sapphire() -> Guide {
         )
         .actions([
             "In corundum (sapphire and ruby) the needles lie flat in the plane across the Crystal Axis, in three directions 60 degrees apart. That is why a star stone shows six rays.",
-            "The Inclusions group of the Stone tab draws a preset of such needles inside the stone. Density says how many, Sheen how widely they spread the light, and Silk Color what color the light has.",
+            "Inclusions, in the Clarity card of the Stone tab, draws a preset of such needles inside the stone. Density says how many, Sheen how widely they spread the light, and Silk Color what color the light has.",
             "Silk Turn turns the needles about the Crystal Axis, so the glints land where you want them.",
         ])
         .why("Nothing changes in the design until you choose a preset. None keeps the plain stone.")
@@ -59,8 +62,8 @@ fn silk_sapphire() -> Guide {
     )
     .step(pick_material(
         "Sapphire",
-        "The Inclusions group offers the presets of the material, so start with the Sapphire.",
-        "A material with no preset says so in the Inclusions group, and offers nothing to choose.",
+        "Inclusions offers the presets of the material, so start with the Sapphire.",
+        "A material with no preset says so under Inclusions, and offers nothing to choose.",
     ))
     .step(path_traced(
         "Silk glints where light travels through the stone, so the Path-Traced view is where to look.",
@@ -71,7 +74,7 @@ fn silk_sapphire() -> Guide {
             "The needles are placed with respect to the Crystal Axis, so this stone needs one of its own.",
         )
         .actions([
-            "In the Stone tab, find Crystal Axis and click Set for This Stone.",
+            "In the Stone tab, open the Crystal Axis card and click Set for This Stone.",
             "Click Through the Table under the presets, so the axis stands straight up and the needles lie flat in the plane of the table.",
         ])
         .check("Tilt and Azimuth sliders appear under the presets, and the axis reads 0 degrees from the table normal.")
@@ -86,7 +89,7 @@ fn silk_sapphire() -> Guide {
             "A preset is one click.",
         )
         .actions([
-            "In the Stone tab, find Inclusions.",
+            "In the Stone tab, open the Clarity card and find Inclusions.",
             "Click Star Silk. Fine Silk and Rutile Silk are the other two presets of a sapphire.",
         ])
         .check("The preset is lit, Density, Silk Turn, Sheen and Silk Color appear under it, and the picture shows glints inside the stone.")
@@ -123,7 +126,7 @@ fn silk_sapphire() -> Guide {
         )
         .actions([
             "In the Stone tab, set Material to Chrysoberyl (Yellow).",
-            "Under Inclusions, Cat's-Eye Silk is greyed out, with a note that it needs a Second Axis.",
+            "Under Inclusions, Cat's-Eye Silk is grayed out, with a note that it needs a Second Axis.",
             "Under Crystal Axis, click Set for This Stone. Under Second Axis, click Set.",
             "Now click Cat's-Eye Silk.",
         ])
@@ -154,7 +157,7 @@ fn opal() -> Guide {
     Guide::new(
         "materials-opal-play-of-color",
         "Opal Play-of-Color",
-        "Switch the flashes of color of a precious opal on, change their pattern and range, draw them again with Reseed and compare a black opal.",
+        "See the flashes of color of a precious opal, change their pattern and range, draw them again with Reseed and compare a black opal.",
         GuideCategory::Materials,
     )
     .starting(StartingState::Template(5))
@@ -164,35 +167,32 @@ fn opal() -> Guide {
             "A precious opal is made of tiny spheres stacked in orderly patches. Each patch reflects one color of light, and the color changes as the stone or the light moves.",
         )
         .actions([
-            "The Play-of-Color group of the Stone tab draws such patches. Pattern sets how large they are: Pinfire is many tiny points, Harlequin medium patches and Broad Flash a few large ones.",
+            "The Play-of-Color card of the Stone tab draws such patches. Pattern sets how large they are: Pinfire is many tiny points, Harlequin medium patches and Broad Flash a few large ones.",
             "Color Range is the span of colors the patches reflect, Purity how pure each color is, and Coverage how much of the stone flashes.",
             "The Seed fixes which patches flash. Reseed draws a new arrangement with the same settings.",
         ])
-        .why("The group is there for a material that has this structure: the two precious opals and labradorite. Nothing changes in the design until you switch it on.")
+        .why("The card is there for a material that has this structure: the two precious opals and labradorite. Choosing one of them switches it on.")
         .allow(VIEWPORT),
     )
     .step(pick_material(
         "Precious Opal (White)",
-        "The Play-of-Color group belongs to a material that has the structure, so start with the white opal.",
-        "A material without it, such as Diamond, shows no Play-of-Color group.",
+        "The Play-of-Color card belongs to a material that has the structure, so start with the white opal.",
+        "A material without it, such as Diamond, shows no Play-of-Color card.",
     ))
     .step(path_traced(
         "The flashes show where light travels through the stone, so the Path-Traced view is where to look.",
     ))
     .step(
         GuideStep::new(
-            "Switch Play-of-Color on",
-            "The flashes start from the pattern the material usually shows.",
+            "The flashes are on",
+            "Choosing a precious opal switches its Play-of-Color on, with the pattern the material usually shows.",
         )
         .actions([
-            "In the Stone tab, find Play-of-Color and switch Show Play-of-Color on.",
+            "In the Stone tab, open the Play-of-Color card: Show Play-of-Color is on.",
+            "Under the switch are Pattern, Color Range, Purity, Coverage and a Seed number.",
         ])
-        .check("Patches of color flash across the stone, and Pattern, Color Range, Purity, Coverage and a Seed number appear under the switch.")
-        .why("It is one step in the history, and the choice is saved with the design. Ray-Traced ignores Play-of-Color.")
-        .goal(
-            check("Play-of-Color switched on", structure_on),
-            "Play-of-Color switched on",
-        )
+        .check("Patches of color flash across the stone.")
+        .why("Switching it off or on is one step in the history, and the choice is saved with the design. Ray-Traced ignores Play-of-Color.")
         .highlight("stone_tab")
         .allow(EFFECTS),
     )
@@ -271,44 +271,41 @@ fn labradorite() -> Guide {
     Guide::new(
         "materials-labradorite-schiller",
         "Labradorite Flash",
-        "Switch the Schiller of a labradorite on, change how much of the stone flashes and turn the stone to catch the flash.",
+        "See the Schiller of a labradorite, change how much of the stone flashes and turn the stone to catch the flash.",
         GuideCategory::Materials,
     )
     .starting(StartingState::Template(5))
     .step(
         GuideStep::new(
             "A flash from one direction",
-            "A labradorite looks grey from most directions and flashes a color when it is turned to the right angle. This flash is called the Schiller.",
+            "A labradorite looks gray from most directions and flashes a color when it is turned to the right angle. This flash is called the Schiller.",
         )
         .actions([
-            "The Stone tab calls the group Schiller for this material. It has the same controls as an opal's Play-of-Color: Pattern, Color Range, Purity, Coverage and a Seed.",
+            "The Stone tab calls the card Schiller for this material. It has the same controls as an opal's Play-of-Color: Pattern, Color Range, Purity, Coverage and a Seed.",
             "The pattern the material starts with is Broad Flash, a few large flashes.",
         ])
-        .why("The Moonstone is another stone with a sheen from one direction. Its preset, Adularescence, is in the Inclusions group.")
+        .why("The Moonstone is another stone with a sheen from one direction. Its preset, Adularescence, is under Inclusions in the Clarity card.")
         .allow(VIEWPORT),
     )
     .step(pick_material(
         "Labradorite",
-        "The Schiller group belongs to a material that has the structure, so start with the Labradorite.",
-        "A material without it shows no Schiller group.",
+        "The Schiller card belongs to a material that has the structure, so start with the Labradorite.",
+        "A material without it shows no Schiller card.",
     ))
     .step(path_traced(
         "The flash shows where light travels through the stone, so the Path-Traced view is where to look.",
     ))
     .step(
         GuideStep::new(
-            "Switch Schiller on",
-            "The flash starts from the pattern the material usually shows.",
+            "The Schiller is on",
+            "Choosing a labradorite switches its Schiller on, with the pattern the material usually shows.",
         )
         .actions([
-            "In the Stone tab, find Schiller and switch Show Schiller on.",
+            "In the Stone tab, open the Schiller card: Show Schiller is on.",
+            "Under the switch are Pattern, Color Range, Purity, Coverage and a Seed number.",
         ])
-        .check("A flash of color crosses the stone, and Pattern, Color Range, Purity, Coverage and a Seed number appear under the switch.")
-        .why("It is one step in the history, and the choice is saved with the design. Ray-Traced ignores Schiller.")
-        .goal(
-            check("Schiller switched on", structure_on),
-            "Schiller switched on",
-        )
+        .check("A flash of color crosses the stone.")
+        .why("Switching it off or on is one step in the history, and the choice is saved with the design. Ray-Traced ignores Schiller.")
         .highlight("stone_tab")
         .allow(EFFECTS),
     )
@@ -321,7 +318,7 @@ fn labradorite() -> Guide {
             "Drag Coverage to the left.",
         ])
         .check("Less of the stone flashes as you drag. At 0% none of it does.")
-        .why("The flash of a real labradorite covers part of the stone, and the rest stays grey. Coverage is the setting that matches the stone you have in mind.")
+        .why("The flash of a real labradorite covers part of the stone, and the rest stays gray. Coverage is the setting that matches the stone you have in mind.")
         .goal(
             check("the Coverage changed", coverage_moved),
             "Coverage changed",
@@ -371,7 +368,7 @@ fn axis_curves() -> Guide {
             "The Material Editor opens over the window, so this step carries everything you need.",
         )
         .actions([
-            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1), then click New/Edit Material....",
+            "Open the Stone tab of the Parameters dock (View > Stone Properties, or Ctrl+Alt+1). Click the \u{2026} button on the material card (Material Menu), then New/Edit Material... to open the Material Editor.",
             "Pick Sapphire in Load Preset Template. It fills in a uniaxial material.",
             "Type a Material Name that no built-in material uses, for example Tutorial curves.",
             "Under Per-Axis Curves, click Curves. Curve For reads Extraordinary Ray, and its fields start from a Cauchy fit of the numbers above.",

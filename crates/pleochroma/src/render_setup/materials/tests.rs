@@ -181,6 +181,7 @@ const BUILT_IN_UNITS: &[(&str, AbsorptionUnit)] = &[
     ("Labradorite", AbsorptionUnit::ModelUnit),
     ("Moonstone", AbsorptionUnit::ModelUnit),
     ("Titanite (Sphene)", AbsorptionUnit::ModelUnit),
+    ("Nanosital", AbsorptionUnit::ModelUnit),
 ];
 
 /// The zoned built-ins: the zoned Ametrine is a physical, per-millimetre material (its zones

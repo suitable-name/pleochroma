@@ -143,6 +143,74 @@ fn metrics_takes_the_aset_grid_flag_for_the_text_report_only() {
 }
 
 #[test]
+fn metrics_takes_the_ri_range_flag_for_every_format() {
+    let Command::Metrics(plain) = parsed("metrics a.psdd") else {
+        panic!("expected metrics");
+    };
+    assert!(!plain.ri_range);
+    let Command::Metrics(text) = parsed("metrics a.psdd --ri 1.76 --ri-range") else {
+        panic!("expected metrics");
+    };
+    assert!(text.ri_range);
+    assert_eq!(text.format, ReportFormat::Text);
+    for (flag, format) in [("--json", ReportFormat::Json), ("--csv", ReportFormat::Csv)] {
+        let Command::Metrics(args) = parsed(&format!("metrics a.psdd --ri-range {flag} --tilt"))
+        else {
+            panic!("expected metrics");
+        };
+        assert!(args.ri_range && args.tilt);
+        assert_eq!(args.format, format);
+    }
+    assert!(error("metrics a.psdd --ri-range --csv --aset-grid").contains("text report"));
+    assert!(error("metrics a.psdd --ri-range --json --csv").contains("not both"));
+}
+
+#[test]
+fn metrics_takes_the_tilt_range_flag_with_tilt_and_a_listed_value() {
+    let Command::Metrics(plain) = parsed("metrics a.psdd --tilt") else {
+        panic!("expected metrics");
+    };
+    assert_eq!(plain.tilt_range_deg, None, "no flag, no range: every tilt");
+    for degrees in pleochroma_editor::metric_deltas::DISPLAY_TILT_WINDOW_CHOICES_DEG {
+        let Command::Metrics(args) =
+            parsed(&format!("metrics a.psdd --tilt --tilt-range {degrees}"))
+        else {
+            panic!("expected metrics");
+        };
+        assert!(args.tilt);
+        assert_eq!(args.tilt_range_deg, Some(degrees));
+    }
+    let Command::Metrics(before) = parsed("metrics a.psdd --tilt-range 30 --tilt --json") else {
+        panic!("expected metrics");
+    };
+    assert_eq!(
+        before.tilt_range_deg,
+        Some(30),
+        "the order of the flags is free"
+    );
+    assert_eq!(before.format, ReportFormat::Json);
+}
+
+#[test]
+fn metrics_refuses_a_tilt_range_without_tilt_or_outside_the_list() {
+    assert_eq!(
+        error("metrics a.psdd --tilt-range 30"),
+        "--tilt-range needs --tilt"
+    );
+    let choices = pleochroma_editor::metric_deltas::DISPLAY_TILT_WINDOW_CHOICES_DEG;
+    assert_eq!(choices, [15, 20, 30, 45, 60, 90]);
+    for odd in ["0", "10", "25", "91", "-30", "30.5", "all", "+-30"] {
+        let message = error(&format!("metrics a.psdd --tilt --tilt-range {odd}"));
+        assert!(
+            message.contains("--tilt-range takes 15, 20, 30, 45, 60 or 90 degrees"),
+            "{odd}: {message}"
+        );
+        assert!(message.contains(&format!("\"{odd}\"")), "{message}");
+    }
+    assert!(error("metrics a.psdd --tilt --tilt-range").contains("needs a value"));
+}
+
+#[test]
 fn metrics_refuses_two_formats_and_two_materials() {
     assert!(error("metrics a.asc --json --csv").contains("not both"));
     assert!(error("metrics a.asc --material Ruby --ri 1.77").contains("give one of"));

@@ -414,7 +414,7 @@ mod tests {
         outcome::{EXIT_USAGE, OutFile},
         testing,
     };
-    use pleochroma_cut_core::CutMeetAnchor;
+    use pleochroma_cut_core::{CutMeetAnchor, MeetPlace};
     use pleochroma_editor::verdict::{CutAway, SnapOutcome};
     use std::path::PathBuf;
 
@@ -460,6 +460,7 @@ mod tests {
                 CutMeet::Anchor(CutMeetAnchor::SetStoneSize),
                 CutMeet::Meets(vec![0, 1]),
             ],
+            place: vec![MeetPlace::Other; 3],
             size: 2.0,
         };
         let moved = [SnapMove {
@@ -490,6 +491,7 @@ mod tests {
                     nearest: vec![1],
                 },
             ],
+            place: vec![MeetPlace::Other; 3],
             size: 2.0,
         };
         let moved = [

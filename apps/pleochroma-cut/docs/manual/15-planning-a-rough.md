@@ -1239,7 +1239,10 @@ The planner talks to the library in four ways:
   layout, for its first design), opens that design in the editor and hands it the
   piece of rough its stone comes from. The design opens exactly as it does with
   **Load Selected** (Chapter 3): if the open design has unsaved changes, you are
-  asked to save, discard or cancel first, and Cancel opens nothing. Once the design
+  asked to save, discard or cancel first, and Cancel opens nothing. The main window
+  comes to the front at once, on the page it was on, so you can answer that
+  question. It shows the Edit view when the design has landed; a Cancel leaves
+  its page as it was. Once the design
   is on the bench, one undo step makes the piece of rough that the first stone of
   that design comes from the design's preform and sets the design's **Girdle
   Diameter** to the stone's real width. When (Chapter 24) the plan

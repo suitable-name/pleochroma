@@ -49,8 +49,8 @@ export component EditorLogPopup inherits PopupWindow {
             + (EditorModel.last_saved_path != "" ? ("Last saved to: " + EditorModel.last_saved_path + "\n\n") : "")
             + (EditorModel.status_text != "" ? (EditorModel.status_text + "\n\n") : "")
             + (root.has_deep_solve ? (root.deep_solve_line + "\n\n") : "")
-            + (EditorModel.deep_solve_tier_rows.length > 0 ? ("Deep Solve: " + EditorModel.deep_solve_tier_rows.length + " tier(s) disagree with the last solve.\n\n") : "")
-            + (EditorModel.manufacturability_warnings.length > 0 ? ("Manufacturability (" + EditorModel.manufacturability_warnings.length + " warning(s))\n\n") : "")
+            + (EditorModel.deep_solve_tier_rows.length > 0 ? ("Deep Solve: " + EditorModel.deep_solve_tier_rows.length + (EditorModel.deep_solve_tier_rows.length == 1 ? " tier disagrees" : " tiers disagree") + " with the last solve.\n\n") : "")
+            + (EditorModel.manufacturability_warnings.length > 0 ? ("Manufacturability (" + EditorModel.manufacturability_warnings.length + (EditorModel.manufacturability_warnings.length == 1 ? " warning)" : " warnings)") + "\n\n") : "")
             + (EditorModel.preform_fit_warning != "" ? ("Rough Fit: " + EditorModel.preform_fit_warning + "\n\n") : "")
             + (EditorModel.material_suggestion_text != "" ? EditorModel.material_suggestion_text : "");
     }
@@ -270,9 +270,8 @@ export component EditorLogPopup inherits PopupWindow {
                                     label: w;
                                     hint: warn_clickable ? "Select the tier this warning is about." : "";
                                     clicked => {
-                                        EditorModel.selected_tier_index = warn_tier;
-                                        EditorModel.inspector_tab = 0;
-                                        EditorModel.inspector_collapsed = false;
+                                        // Act first, close last: closing destroys this row.
+                                        EditorModel.show_tier(warn_tier, GuideModel.allows_tier_form(), GuideModel.allows_tier_table());
                                         root.close();
                                     }
                                 }

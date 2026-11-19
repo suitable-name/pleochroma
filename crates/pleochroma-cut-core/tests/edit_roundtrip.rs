@@ -474,6 +474,30 @@ fn set_meta_round_trips() {
     }
 }
 
+/// [`Edit::SetRiRangeChoice`] round trip, from `Off` to each other kind of choice.
+#[test]
+fn set_ri_range_choice_round_trips() {
+    use pleochroma_cut_core::native::RiRangeChoice;
+    for &seed in &SEEDS {
+        let mut rng = Lcg::new(seed);
+        let low = rng.range_f64(1.4, 1.9);
+        for choice in [
+            RiRangeChoice::Designer {
+                low,
+                high: Some(low + rng.range_f64(0.0, 0.5)),
+            },
+            RiRangeChoice::Designer { low, high: None },
+            RiRangeChoice::Estimate,
+        ] {
+            assert_round_trips(
+                round_brilliant_fixture(),
+                &Edit::SetRiRangeChoice { choice },
+                "SetRiRangeChoice",
+            );
+        }
+    }
+}
+
 #[test]
 fn set_cheater_offset_round_trips() {
     for &seed in &SEEDS {

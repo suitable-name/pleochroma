@@ -2,15 +2,16 @@
 //! posts to the UI thread and the guard that makes sure the end of a run is always reported.
 //!
 //! Slint-free, like `super` (which keeps the measurements and the state of a run). The tilt
-//! average is 2 x 724 evaluations, so it runs on a thread of its own that the cutter can
-//! cancel; `super::host` posts the reports onto the UI thread.
+//! average traces 2 x 724 poses and hands back the four 181-point profiles of each side (the
+//! mean over the chosen range is taken when they are shown), so it runs on a thread of its own
+//! that the cutter can cancel; `super::host` posts the reports onto the UI thread.
 
-use super::environment;
 use pleochroma::{
-    color::metrics::{FinishedStone, SweepProgress, total_evaluations},
-    optics::{LightingPreset, materials::GemMaterial, raytracer::FacetFinish},
+    color::metrics::{AxisProfile, FinishedStone, SweepProgress, total_evaluations},
+    optics::{materials::GemMaterial, raytracer::FacetFinish},
 };
-use pleochroma_editor::{metric_deltas::measure_tilt_average_finished, sweep::TiltAverages};
+use pleochroma_cut_core::optimize::canonical_environment;
+use pleochroma_editor::metric_deltas::measure_tilt_profiles_finished;
 use pleochroma_solid::preview::StoneGeometryBuf;
 use std::{
     sync::{
@@ -20,7 +21,7 @@ use std::{
     thread,
 };
 
-/// A progress report goes to the UI thread every this many evaluations (of 1448), so the
+/// A progress report goes to the UI thread every this many evaluations (of 1448 poses), so the
 /// bar moves smoothly without flooding the event loop.
 const PROGRESS_EVERY: usize = 16;
 
@@ -40,17 +41,16 @@ pub(in crate::gui::editor::compare) struct TiltRequest {
     pub(in crate::gui::editor::compare) run: u64,
     pub(super) cancel: Arc<AtomicBool>,
     pub(super) sides: [TiltSide; 2],
-    pub(super) lighting: LightingPreset,
 }
 
 /// How a tilt run ended.
 pub(in crate::gui::editor::compare) enum TiltOutcome {
-    /// Both sides finished.
-    Averages {
-        /// The "before" side's averages.
-        before: TiltAverages,
-        /// The "after" side's averages.
-        after: TiltAverages,
+    /// Both sides finished: the four axis profiles of each.
+    Profiles {
+        /// The "before" side's profiles.
+        before: Vec<AxisProfile>,
+        /// The "after" side's profiles.
+        after: Vec<AxisProfile>,
     },
     /// The run was stopped, or its thread died.
     Stopped,
@@ -127,14 +127,14 @@ pub(in crate::gui::editor::compare) fn spawn_tilt(
         .map_err(|error| format!("The tilt average could not start: {error}."))
 }
 
-/// One side's tilt average. Progress is reported over both sides' evaluations; `None` when
+/// One side's axis profiles. Progress is reported over both sides' evaluations; `None` when
 /// the run was cancelled.
 fn tilt_side(
     session_id: u64,
     request: &TiltRequest,
     side: usize,
     post: fn(TiltReport),
-) -> Option<TiltAverages> {
+) -> Option<Vec<AxisProfile>> {
     let TiltSide {
         stone,
         finishes,
@@ -156,10 +156,12 @@ fn tilt_side(
         }
         true
     };
-    measure_tilt_average_finished(
+    measure_tilt_profiles_finished(
         FinishedStone::new(stone.as_geometry(), finishes),
         material,
-        environment(request.lighting),
+        // The tilt rows are scored under the tilt standard, as the Tilt Performance chart and
+        // the library are, whatever the viewport's lighting (the table-up rows keep it).
+        canonical_environment(),
         &mut step,
     )
 }
@@ -178,5 +180,5 @@ fn run_tilt(session_id: u64, request: &TiltRequest, post: fn(TiltReport)) {
     let Some(after) = tilt_side(session_id, request, 1, post) else {
         return;
     };
-    guard.finish(TiltOutcome::Averages { before, after });
+    guard.finish(TiltOutcome::Profiles { before, after });
 }

@@ -149,6 +149,26 @@ fn the_armed_row_sentence_names_the_tiers_and_counts_the_corners() {
     );
 }
 
+#[test]
+fn the_meet_point_row_waits_while_the_design_is_newer_than_its_masts() {
+    use super::meet_pick::row_awaits_solve;
+
+    // Masts of the design as it is: nothing to wait for, whatever landed.
+    assert!(!row_awaits_solve(7, Some(7), Some(7)));
+    assert!(!row_awaits_solve(7, Some(7), Some(6)));
+    assert!(!row_awaits_solve(7, Some(7), None));
+    // An edit made generation 8; the masts and the last frame are those of generation 7.
+    assert!(row_awaits_solve(8, Some(7), Some(7)));
+    // Before the first solve, and before the first frame.
+    assert!(row_awaits_solve(1, None, None));
+    assert!(row_awaits_solve(8, Some(7), None));
+    // The frame of generation 8 landed without masts (the solve failed): the wait is over.
+    assert!(!row_awaits_solve(8, Some(7), Some(8)));
+    assert!(!row_awaits_solve(1, None, Some(1)));
+    // A background solve filed the masts of generation 8 before any frame of it landed.
+    assert!(!row_awaits_solve(8, Some(8), Some(7)));
+}
+
 /// Asserts two pixel pairs agree to well under a hundredth of a pixel.
 fn assert_close(actual: (f32, f32), expected: (f32, f32)) {
     assert!(

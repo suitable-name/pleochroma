@@ -57,7 +57,7 @@ pub(super) fn guide() -> Guide {
         )
         .actions([
             "The old layer disappears during movement. Wait for the map for the new pose.",
-            "Read the centre-ray entry surface, exit surface, reflection count and reason. Mixed subpixel surfaces are labelled.",
+            "Read the center-ray entry surface, exit surface, reflection count and reason. Mixed subpixel surfaces are labeled.",
         ])
         .why(
             "Budget exhaustion is an estimate, not proof of permanent darkness. Advanced material transport is not reproduced.",

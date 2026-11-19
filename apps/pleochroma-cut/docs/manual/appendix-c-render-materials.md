@@ -1,6 +1,6 @@
 # Appendix C: Built-in Render Materials
 
-This table lists every one of the app's 39 built-in render materials (Ametrine is the zoned one), as
+This table lists every one of the app's 40 built-in render materials (Ametrine is the zoned one), as
 used by the spectral renderer (Chapter 2) and the Material Editor's
 templates. n_D is the refractive index at the sodium D line (589.3nm).
 Birefringence (Δn) is the difference between a material's fast and slow
@@ -19,7 +19,7 @@ figures are listed under "Model Values and Published Figures" below. A dash in t
 Abbe column means the figure is not printed here; `pleochroma-cli materials --markdown
 optics` prints this table with every Abbe number.
 
-All 39 are reachable from the Stone tab's **Material** and **Preview As...** combos
+All 40 are reachable from the Stone tab's **Material** and **Preview As...** combos
 (Chapter 2), listed alphabetically, and in the **Material Reference** window (Chapter 6),
 which also shows each one's hardness, toughness, cleavage, specific gravity and curves.
 The entries marked with `*` are also the Material Editor's base templates.
@@ -67,6 +67,7 @@ The entries marked with `*` are also the Material Editor's base templates.
 | Labradorite | Biaxial (+) | 1.5625 (indices 1.559, 1.5625, 1.567) | +0.0080 | 0.012 (by construction) | — | translucent olive-grey body (its light haze is switched on with the material), lamellae parallel to the table by default; the schiller, blue with some green, is a choice of the design, fixed in the crystal (Chapter 28) |
 | Moonstone | Biaxial (−) | 1.523 (indices 1.518, 1.523, 1.526) | −0.0080 | 0.012 (by construction) | — | colorless body; the adularescence is the Adularescence inclusion preset (Chapter 27) |
 | Titanite (Sphene) | Biaxial (+), 2V 27° | 1.894 (indices 1.888, 1.894, 2.011) | +0.1226 | 0.0577 (nβ) | — | yellow-green; trichroic: X nearly colorless, Y yellow-green, Z golden; Z lies in the table |
+| Nanosital | Isotropic | 1.620 | — | 0.0149 | 71.4 | Cobalt blue (Co²⁺ bands at 545, 585 and 625 nm, the positions GIA measured in blue glass-ceramics; widths and strength estimated), a sapphire imitation. A manufactured glass-ceramic, not a mineral. Color Variants: Ni Green, Mn Yellow, Mn Orange, Au Red, Nd-Er Pink, Pr Yellow-Green, Colorless |
 
 **Notes**
 
@@ -94,6 +95,12 @@ The entries marked with `*` are also the Material Editor's base templates.
   the other built-ins: Titanite uses measured indices and Rutile a Fresnel
   solve (see the `built_in_material_rutile` doc comment in
   `crates/pleochroma/src/optics/materials/rutile.rs`).
+- Nanosital is a glass-ceramic: spinel-to-gahnite nanocrystals in an aluminosilicate glass. Its
+  n_D of 1.620 is the middle of the 1.60–1.63 GIA measured on 60 stones (Gems & Gemology,
+  Summer 2026). Its B–G of 0.015 is the maker's figure, the only one published; it gives an Abbe
+  number of 71, high for a glass of this index, so the fire may be understated. The maker's RI of
+  1.65–1.70 lies above every GIA measurement and is not used. Its colors take their band positions
+  from GIA's spectra; their strengths are estimates until calibrated.
 - The body-color strengths follow photographs of cut stones of the kind sold
   today. Aquamarine, Morganite, Topaz, Tanzanite, Peridot, Tsavorite, Demantoid,
   Pyrope and Spinel are lighter and less saturated than the measured crystals
@@ -110,7 +117,7 @@ breaking; Cleavage, Parting and Fracture are given with Miller indices where the
 Mineralogy gives them; SG is the representative specific gravity with the range in brackets (a single
 published figure has no range). "not recorded" means no gemological source gives the value, and
 "not graded" means no published toughness grade exists for the material; the program leaves both
-empty rather than guess. The two SG figures marked "derived" are computed from cited figures; see
+empty rather than guess. The three SG figures marked "derived" are computed from cited figures; see
 "The Derived Basis" below. `pleochroma-cli materials --markdown gem-data` prints this table
 from the program's own data.
 
@@ -155,6 +162,7 @@ from the program's own data.
 | Labradorite | 6–6.5 | Poor | Perfect {001}, good {010} (about 90°), distinct {110} | — | Uneven to conchoidal | 2.69 (2.68–2.71) |
 | Moonstone | 6–6.5 | Poor | Perfect {001} and {010} | {100}, {110}, {1-10}, {-201} | Conchoidal to uneven | 2.58 (2.56–2.59) |
 | Titanite (Sphene) | 5–5.5 | not graded | Good {110} | {221} (twinning) | Subconchoidal | 3.53 (3.48–3.60) |
+| Nanosital | 7 | not graded | not recorded | — | Conchoidal | 3.00 (2.85–3.42), derived |
 
 The care notes of each material are on the Material Reference's details page and in `pleochroma-cli materials NAME`;
 they are not repeated here.
@@ -201,7 +209,7 @@ Synthetic moissanite and rutile are the two entries whose curve is farther from 
 
 A figure is **cited** when a source prints it. It is **derived** when the program computed it from
 cited figures, and then it is shown with the word "Derived" and its working, never as a source's own
-number. Two specific gravities are derived, and every input of each is cited:
+number. Three specific gravities are derived, and every input of each is cited:
 
 - **Morganite 2.86.** GIA prints only a range, 2.80 to 2.91. The representative is the midpoint of
   that range: "Derived: midpoint of the cited range 2.80-2.91."
@@ -209,6 +217,10 @@ number. Two specific gravities are derived, and every input of each is cited:
   pyrope-spessartine give 3.83–3.88 and 3.93–4.00. The range is the two merged and the representative
   is its midpoint: "Derived: range merged from two Gems & Gemology studies (3.83-3.88 and 3.93-4.00);
   representative is its midpoint."
+- **Nanosital 3.00 (2.85–3.42).** Gems & Gemology (Summer 2026) measured 2.85–3.42 over 60
+  glass-ceramics and prints no single figure. The representative is the mean of its three faceted
+  stones in Table 2 (3.06, 2.93, 2.97): "Derived: mean of the three faceted glass-ceramics in Gems &
+  Gemology 62(2), 2026 (3.06, 2.93, 2.97), 2.99, rounded to 3.0; the study measured 2.85-3.42."
 
 A value taken over from the species or from the end-members of a mixed stone carries a basis note
 instead: "Taken from the end-members pyrope and spessartine." (Color-Change Garnet), "Values of the
@@ -232,9 +244,11 @@ snippet gives is not stored. The sources are:
 | International Gem Society, "Specific Gravity Values of Selected Gems" (IGS-T) | `https://www.gemsociety.org/article/select-gems-ordered-density/` |
 | Schott, optical glass datasheets (2023); the F2 values come from the F2HT sheet, which has the same n_d and V_d | `https://media.schott.com/api/public/content/38cbbe876d324e03b1881d33f3d26635` |
 | Wikipedia, as a last resort and for synthetics only | `https://en.wikipedia.org/wiki/<page>` |
+| Soonthorntantikul, Vertriest and Avakyan, "Glass-ceramics as imitation gemstones: a study on a silicon-aluminum-magnesium-zinc system", Gems & Gemology, Summer 2026, pp. 164–176 (GG26), for Nanosital's refractive index, specific gravity, fracture and care | `https://doi.org/10.5741/GEMS.62.2.164` |
+| The maker's text on Nanosital, Russian Jeweller, 13 July 2016, for its Mohs hardness and dispersion | `https://russianjeweller.ru/2/8/8822` |
 | GIA, gem encyclopedia pages "Tanzanite" and "Peridot", and the GIA Gübelin collection record for the tanzanite no. 34129 (refractive index and birefringence ranges above) | `https://www.gia.edu/tanzanite`, `https://www.gia.edu/peridot`, `https://gia.edu/doc/zoisite-tanzanite-34129.pdf` |
 
-`pleochroma-cli materials --markdown sources` prints the list of the sources each of the 39 entries cites,
+`pleochroma-cli materials --markdown sources` prints the list of the sources each of the 40 entries cites,
 with its address, and the notes below.
 
 **Which source wins when they differ.** Mohs: the GIA care page, widened by the Handbook of Mineralogy
@@ -268,6 +282,9 @@ Wikipedia only where the Handbook has no page (opal, labradorite, the synthetics
   IGS-T, so the Chrysoberyl row uses 3.70–3.78.
 - **Glass (F2):** the Schott catalog has no plain F2 sheet, and its N-F2 is a different, lead-free glass,
   so the F2HT sheet (n_d 1.62004, V_d 36.37) is the one used.
+- **Nanosital:** the maker's figures (RI 1.65–1.70, SG 3.5–4.0) lie above every GIA measurement (RI
+  1.60–1.63, SG 2.85–3.42) and are not used; GIA's are shown. The Mohs 7 is the maker's alone, and the
+  note says so. Sellers also quote 7.5 and 8; those are not used.
 
 ## Next Steps
 

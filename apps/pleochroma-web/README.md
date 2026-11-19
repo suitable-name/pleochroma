@@ -100,8 +100,10 @@ with.
   HUD is scored under the radiance the viewport is lit with: with an HDR map loaded the
   analysis Worker holds the same map and the HUD says "Scored under the HDR map" (or, when
   the memory budget left the analysis Worker no copy, names the preset it fell back to and
-  that the map is not loaded). The tilt sweep stays under the lighting preset's rig, as the
-  desktop's dialog does, and its dialog says so while a map is loaded. For a design with
+  that the map is not loaded). The tilt sweep is always scored under the tilt standard
+  (the Grading tray at a fixed light position with a 16 degree head shadow), as the
+  desktop's is, so the preset, the light and a loaded map never change its curves; its
+  dialog says so. For a design with
   concave tiers both score the stone WITH its resolved tools (the desktop's
   `Design::tools_for_scoring` and `StoneGeometry`, the stone the render draws): the tools
   travel to the analysis Worker with the request (`MetricsWithTools` / `TiltWithTools`; a

@@ -375,14 +375,13 @@ fn draw_actions_from_the_policy(tr: &BurnTrainer, d: &mut Data, seed: u64) {
 
 #[test]
 fn positive_advantages_raise_the_log_prob_of_taken_actions() {
-    // The composed mean is a normalised direction (`g / g_max`), so while the sensitivities are
-    // small a parameter step moves the means by a large share of the std (about 0.3 pre-squash
-    // units per Adam step at 1e-3). The property tested is the sign of the surrogate at such a
-    // learning rate: for actions the policy drew, a positive advantage raises their log-prob.
-    // Replaying the batch further is not asserted: the value loss moves the shared trunk and,
-    // through the normalisation, the means too.
+    // At the sampling policy the unclipped surrogate with A=1 has the same gradient as
+    // the mean action log-probability (opposite sign for the minimized loss). Isolate that
+    // gradient and take a small step. The critic and entropy terms have independent gradients.
     let config = PpoConfig {
-        learning_rate: 1e-4,
+        learning_rate: 1e-6,
+        value_loss_coeff: 0.0,
+        entropy_coeff: 0.0,
         ..PpoConfig::default()
     };
     let mut tr = BurnTrainer::new_cpu(shape(6), config).unwrap();
@@ -564,10 +563,11 @@ fn epoch_loop_stops_early_when_kl_exceeds_target() {
         .unwrap()
         .with_seed(3);
     let old = shifted(&tight);
+    let initial = tight.model.export_to_set_attention().unwrap();
     let m = tight.train_rollout_epochs(&d.batch(&old)).unwrap();
     assert!(m.early_stopped);
-    // The check runs after every mini-batch, so the first update already stops the call.
-    assert_eq!(tight.update_count(), 1);
+    assert_eq!(tight.update_count(), 0);
+    assert_eq!(tight.model.export_to_set_attention().unwrap(), initial);
     assert!(
         (m.approx_kl - 0.0408).abs() < 2e-3,
         "first mini-batch KL {}",

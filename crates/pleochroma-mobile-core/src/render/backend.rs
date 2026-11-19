@@ -153,7 +153,13 @@ impl BackendManager {
     }
 
     pub(super) fn cpu_fallback(&self, epoch: u64, reason: &str) {
-        self.set_report(epoch, format!("Device CPU · {}", readable_reason(reason)));
+        let reason = readable_reason(reason);
+        tracing::info!(
+            target: pleochroma::diag::TRACER_TARGET,
+            reason = %reason,
+            "CPU fallback"
+        );
+        self.set_report(epoch, format!("Device CPU · {reason}"));
     }
 
     /// Called only by worker-owned scene preparation, never under the pool control lock.
@@ -375,6 +381,79 @@ mod tests {
         assert!(replace_due(None, start));
         assert!(!replace_due(Some(start), start + Duration::from_secs(1)));
         assert!(replace_due(Some(start), start + REPLACE_COOL_DOWN));
+    }
+
+    /// A tiny Path-Traced scene of the round brilliant, or a Ray-Traced one.
+    fn small_scene(ray: bool) -> OwnedScene {
+        use pleochroma::renderer::engine::{EngineSpec, RayOptions, RenderEngine};
+        use pleochroma_web_core::scene::{
+            CameraSpec, FinishSpec, LightingSpec, MaterialSpec, SceneSpec, planes_to_data,
+        };
+        let spec = SceneSpec {
+            width: 16,
+            height: 12,
+            planes: planes_to_data(&StandardGemCuts::standard_round_brilliant()),
+            finishes: FinishSpec::AllPolished,
+            material: MaterialSpec::catalogue("Diamond"),
+            camera: CameraSpec {
+                yaw: 0.6,
+                pitch: 0.45,
+                distance: 3.0,
+            },
+            lighting: LightingSpec {
+                preset_index: LightingPreset::Daylight.index(),
+                exposure: 1.0,
+                light_yaw: 0.7,
+                light_pitch: 0.8,
+                backdrop_index: crate::design_props::backdrop_index(
+                    crate::settings::LightingSettings::default().backdrop,
+                ),
+                head_shadow_deg: 16.0,
+                surface_glare: 1.0,
+                hdr_yaw_deg: 0.0,
+                hdr_follows_camera: false,
+            },
+            max_bounces: 12,
+            hdr_id: None,
+        };
+        let mut scene = OwnedScene::build(&spec, None).expect("scene");
+        if ray {
+            scene
+                .set_engine(EngineSpec {
+                    engine: RenderEngine::RayTraced,
+                    ray: RayOptions::default(),
+                })
+                .expect("ray scene");
+        }
+        scene
+    }
+
+    /// The CPU path never touches the graphics card slots: with both locked by the test, a
+    /// CPU preparation still ends. An abandoned hung step keeps its slot locked for good, and
+    /// "Use the CPU" must not wait behind it.
+    #[test]
+    fn the_cpu_path_never_locks_a_gpu_slot() {
+        let manager = Arc::new(BackendManager::new());
+        manager.select(RenderBackend::DeviceCpu);
+        manager.begin(1);
+        let _spectral = manager.gpu.spectral.lock().expect("the spectral slot");
+        let _whitted = manager.gpu.whitted.lock().expect("the whitted slot");
+        for ray in [false, true] {
+            let scene = small_scene(ray);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let worker = Arc::clone(&manager);
+            std::thread::spawn(move || {
+                let chosen = worker.prepare(&scene, 1);
+                sender
+                    .send(matches!(chosen, Ok(TraceBackend::Cpu)))
+                    .expect("the test listens");
+            });
+            assert_eq!(
+                receiver.recv_timeout(Duration::from_secs(20)),
+                Ok(true),
+                "ray: {ray}"
+            );
+        }
     }
 
     #[test]

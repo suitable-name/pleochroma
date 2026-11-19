@@ -97,7 +97,7 @@ Material:  Topaz (n 1.6272)
 
 | Form | Prints |
 |---|---|
-| `materials` | The Material Reference table: crystal system, optic character, n_D, birefringence, dispersion, specific gravity, Mohs hardness, toughness and cleavage of the 39 built-in materials, in catalogue order. |
+| `materials` | The Material Reference table: crystal system, optic character, n_D, birefringence, dispersion, specific gravity, Mohs hardness, toughness and cleavage of the 40 built-in materials, in catalogue order. |
 | `materials NAME` | One material (any letter case; several words need no quotes): optics, the sources of its curves and spectrum, colors as hex per direction in daylight and under a 3200 K lamp, color variants, effects, durability, weight against diamond and sources. |
 
 | Flag | Meaning |

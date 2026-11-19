@@ -136,7 +136,7 @@ export component TierFacetsSection inherits VerticalLayout {
     property <int> chip_cols: Math.max(1, Math.floor((chip_strip.width - root.chip_gutter + root.chip_gap) / (root.chip_w + root.chip_gap)));
     property <int> chip_rows: Math.max(1, Math.ceil(root.chip_count / root.chip_cols));
     // Up to three rows show; more scroll.
-    property <length> chip_strip_h: Math.min(root.chip_rows, 3) * (root.chip_h + root.chip_gap) - root.chip_gap;
+    property <length> chip_strip_h: root.chip_count == 0 ? 24px : Math.min(root.chip_rows, 3) * (root.chip_h + root.chip_gap) - root.chip_gap;
     // The y offset that brings the row of chip `idx` into the strip.
     function scrolled_to_chip(idx: int, content_y: length, visible_height: length) -> length {
         let top = Math.floor(idx / root.chip_cols) * (root.chip_h + root.chip_gap);
@@ -228,6 +228,16 @@ export component TierFacetsSection inherits VerticalLayout {
                     return accept;
                 }
                 reject
+            }
+            if root.chip_count == 0 && root.selection_is_loaded: Text {
+                width: parent.width;
+                height: parent.height;
+                text: "No facets yet. Add an index below.";
+                font-size: 11px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
             }
             chip_scroll := ScrollView {
                 width: parent.width;

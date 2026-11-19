@@ -7,182 +7,346 @@ import { HelpTopics } from "../../models/help.slint";
 import { HelpButton } from "../help_button.slint";
 import { ActionButton } from "../chip_toggle.slint";
 import { IconButton } from "../icon_button.slint";
+import { KitIcon, KitIcons } from "../kit/icons.slint";
+import { TierMenuSurface, TierMenuCaption, TierMenuItem, TierMenuSeparator } from "../editor_tier_table/tier_menu_parts.slint";
 import { JobRowCard } from "job_row.slint";
 import { ScriptExportSection } from "script_export_section.slint";
 
+// The header's Compute button and its menu, a `PopupWindow` (no `changed` handler in here). The
+// menu sets where every waiting, paused and failed job computes; it stores the choice only and
+// changes no job's state. Remote Only and Local + Remote are off until a worker is set up.
+component ComputeMenuButton inherits ActionButton {
+    text: "Compute";
+    hint: "Set where the waiting, paused and failed jobs compute: on this computer, on the remote worker, or on both.";
+    ink: Theme.text-secondary;
+    clicked => { menu.show(); }
+
+    KitIcon {
+        x: parent.width - 19px;
+        y: (parent.height - self.height) / 2;
+        d: KitIcons.chevron-down;
+        size: 11px;
+        ink: Theme.text-muted;
+    }
+
+    menu := PopupWindow {
+        x: 0px;
+        y: parent.height + 4px;
+        width: 250px;
+        height: 8px + 22px + 3 * 28px + 9px + 22px;
+        close-policy: close-on-click-outside;
+
+        TierMenuSurface {
+            width: parent.width;
+            height: parent.height;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: "Compute for Jobs";
+
+            VerticalLayout {
+                padding: 4px;
+
+                TierMenuCaption { text: "Compute for waiting, paused and failed jobs"; }
+                TierMenuItem {
+                    text: "Local Only";
+                    label: "Local Only";
+                    hint: "Render these jobs on this computer.";
+                    icon: KitIcons.cpu;
+                    activated => { menu.close(); RenderJobsModel.set_waiting_compute(0); }
+                }
+                TierMenuItem {
+                    text: "Remote Only";
+                    label: "Remote Only";
+                    hint: RenderJobsModel.compute_remote_enabled
+                        ? "Render these jobs on the remote worker."
+                        : "Set up a remote worker in the Settings first.";
+                    icon: KitIcons.cloud;
+                    enabled: RenderJobsModel.compute_remote_enabled;
+                    activated => { menu.close(); RenderJobsModel.set_waiting_compute(1); }
+                }
+                TierMenuItem {
+                    text: "Local + Remote";
+                    label: "Local + Remote";
+                    hint: RenderJobsModel.compute_remote_enabled
+                        ? "Render these jobs on this computer and on the remote worker."
+                        : "Set up a remote worker in the Settings first.";
+                    icon: KitIcons.layers;
+                    enabled: RenderJobsModel.compute_remote_enabled;
+                    activated => { menu.close(); RenderJobsModel.set_waiting_compute(2); }
+                }
+                TierMenuSeparator { }
+                Rectangle {
+                    height: 22px;
+                    Text {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        height: parent.height;
+                        text: "Ray-Traced jobs stay on this computer.";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The Jobs window (File > Render Jobs..., or the header's Jobs chip): the render queue as a
-// list, with Start Queue / Pause Queue, Clear Finished and Export Script. A modal card over
-// a full-window backdrop, mounted in `GlobalDialogsOverlay` under the usual `FocusScope`
+// list, with Start Queue / Pause Queue, Compute, Clear Finished and Export Script. A modal card
+// over a full-window backdrop, mounted in `GlobalDialogsOverlay` under the usual `FocusScope`
 // (Escape closes it). Everything it shows is plain data from Rust (`RenderJobsModel`).
+//
+// Pick mode (`RenderJobsModel.pick_view_mode`, Load Job View): the title asks for a job, a Cancel
+// button ends the mode, and a click on a row loads its view. Escape ends the mode first and
+// closes the window only when it is pressed again.
 export component RenderJobsPanel inherits Rectangle {
     background: Theme.overlay-backdrop;
 
     // Start Queue needs a waiting job and no running export. Otherwise it is drawn flat, since
     // dark ink on the cyan fill was unreadable.
     property <bool> start_ok: RenderJobsModel.can_start_queue && !ExportRunModel.direct_running;
+    // The mode, watched here (not in a popup) so Escape reaches this window's own key handler.
+    property <bool> pick: RenderJobsModel.pick_view_mode;
+    // With the Stop After This Job button showing, the buttons leave no room for the status at
+    // the width of a 640 px window: it takes a line of its own.
+    property <bool> status_below: root.width < 800px && RenderJobsModel.queue_running && RenderJobsModel.job_running;
+
+    changed pick => {
+        if root.pick {
+            pick_keys.focus();
+        }
+    }
+
+    // Leaves pick mode without choosing a job.
+    function end_pick() {
+        RenderJobsModel.pick_view_mode = false;
+        RenderJobsModel.cancel_pick_view();
+    }
+
+    // Closes the window; pick mode ends with it.
+    function close_panel() {
+        if root.pick {
+            root.end_pick();
+        }
+        RenderJobsModel.panel_open = false;
+    }
 
     // Clicking beside the card closes it, like the export dialog.
     TouchArea {
-        clicked => { RenderJobsModel.panel_open = false; }
+        clicked => { root.close_panel(); }
     }
 
-    Rectangle {
-        width: min(760px, root.width - 40px);
-        // As tall as its jobs, up to 80 % of the window: ~150 px for title and buttons plus
-        // ~118 px a job, with a 240 px floor. The row heights are only known to the ScrollView,
-        // so this is an estimate, and a longer queue scrolls. The script section takes full height.
-        height: RenderJobsModel.script_open
-            ? max(320px, min(root.height - 40px, root.height * 0.8))
-            : max(240px, min(root.height - 40px, min(root.height * 0.8, 150px + RenderJobsModel.rows.length * 118px)));
-        background: Theme.surface-dialog;
-        border-radius: Theme.radius-md;
-        border-width: 1px;
-        border-color: Theme.border-dialog;
-        drop-shadow-blur: 24px;
-        drop-shadow-color: Theme.modal-shadow;
-        clip: true;
-
-        // Isolate clicks inside the card.
-        TouchArea {}
-
-        VerticalLayout {
-            padding: 16px;
-            spacing: 12px;
-
-            // Title and Close.
-            HorizontalLayout {
-                spacing: 8px;
-
-                Text {
-                    horizontal-stretch: 1;
-                    text: "Render Jobs";
-                    font-size: 14px;
-                    font-weight: 700;
-                    color: Theme.text-primary;
-                    vertical-alignment: center;
-                    accessible-role: AccessibleRole.text;
-                }
-
-                HelpButton {
-                    topic: HelpTopics.render-jobs;
-                    hint: "Open the manual page on render jobs";
-                }
-
-                IconButton {
-                    icon: @image-url("../../icons/close.svg");
-                    hint: "Close the render jobs. Jobs that are rendering go on.";
-                    hover_fill: Theme.surface-control-hover;
-                    clicked => { RenderJobsModel.panel_open = false; }
-                }
+    // Escape in pick mode ends the mode; every other key goes on to the window's own handler.
+    pick_keys := FocusScope {
+        key-pressed(event) => {
+            if root.pick && event.text == Key.Escape {
+                root.end_pick();
+                return accept;
             }
+            return reject;
+        }
 
-            Rectangle { height: 1px; background: Theme.surface-raised; }
+        Rectangle {
+            width: min(760px, root.width - 40px);
+            // As tall as its jobs, up to 80 % of the window: ~150 px for title and buttons plus
+            // ~118 px a job, with a 240 px floor. The row heights are only known to the ScrollView,
+            // so this is an estimate, and a longer queue scrolls. The script section takes full height.
+            height: RenderJobsModel.script_open
+                ? max(320px, min(root.height - 40px, root.height * 0.8))
+                : max(240px, min(root.height - 40px, min(root.height * 0.8, 150px + RenderJobsModel.rows.length * 118px)));
+            background: Theme.surface-dialog;
+            border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: Theme.modal-shadow;
+            clip: true;
 
-            // The queue's own buttons and its status: the queue buttons at the left, the list
-            // buttons at the right, the status text taking the space between.
-            HorizontalLayout {
-                spacing: 8px;
+            // Isolate clicks inside the card.
+            TouchArea {}
 
-                if !RenderJobsModel.queue_running: ActionButton {
-                    width: 120px;
-                    height: 30px;
-                    text: "Start Queue";
-                    hint: ExportRunModel.direct_running
-                        ? ExportRunModel.busy_hint
-                        : (RenderJobsModel.can_start_queue
-                            ? "Render the waiting jobs from the top of the list down, one at a time."
-                            : "There are no waiting jobs.");
-                    enabled: root.start_ok;
-                    fill: root.start_ok ? Theme.accent-cyan : Theme.bg-input;
-                    hover_fill: Theme.accent-cyan-hover;
-                    ink: root.start_ok ? Theme.text-on-accent : Theme.text-secondary;
-                    edge: root.start_ok ? Theme.accent-cyan : Theme.border-subtle;
-                    weight: 700;
-                    highlighted: GuideModel.highlight_target == "start_queue_button";
-                    clicked => { RenderJobsModel.start_queue(); }
-                }
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
 
-                if RenderJobsModel.queue_running: ActionButton {
-                    width: 120px;
-                    height: 30px;
-                    text: "Pause Queue";
-                    hint: "Stop the job that is rendering and keep the rest waiting.";
-                    highlighted: GuideModel.highlight_target == "pause_queue_button";
-                    clicked => { RenderJobsModel.pause_queue(); }
-                }
+                // Title (or, in pick mode, the question) and Close.
+                HorizontalLayout {
+                    spacing: 8px;
 
-                if RenderJobsModel.queue_running && RenderJobsModel.job_running: ActionButton {
-                    width: 150px;
-                    height: 30px;
-                    text: RenderJobsModel.stop_after_current ? "Keep Queue Going" : "Stop After This Job";
-                    hint: RenderJobsModel.stop_after_current
-                        ? "The queue stops once the running job is done. Click to let it go on to the next job."
-                        : "Let the running job finish, then stop the queue and keep the rest waiting.";
-                    ink: RenderJobsModel.stop_after_current ? Theme.accent-cyan : Theme.text-primary;
-                    clicked => { RenderJobsModel.toggle_stop_after_current(); }
-                }
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: root.pick ? "Choose a job to load its view" : "Render Jobs";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: AccessibleRole.text;
+                    }
 
-                Text {
-                    horizontal-stretch: 1;
-                    min-width: 0px;
-                    text: RenderJobsModel.queue_status;
-                    font-size: 11px;
-                    color: Theme.text-secondary;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    accessible-role: AccessibleRole.text;
-                }
+                    if root.pick: ActionButton {
+                        width: 80px;
+                        height: 26px;
+                        text: "Cancel";
+                        hint: "Leave without choosing a job. Escape does the same.";
+                        ink: Theme.text-secondary;
+                        clicked => { root.end_pick(); }
+                    }
 
-                ActionButton {
-                    width: 110px;
-                    height: 30px;
-                    text: "Clear Finished";
-                    hint: "Remove every Done and Cancelled job from the list. Files they wrote stay on disk.";
-                    ink: Theme.text-secondary;
-                    clicked => { RenderJobsModel.clear_finished(); }
-                }
+                    HelpButton {
+                        topic: HelpTopics.render-jobs;
+                        hint: "Open the manual page on render jobs";
+                    }
 
-                ActionButton {
-                    width: 120px;
-                    height: 30px;
-                    text: "Export Script...";
-                    hint: "Write the unfinished jobs as a script that renders them with pleochroma-cli, on this or another computer.";
-                    ink: Theme.text-secondary;
-                    highlighted: GuideModel.highlight_target == "export_script_button";
-                    clicked => { RenderJobsModel.script_open = !RenderJobsModel.script_open; }
-                }
-            }
-
-            // The empty state.
-            if RenderJobsModel.rows.length == 0: Rectangle {
-                vertical-stretch: 1;
-                Text {
-                    width: parent.width - 32px;
-                    text: "No render jobs yet. Use Add to Queue in the export dialog or in the tilt video section.";
-                    font-size: 12px;
-                    color: Theme.text-muted;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    wrap: word-wrap;
-                    accessible-role: AccessibleRole.text;
-                }
-            }
-
-            // The jobs, in queue order.
-            if RenderJobsModel.rows.length > 0: ScrollView {
-                vertical-stretch: 1;
-
-                VerticalLayout {
-                    alignment: start;
-                    spacing: 6px;
-
-                    for entry in RenderJobsModel.rows: JobRowCard {
-                        job: entry;
+                    IconButton {
+                        icon: @image-url("../../icons/close.svg");
+                        hint: "Close the render jobs. Jobs that are rendering go on.";
+                        hover_fill: Theme.surface-control-hover;
+                        clicked => { root.close_panel(); }
                     }
                 }
-            }
 
-            if RenderJobsModel.script_open: ScriptExportSection {}
+                Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                // The queue's own buttons and its status: the queue buttons at the left, the list
+                // buttons at the right, the status text taking the space between.
+                HorizontalLayout {
+                    spacing: 6px;
+
+                    if !RenderJobsModel.queue_running: ActionButton {
+                        width: 108px;
+                        height: 30px;
+                        text: "Start Queue";
+                        hint: ExportRunModel.direct_running
+                            ? ExportRunModel.busy_hint
+                            : (RenderJobsModel.can_start_queue
+                                ? "Render the waiting jobs from the top of the list down, one at a time."
+                                : "There are no waiting jobs.");
+                        enabled: root.start_ok;
+                        fill: root.start_ok ? Theme.accent-cyan : Theme.bg-input;
+                        hover_fill: Theme.accent-cyan-hover;
+                        ink: root.start_ok ? Theme.text-on-accent : Theme.text-secondary;
+                        edge: root.start_ok ? Theme.accent-cyan : Theme.border-subtle;
+                        weight: 700;
+                        highlighted: GuideModel.highlight_target == "start_queue_button";
+                        clicked => { RenderJobsModel.start_queue(); }
+                    }
+
+                    if RenderJobsModel.queue_running: ActionButton {
+                        width: 116px;
+                        height: 30px;
+                        text: "Pause Queue";
+                        hint: "Stop the job that is rendering and keep the rest waiting.";
+                        highlighted: GuideModel.highlight_target == "pause_queue_button";
+                        clicked => { RenderJobsModel.pause_queue(); }
+                    }
+
+                    if RenderJobsModel.queue_running && RenderJobsModel.job_running: ActionButton {
+                        width: 152px;
+                        height: 30px;
+                        text: RenderJobsModel.stop_after_current ? "Keep Queue Going" : "Stop After This Job";
+                        hint: RenderJobsModel.stop_after_current
+                            ? "The queue stops once the running job is done. Click to let it go on to the next job."
+                            : "Let the running job finish, then stop the queue and keep the rest waiting.";
+                        ink: RenderJobsModel.stop_after_current ? Theme.accent-cyan : Theme.text-primary;
+                        clicked => { RenderJobsModel.toggle_stop_after_current(); }
+                    }
+
+                    // The status elides at 640 px; the tooltip holds the whole line.
+                    if !root.status_below: Rectangle {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: RenderJobsModel.queue_status;
+                            font-size: 11px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            accessible-role: AccessibleRole.text;
+                        }
+                        if RenderJobsModel.queue_status_tooltip != "": Tooltip { text: @markdown("\{RenderJobsModel.queue_status_tooltip}"); }
+                    }
+
+                    if root.status_below: Rectangle { horizontal-stretch: 1; min-width: 0px; }
+
+                    ComputeMenuButton {
+                        width: 92px;
+                        height: 30px;
+                    }
+
+                    ActionButton {
+                        width: 114px;
+                        height: 30px;
+                        text: "Clear Finished";
+                        hint: "Remove every Done and Cancelled job from the list. Files they wrote stay on disk.";
+                        ink: Theme.text-secondary;
+                        clicked => { RenderJobsModel.clear_finished(); }
+                    }
+
+                    ActionButton {
+                        width: 126px;
+                        height: 30px;
+                        text: "Export Script...";
+                        hint: "Write the unfinished jobs as a script that renders them with pleochroma-cli, on this or another computer.";
+                        ink: Theme.text-secondary;
+                        highlighted: GuideModel.highlight_target == "export_script_button";
+                        clicked => { RenderJobsModel.script_open = !RenderJobsModel.script_open; }
+                    }
+                }
+
+                // The status on a line of its own, while the buttons above take the width.
+                if root.status_below: Rectangle {
+                    height: 16px;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: RenderJobsModel.queue_status;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    if RenderJobsModel.queue_status_tooltip != "": Tooltip { text: @markdown("\{RenderJobsModel.queue_status_tooltip}"); }
+                }
+
+                // The empty state.
+                if RenderJobsModel.rows.length == 0: Rectangle {
+                    vertical-stretch: 1;
+                    Text {
+                        width: parent.width - 32px;
+                        text: "No render jobs yet. Use Add to Queue in the export dialog or in the tilt video section.";
+                        font-size: 12px;
+                        color: Theme.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+
+                // The jobs, in queue order.
+                if RenderJobsModel.rows.length > 0: ScrollView {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 6px;
+
+                        for entry in RenderJobsModel.rows: JobRowCard {
+                            job: entry;
+                            window_h: root.height;
+                        }
+                    }
+                }
+
+                if RenderJobsModel.script_open: ScriptExportSection {}
+            }
         }
     }
 }

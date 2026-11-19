@@ -36,7 +36,10 @@
 //!
 //! Every shot starts from a fresh data directory. The design shots open template card 1.
 //! The `_hc` shots use the high-contrast theme (`--theme high-contrast`); `phone_cutting_mode`
-//! opens Cutting Mode (`--cutting`).
+//! opens Cutting Mode (`--cutting`). The developer shots (`phone_developer`, `phone_log_viewer`,
+//! `tablet_developer`) unlock the Developer page (`--developer`), write the preview's sample logs
+//! (`--developer-sample-logs`) and open More sub-page 6 or 7 (`--more-page`); `phone_render_preparing`
+//! freezes the render at "Building shaders 3 of 18" (`--hold-preparing 3/18`) and waits a fixed time.
 
 use std::{
     fmt::Write as _,
@@ -66,9 +69,15 @@ const UNFINISHED: &str = "the render did not finish in time";
 const CUTTING_WAIT: &str = "5";
 /// A tablet in landscape, as the preview's `tablet-land` preset (logical px).
 const TABLET: &str = "1280x800";
+/// Seconds the Developer and log viewer shots wait: the sample logs are written and listed
+/// before the page is drawn.
+const DEVELOPER_WAIT: &str = "4";
+/// Seconds the frozen "Preparing" render shot waits; the held render never finishes, so the
+/// preview saves after this long instead of waiting out its 180 s limit.
+const PREPARING_WAIT: &str = "6";
 
 /// Every shot, in the order it is taken.
-const SHOTS: [Shot; 19] = [
+const SHOTS: [Shot; 23] = [
     Shot {
         name: "phone_design_ray",
         args: &[
@@ -306,6 +315,64 @@ const SHOTS: [Shot; 19] = [
     Shot {
         name: "tablet_cut",
         args: &["--size", TABLET, "--page", "cut", "--template", "1"],
+    },
+    Shot {
+        name: "phone_developer",
+        args: &[
+            "--size",
+            PHONE,
+            "--developer",
+            "--developer-sample-logs",
+            "--more-page",
+            "6",
+            "--wait",
+            DEVELOPER_WAIT,
+        ],
+    },
+    Shot {
+        name: "phone_log_viewer",
+        args: &[
+            "--size",
+            PHONE,
+            "--developer",
+            "--developer-sample-logs",
+            "--more-page",
+            "7",
+            "--wait",
+            DEVELOPER_WAIT,
+        ],
+    },
+    Shot {
+        name: "phone_render_preparing",
+        args: &[
+            "--size",
+            PHONE,
+            "--page",
+            "design",
+            "--template",
+            "1",
+            "--view",
+            "render",
+            "--engine",
+            "path",
+            "--hold-preparing",
+            "3/18",
+            "--wait",
+            PREPARING_WAIT,
+        ],
+    },
+    Shot {
+        name: "tablet_developer",
+        args: &[
+            "--size",
+            TABLET,
+            "--developer",
+            "--developer-sample-logs",
+            "--more-page",
+            "6",
+            "--wait",
+            DEVELOPER_WAIT,
+        ],
     },
 ];
 

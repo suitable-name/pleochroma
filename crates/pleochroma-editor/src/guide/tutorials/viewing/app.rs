@@ -222,7 +222,7 @@ fn larger_handles() -> Guide {
             "Click the Edit tab, then a facet of the stone in the Solid view.",
         ])
         .check("The handles A, D and I are bigger than before, and the line under the toolbar names what each one does.")
-        .why("Switch Larger Handles off in the same place if you prefer the small ones. Snap to Gear Steps When Dragging is in the same section; it is the Snap pill of the toolbar.")
+        .why("Switch Larger Handles off in the same place if you prefer the small ones. Snap to Gear Steps When Dragging is in the same section; it is the Snap toggle of the Edit viewport.")
         .goal(event(TIER_SELECTED), "A facet selected")
         .highlight("solid_viewport")
         .allow(VIEWPORT),

@@ -213,6 +213,28 @@ impl BurnSetAttention {
         states: &[Vec<f32>],
         n_tiers: &[usize],
     ) -> Result<(HostPolicyBatch, HostForwardDiagnostics), TrainError> {
+        self.host_outputs::<false>(states, n_tiers)
+    }
+
+    /// Reads the masked policy means for deterministic actions or externally scaled exploration.
+    /// Shares the input checks, padding and stage timings of [`Self::forward_host_profiled`].
+    ///
+    /// # Errors
+    /// Returns the same input and readback errors as [`Self::forward_host`].
+    pub fn forward_means_host_profiled(
+        &self,
+        states: &[Vec<f32>],
+        n_tiers: &[usize],
+    ) -> Result<(Vec<Vec<f32>>, HostForwardDiagnostics), TrainError> {
+        self.host_outputs::<true>(states, n_tiers)
+            .map(|(batch, timings)| (batch.means, timings))
+    }
+
+    fn host_outputs<const MEANS_ONLY: bool>(
+        &self,
+        states: &[Vec<f32>],
+        n_tiers: &[usize],
+    ) -> Result<(HostPolicyBatch, HostForwardDiagnostics), TrainError> {
         let validation = Instant::now();
         let Some(input_tiers) = self.check_host_batch(states, n_tiers)? else {
             return Ok((
@@ -248,19 +270,27 @@ impl BurnSetAttention {
         let input = pack_states_padded(rows, dims, &device, padded_batch - states.len());
         diagnostics.packing_ms = packing.elapsed().as_secs_f64() * 1000.0;
         let forward = Instant::now();
-        let out = inference.forward(input.tiers, input.globals, input.mask);
+        let (output, row_width) = if MEANS_ONLY {
+            (
+                inference.forward_mean(input.tiers, input.globals, input.mask),
+                max_tiers,
+            )
+        } else {
+            let out = inference.forward(input.tiers, input.globals, input.mask);
+            (
+                Tensor::cat(
+                    vec![out.mean, out.log_std, out.value.reshape([padded_batch, 1])],
+                    1,
+                ),
+                2 * max_tiers + 1,
+            )
+        };
         diagnostics.forward_submit_ms = forward.elapsed().as_secs_f64() * 1000.0;
 
-        // Bundle all rollout outputs into one read-back. Copying one tensor three times adds
-        // synchronization points on accelerators, even though the sampling loop needs all fields.
         let readback = Instant::now();
-        let packed = host_vec(Tensor::cat(
-            vec![out.mean, out.log_std, out.value.reshape([padded_batch, 1])],
-            1,
-        ))?;
+        let packed = host_vec(output)?;
         diagnostics.readback_ms = readback.elapsed().as_secs_f64() * 1000.0;
         let unpacking = Instant::now();
-        let row_width = 2 * max_tiers + 1;
         if packed.len() != padded_batch * row_width {
             return Err(TrainError::Tensor(format!(
                 "read back {} rollout values for {padded_batch} padded samples of {row_width}",
@@ -268,12 +298,15 @@ impl BurnSetAttention {
             )));
         }
         let mut means = Vec::with_capacity(states.len());
-        let mut log_stds = Vec::with_capacity(states.len());
-        let mut values = Vec::with_capacity(states.len());
+        let extra_rows = if MEANS_ONLY { 0 } else { states.len() };
+        let mut log_stds = Vec::with_capacity(extra_rows);
+        let mut values = Vec::with_capacity(extra_rows);
         for (row, &n) in packed.chunks_exact(row_width).zip(n_tiers) {
             means.push(row[..n].to_vec());
-            log_stds.push(row[max_tiers..max_tiers + n].to_vec());
-            values.push(row[2 * max_tiers]);
+            if !MEANS_ONLY {
+                log_stds.push(row[max_tiers..max_tiers + n].to_vec());
+                values.push(row[2 * max_tiers]);
+            }
         }
         let batch = HostPolicyBatch {
             means,

@@ -14,8 +14,8 @@ import java.net.Inet4Address
  * Looks for the paired computer on the local network (`_pleochroma._tcp`, announced over
  * mDNS) so the app can follow it to a new address.
  *
- * Browsing needs a [WifiManager.MulticastLock]; it is taken in [start] and released in
- * [stop], so it is held only while browsing. A browse also ends by itself after
+ * Browsing over Wi-Fi needs a [WifiManager.MulticastLock]; it is taken in [start] (when the
+ * device has Wi-Fi) and released in [stop], so it is held only while browsing. A browse also ends by itself after
  * [BROWSE_MS]. Every method runs on the main thread (the callers hop there).
  *
  * Each resolved service is handed to [onFound] as plain text: its name, the TXT values `v`
@@ -53,12 +53,13 @@ class NsdDiscovery(
         handler.postDelayed(timeout, BROWSE_MS)
         reported.clear()
         if (listener != null) return
-        val wifi = appContext.getSystemService(WifiManager::class.java)
-        val multicast = wifi.createMulticastLock(LOCK_TAG).apply {
+        // A device without Wi-Fi (the manifest declares it optional) has no WifiManager; its
+        // network (Ethernet, say) needs no multicast lock, so the browse runs without one.
+        val wifi: WifiManager? = appContext.getSystemService(WifiManager::class.java)
+        lock = wifi?.createMulticastLock(LOCK_TAG)?.apply {
             setReferenceCounted(false)
             acquire()
         }
-        lock = multicast
         val discovery = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {}
 

@@ -1,6 +1,7 @@
 // Side-effect-free Back target query plus one version-checked commit. On API 33+ the
 // Android `BackNavigationController` owns the single back callback and drives both.
 import { RemoteModel } from "pages/remote.slint";
+import { Developer } from "pages/developer.slint";
 import { Shell } from "models.slint";
 import { DocumentModel } from "design/document_model.slint";
 import { RenderModel } from "design/render/render_model.slint";
@@ -96,7 +97,7 @@ export global Navigation {
         else if (target == 17) { LibraryModel.sort-open = false; }
         else if (target == 18) { LibraryModel.clear-selection(); }
         else if (target == 19) { Shell.sheet-detent = 1; }
-        else if (target == 20) { if (Shell.more-page == 4) { RemoteModel.close(); } else { Shell.more-page = Shell.more-page == 3 ? 2 : 0; } }
+        else if (target == 20) { if (Shell.more-page == 4) { RemoteModel.close(); } else if (Shell.more-page == 7) { Shell.more-page = Developer.unlocked ? 6 : 0; } else if (Shell.more-page == 6) { Shell.more-page = Shell.developer-return; } else { Shell.more-page = Shell.more-page == 3 ? 2 : 0; } }
         else if (target == 21) { Shell.select-destination(0); }
         else if (target == 22) { VariantsModel.close(); }
         else if (target == 23) { OptimizeModel.close(); }

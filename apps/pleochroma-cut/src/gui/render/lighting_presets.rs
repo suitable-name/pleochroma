@@ -361,6 +361,12 @@ fn setup_apply_lighting_preset_callback(
             else {
                 return;
             };
+            // The cutter chose a lighting: a job's view ends first and puts the cutter's normal
+            // look back, so the preset is written over that and not over the job's.
+            crate::gui::render_jobs::view::session::end(
+                &ui,
+                crate::gui::render_jobs::view::session::EndReason::LightingChosen,
+            );
 
             let lighting_preset =
                 crate::gui::optics::offered_lighting::offered_from_label(&preset.lighting_rig);

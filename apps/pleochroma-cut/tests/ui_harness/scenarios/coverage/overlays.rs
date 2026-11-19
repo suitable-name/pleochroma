@@ -203,6 +203,11 @@ pub(super) fn launch_base(
         if base == Base::Edited && !dialogs::nudge_first_tier(&ui) {
             return Err("tier 0 could not be edited".to_owned());
         }
+        // A design that lands in the editor brings up the Edit view (one event-loop turn after
+        // Create). The states are written against the page the app starts on, so the base goes
+        // back to Live Render; a state that wants the Edit view asks for it itself.
+        pump(100);
+        super::overlay_states::live_tab(app);
     }
     Ok(())
 }

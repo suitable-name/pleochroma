@@ -40,7 +40,8 @@ import { ChoiceSeg } from "choice_seg.slint";
 // Keyboard: every field and button takes Tab. The facet chips are one Tab stop (a row of
 // chips would otherwise be dozens of stops): Left and Right move along them, Enter detaches or
 // reattaches the chosen facet (Advanced) and Delete removes it.
-// The chip of the Meet Point row. `tone`: 0 plain muted text, 1 plain cyan text (pick mode is on),
+// The chip of the Meet Point row. `tone`: 0 plain muted text (no pick, or the row waits for a
+// solve), 1 plain cyan text (pick mode is on),
 // 2 green pill (a corner is picked), 3 amber pill with a warning mark (the pick is lost or cut
 // away), 4 neutral pill (the pick is not in use).
 component MeetChip inherits Rectangle {
@@ -278,6 +279,9 @@ export component TierFormTab inherits VerticalLayout {
     property <bool> meet_pick_shown: root.has_loaded_tier && root.selection_is_loaded && root.tier_constraint_kind <= 1;
     // Pick mode is on for the tier this form shows.
     property <bool> picking: ManipulateModel.pick_mode && root.selection_is_loaded;
+    // The pick does not hold: its corner is cut away (3) or lost (4). Not while the row waits for a
+    // solve (5), which says nothing about the corner yet.
+    property <bool> pick_failed: EditorModel.meet_pick_state == 3 || EditorModel.meet_pick_state == 4;
     // The loaded tier's name for the row's tooltips; "tier N" while it has none.
     property <string> pick_tier_name: root.has_loaded_tier
         ? (EditorModel.tiers[root.loaded_tier_index].name != "" ? EditorModel.tiers[root.loaded_tier_index].name : "tier \{root.loaded_tier_index + 1}")
@@ -301,8 +305,18 @@ export component TierFormTab inherits VerticalLayout {
     // uses it, so the segment index is the meet kind less one past it.
     property <bool> meets_full: root.advanced || root.tier_constraint_kind == 2;
     property <int> meets_picked: root.meets_full || root.tier_constraint_kind < 2 ? root.tier_constraint_kind : root.tier_constraint_kind - 1;
+    // What the value field holds for a meet kind: 0 nothing (vertex), 1 facet names, 2 a number.
+    pure function meet_value_family(kind: int) -> int {
+        return kind <= 1 ? kind : 2;
+    }
     function pick_meet(i: int) {
-        root.tier_constraint_kind = root.meets_full || i < 2 ? i : i + 1;
+        let kind = root.meets_full || i < 2 ? i : i + 1;
+        // The text of one family means nothing in another (a scale value is no facet name, and
+        // facet names are no number): the field starts empty rather than being applied as is.
+        if root.meet_value_family(kind) != root.meet_value_family(root.tier_constraint_kind) {
+            root.tier_constraint_text = "";
+        }
+        root.tier_constraint_kind = kind;
         root.clear_field_error("constraint");
         // A kind that needs a value waits for the value field; the vertex needs none.
         if root.tier_constraint_kind == 0 || root.tier_constraint_text != "" {
@@ -667,7 +681,7 @@ export component TierFormTab inherits VerticalLayout {
         tooltip: "Which corner this facet is cut to. Pick it in the view when the named facets meet in more than one corner. See the glossary.";
         MeetChip {
             text: root.picking ? "Picking in the view\u{2026}" : EditorModel.meet_pick_chip;
-            tone: root.picking ? 1 : (EditorModel.meet_pick_state == 1 ? 2 : (EditorModel.meet_pick_state >= 3 ? 3 : (EditorModel.meet_pick_state == 2 ? 4 : 0)));
+            tone: root.picking ? 1 : (EditorModel.meet_pick_state == 1 ? 2 : (root.pick_failed ? 3 : (EditorModel.meet_pick_state == 2 ? 4 : 0)));
         }
         if root.picking: TipButton {
             enabled: root.unlocked;
@@ -681,10 +695,10 @@ export component TierFormTab inherits VerticalLayout {
         }
         if !root.picking: TipButton {
             enabled: root.unlocked && ManipulateModel.pick_available;
-            text: EditorModel.meet_pick_state == 0 ? "Pick in View" : (EditorModel.meet_pick_state >= 3 ? "Pick Again" : "Pick\u{2026}");
-            reader_label: EditorModel.meet_pick_state == 0 ? "Pick Meet Point in View" : (EditorModel.meet_pick_state >= 3 ? "Pick Meet Point Again" : "Pick Meet Point");
+            text: EditorModel.meet_pick_state == 0 ? "Pick in View" : (root.pick_failed ? "Pick Again" : "Pick\u{2026}");
+            reader_label: EditorModel.meet_pick_state == 0 ? "Pick Meet Point in View" : (root.pick_failed ? "Pick Meet Point Again" : "Pick Meet Point");
             hint: ManipulateModel.pick_available ? root.pick_hint : ManipulateModel.pick_blocked_reason;
-            primary: EditorModel.meet_pick_state >= 3;
+            primary: root.pick_failed;
             clicked => {
                 ManipulateModel.pick_mode = true;
                 ManipulateModel.pick_toggled();
@@ -702,7 +716,7 @@ export component TierFormTab inherits VerticalLayout {
         padding-left: FormRowMetrics.field_start;
         WrapNote {
             text: EditorModel.meet_pick_note;
-            ink: EditorModel.meet_pick_state >= 3 ? Theme.accent-amber : Theme.text-muted;
+            ink: root.pick_failed ? Theme.accent-amber : Theme.text-muted;
         }
     }
     // Red border for an invalid index (off the gear, repeated, or not a number).
@@ -733,6 +747,7 @@ export component TierFormTab inherits VerticalLayout {
     // Name and Indices are not touched.
     if root.loaded_tier_index < 0: TipButton {
         enabled: root.unlocked;
+        show_hint: root.unlocked;
         text: "Girdle Facet Preset (90\u{b0}, Scale = 1)";
         hint: "Fill in a real girdle facet: angle 90\u{b0} and Meets set to the exact\nscale value 1 (the girdle's half-width). Name and Indices stay as\nthey are, and nothing is added until you press Add. See the glossary.";
         clicked => {

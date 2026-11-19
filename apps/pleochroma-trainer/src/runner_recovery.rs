@@ -22,7 +22,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use super::{
     DatasetSplit, DeviceChoice, MaterialLabel, RunConfig, RunnerError, RunnerStats, TrainingRunner,
     draw_weights,
-    envs::{EnvKind, Slot, build_env_from_episode, pick_target, sampled_source_material},
+    envs::{
+        EnvKind, EpisodePosition, Slot, build_env_from_episode, pick_target,
+        sampled_source_material,
+    },
     eval::OracleCache,
     imitation::LabelledStates,
     label_cache::{CacheSnapshot, LabelCache},
@@ -33,7 +36,8 @@ use super::{
 };
 
 const VERSION: u32 = 1;
-const ROLLOUT_SCHEDULER_REVISION: u32 = 1;
+const ROLLOUT_SCHEDULER_REVISION: u32 = 2;
+const PPO_RETURN_REVISION: u32 = 1;
 
 #[derive(Serialize, Deserialize)]
 struct SlotState {
@@ -44,6 +48,25 @@ struct SlotState {
     episode: EpisodeSnapshot,
     observation: GemstoneObservation,
     label_cache: Option<CacheSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scheduled_pos: Option<usize>,
+}
+
+/// Legacy slots recorded only the successfully built entry. All positions reachable by
+/// striding from this worker share its residue modulo gcd(workers, train_len). Rewind a
+/// displaced position to the closest preceding one on that cycle, including across wrap.
+const fn legacy_scheduled_pos(
+    selected: usize,
+    worker: usize,
+    workers: usize,
+    train_len: usize,
+) -> usize {
+    let (mut period, mut remainder) = (train_len, workers);
+    while remainder != 0 {
+        (period, remainder) = (remainder, period % remainder);
+    }
+    let rewind = (selected % period + period - worker % period) % period;
+    (selected + train_len - rewind) % train_len
 }
 
 impl SlotState {
@@ -54,22 +77,49 @@ impl SlotState {
         };
         Ok(Self {
             seed: slot.seed,
-            pos: slot.pos,
+            pos: slot.position.selected,
             entry: slot.entry,
             rejected_steps: slot.rejected_steps,
             episode,
             observation: slot.obs.clone(),
             label_cache: slot.label_cache.snapshot(slot.env.current_design())?,
+            scheduled_pos: Some(slot.position.scheduled),
         })
     }
 
-    fn restore(self, cfg: &RunConfig, split: &DatasetSplit) -> Result<Slot, RunnerError> {
+    fn restore(
+        self,
+        cfg: &RunConfig,
+        split: &DatasetSplit,
+        worker: usize,
+    ) -> Result<Slot, RunnerError> {
         if !split.train.contains(&self.entry)
             || self.pos >= split.train.len()
             || (cfg.corpus_mode && split.train[self.pos] != self.entry)
         {
             return Err(RunnerError::Data(
                 "recovery slot is outside its training split".into(),
+            ));
+        }
+        let candidate = self.scheduled_pos.unwrap_or(self.pos);
+        if candidate >= split.train.len() {
+            return Err(RunnerError::Data(
+                "recovery slot is outside its training split".into(),
+            ));
+        }
+        let scheduled = if cfg.corpus_mode {
+            legacy_scheduled_pos(
+                candidate,
+                worker,
+                cfg.effective_workers(),
+                split.train.len(),
+            )
+        } else {
+            0
+        };
+        if self.scheduled_pos.is_some_and(|saved| saved != scheduled) {
+            return Err(RunnerError::Data(
+                "recovery slot has an invalid scheduled training position".into(),
             ));
         }
         let item = split
@@ -111,7 +161,10 @@ impl SlotState {
         Ok(Slot {
             seed: self.seed,
             env,
-            pos: self.pos,
+            position: EpisodePosition {
+                scheduled,
+                selected: self.pos,
+            },
             entry: self.entry,
             src,
             tgt,
@@ -155,7 +208,7 @@ fn restore_slots(
                 count,
                 state.entry,
             ));
-            let mut slot = state.restore(cfg, split)?;
+            let mut slot = state.restore(cfg, split, index)?;
             if let Some(execution) = execution {
                 // Preparation stays in the bounded worker and inside this slot's task lifetime.
                 task.update_detail(format!(
@@ -180,6 +233,8 @@ struct RunnerState {
     rollout_scheduler_revision: u32,
     #[serde(default = "legacy_imitation_objective_revision")]
     imitation_objective_revision: u32,
+    #[serde(default)]
+    ppo_return_revision: u32,
     obs_layout_version: u32,
     #[serde(default = "legacy_environment_math")]
     environment_math: String,
@@ -202,6 +257,9 @@ struct RunnerState {
     /// Field-level corpus identity; absent in bundles written before it existed.
     #[serde(default)]
     semantic_corpus: Option<SemanticIdentity>,
+    /// Older bundles verified behavior targets at unit scale for every line search.
+    #[serde(default)]
+    verifies_rollout_scale: bool,
 }
 
 /// The refusal of a changed corpus, before any field-level detail.
@@ -338,6 +396,7 @@ impl TrainingRunner {
             version: VERSION,
             rollout_scheduler_revision: ROLLOUT_SCHEDULER_REVISION,
             imitation_objective_revision: IMITATION_OBJECTIVE_REVISION,
+            ppo_return_revision: PPO_RETURN_REVISION,
             obs_layout_version: OBS_LAYOUT_VERSION,
             environment_math: self.environment_math().to_owned(),
             config: config_identity(self),
@@ -359,6 +418,7 @@ impl TrainingRunner {
             oracle_cache: self.oracle_cache.clone(),
             semantic_config: Some(recovery_identity::config_identity(&self.cfg)),
             semantic_corpus: Some(recovery_identity::corpus_identity(&self.split)),
+            verifies_rollout_scale: true,
         };
         self.updater.save_training_state(directory)?;
         write_state(&directory.join("runner-state.mpk"), &state)?;
@@ -407,6 +467,20 @@ impl TrainingRunner {
             return Err(RunnerError::Data(format!(
                 "unsupported rollout scheduler revision {}",
                 state.rollout_scheduler_revision
+            )));
+        }
+        if state.rollout_scheduler_revision >= 2
+            && state.slots.iter().any(|slot| slot.scheduled_pos.is_none())
+        {
+            return Err(RunnerError::Data(
+                "recovery slot is missing its scheduled training position".into(),
+            ));
+        }
+        if self.cfg.algo == super::Algorithm::Ppo && state.ppo_return_revision > PPO_RETURN_REVISION
+        {
+            return Err(RunnerError::Data(format!(
+                "unsupported PPO return revision {}",
+                state.ppo_return_revision
             )));
         }
         if self.cfg.algo == super::Algorithm::Imitation
@@ -509,23 +583,39 @@ impl TrainingRunner {
             && state.imitation_objective_revision < IMITATION_OBJECTIVE_REVISION
         {
             self.warnings.push(format!(
-                "Recovery imitation objective revision {} migrated to {}; subsequent gradients use robust component regression, balanced action Huber and bounded direction loss. Learned weights, optimizer moments and replay were retained as intentional continued training. This is not a bitwise continuation of the old objective's optimizer trajectory.",
+                "Recovery imitation objective revision {} migrated to {}; subsequent gradients use per-sample component regression and measured action evidence. Learned weights and optimizer moments were retained. Earlier losses use their recorded objective revision.",
                 state.imitation_objective_revision,
                 IMITATION_OBJECTIVE_REVISION,
             ));
         }
-        if state.rollout_scheduler_revision < ROLLOUT_SCHEDULER_REVISION
-            && self.cfg.algo == super::Algorithm::Imitation
-        {
+        if state.rollout_scheduler_revision < 1 && self.cfg.algo == super::Algorithm::Imitation {
             self.warnings.push(format!(
-                "Recovery scheduler revision {} migrated to {}; imitation rollout streams now use deterministic per-slot RNG and fixed quotas. Existing labels and replay were retained; bitwise action replay across this scheduler change is not promised.",
+                "Recovery scheduler revision {} migrated to 1; imitation rollout streams now use deterministic per-slot RNG and fixed quotas. Existing labels and replay were retained; bitwise action replay across this scheduler change is not promised.",
                 state.rollout_scheduler_revision,
-                ROLLOUT_SCHEDULER_REVISION,
             ));
         }
+        if state.rollout_scheduler_revision < 2 && self.cfg.corpus_mode {
+            self.warnings.push("Recovery migrated the corpus schedule to revision 2. Each worker continues on its assigned cycle after a design fails to build. Current episodes and replay were retained.".into());
+        }
         self.stats = state.stats;
+        if self.cfg.algo == super::Algorithm::Ppo && state.ppo_return_revision < PPO_RETURN_REVISION
+        {
+            self.normalizer.reset();
+            self.stats.reward_scale = self.normalizer.scale();
+            self.warnings.push("PPO recovery retained weights, optimizer and episodes. The finite-horizon return and shape reward changed; the running return scale will be estimated from new rewards.".into());
+        }
         self.oracle_cache = state.oracle_cache;
         self.invalidate_changed_environment_labels(&state.environment_math, cached_labels);
+        if !state.verifies_rollout_scale && self.cfg.line_search.first() != Some(&1.0) {
+            self.aggregate.discard_behavior_targets();
+            for slot in &mut self.slots {
+                slot.label_cache = LabelCache::default();
+            }
+            self.oracle_cache = None;
+            self.warnings.push(
+                "Cleared legacy unit-scale action and gain targets for this custom line search. Retained derivative labels still describe the measured probes.".into(),
+            );
+        }
         // A completed rollout was already consumed by the saved optimizer; collect_rollout
         // clears these on the next iteration as well. There is no partial PPO batch to resume.
         self.clear_rollout();

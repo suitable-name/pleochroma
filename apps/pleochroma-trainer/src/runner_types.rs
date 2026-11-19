@@ -5,7 +5,7 @@
 //! "improvement" is `base score - final score` (never negative: the environments are greedy).
 
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use pleochroma_ai::{
     env::{GlobalFeature, StepRejection, TeacherLabel},
@@ -109,9 +109,30 @@ pub(super) const fn bucket(rejection: Option<StepRejection>) -> Bucket {
     }
 }
 
+/// Fixed-size accounting kept after a streaming worker releases its measured tier labels.
+#[derive(Clone, Copy)]
+pub(super) struct LabelSummary {
+    pub(super) informative: bool,
+    evaluations: usize,
+    gain: Option<f32>,
+}
+
+impl From<&TeacherLabel> for LabelSummary {
+    fn from(label: &TeacherLabel) -> Self {
+        Self {
+            informative: label_is_informative(label),
+            evaluations: label.evaluations,
+            gain: label.oracle_gain.filter(|gain| gain.is_finite()),
+        }
+    }
+}
+
 /// Result of a rollout.
 #[derive(Debug, Default)]
 pub struct RolloutStats {
+    stepped_entries: BTreeSet<usize>,
+    stepped_families: BTreeSet<i64>,
+    fresh_label_entries: BTreeSet<usize>,
     /// Collection diagnostics for this rollout.
     pub diagnostics: TrainingDiagnostics,
     /// Environment steps collected.
@@ -153,6 +174,21 @@ pub struct RolloutStats {
 }
 
 impl RolloutStats {
+    /// Count the active entry before the slot starts a new episode.
+    pub(super) fn record_step_entry(&mut self, entry: usize, split: &super::DatasetSplit) {
+        if self.stepped_entries.insert(entry) {
+            self.stepped_families.insert(split.family_by_entry[entry]);
+            self.diagnostics.stepped_entries = self.stepped_entries.len();
+            self.diagnostics.stepped_families = self.stepped_families.len();
+        }
+    }
+
+    pub(super) fn record_retained_label(&mut self, entry: usize) {
+        self.diagnostics.labels_added += 1;
+        self.fresh_label_entries.insert(entry);
+        self.diagnostics.fresh_label_entries = self.fresh_label_entries.len();
+    }
+
     /// Counts one step's outcome in its rejection bucket.
     pub(super) const fn count_rejection(&mut self, rejection: Option<StepRejection>) {
         if matches!(rejection, Some(StepRejection::PreservationViolation)) {
@@ -173,14 +209,18 @@ impl RolloutStats {
     /// Folds one finished label into the totals: the candidates it cost always, the sample and
     /// its oracle gain when it carries anything to learn. Returns whether it does.
     pub(super) fn record_label(&mut self, label: &TeacherLabel) -> bool {
-        self.label_evaluations += label.evaluations;
-        if let Some(gain) = label.oracle_gain.filter(|gain| gain.is_finite()) {
+        let summary = LabelSummary::from(label);
+        self.record_label_summary(summary);
+        summary.informative
+    }
+
+    pub(super) fn record_label_summary(&mut self, summary: LabelSummary) {
+        self.label_evaluations += summary.evaluations;
+        if let Some(gain) = summary.gain {
             self.oracle_gain_sum += gain;
             self.oracle_gain_n += 1;
         }
-        let informative = label_is_informative(label);
-        self.labels += usize::from(informative);
-        informative
+        self.labels += usize::from(summary.informative);
     }
 
     /// Mean oracle gain (points) of the rollout's labels; `None` when no label had one.
@@ -442,6 +482,10 @@ pub struct EvalReport {
     pub mean_base_score: f32,
     /// Mean score after the deterministic (policy mean) episode.
     pub mean_final_score: f32,
+    /// Full score after strict endpoint adoption and certification, averaged over the complete
+    /// cohort. Missing for partial cohorts and reports saved before endpoint validation.
+    #[serde(default)]
+    pub mean_deployed_score: Option<f32>,
     /// Mean score drop of the deterministic episode.
     pub mean_improvement: f32,
     /// Mean score drop of one stochastic episode per design (actions drawn and projected as in
@@ -473,6 +517,11 @@ pub struct EvalReport {
     pub cases: Vec<EvalCase>,
 }
 
+impl EvalReport {
+    /// Identifies the scoring, rollout stopping and reference policy used by current reports.
+    pub const REVISION: u32 = 4;
+}
+
 /// One held-out design outcome and the exact sampled task context.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EvalCase {
@@ -494,6 +543,17 @@ pub struct EvalCase {
     pub shape_target: String,
     pub base_score: Option<f32>,
     pub final_score: Option<f32>,
+    /// Full-fidelity score of the starting design in this case's objective and material.
+    #[serde(default)]
+    pub deployment_base_score: Option<f32>,
+    /// Certified Full-fidelity endpoint. A refused proposal retains the starting score.
+    #[serde(default)]
+    pub deployed_score: Option<f32>,
+    /// Steps and scored candidates in the deployment rollout, excluding endpoint reporting.
+    #[serde(default)]
+    pub deployment_steps: Option<usize>,
+    #[serde(default)]
+    pub deployment_evaluations: Option<usize>,
     pub score_drop: Option<f32>,
     pub accepted: Option<bool>,
     pub evaluations: usize,

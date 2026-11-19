@@ -18,7 +18,9 @@ name: Build Worker
 # only), built with plain rustc and copied to the program's name.
 #
 # Runs when a release is published, from the release's tag, and by hand for an existing release.
-# The tag must match the workspace version (v0.12.0 for 0.12.0). One PGO build takes about
+# A run by hand builds the release's source with the build scripts (scripts/) of the branch it
+# was started on, so a script fix can rebuild an existing release without moving its tag.
+# The tag must match the workspace version (v0.12.1 for 0.12.1). One PGO build takes about
 # 1.5 to 3 hours; the eight run in parallel.
 
 on:
@@ -113,6 +115,22 @@ jobs:
           ref: ${{ needs.prepare.outputs.tag }}
           persist-credentials: false
 
+      # A run started by hand takes scripts/ from the branch it was started on, so a fixed build
+      # script can rebuild an existing release without moving its tag.
+      - name: Take the build scripts from the run's branch
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v7.0.1
+        with:
+          path: ci-scripts
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Use those build scripts
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          Copy-Item -Recurse -Force ci-scripts/scripts/* scripts/
+          Remove-Item -Recurse -Force ci-scripts
+
       - name: Check that the tag matches the workspace version
         run: |
           $toml = Get-Content Cargo.toml -Raw
@@ -186,6 +204,21 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.tag }}
           persist-credentials: false
+
+      # As in the Windows job: a run started by hand uses the branch's build scripts.
+      - name: Take the build scripts from the run's branch
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v7.0.1
+        with:
+          path: ci-scripts
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Use those build scripts
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cp -a ci-scripts/scripts/. scripts/
+          rm -rf ci-scripts
 
       - name: Check that the tag matches the workspace version
         run: |

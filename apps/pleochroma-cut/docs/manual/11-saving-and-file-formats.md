@@ -141,6 +141,12 @@ facets (Chapter 4, "Frosting a Tier") are written the way Gem Cut Studio states
 them, and a frosted tier or facet stated in a `.gcs` file comes back when the
 file is opened or imported; `.asc` has no notation for frosting.
 
+A refractive-index range that a designer states in a `.gcs` file (its `ri_min` and
+`ri_max`) comes with the file into the design, where it is preselected as **From File**
+(Chapter 6, "The RI Range Field"). The export writes `ri_min` and `ri_max` back only
+when the design's range is the designer's own statement, typed or from a file. The
+Pleochroma estimate is never written into a `.gcs`.
+
 ## Opening `.gem` and `.gcs` Files in the Editor
 
 **Open** also accepts a GemCAD `.gem` file or a Gem Cut Studio `.gcs`
@@ -311,7 +317,11 @@ again from them:
   source's own design id, shape and shape category, competition label, the
   names of its PDF and `.gem` file, your notes, tags, licence and copyright
   text, the creation and last-save times, and the *ignored* and *excluded from
-  the Rough Planner* marks.
+  the Rough Planner* marks. Three more keys belong to the RI range field of the Design
+  Settings panel (Chapter 6): `ri_min` and `ri_max`, the typed or stated range, and
+  `ri_range_source`, which says whose statement it is (`designer`) or that the design
+  asks for the Pleochroma estimate (`estimate`). They are written only when the field is
+  not Off, and the estimate is never stored as a number.
 - **Stone render effects** (the optional `[render_effects]` table): the Stone tab's
   inclusion haze (`inclusion_sigma_s`), crystal-axis orientation
   (`c_axis_override_enabled`, `c_axis_tilt_deg`, `c_axis_azimuth_deg`, and
@@ -549,9 +559,10 @@ value with nothing to print reads "-" rather than a guess.
   does not measure (it does not close, or it has no girdle to take the crown
   and pavilion from).
 - **Design Data.** Five rows. "RI range" gives the design's refractive-index
-  range ("1.43 to 2.62") when one is given, else the design's own index with
-  its material, for example "1.540 (Quartz?)" — a question mark means the
-  material is a guess from the index, not a name you set. "Size range" gives
+  range when one is stated, else the design's own index with its material, for
+  example "1.540 (Quartz?)" — a question mark means the material is a guess from
+  the index, not a name you set. Whoever stated the range decides how it prints,
+  and the material always stays on the row (see "The RI Range Row" below). "Size range" gives
   the size range in millimetres when one is given, else the girdle diameter
   you set, else "-". Then the symmetry ("8-fold, mirror" or "8-fold"), the
   index gear ("96 Index") and the shape.
@@ -612,7 +623,7 @@ follow it. The plain-text version of the sheet follows the same rules.
   letter, in the order the tiers are cut, so P and G count on their own even
   when they alternate (P1, P2, G1, G2, P3). A concave tier carries on the
   count of its side: after the flat tiers P1 and P2, a concave pavilion tier
-  is P3. The tier table's CODE column (Chapter 3) shows the same codes.
+  is P3. The code at the start of each tier row in the tier table (Chapter 3) shows the same codes.
 - **Instruction.** The text on each row starts with the tier's own name when
   it is more than an old-style name such as 1 or A: "Crown Main: Meet P1, P2".
   A tier that meets named facets prints the codes of those facets, in the order
@@ -699,6 +710,32 @@ A row whose Meets box names facets ("Meet P1, P2", set in the tier form)
 prints those names, and a note recorded in an imported `.asc` file prints
 as the designer wrote it; the sheet does not reword either.
 
+**Two shorter wordings.** Where a tier's meet is simply a point the cutter can find
+without a list of codes, the sheet says so:
+
+- **"Meet P1 at centerpoint"** (no full stop). A tier that meets a corner of the stone
+  cut so far prints this when every point its facets pass through lies on the axis of
+  the stone. Crown tiers that close on an apex get the same wording. The tier that is
+  the centerpoint itself keeps "Cut to centerpoint.". If one facet of the tier also
+  passes through a point off the axis, the tier keeps the plain list of codes.
+- **"Cut to level girdle."** A crown or pavilion tier (not a girdle tier, not the table,
+  not an anchor) prints this when all of its facets end on the girdle line that the
+  earlier tiers set on that side: the lower line for a pavilion tier, the upper line for
+  a crown tier, all at one height. It applies only when the finished stone has a level
+  girdle and the tier is not one of those that cut into it. A tier that cuts into the
+  girdle keeps its "Meet ..." list, and the Check (Chapter 5) speaks. A design with
+  no level girdle gets no such row.
+
+Both only replace the words of a row that already had a list of codes. A tier you gave
+a Meets list by hand, and a note recorded in an imported `.asc` file, keep your own
+words. Sentences end with a full stop ("Cut to centerpoint.", "Set stone size.", "Cut to
+level girdle."); lists of meets do not ("Meet P1, G1, P2", "Meet P1 at centerpoint").
+
+**Pentalume, re-issued.** The meet-point re-issue of Pentalume prints these rows: P1 "Cut to
+centerpoint.", G1 "Set stone size.", P2 "Meet P1 at centerpoint", G2 "Meet P1, G1, P2"
+(a girdle tier keeps its list), P3 "Cut to level girdle.", C1 "Set girdle width.", C2 and
+C3 "Cut to level girdle.", and the table "Meet C1, C3".
+
 **An example.** In the first Pentalume design, P2 and P1 share a corner on the
 finished stone, but that corner appears only after P2 is cut. When P2 is cut,
 its facets pass 0.12 mm from the nearest corner of the stone cut so far (on a
@@ -753,6 +790,31 @@ tier but the anchors meets a point and nothing was cut away, and with 4
 when some tier still has none or facets were cut away (the new file is
 written all the same). `pleochroma-cli snap-meets --help` lists every
 option.
+
+### The RI Range Row
+
+The sheet's "RI range" row in the Design Data block follows the design's **RI range**
+field, which sits in the Design Settings panel (Chapter 6, "The RI Range Field"). The
+cutting sheet has no export dialog of its own, so the export stays one click. Whoever
+stated the range decides how it prints, and the material always stays on the row:
+
+| The field says | The row reads |
+|---|---|
+| Off (the default when the file states no range) | `1.768 (Sapphire)` |
+| From File | the range as the file states it, for example `1.70 to 2.15 (Sapphire 1.768)` |
+| Type | the range as you typed it, for example `1.58 and up (Sapphire 1.768)` or `1.54 to 1.80 (Sapphire 1.768)` |
+| Pleochroma estimate | the traced range, labelled as an estimate, for example `1.58 and up (Pleochroma estimate; Sapphire 1.768)` |
+
+A range stated in the file is never replaced silently. The estimate is written from the
+design as it is when the sheet is written; if it is not computed yet, the export shows
+"Computing the RI range..." with **Cancel**, which writes the sheet without the range.
+The estimate may show an upper end as well ("1.58 to 2.31") once the app counts it as
+reliable; until then the sheet gives the lower end followed by "and up". The value is
+long, so the PDF, the HTML page and the text sheet all break it before the parenthesis
+into two lines.
+
+The geometric hint of Chapter 6 ("Pavilion needs RI 1.50 or more") is never printed
+on a sheet: it holds only for light entering through the table.
 
 ## Unsaved changes
 

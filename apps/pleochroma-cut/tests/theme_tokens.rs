@@ -205,6 +205,20 @@ const CONVERTED_FILES: &[&str] = &[
     "components/rough_planner/state.slint",
     "components/rough_planner/step_card.slint",
     "components/rough_planner/stone_rows.slint",
+    // The Render Jobs rows, menu, Edit and Copy dialogs and the Load Job View banner, the RI chart,
+    // the RI range batch, the material reference's designs card and the tilt words: tokens only.
+    // The RI chart's series use the chart tokens, so it needs no data allowance.
+    "components/render_jobs/job_row.slint",
+    "components/render_jobs/job_row_menu.slint",
+    "components/render_jobs/jobs_panel.slint",
+    "components/render_jobs/job_edit_dialog.slint",
+    "components/render_jobs/copy_materials.slint",
+    "components/render_jobs/job_view_banner.slint",
+    "components/ri_chart/ri_chart_dialog.slint",
+    "components/ri_chart/ri_chart_plot.slint",
+    "components/ri_range_batch_dialog.slint",
+    "components/material_reference/designs_card.slint",
+    "shared/tilt_windows.slint",
 ];
 
 /// Converted files that still hold colours which are DATA, not chrome: the body colours a

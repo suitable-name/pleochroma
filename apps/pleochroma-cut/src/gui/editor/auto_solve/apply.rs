@@ -330,8 +330,8 @@ fn push_viewport_after_background_solve(
         None
     };
     let mut ctx = RenderContext::lock(render_ctx);
-    // A Library pick made while this solve ran keeps the viewport. The editor's next load
-    // or edit claims it back, so this claim must not override it.
+    // A Library pick or a job view made while this solve ran keeps the viewport. The
+    // editor's next load or edit claims it back, so this claim must not override it.
     if ctx.library_took_over_since(started_generation) {
         return false;
     }

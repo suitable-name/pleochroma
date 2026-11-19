@@ -314,11 +314,13 @@ fn editing() -> Vec<TableEntry> {
             Perform::select("Crown Main").then(Perform::command(CMD_DUPLICATE)),
         ),
         recipe(moving, "Move a tier up", Perform::move_up("Girdle", 1)),
-        // Far more places than the table has rows: the row stops at the top.
+        // After step 1 the pavilion sits one row below the girdle, so one move puts it first; a
+        // second is spare (the row stops at the top), and every move costs a palette round in
+        // the filmed lesson.
         recipe(
             moving,
             "Put the pavilion first",
-            Perform::move_up("Pavilion Main", 12),
+            Perform::move_up("Pavilion Main", 2),
         ),
         recipe(delete, "Remove a tier", Perform::delete("Table")),
         recipe(delete, "Take it back", Perform::undo()),

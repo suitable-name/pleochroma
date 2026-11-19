@@ -26,8 +26,7 @@ pub(super) fn masked_sens_huber(hat: Tensor<3>, target: Tensor<3>, mask: Tensor<
     let quadratic = abs_error.clone().clamp(0.0, HUBER_DELTA);
     let linear = abs_error - quadratic.clone();
     let error = (quadratic.clone() * quadratic).mul_scalar(0.5) + linear.mul_scalar(HUBER_DELTA);
-    let per_sample =
-        error.sum_dim(1).sum_dim(2) / n_per_sample.clone().clamp(1.0, COUNT_CLAMP_MAX);
+    let per_sample = error.sum_dim(1).sum_dim(2) / n_per_sample.clone().clamp(1.0, COUNT_CLAMP_MAX);
     let labelled = n_per_sample.clamp(0.0, 1.0);
     (per_sample * labelled.clone()).sum() / labelled.sum().clamp(1.0, COUNT_CLAMP_MAX)
 }
@@ -126,6 +125,22 @@ pub(super) fn bounded_direction_loss(
     (per_sample * labelled).sum() / samples
 }
 
+/// Prefer abstention to repeating a measured failed proposal. Only its direction contributes
+/// a gradient. The bisector between zero and the failed proposal leaves smaller moves and
+/// orthogonal directions unpenalized. Averaging over supported coordinates bounds the loss.
+pub(super) fn rejected_direction_loss(action: Tensor<2>, failed: Tensor<2>) -> Tensor<1> {
+    let length_sq = (failed.clone() * failed.clone()).sum_dim(1);
+    let count = failed.clone().abs().greater_elem(0.0).float().sum_dim(1);
+    let supported = length_sq.clone().greater_elem(NORM_SQ_EPS).float();
+    // A prediction is closer to v than to zero iff a·v > |v|²/2.
+    let along = burn::tensor::activation::relu(
+        (action * failed).sum_dim(1) - length_sq.clone().mul_scalar(0.5),
+    );
+    let loss = along.clone() * along
+        / (length_sq.clamp(NORM_SQ_EPS, COUNT_CLAMP_MAX) * count.clamp(1.0, COUNT_CLAMP_MAX));
+    (loss * supported.clone()).sum() / supported.sum().clamp(1.0, COUNT_CLAMP_MAX)
+}
+
 /// The device-side loss terms of one mini-batch, each of shape `[1]`.
 pub(super) struct LossTerms {
     pub(super) total: Tensor<1>,
@@ -153,17 +168,22 @@ pub(super) fn imitation_terms(
     );
     let sens_mse = masked_sens_mse(out.sensitivities, labels.sens_target, labels.sens_mask);
     let action = out.mean.tanh();
+    let positive_mask =
+        labels.action_mask.clone() * (labels.rejected.clone().mul_scalar(-1.0).add_scalar(1.0));
+    let failed = labels.action_target.clone() * labels.action_mask * labels.rejected;
+    let negative_loss = rejected_direction_loss(action.clone(), failed);
     let (cosine, _) = masked_cosine(
         action.clone(),
         labels.action_target.clone(),
-        labels.action_mask.clone(),
+        positive_mask.clone(),
     );
     let direction_loss = bounded_direction_loss(
         action.clone(),
         labels.action_target.clone(),
-        labels.action_mask.clone(),
+        positive_mask.clone(),
     );
-    let action_loss = balanced_action_huber(action, labels.action_target, labels.action_mask);
+    let action_loss =
+        balanced_action_huber(action, labels.action_target, positive_mask) + negative_loss;
     let gain_loss = masked_huber(out.gain, labels.gain_target, labels.gain_mask);
     let total = sens_huber
         + direction_loss.mul_scalar(config.cosine_coeff)

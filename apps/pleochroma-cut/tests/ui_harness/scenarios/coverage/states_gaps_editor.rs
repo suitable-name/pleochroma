@@ -495,7 +495,7 @@ fn orbit_column(a: &HarnessApp) {
 /// The Tune view on a design that left its Baseline (one nudge), tier 0 selected. Jump to Best
 /// waits for the mini sweep behind the chart; when no result arrives in time the flag the sweep
 /// would set is written so the button can be pressed.
-fn tune_buttons(a: &HarnessApp) {
+pub(super) fn tune_buttons(a: &HarnessApp) {
     inspector(a, 2);
     let tune = a.ui().global::<TuneModel>();
     tune.set_active(true);

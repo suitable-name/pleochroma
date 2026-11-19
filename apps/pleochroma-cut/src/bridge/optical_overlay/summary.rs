@@ -7,8 +7,10 @@ use std::fmt::Write as _;
 /// is not the HUD's grid value.
 pub(super) fn summary_text(map: &OpticalImage, with_scintillation: bool) -> String {
     let f = map.total.fractions();
+    // A no-break space joins each name to its value, so a narrow panel breaks the line between
+    // the shares and never leaves a value alone on the next line.
     let mut text = format!(
-        "Visible-Area Shares: W {:.1}% · E {:.1}% · B {:.1}% · Unknown {:.1}%",
+        "Visible-Area Shares: W\u{a0}{:.1}% · E\u{a0}{:.1}% · B\u{a0}{:.1}% · Unknown\u{a0}{:.1}%",
         f[0] * 100.0,
         f[1] * 100.0,
         f[2] * 100.0,
@@ -54,7 +56,7 @@ mod tests {
         let text = summary_text(&map(false), false);
         assert_eq!(
             text,
-            "Visible-Area Shares: W 25.0% · E 25.0% · B 50.0% · Unknown 0.0%"
+            "Visible-Area Shares: W\u{a0}25.0% · E\u{a0}25.0% · B\u{a0}50.0% · Unknown\u{a0}0.0%"
         );
         // Asked for but not computed: nothing is invented.
         assert_eq!(summary_text(&map(false), true), text);

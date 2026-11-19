@@ -10,15 +10,18 @@ use pleochroma_mobile_core::app_state::AppState;
 
 use crate::AppWindow;
 
+mod developer;
 mod files;
 mod prefs;
 mod shell;
 
+pub use developer::handle_dialog_result as handle_developer_dialog_result;
 pub use files::register_incoming;
 
 /// Connects every callback of the UI to its command.
 pub fn wire(window: &AppWindow, state: &Rc<RefCell<AppState>>) {
     shell::wire(window, state);
+    developer::wire(window, state);
     files::wire(window, state);
     prefs::wire(window, state);
     crate::remote::wire(window, state);

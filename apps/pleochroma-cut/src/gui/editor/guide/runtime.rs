@@ -220,6 +220,11 @@ pub(super) fn launch() -> Option<Launch> {
     with(|rt| rt.launch.clone())
 }
 
+/// Whether a guide is waiting for its starting design.
+pub(super) fn launch_pending() -> bool {
+    with(|rt| rt.launch.is_some())
+}
+
 /// Counts one more check against the launch in progress.
 pub(super) fn count_launch_tick() {
     with(|rt| {

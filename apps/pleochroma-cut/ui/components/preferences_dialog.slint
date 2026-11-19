@@ -146,7 +146,8 @@ component PreferenceSwitch inherits Rectangle {
     in property <bool> enabled: true;
     callback toggled();
 
-    height: 40px;
+    // 40px for a one-line detail; taller when the detail wraps.
+    height: max(40px, text_col.preferred-height + 12px);
     opacity: root.enabled ? 1.0 : 0.5;
     border-radius: Theme.radius-sm;
     background: switch_touch.has-hover ? Theme.surface-control-hover : transparent;
@@ -179,7 +180,7 @@ component PreferenceSwitch inherits Rectangle {
         padding-right: 8px;
         spacing: 12px;
 
-        VerticalLayout {
+        text_col := VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
             spacing: 2px;
@@ -194,7 +195,8 @@ component PreferenceSwitch inherits Rectangle {
                 text: root.detail;
                 font-size: 10px;
                 color: Theme.text-secondary;
-                overflow: elide;
+                // A long explanation wraps and the row grows, instead of ending in "...".
+                wrap: word-wrap;
             }
         }
 
@@ -385,6 +387,50 @@ export component PreferencesDialog inherits Rectangle {
                             toggled => {
                                 PreferencesModel.high_contrast = !PreferencesModel.high_contrast;
                                 PreferencesModel.high_contrast_changed(PreferencesModel.high_contrast);
+                            }
+                        }
+                    }
+
+                    // --- Figures -----------------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading { text: "Figures"; }
+                        HorizontalLayout {
+                            height: 30px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 12px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "Tilt Average Range";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            TipBox {
+                                width: 150px;
+                                hint: "How far from table up the tilt averages reach, on each of the four tilt axes. ±90° covers every tilt, down to edge-on. The choice applies at once to the tilt rows of Compare and of the Baseline figures; nothing is measured again. Optimize, Angle Sweep, Retarget and Tune always rate all tilts to ±90°.";
+                                ComboBox {
+                                    model: PreferencesModel.tilt_range_options;
+                                    current-index <=> PreferencesModel.tilt_range_index;
+                                    accessible-label: "Tilt Average Range";
+                                    selected(val) => {
+                                        PreferencesModel.tilt_range_changed(PreferencesModel.tilt_range_index);
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "Applies to Compare and the Baseline figures. Optimize and Angle Sweep always rate all tilts to ±90°.";
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                                accessible-role: AccessibleRole.text;
                             }
                         }
                     }

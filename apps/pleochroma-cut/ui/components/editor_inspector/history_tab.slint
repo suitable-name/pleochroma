@@ -146,7 +146,8 @@ component HistoryRowView inherits Rectangle {
                     overflow: elide;
                 }
                 Text {
-                    text: root.step.detail + (root.step.undone ? " · undone" : "");
+                    // The detail already says "Step 2, undone" for an undone step.
+                    text: root.step.detail;
                     font-size: 10px;
                     color: Theme.text-muted;
                     overflow: elide;

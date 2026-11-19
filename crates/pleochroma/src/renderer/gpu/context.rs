@@ -1,5 +1,6 @@
 //! Adapter/device acquisition for `pleochroma`'s `gpu`-feature compute infrastructure.
 
+use crate::diag::{self, Engine, PrepareStep, Step, StepKind};
 use std::{
     fmt,
     sync::{
@@ -230,88 +231,32 @@ impl GpuContext {
         )
     )]
     pub async fn acquire_async() -> Result<Self, GpuAcquireError> {
+        let engine = Engine::PathTraced;
         // One thread at a time creates an instance, an adapter and a device; the handles of a
         // failed attempt drop inside the same turn (`lifecycle`).
         #[cfg(not(target_arch = "wasm32"))]
         let turn = super::lifecycle::enter();
+        diag::set_prepare(engine, PrepareStep::StartingGpu, 0, 0);
+        let began = diag::process_ms();
         let instance = wgpu::Instance::new(instance_descriptor());
+        note_call_done(engine, "Instance::new", began);
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                force_fallback_adapter: false,
-                compatible_surface: None,
-                apply_limit_buckets: false,
-            })
-            .await
-            .map_err(|e| GpuAcquireError::NoAdapter(format!("{e:?}")))?;
-        // Remember which driver this is, so the app can offer the RADV scheduler workaround
-        // (`renderer::gpu_driver`) without touching wgpu itself.
-        let info = adapter.get_info();
-        crate::renderer::gpu_driver::record_adapter(&info.name, &info.driver, &info.driver_info);
-
-        // wgpu's default limits are the WebGPU baseline, where a compute stage may bind
-        // only 8 storage buffers. The transport megakernel binds
-        // `MEGAKERNEL_STORAGE_BUFFERS` and the wavefront kernels more, so ask for
-        // whatever the adapter really offers (bounded, so a huge Vulkan figure does not
-        // become a device requirement) and let `GpuFrameRenderer::new` decline cleanly
-        // when even that is not enough.
-        let adapter_limits = adapter.limits();
-        let (max_storage_buffer_binding_size, max_buffer_size) =
-            requested_buffer_sizes(&adapter_limits, LIFT_STORAGE_BINDING_LIMIT);
-        let required_limits = wgpu::Limits {
-            max_storage_buffer_binding_size,
-            max_buffer_size,
-            max_storage_buffers_per_shader_stage: adapter_limits
-                .max_storage_buffers_per_shader_stage
-                .clamp(
-                    wgpu::Limits::default().max_storage_buffers_per_shader_stage,
-                    MAX_REQUESTED_STORAGE_BUFFERS_PER_STAGE,
-                ),
-            // Separate from `max_storage_buffers_per_shader_stage`: the wavefront pipeline's
-            // implicit layout needs this one raised too (see `WAVEFRONT_BOUNCE_TOTAL_BUFFERS`).
-            max_buffers_and_acceleration_structures_per_shader_stage: adapter_limits
-                .max_buffers_and_acceleration_structures_per_shader_stage
-                .clamp(
-                    wgpu::Limits::default()
-                        .max_buffers_and_acceleration_structures_per_shader_stage,
-                    MAX_REQUESTED_BUFFERS_AND_ACCEL_PER_STAGE,
-                ),
-            ..Default::default()
-        };
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+        let adapter = request_adapter_logged(&instance, engine).await?;
+        let (device, queue) = request_device_logged(
+            &adapter,
+            engine,
+            &wgpu::DeviceDescriptor {
                 label: Some("pleochroma gpu-feature compute device"),
                 // Requested only where the adapter offers it (an empty set elsewhere), so
                 // `compute::create_pipeline_cache` returns a cache on Vulkan and `None`
                 // on every other backend.
                 required_features: adapter.features() & wgpu::Features::PIPELINE_CACHE,
-                required_limits,
+                required_limits: requested_limits(&adapter.limits()),
                 ..Default::default()
-            })
-            .await
-            .map_err(|e| GpuAcquireError::RequestDevice(format!("{e:?}")))?;
-
-        let validation_error_seen = Arc::new(AtomicBool::new(false));
-        let last_uncaptured_error = Arc::new(Mutex::new(None));
-        let lost_flag = Arc::clone(&validation_error_seen);
-        let lost_detail = Arc::clone(&last_uncaptured_error);
-        device.set_device_lost_callback(move |reason, message| {
-            tracing::warn!(?reason, %message, "wgpu device lost");
-            record_failure(
-                &lost_flag,
-                &lost_detail,
-                format!("device lost ({reason:?}): {message}"),
-                true,
-            );
-        });
-
-        let error_flag = Arc::clone(&validation_error_seen);
-        let error_detail = Arc::clone(&last_uncaptured_error);
-        device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
-            tracing::error!(%error, "wgpu uncaptured device error");
-            record_failure(&error_flag, &error_detail, error.to_string(), false);
-        }));
+            },
+        )
+        .await?;
+        let (validation_error_seen, last_uncaptured_error) = install_failure_handlers(&device);
 
         // The turn ends before the teardown fields exist: dropping them takes the turn again.
         #[cfg(not(target_arch = "wasm32"))]
@@ -319,6 +264,7 @@ impl GpuContext {
             drop(turn);
             super::lifecycle::teardown_pair()
         };
+        diag::clear_prepare(engine);
         Ok(Self {
             #[cfg(not(target_arch = "wasm32"))]
             _teardown_begin: teardown_begin,
@@ -334,6 +280,210 @@ impl GpuContext {
             _teardown_end: teardown_end,
         })
     }
+}
+
+/// The device limits [`GpuContext::acquire_async`] requests from an adapter.
+///
+/// wgpu's default limits are the WebGPU baseline, where a compute stage may bind only 8 storage
+/// buffers. The transport megakernel binds `MEGAKERNEL_STORAGE_BUFFERS` and the wavefront
+/// kernels more, so ask for whatever the adapter really offers (bounded, so a huge Vulkan
+/// figure does not become a device requirement) and let `GpuFrameRenderer::new` decline cleanly
+/// when even that is not enough.
+fn requested_limits(adapter_limits: &wgpu::Limits) -> wgpu::Limits {
+    let (max_storage_buffer_binding_size, max_buffer_size) =
+        requested_buffer_sizes(adapter_limits, LIFT_STORAGE_BINDING_LIMIT);
+    wgpu::Limits {
+        max_storage_buffer_binding_size,
+        max_buffer_size,
+        max_storage_buffers_per_shader_stage: adapter_limits
+            .max_storage_buffers_per_shader_stage
+            .clamp(
+                wgpu::Limits::default().max_storage_buffers_per_shader_stage,
+                MAX_REQUESTED_STORAGE_BUFFERS_PER_STAGE,
+            ),
+        // Separate from `max_storage_buffers_per_shader_stage`: the wavefront pipeline's
+        // implicit layout needs this one raised too (see `WAVEFRONT_BOUNCE_TOTAL_BUFFERS`).
+        max_buffers_and_acceleration_structures_per_shader_stage: adapter_limits
+            .max_buffers_and_acceleration_structures_per_shader_stage
+            .clamp(
+                wgpu::Limits::default().max_buffers_and_acceleration_structures_per_shader_stage,
+                MAX_REQUESTED_BUFFERS_AND_ACCEL_PER_STAGE,
+            ),
+        ..Default::default()
+    }
+}
+
+/// Registers the device-lost and uncaptured-error handlers of an acquired device.
+///
+/// Returns the sticky failure flag and the first failure text they fill.
+fn install_failure_handlers(
+    device: &wgpu::Device,
+) -> (Arc<AtomicBool>, Arc<Mutex<Option<String>>>) {
+    let validation_error_seen = Arc::new(AtomicBool::new(false));
+    let last_uncaptured_error = Arc::new(Mutex::new(None));
+    let lost_flag = Arc::clone(&validation_error_seen);
+    let lost_detail = Arc::clone(&last_uncaptured_error);
+    device.set_device_lost_callback(move |reason, message| {
+        tracing::warn!(?reason, %message, "wgpu device lost");
+        record_failure(
+            &lost_flag,
+            &lost_detail,
+            format!("device lost ({reason:?}): {message}"),
+            true,
+        );
+    });
+
+    let error_flag = Arc::clone(&validation_error_seen);
+    let error_detail = Arc::clone(&last_uncaptured_error);
+    device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
+        tracing::error!(%error, "wgpu uncaptured device error");
+        record_failure(&error_flag, &error_detail, error.to_string(), false);
+    }));
+    (validation_error_seen, last_uncaptured_error)
+}
+
+/// Writes the tracer line of a graphics-card start call that begins.
+pub(in crate::renderer::gpu) fn note_call_start(engine: Engine, call: &str) {
+    tracing::info!(
+        target: diag::TRACER_TARGET,
+        engine = engine.name(),
+        call,
+        state = "start",
+        "GPU start"
+    );
+}
+
+/// Writes the tracer line of a graphics-card start call that ended, with its time since `began`.
+pub(in crate::renderer::gpu) fn note_call_done(engine: Engine, call: &str, began: u64) {
+    tracing::info!(
+        target: diag::TRACER_TARGET,
+        engine = engine.name(),
+        call,
+        state = "done",
+        ms = diag::process_ms().saturating_sub(began),
+        "GPU start"
+    );
+}
+
+/// Ends the preparation step, writes the tracer line of a failed start call, and passes the
+/// failure on.
+pub(in crate::renderer::gpu) fn start_failed(
+    engine: Engine,
+    call: &str,
+    failure: GpuAcquireError,
+) -> GpuAcquireError {
+    let (GpuAcquireError::NoAdapter(text) | GpuAcquireError::RequestDevice(text)) = &failure;
+    diag::clear_prepare(engine);
+    tracing::warn!(
+        target: diag::TRACER_TARGET,
+        engine = engine.name(),
+        call,
+        state = "failed",
+        error = %text,
+        "GPU start"
+    );
+    failure
+}
+
+/// Requests the adapter as a breadcrumb step and records which adapter it is.
+///
+/// Shared by the Path-Traced and the Ray-Traced acquisition.
+///
+/// # Errors
+///
+/// [`GpuAcquireError::NoAdapter`] when no backend produces an adapter.
+#[cfg_attr(
+    target_arch = "wasm32",
+    allow(
+        clippy::future_not_send,
+        reason = "wgpu's web backend futures are inherently !Send (browser-side Rc \
+                  handles); wasm32-unknown-unknown has no second thread regardless"
+    )
+)]
+pub(in crate::renderer::gpu) async fn request_adapter_logged(
+    instance: &wgpu::Instance,
+    engine: Engine,
+) -> Result<wgpu::Adapter, GpuAcquireError> {
+    note_call_start(engine, "request_adapter");
+    let began = diag::process_ms();
+    let step = diag::enter(&Step {
+        kind: StepKind::AdapterRequest,
+        engine: Some(engine),
+        label: "",
+        class: "",
+    });
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+            apply_limit_buckets: false,
+        })
+        .await
+        .map_err(|error| {
+            start_failed(
+                engine,
+                "request_adapter",
+                GpuAcquireError::NoAdapter(format!("{error:?}")),
+            )
+        })?;
+    drop(step);
+    note_call_done(engine, "request_adapter", began);
+    // Remember which driver this is, so the app can offer the RADV scheduler workaround
+    // (`renderer::gpu_driver`) without touching wgpu itself.
+    let info = adapter.get_info();
+    crate::renderer::gpu_driver::record_adapter(&info.name, &info.driver, &info.driver_info);
+    diag::record_adapter(&diag::adapter_facts(&adapter));
+    Ok(adapter)
+}
+
+/// Requests the device as a breadcrumb step.
+///
+/// Shared by the Path-Traced and the Ray-Traced acquisition.
+///
+/// # Errors
+///
+/// [`GpuAcquireError::RequestDevice`] when the device cannot be created.
+#[cfg_attr(
+    target_arch = "wasm32",
+    allow(
+        clippy::future_not_send,
+        reason = "wgpu's web backend futures are inherently !Send (browser-side Rc \
+                  handles); wasm32-unknown-unknown has no second thread regardless"
+    )
+)]
+pub(in crate::renderer::gpu) async fn request_device_logged(
+    adapter: &wgpu::Adapter,
+    engine: Engine,
+    descriptor: &wgpu::DeviceDescriptor<'_>,
+) -> Result<(wgpu::Device, wgpu::Queue), GpuAcquireError> {
+    note_call_start(engine, "request_device");
+    let began = diag::process_ms();
+    let step = diag::enter(&Step {
+        kind: StepKind::DeviceRequest,
+        engine: Some(engine),
+        label: "",
+        class: "",
+    });
+    let granted = adapter.request_device(descriptor).await.map_err(|error| {
+        start_failed(
+            engine,
+            "request_device",
+            GpuAcquireError::RequestDevice(format!("{error:?}")),
+        )
+    })?;
+    drop(step);
+    note_call_done(engine, "request_device", began);
+    Ok(granted)
+}
+
+/// Whether the lifecycle turn stayed taken for the whole `wait`.
+///
+/// A hung acquisition holds the turn, so a later start that waits this long reports it instead of
+/// hanging too. It does not take the turn.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn lifecycle_busy_for(wait: std::time::Duration) -> bool {
+    super::lifecycle::busy_for(wait)
 }
 
 /// Publish the diagnostic before the flag. Never replace the first error with a

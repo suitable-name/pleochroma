@@ -177,18 +177,26 @@ pub fn optimize_run_status(result: &OptimizeResult, elapsed_secs: Option<f32>) -
              \"Only Selected Tiers\" and the angle ranges.{notes}"
         ),
         None => format!(
-            "No better arrangement found in {} evaluation(s){}{time}. The tiers it was allowed to \
+            "No better arrangement found in {} evaluation{}{}{time}. The tiers it was allowed to \
              change produced no better feasible result within this budget, so nothing was changed. \
              No meets were relaxed.{notes}",
             outcome.evaluations,
+            if outcome.evaluations == 1 { "" } else { "s" },
             starts_note(result, false)
         ),
         Some(best) => format!(
-            "Found {} candidate(s) in {} evaluation(s){}{time}. The best changes {} tier(s).{notes}",
+            "Found {} candidate{} in {} evaluation{}{}{time}. The best changes {} tier{}.{notes}",
             result.candidates.len(),
+            if result.candidates.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             outcome.evaluations,
+            if outcome.evaluations == 1 { "" } else { "s" },
             starts_note(result, true),
-            best.changes.len()
+            best.changes.len(),
+            if best.changes.len() == 1 { "" } else { "s" }
         ),
     }
 }
@@ -425,7 +433,7 @@ mod tests {
         let text = optimize_run_status(&sample_result(), Some(12.34));
         assert_eq!(
             text,
-            "Found 2 candidate(s) in 42 evaluation(s), 12.3 s. The best changes 2 tier(s)."
+            "Found 2 candidates in 42 evaluations, 12.3 s. The best changes 2 tiers."
         );
         assert!(!optimize_run_status(&sample_result(), None).contains(" s."));
     }
@@ -437,14 +445,14 @@ mod tests {
         result.best_start = 3;
         assert_eq!(
             optimize_run_status(&result, Some(12.34)),
-            "Found 2 candidate(s) in 42 evaluation(s) across 8 starts (the best came from \
-             start 4), 12.3 s. The best changes 2 tier(s)."
+            "Found 2 candidates in 42 evaluations across 8 starts (the best came from \
+             start 4), 12.3 s. The best changes 2 tiers."
         );
         result.candidates.clear();
         result.outcome.changes.clear();
         let text = optimize_run_status(&result, None);
         assert!(
-            text.starts_with("No better arrangement found in 42 evaluation(s) across 8 starts."),
+            text.starts_with("No better arrangement found in 42 evaluations across 8 starts."),
             "{text}"
         );
     }
@@ -456,7 +464,7 @@ mod tests {
         result.outcome.changes.clear();
         let text = optimize_run_status(&result, None);
         assert!(
-            text.starts_with("No better arrangement found in 42 evaluation(s)."),
+            text.starts_with("No better arrangement found in 42 evaluations."),
             "{text}"
         );
         assert!(text.contains("nothing was changed"), "{text}");
@@ -484,6 +492,6 @@ mod tests {
         result.outcome.polish_improvement = 0.25;
         let text = optimize_run_status(&result, None);
         assert!(text.contains("cancelled"), "{text}");
-        assert!(text.contains("polish: +0.25 in 9 evaluation(s)"), "{text}");
+        assert!(text.contains("polish: +0.25 in 9 evaluations"), "{text}");
     }
 }

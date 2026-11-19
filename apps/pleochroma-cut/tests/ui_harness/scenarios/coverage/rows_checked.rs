@@ -221,7 +221,8 @@ fn light_move_turns_the_map(ui: &MainWindow) -> Result<(), String> {
     }
 }
 
-/// The Empty form's Create with a readable form: the editor holds a design afterwards.
+/// The Empty form's Create with a readable form: the editor holds a design afterwards, and the
+/// window shows the Edit view for it (the app starts on Live Render).
 fn new_design_create(ui: &MainWindow) -> Result<(), String> {
     clear_toast(ui);
     ui.global::<EditorModel>().invoke_new_design_create(
@@ -236,14 +237,24 @@ fn new_design_create(ui: &MainWindow) -> Result<(), String> {
         0,
         0,
     );
-    if wait_until(Duration::from_secs(15), || {
+    if !wait_until(Duration::from_secs(15), || {
         ui.global::<EditorModel>().get_has_design()
+    }) {
+        let toast = toast_error(ui).unwrap_or_else(|| "no toast".to_owned());
+        return Err(format!(
+            "no design was created from a readable form ({toast})"
+        ));
+    }
+    // The view changes one event-loop turn after the design is there.
+    if wait_until(Duration::from_secs(5), || {
+        ui.get_active_tab() == 0 && ui.get_render_view_tab() == 1
     }) {
         Ok(())
     } else {
-        let toast = toast_error(ui).unwrap_or_else(|| "no toast".to_owned());
         Err(format!(
-            "no design was created from a readable form ({toast})"
+            "the new design did not bring up the Edit view (top tab {}, view {})",
+            ui.get_active_tab(),
+            ui.get_render_view_tab()
         ))
     }
 }

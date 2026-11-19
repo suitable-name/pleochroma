@@ -1,0 +1,927 @@
+import { ComboBox, LineEdit, SpinBox, ScrollView, CheckBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { JobEditModel } from "../../models/job_edit.slint";
+import { SettingsModel } from "../../models/settings.slint";
+import { HelpTopics } from "../../models/help.slint";
+import { HelpButton } from "../help_button.slint";
+import { IconButton } from "../icon_button.slint";
+import { ActionButton, ChipToggle } from "../chip_toggle.slint";
+import { SegmentPill } from "../pill_button.slint";
+import { ToggleRow } from "../toggle_switch.slint";
+import { TipBox } from "../tip_box.slint";
+import { WrappedNote } from "../export_dialog/wrapped_note.slint";
+
+// A section caption, as in the Export dialog.
+component EditCaption inherits Text {
+    font-size: 11px;
+    font-weight: 600;
+    color: Theme.text-secondary;
+    accessible-role: AccessibleRole.text;
+}
+
+// A small muted note under a control.
+component EditNote inherits WrappedNote {
+    font-size: 10px;
+    color: Theme.text-muted;
+    accessible-role: AccessibleRole.text;
+}
+
+// A boxed message: tone 0 info, 1 warning, 2 problem. Children go under the text.
+component Callout inherits Rectangle {
+    in property <string> heading;
+    in property <string> text;
+    in property <int> tone: 1;
+
+    height: callout_col.preferred-height;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    background: root.tone == 2 ? Theme.danger-surface : (root.tone == 1 ? Theme.notice-surface : Theme.surface-sunken);
+    border-color: root.tone == 2 ? Theme.danger-border : (root.tone == 1 ? Theme.notice-accent : Theme.border-dialog);
+
+    callout_col := VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        if root.heading != "": Text {
+            text: root.heading;
+            font-size: 11px;
+            font-weight: 700;
+            color: root.tone == 2 ? Theme.danger : Theme.notice-text;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+        WrappedNote {
+            text: root.text;
+            font-size: 11px;
+            color: root.tone == 2 ? Theme.danger : (root.tone == 1 ? Theme.notice-text : Theme.text-secondary);
+            accessible-role: AccessibleRole.text;
+        }
+        @children
+    }
+}
+
+// A row of segment pills over a list of labels. Items from `first_disabled` on are greyed.
+component PillRow inherits HorizontalLayout {
+    in property <[string]> labels;
+    in property <[string]> hints;
+    in property <int> selected: -1;
+    in property <int> first_disabled: 1000;
+    callback picked(int);
+    spacing: 4px;
+    for label[idx] in root.labels: SegmentPill {
+        text: label;
+        hint: root.hints[idx];
+        selected: root.selected == idx;
+        enabled: idx < root.first_disabled;
+        picked => { root.picked(idx); }
+    }
+}
+
+// A one-line text field in the dialog's field look; the host binds `text` two-way.
+component EditField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> label;
+    callback edited();
+    height: 26px;
+    horizontal-stretch: 1;
+    background: Theme.surface-chip;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    LineEdit {
+        width: 100%;
+        height: 100%;
+        accessible-label: root.label;
+        text <=> root.text;
+        edited(t) => { root.edited(); }
+    }
+}
+
+// The sample-count slider on whole exponents. It reads the model on every frame, so a
+// re-seeded value always shows; a click or drag only reports the new exponent.
+component ExpSlider inherits Rectangle {
+    in property <int> value;
+    in property <int> lo: 3;
+    in property <int> hi: 15;
+    in property <string> label;
+    callback moved(int);
+
+    height: 22px;
+    accessible-role: AccessibleRole.slider;
+    accessible-label: root.label;
+    accessible-value: root.value;
+    accessible-value-minimum: root.lo;
+    accessible-value-maximum: root.hi;
+    accessible-value-step: 1;
+    accessible-action-increment => { root.moved(min(root.hi, root.value + 1)); }
+    accessible-action-decrement => { root.moved(max(root.lo, root.value - 1)); }
+
+    property <float> fraction: max(0.0, min(1.0, (root.value - root.lo) / max(1.0, root.hi - root.lo)));
+    property <length> run: max(1px, root.width - 16px);
+
+    function pick(x: length) {
+        let f = max(0.0, min(1.0, (x - 8px) / root.run));
+        root.moved(Math.round(root.lo + f * (root.hi - root.lo)));
+    }
+
+    Rectangle {
+        x: 8px;
+        y: (root.height - 4px) / 2;
+        width: root.run;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.surface-raised;
+        Rectangle {
+            x: 0;
+            width: parent.width * root.fraction;
+            height: 100%;
+            border-radius: 2px;
+            background: Theme.accent-cyan;
+        }
+    }
+    Rectangle {
+        x: 8px + root.run * root.fraction - 7px;
+        y: (root.height - 14px) / 2;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: Theme.accent-cyan;
+        border-width: slider_focus.has-focus ? 2px : 0px;
+        border-color: Theme.accent-cyan-hover;
+    }
+    slider_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                root.moved(max(root.lo, root.value - 1));
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                root.moved(min(root.hi, root.value + 1));
+                return accept;
+            }
+            return reject;
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                root.pick(self.mouse-x);
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.pick(self.mouse-x);
+            }
+        }
+    }
+}
+
+// The folder row: the current folder and Change...
+component FolderRow inherits HorizontalLayout {
+    spacing: 6px;
+    Rectangle {
+        horizontal-stretch: 1;
+        min-width: 0px;
+        height: 26px;
+        background: Theme.surface-chip;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        clip: true;
+        accessible-role: AccessibleRole.text;
+        accessible-label: "Output Folder: " + JobEditModel.output_folder;
+        Text {
+            x: 8px;
+            width: parent.width - 16px;
+            text: JobEditModel.output_folder == "" ? "No folder" : JobEditModel.output_folder;
+            font-size: 10px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    ActionButton {
+        width: 80px;
+        height: 26px;
+        text: "Change...";
+        hint: "Pick another folder for this job's output.";
+        font_size: 10px;
+        ink: Theme.text-secondary;
+        clicked => { JobEditModel.browse_folder(); }
+    }
+}
+
+// A name field with "Rename from Template" beside it.
+component NameRow inherits VerticalLayout {
+    in property <string> caption;
+    in property <string> field_label;
+    in-out property <string> text;
+    spacing: 2px;
+    Text { text: root.caption; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+    HorizontalLayout {
+        spacing: 6px;
+        EditField {
+            text <=> root.text;
+            label: root.field_label;
+            edited => { JobEditModel.edited(); }
+        }
+        ActionButton {
+            width: 130px;
+            height: 26px;
+            text: "Rename from Template";
+            hint: "Build the name again from the current file name template, with this job's own material and size.";
+            font_size: 10px;
+            ink: Theme.text-secondary;
+            clicked => { JobEditModel.rename_from_template(); }
+        }
+    }
+}
+
+// Edit Render Job: one job changed in place. Mounted from `components/app/global_dialogs.slint`
+// inside a FocusScope that swallows Return and handles Escape, while `JobEditModel.open`.
+// Three variants share one body: Path-Traced still, Ray-Traced still (taps and Fire in place of
+// the samples; Remote greyed) and tilt video (size, sweep, axes, overlay and material as in
+// `tilt_video_export_section.slint`). Every control shows in Simple mode too. The body scrolls
+// between a fixed header and a fixed footer. The renderer is read-only.
+export component JobEditDialog inherits Rectangle {
+    property <[string]> compute_labels: ["Local Only", "Remote Only", "Local + Remote"];
+    property <[string]> compute_hints: [
+        "Draw this job on this computer only.",
+        "Draw this job on the remote worker only.",
+        "Share this job between this computer and the remote worker."
+    ];
+    property <int> remote_from: (JobEditModel.remote_configured && !JobEditModel.is_ray) ? 1000 : 1;
+    property <int> effective_width: JobEditModel.size_preset == 2 ? JobEditModel.custom_width : (JobEditModel.size_preset == 1 ? 3840 : 1920);
+    property <int> effective_height: JobEditModel.size_preset == 2 ? JobEditModel.custom_height : (JobEditModel.size_preset == 1 ? 2160 : 1080);
+    property <int> ray_taps: [1, 4, 8, 16][JobEditModel.ray_taps_index];
+    property <[string]> axis_labels: ["0° (length)", "45°", "90° (width)", "135°"];
+
+    function axis_on(index: int) -> bool {
+        return index == 0 ? JobEditModel.axis_0 : (index == 1 ? JobEditModel.axis_1 : (index == 2 ? JobEditModel.axis_2 : JobEditModel.axis_3));
+    }
+    function toggle_axis(index: int) {
+        if index == 0 { JobEditModel.axis_0 = !JobEditModel.axis_0; }
+        else if index == 1 { JobEditModel.axis_1 = !JobEditModel.axis_1; }
+        else if index == 2 { JobEditModel.axis_2 = !JobEditModel.axis_2; }
+        else { JobEditModel.axis_3 = !JobEditModel.axis_3; }
+        JobEditModel.edited();
+    }
+
+    background: Theme.overlay-backdrop;
+
+    // Clicking the backdrop does nothing: an edit is never lost by a stray click.
+    TouchArea {
+        scroll-event(event) => { accept }
+    }
+
+    Rectangle {
+        width: min(420px, max(240px, root.width - 24px));
+        height: min(content.preferred-height, root.height - 40px);
+        background: Theme.surface-dialog;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.modal-shadow;
+        clip: true;
+
+        // Swallows clicks and the wheel so neither reaches the viewport under the dialog.
+        TouchArea {
+            scroll-event(event) => { accept }
+        }
+
+        content := VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Header: title, help, close; then "Job 2 · Still Image · Path-Traced" and the state.
+            VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../../icons/pencil.svg"); colorize: Theme.text-primary; width: 15px; height: 15px; }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Edit Render Job";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HelpButton {
+                            topic: HelpTopics.render-jobs;
+                            hint: "Open the manual page on render jobs";
+                        }
+                    }
+                    IconButton {
+                        icon: @image-url("../../icons/close.svg");
+                        hint: "Close this dialog and change nothing.";
+                        hover_fill: Theme.surface-control-hover;
+                        clicked => { JobEditModel.cancel(); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: (JobEditModel.title != "" ? JobEditModel.title + " · " : "")
+                            + (JobEditModel.is_video ? "Tilt Video" : "Still Image")
+                            + " · " + (JobEditModel.is_ray ? "Ray-Traced" : "Path-Traced");
+                        font-size: 11px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    if JobEditModel.state_word != "": Rectangle {
+                        height: 20px;
+                        width: state_text.preferred-width + 18px;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: JobEditModel.state_word == "Failed" ? Theme.danger : (JobEditModel.state_word == "Done" ? Theme.accent-emerald : Theme.text-secondary);
+                        state_text := Text {
+                            text: JobEditModel.state_word;
+                            font-size: 10px;
+                            font-weight: 600;
+                            color: JobEditModel.state_word == "Failed" ? Theme.danger : (JobEditModel.state_word == "Done" ? Theme.accent-emerald : Theme.text-secondary);
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accessible-role: AccessibleRole.text;
+                            accessible-label: "Job state: " + JobEditModel.state_word;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+            // Scrollable body between the fixed header and the fixed footer.
+            body := ScrollView {
+                vertical-stretch: 1;
+                content-width: self.visible-width;
+                preferred-height: body_col.preferred-height;
+
+                body_col := VerticalLayout {
+                    spacing: 14px;
+                    padding-right: 12px;
+
+                    // A missing HDR map: the job fails when it starts.
+                    if JobEditModel.hdr_missing: Callout {
+                        tone: 1;
+                        heading: "HDR map not found";
+                        text: JobEditModel.hdr_text;
+                        HorizontalLayout {
+                            alignment: start;
+                            ActionButton {
+                                width: 130px;
+                                height: 26px;
+                                text: "Locate HDR Map...";
+                                hint: "Pick the map's file. A file with the same content is accepted.";
+                                font_size: 10px;
+                                clicked => { JobEditModel.locate_hdr(); }
+                            }
+                        }
+                    }
+
+                    // Material
+                    VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Material"; }
+                        TipBox {
+                            hint: "The material this job renders with.";
+                            ComboBox {
+                                accessible-label: "Material";
+                                model: JobEditModel.materials;
+                                current-index <=> JobEditModel.material_index;
+                                selected(value) => { JobEditModel.material_chosen(value); }
+                            }
+                        }
+                        EditNote { text: "A new material resets the haze, crystal axes and the material's own inclusions and color zones. Stone width, edge rounding, lighting, camera and output folder are kept."; }
+                        if JobEditModel.material_note != "": EditNote {
+                            text: JobEditModel.material_note;
+                            color: Theme.accent-amber;
+                        }
+                    }
+
+                    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                    // Output: folder, file or video name, where it saves, label.
+                    VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Output Location"; }
+                        FolderRow {}
+                        if !JobEditModel.is_video: NameRow {
+                            caption: "File Name:";
+                            field_label: "File Name";
+                            text <=> JobEditModel.file_name;
+                        }
+                        if JobEditModel.is_video: NameRow {
+                            caption: "Video Name:";
+                            field_label: "Video Name";
+                            text <=> JobEditModel.video_name;
+                        }
+                        if JobEditModel.saves_to != "": WrappedNote {
+                            text: "Saves to: " + JobEditModel.saves_to;
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.accent-cyan;
+                            accessible-role: AccessibleRole.text;
+                        }
+                        Text { text: "Label"; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                        EditField {
+                            text <=> JobEditModel.label;
+                            label: "Label";
+                            edited => { JobEditModel.edited(); }
+                        }
+                        EditNote { text: "An automatic label follows the edit. A label you type stays."; }
+                    }
+
+                    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                    // Output Size
+                    VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Output Size"; }
+                        PillRow {
+                            labels: ["1080p", "4K", "Custom"];
+                            hints: ["1920 by 1080 pixels (full HD).", "3840 by 2160 pixels (ultra HD). Four times the pixels of 1080p.", "Type your own width and height in pixels."];
+                            selected: JobEditModel.size_preset;
+                            picked(idx) => {
+                                JobEditModel.size_preset = idx;
+                                JobEditModel.edited();
+                            }
+                        }
+                        if JobEditModel.size_preset == 2: HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 2px;
+                                Text { text: "Width (px)"; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                                SpinBox {
+                                    minimum: 16;
+                                    maximum: 8192;
+                                    step-size: 8;
+                                    accessible-label: "Width in Pixels";
+                                    value <=> JobEditModel.custom_width;
+                                    edited(v) => { JobEditModel.edited(); }
+                                }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 2px;
+                                Text { text: "Height (px)"; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                                SpinBox {
+                                    minimum: 16;
+                                    maximum: 8192;
+                                    step-size: 8;
+                                    accessible-label: "Height in Pixels";
+                                    value <=> JobEditModel.custom_height;
+                                    edited(v) => { JobEditModel.edited(); }
+                                }
+                            }
+                        }
+                        Text {
+                            text: root.effective_width + " x " + root.effective_height + " px";
+                            font-size: 10px;
+                            color: Theme.text-muted;
+                            accessible-role: AccessibleRole.text;
+                        }
+                        if JobEditModel.aspect_note != "": Callout {
+                            tone: 1;
+                            text: JobEditModel.aspect_note;
+                        }
+                    }
+
+                    // Video only: axes, sweep, overlay.
+                    if JobEditModel.is_video: VerticalLayout {
+                        spacing: 14px;
+
+                        Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            EditCaption { text: "Axes"; }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                for label[idx] in root.axis_labels: ChipToggle {
+                                    text: label;
+                                    hint: "Include this axis in the video. Axes play in the order 0°, 45°, 90°, 135°.";
+                                    height: 22px;
+                                    active: root.axis_on(idx);
+                                    toggled => { root.toggle_axis(idx); }
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            EditCaption { text: "Angle Range & Step"; }
+                            HorizontalLayout {
+                                spacing: 10px;
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text { text: "Start (°)"; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                                    SpinBox {
+                                        minimum: -90;
+                                        maximum: 90;
+                                        accessible-label: "Start Angle in Degrees";
+                                        value <=> JobEditModel.start_deg;
+                                        edited(v) => { JobEditModel.edited(); }
+                                    }
+                                }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text { text: "End (°)"; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                                    SpinBox {
+                                        minimum: -90;
+                                        maximum: 90;
+                                        accessible-label: "End Angle in Degrees";
+                                        value <=> JobEditModel.end_deg;
+                                        edited(v) => { JobEditModel.edited(); }
+                                    }
+                                }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text { text: "Step (°, 0.01-5.0)"; font-size: 10px; color: Theme.text-muted; accessible-role: AccessibleRole.text; }
+                                    Rectangle {
+                                        height: 26px;
+                                        width: 84px;
+                                        background: Theme.surface-chip;
+                                        border-radius: Theme.radius-sm;
+                                        border-width: 1px;
+                                        border-color: Theme.border-dialog;
+                                        LineEdit {
+                                            width: 100%;
+                                            height: 100%;
+                                            accessible-label: "Step Between Frames in Degrees";
+                                            text: "" + JobEditModel.step_deg;
+                                            edited(t) => {
+                                                JobEditModel.step_deg = t.to-float();
+                                                JobEditModel.edited();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                for chip in [0.05, 0.1, 0.25, 0.5, 1.0]: SegmentPill {
+                                    height: 24px;
+                                    text: "" + chip;
+                                    hint: "Step by " + chip + " degrees between frames.";
+                                    selected: Math.abs(JobEditModel.step_deg - chip) < 0.001;
+                                    picked => {
+                                        JobEditModel.step_deg = chip;
+                                        JobEditModel.edited();
+                                    }
+                                }
+                            }
+                            if JobEditModel.frames_text != "": Text {
+                                text: JobEditModel.frames_text;
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                wrap: word-wrap;
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            EditCaption { text: "Overlay"; }
+                            EditNote { text: "The values written onto every frame. None chosen: no values on the frames."; }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                ChipToggle {
+                                    text: "Brilliance";
+                                    hint: "Write the brilliance value on each frame.";
+                                    height: 22px;
+                                    active: JobEditModel.overlay_brilliance;
+                                    accent: Theme.accent-cyan;
+                                    fill: Theme.tint-cyan;
+                                    toggled => { JobEditModel.overlay_brilliance = !JobEditModel.overlay_brilliance; JobEditModel.edited(); }
+                                }
+                                ChipToggle {
+                                    text: "Windowing";
+                                    hint: "Write the windowing value on each frame.";
+                                    height: 22px;
+                                    active: JobEditModel.overlay_windowing;
+                                    accent: Theme.accent-amber;
+                                    fill: Theme.tint-amber;
+                                    toggled => { JobEditModel.overlay_windowing = !JobEditModel.overlay_windowing; JobEditModel.edited(); }
+                                }
+                                ChipToggle {
+                                    text: "Extinction";
+                                    hint: "Write the extinction value on each frame.";
+                                    height: 22px;
+                                    active: JobEditModel.overlay_extinction;
+                                    accent: Theme.chart-extinction;
+                                    fill: Theme.tint-red;
+                                    toggled => { JobEditModel.overlay_extinction = !JobEditModel.overlay_extinction; JobEditModel.edited(); }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                ChipToggle {
+                                    text: "Tilt Brilliance";
+                                    hint: "Write the tilt brilliance score of the whole sweep on each frame.";
+                                    height: 22px;
+                                    active: JobEditModel.overlay_tilt_brilliance;
+                                    accent: Theme.accent-purple;
+                                    fill: Theme.tint-purple;
+                                    toggled => { JobEditModel.overlay_tilt_brilliance = !JobEditModel.overlay_tilt_brilliance; JobEditModel.edited(); }
+                                }
+                                ChipToggle {
+                                    text: "Angle";
+                                    hint: "Write the tilt angle on each frame.";
+                                    height: 22px;
+                                    active: JobEditModel.overlay_angle;
+                                    accent: Theme.text-primary;
+                                    fill: Theme.tint-neutral;
+                                    toggled => { JobEditModel.overlay_angle = !JobEditModel.overlay_angle; JobEditModel.edited(); }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                    // Compute and transfer.
+                    VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Compute"; }
+                        PillRow {
+                            labels: root.compute_labels;
+                            hints: root.compute_hints;
+                            selected: JobEditModel.compute_index;
+                            first_disabled: root.remote_from;
+                            picked(idx) => {
+                                JobEditModel.compute_index = idx;
+                                JobEditModel.edited();
+                            }
+                        }
+                        if JobEditModel.is_ray: EditNote { text: "Ray-Traced jobs render on this computer only."; }
+                        if !JobEditModel.is_ray && !JobEditModel.remote_configured: EditNote { text: "No remote worker is set up in the Settings. Rendering locally only."; }
+                        if JobEditModel.remote_note != "": WrappedNote {
+                            text: JobEditModel.remote_note;
+                            font-size: 11px;
+                            color: Theme.accent-amber;
+                            accessible-role: AccessibleRole.text;
+                        }
+                        if !JobEditModel.is_ray && JobEditModel.compute_index != 0: VerticalLayout {
+                            spacing: 6px;
+                            EditCaption { text: "Transfer"; }
+                            PillRow {
+                                labels: ["Full Data", "Final Picture Only"];
+                                hints: ["The remote sends its raw samples, so they combine with the ones traced here.", "The remote sends one finished picture. Much less data travels, but this computer does not help trace."];
+                                selected: JobEditModel.transfer_index;
+                                picked(idx) => {
+                                    JobEditModel.transfer_index = idx;
+                                    JobEditModel.edited();
+                                }
+                            }
+                        }
+                    }
+
+                    // The renderer is fixed for the job.
+                    VerticalLayout {
+                        spacing: 4px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Renderer"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: JobEditModel.renderer_text != "" ? JobEditModel.renderer_text : (JobEditModel.is_ray ? "Ray-Traced" : "Path-Traced");
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            Text { text: "fixed for this job"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+                        }
+                        if JobEditModel.renderer_hint != "": EditNote { text: JobEditModel.renderer_hint; }
+                    }
+
+                    // Ray-Traced: taps and Fire; the samples follow the taps.
+                    if JobEditModel.is_ray: VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Anti-Aliasing"; }
+                        PillRow {
+                            labels: ["Off", "4×", "8×", "16×"];
+                            hints: ["Trace 1 fixed tap per pixel.", "Trace 4 fixed taps per pixel.", "Trace 8 fixed taps per pixel.", "Trace 16 fixed taps per pixel."];
+                            selected: JobEditModel.ray_taps_index;
+                            picked(idx) => {
+                                JobEditModel.ray_taps_index = idx;
+                                JobEditModel.edited();
+                            }
+                        }
+                        CheckBox {
+                            text: "Fire";
+                            checked: JobEditModel.ray_fire;
+                            toggled => {
+                                JobEditModel.ray_fire = self.checked;
+                                JobEditModel.edited();
+                            }
+                        }
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text { text: "Samples per Pixel (follow the taps):"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+                            Text { text: root.ray_taps; font-size: 12px; font-weight: 700; color: Theme.accent-cyan; accessible-role: AccessibleRole.text; }
+                        }
+                    }
+
+                    // Path-Traced: the sample count.
+                    if !JobEditModel.is_ray: VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Sample Count (Higher = Slower, Smoother)"; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { horizontal-stretch: 1; text: "Samples per Pixel:"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+                            if JobEditModel.samples_from_job: Rectangle {
+                                height: 18px;
+                                width: from_job_text.preferred-width + 14px;
+                                border-radius: 9px;
+                                border-width: 1px;
+                                border-color: Theme.accent-amber;
+                                background: Theme.tint-amber;
+                                from_job_text := Text { text: "from job"; font-size: 10px; font-weight: 600; color: Theme.accent-amber; horizontal-alignment: center; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+                            }
+                            Text {
+                                text: JobEditModel.samples_from_job ? JobEditModel.samples_from_job_text : "" + Math.round(Math.pow(2.0, JobEditModel.sample_exponent));
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: Theme.accent-cyan;
+                                vertical-alignment: center;
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+                        ExpSlider {
+                            value: JobEditModel.sample_exponent;
+                            lo: SettingsModel.export_samples_min_exponent;
+                            hi: SettingsModel.export_samples_max_exponent;
+                            label: "Samples per Pixel, as a Power of Two";
+                            moved(v) => {
+                                JobEditModel.sample_exponent = v;
+                                JobEditModel.edited();
+                            }
+                        }
+                        if JobEditModel.samples_from_job: EditNote { text: JobEditModel.samples_from_job_text + " is the job's own value and not a step of the slider. It stays until you move the slider."; }
+                    }
+
+                    // Max ray bounces.
+                    VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Max Ray Bounces"; }
+                        HorizontalLayout {
+                            spacing: 4px;
+                            for cap[idx] in SettingsModel.bounce_ladder: SegmentPill {
+                                text: "" + cap;
+                                hint: "Stop a light path after " + cap + " bounces.";
+                                selected: !JobEditModel.bounces_from_job && JobEditModel.bounce_index == idx;
+                                picked => {
+                                    JobEditModel.bounce_index = idx;
+                                    JobEditModel.edited();
+                                }
+                            }
+                        }
+                        if JobEditModel.bounces_from_job: EditNote { text: JobEditModel.bounces_from_job_text + " is the job's own value and not on this ladder. It stays until you pick another."; }
+                    }
+
+                    // Color space.
+                    VerticalLayout {
+                        spacing: 6px;
+                        EditCaption { text: "Color Space"; }
+                        PillRow {
+                            labels: ["sRGB", "Display P3", "Rec.2020"];
+                            hints: ["The standard for screens and the web. Safe everywhere.", "A wider range of colors, for modern phone and laptop screens. The file carries a color profile.", "An even wider range, for HDR screens and video. The file carries a color profile."];
+                            selected: JobEditModel.color_space_index;
+                            picked(idx) => {
+                                JobEditModel.color_space_index = idx;
+                                JobEditModel.edited();
+                            }
+                        }
+                    }
+
+                    // Video only: frame rate and the frames.
+                    if JobEditModel.is_video: VerticalLayout {
+                        spacing: 14px;
+                        VerticalLayout {
+                            spacing: 6px;
+                            EditCaption { text: "Frame Rate"; }
+                            PillRow {
+                                labels: ["24 fps", "30 fps", "60 fps"];
+                                hints: ["Make the video at 24 frames a second, the look of film.", "Make the video at 30 frames a second.", "Make the video at 60 frames a second, the smoothest."];
+                                selected: JobEditModel.fps_index;
+                                picked(idx) => {
+                                    JobEditModel.fps_index = idx;
+                                    JobEditModel.edited();
+                                }
+                            }
+                        }
+                        ToggleRow {
+                            text: "Keep PNG Frames After Muxing";
+                            hint: "Keep the numbered picture files in the video's folder after the video is made. Off deletes them and keeps only the video.";
+                            label_color: Theme.text-secondary;
+                            checked: JobEditModel.keep_frames;
+                            toggled => {
+                                JobEditModel.keep_frames = !JobEditModel.keep_frames;
+                                JobEditModel.edited();
+                            }
+                        }
+                    }
+                } // end body_col
+            } // end body
+
+            // A message from a save or a check, outside the scrolling body so it is never hidden.
+            if JobEditModel.message != "" || JobEditModel.refused: Callout {
+                tone: 2;
+                text: JobEditModel.message;
+                if JobEditModel.refused: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    ActionButton {
+                        width: 140px;
+                        height: 26px;
+                        text: "Load the Job Again";
+                        hint: "Drop your changes and read the job from the queue again.";
+                        font_size: 10px;
+                        clicked => { JobEditModel.load_again(); }
+                    }
+                    Text {
+                        text: "(drops your changes)";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+            }
+
+            // What Save will do.
+            if JobEditModel.footer_text != "": HorizontalLayout {
+                spacing: 6px;
+                VerticalLayout {
+                    alignment: start;
+                    padding-top: 1px;
+                    Image { source: @image-url("../../icons/info.svg"); colorize: Theme.text-muted; width: 12px; height: 12px; }
+                }
+                WrappedNote {
+                    horizontal-stretch: 1;
+                    text: JobEditModel.footer_text;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    accessible-role: AccessibleRole.text;
+                }
+            }
+
+            // Footer actions.
+            HorizontalLayout {
+                spacing: 8px;
+                ActionButton {
+                    width: 70px;
+                    height: 32px;
+                    text: "Cancel";
+                    hint: "Close this dialog and change nothing.";
+                    ink: Theme.text-secondary;
+                    clicked => { JobEditModel.cancel(); }
+                }
+                ActionButton {
+                    width: 112px;
+                    height: 32px;
+                    text: "Save as New Job";
+                    hint: "Keep this job as it is and queue these settings as a new job.";
+                    ink: Theme.text-secondary;
+                    enabled: !JobEditModel.measuring_curves;
+                    clicked => { JobEditModel.save(true); }
+                }
+                ActionButton {
+                    horizontal-stretch: 1;
+                    height: 32px;
+                    text: "Save Changes";
+                    hint: JobEditModel.can_save ? "Write these changes to the job." : "Nothing to save right now.";
+                    enabled: JobEditModel.can_save && !JobEditModel.measuring_curves;
+                    icon: @image-url("../../icons/save.svg");
+                    font_size: 12px;
+                    weight: 700;
+                    fill: Theme.accent-cyan;
+                    hover_fill: Theme.accent-cyan-hover;
+                    ink: Theme.text-on-accent;
+                    edge: Theme.accent-cyan;
+                    clicked => { JobEditModel.save(false); }
+                }
+            }
+        }
+    }
+}

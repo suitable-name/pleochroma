@@ -122,7 +122,7 @@ pub fn format_tier_mast_deltas(deltas: &[TierMastDelta]) -> String {
     }
     let tiers: Vec<String> = deltas
         .iter()
-        .map(|d| format!("tier {} ({:+.4})", d.tier_index, d.delta()))
+        .map(|d| format!("tier {} ({:+.4})", d.tier_index + 1, d.delta()))
         .collect();
     format!(" Disagrees with the last solve on: {}.", tiers.join(", "))
 }
@@ -203,8 +203,13 @@ pub fn format_deep_solve_report_for(
     };
     let concave_note = if concave_tiers > 0 {
         format!(
-            " (flat stone; {concave_tiers} concave tier(s) are not part of the printed \
-             proportions)"
+            " (flat stone; {concave_tiers} concave {} not part of the printed \
+             proportions)",
+            if concave_tiers == 1 {
+                "tier is"
+            } else {
+                "tiers are"
+            }
         )
     } else {
         String::new()

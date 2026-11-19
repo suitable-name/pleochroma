@@ -181,7 +181,11 @@ fn generate_series_now(
             let suffix = if linked { ", linked to the first" } else { "" };
             show_toast(
                 ui,
-                &format!("Generated {} tier(s){suffix}.", series.added),
+                &format!(
+                    "Generated {} tier{}{suffix}.",
+                    series.added,
+                    if series.added == 1 { "" } else { "s" }
+                ),
                 "info",
             );
         }

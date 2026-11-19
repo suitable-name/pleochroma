@@ -218,20 +218,14 @@ export component TiltDialog inherits Rectangle {
                         wrap: word-wrap;
                     }
                     Text {
-                        text: "Optimize scores brilliance under a fixed light pose; this curve uses your current light -- if you've moved it, the two figures may disagree.";
-                        font-size: 11px;
-                        font-italic: true;
-                        color: Theme.text-disabled;
-                        wrap: word-wrap;
-                    }
-                    Text {
                         text: "Excludes display overrides: inclusions and edge rounding are not applied -- this shows " + TiltModel.material-name + " without them. The stone size, the Crystal Axis and frosted facets are applied.";
                         font-size: 11px;
                         font-italic: true;
                         color: Theme.text-disabled;
                         wrap: word-wrap;
                     }
-                    // What the sweep is scored under: the preset's rig, never the HDR map.
+                    // What the sweep is scored under: the tilt standard (Grading tray, 16° head
+                    // shadow), never the viewport's preset, light or HDR map.
                     if TiltModel.lighting-note != "": Text {
                         text: TiltModel.lighting-note;
                         font-size: 11px;

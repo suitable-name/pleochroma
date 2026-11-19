@@ -208,7 +208,7 @@ fn meets_reason(planned: &PlannedTier) -> String {
                 .to_owned()
         }
         Meets::Exact(ExactReason::Missed(percent)) => format!(
-            "Meeting its neighbours would put this tier about {percent:.1} percent away from \
+            "Meeting its neighbors would put this tier about {percent:.1} percent away from \
              the original, so state its depth directly with Exact Scale Value."
         ),
         Meets::Exact(ExactReason::Everything) => {
@@ -407,7 +407,7 @@ fn concave_step(tier: &ConcaveTier, code: &str, number: usize, gear: u32) -> Gui
     }
     actions.push(format!("Tool: {:?} ({})", tier.tool, tier.tool.code()));
     actions.push(format!(
-        "Theta (deg): {}; X: {}, Y: {}, Z: {}",
+        "Turn (deg): {}; Position X: {}, Y: {}, Z: {}",
         number_text(tier.tool_azimuth_deg, 3),
         number_text(x, 3),
         number_text(y, 3),

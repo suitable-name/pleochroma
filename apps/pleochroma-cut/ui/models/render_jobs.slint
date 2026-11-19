@@ -27,12 +27,38 @@ export struct RenderJobRow {
     can_move_up: bool,
     can_move_down: bool,
     can_show: bool,
+    // The row's own buttons and its "..." menu (the row layout in `components/render_jobs`).
+    // The job can be edited (Edit...).
+    can_edit: bool,
+    // The "..." menu has at least one item.
+    has_menu: bool,
+    // A still picture, not a tilt video.
+    is_still: bool,
+    // Where a waiting job computes: "Local Only", "Remote Only" or "Local + Remote".
+    compute_label: string,
+    // The one big button: 0 none, 1 Pause, 2 Resume, 3 Show, 4 Restart.
+    primary_action: int,
+    // Cancel shows as a button of its own while the job runs or waits.
+    show_cancel: bool,
+    can_duplicate: bool,
+    // Copy to Materials is possible (a still or a video with its curves).
+    can_copy: bool,
+    // Load Job View is possible for this job.
+    can_load_view: bool,
+    // The full label, when the row shows it elided.
+    label_tooltip: string,
+    // The state text of the job is not one the row knows (a newer file): show it plainly.
+    unknown_state: bool,
 }
 
 export global RenderJobsModel {
     // The Jobs window is open. Opening it refreshes the rows (the handler is in Rust).
     in-out property <bool> panel_open: false;
     in property <[RenderJobRow]> rows: [];
+    // The job whose "..." menu is open, copied by `JobRowMenu.open_menu()` in that row. The menu
+    // reads the job from here, never from the row: a `PopupWindow` inside a `for` row could act on
+    // another row's job.
+    in-out property <RenderJobRow> menu_job;
     in property <bool> queue_running: false;
     // A job is rendering right now (the controller's own flag, not the database's). One of the
     // three inputs of `ExportRunModel.running`.
@@ -61,6 +87,26 @@ export global RenderJobsModel {
     in property <string> script_remote_label: "";
     in property <int> script_job_count: 0;
 
+    // Pick mode of Load Job View: the Jobs window asks for one row to show in the live view
+    // (the palette's "Load Job View..." sets it with `panel_open`).
+    in-out property <bool> pick_view_mode: false;
+    // The job whose view the live view shows, -1 when none. The banner reads it.
+    in property <int> job_view_id: -1;
+    // At least one job exists (the palette's "Load Job View..." needs it).
+    in property <bool> has_jobs: false;
+    // The Load Job View banner: its title ("Showing the view of job 3"), the subtitle
+    // ("Pentalume · Sapphire"), the notes under them, and whether Update Job from This View is
+    // possible (with the reason when it is not).
+    in property <string> job_view_title: "";
+    in property <string> job_view_subtitle: "";
+    in property <[string]> job_view_notes: [];
+    in property <bool> job_view_can_update: false;
+    in property <string> job_view_update_reason: "";
+    // A remote worker is set up and reachable, so "Remote Only" and "Local + Remote" can be chosen.
+    in property <bool> compute_remote_enabled: false;
+    // The full "3 waiting · 1 done" line, for the tooltip of its elided form.
+    in property <string> queue_status_tooltip: "";
+
     callback refresh();
     callback start_queue();
     callback pause_queue();
@@ -76,6 +122,23 @@ export global RenderJobsModel {
     callback move_job(int, int);
     callback show_result(int);
     callback export_script();
+
+    // Edit..., Duplicate, Copy to Materials and Load Job View, from a row's menu. Each does
+    // nothing for a job id that no longer exists.
+    callback edit_job(int);
+    callback duplicate_job(int);
+    // (job id, material names): one new job per material.
+    callback copy_to_materials(int, [string]);
+    // Opens the Copy to Materials dialog for the job.
+    callback open_copy_dialog(int);
+    callback load_job_view(int);
+    // The header's Compute menu: sets where every waiting job computes, 0 Local Only,
+    // 1 Remote Only, 2 Local + Remote (a bulk change of the stored jobs, no state changes).
+    callback set_waiting_compute(int);
+    callback back_to_my_view();
+    callback update_job_from_view();
+    // Leaves pick mode without choosing a job.
+    callback cancel_pick_view();
 
     // "Add to Queue" entry points. Same arguments as `ExportModel.start_export`
     // (ui/models/export.slint) and `TiltVideoExportModel.start_video_export`.

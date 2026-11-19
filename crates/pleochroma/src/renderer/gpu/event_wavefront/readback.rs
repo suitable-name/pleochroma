@@ -29,6 +29,29 @@ fn read_mapped(buffer: &wgpu::Buffer, count: usize) -> Result<Vec<f32>, EwError>
     result
 }
 
+/// Writes the tracer event of a readback that did not finish in time.
+///
+/// `waited_ms` is the time spent waiting; it is `None` where the wait is not measured (wasm32).
+fn note_timeout(waited_ms: Option<u64>) {
+    tracing::warn!(
+        target: crate::diag::TRACER_TARGET,
+        ?waited_ms,
+        "readback timed out"
+    );
+}
+
+/// Writes the tracer event of a readback whose mapping or poll failed.
+///
+/// `what` names the failure ("map failure", "poll failure"); `error` is wgpu's text.
+fn note_map_failure(what: &str, error: &dyn std::fmt::Display) {
+    tracing::warn!(
+        target: crate::diag::TRACER_TARGET,
+        what,
+        error = %error,
+        "readback failed"
+    );
+}
+
 /// Reads `count` `f32`s from a mappable staging buffer.
 ///
 /// On native: starts the async mapping and polls until it completes or the chunk deadline
@@ -69,10 +92,12 @@ pub async fn map_read(
             // A slow GPU, not a lost one.
             Err(wgpu::PollError::Timeout) => {
                 buffer.unmap();
+                note_timeout(Some(waited_ms(start)));
                 return Err(EwError::ChunkTimeout);
             }
             Err(e) => {
                 buffer.unmap();
+                note_map_failure("poll failure", &e);
                 return Err(EwError::DeviceLost(format!("device poll failed: {e}")));
             }
         }
@@ -81,11 +106,13 @@ pub async fn map_read(
             Ok(Ok(())) => break,
             Ok(Err(e)) => {
                 buffer.unmap();
+                note_map_failure("map failure", &e);
                 return Err(EwError::DeviceLost(format!("buffer mapping failed: {e}")));
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 if start.elapsed() >= wait {
                     buffer.unmap();
+                    note_timeout(Some(waited_ms(start)));
                     return Err(EwError::ChunkTimeout);
                 }
             }
@@ -101,7 +128,13 @@ pub async fn map_read(
     read_mapped(buffer, count)
 }
 
-/// How long a native readback waits: the chunk deadline the accumulation loop set
+/// Milliseconds since `start`, saturating.
+#[cfg(not(target_arch = "wasm32"))]
+fn waited_ms(start: std::time::Instant) -> u64 {
+    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// How long a native readback waits:the chunk deadline the accumulation loop set
 /// (`clock::chunk_deadline_ms`, ten seconds for a scene's first chunk), never less than
 /// `compute::GPU_WAIT_TIMEOUT`. The deadline is process-wide and another thread's renderer
 /// may have set it last; the floor keeps that from shortening this wait.
@@ -141,6 +174,7 @@ pub async fn map_read(
     match race_deadline(rx, readback_deadline_ms()).await {
         Raced::TimedOut => {
             buffer.unmap();
+            note_timeout(None);
             return Err(EwError::ChunkTimeout);
         }
         Raced::Done(Err(_)) => {
@@ -151,6 +185,7 @@ pub async fn map_read(
         }
         Raced::Done(Ok(Err(e))) => {
             buffer.unmap();
+            note_map_failure("map failure", &e);
             return Err(EwError::DeviceLost(format!(
                 "wgpu buffer mapping failed: {e}"
             )));

@@ -12,7 +12,7 @@ automatically and comes back the next time you start the app.
 ## Opening Preferences
 
 Choose **Edit → Preferences...**, or press **Ctrl+,** (Ctrl and the comma key). The
-dialog has these sections: Interface, Appearance, Rendering, Direct Manipulation, Faceting
+dialog has these sections: Interface, Appearance, Figures, Rendering, Direct Manipulation, Faceting
 Machine, Updates, Graphics Driver (Linux only) and Tutorials.
 Press **Escape**, click **Done**, click the × in the corner, or click outside the
 dialog to close it. The shortcut does nothing while you are typing in a text field,
@@ -57,8 +57,8 @@ Tab button restores a tab's defaults in both modes, hidden settings included.
 In the editor, Simple mode hides these (each one is listed again in the chapter
 where it is described):
 
-- **Tier table and Tier tab** (Chapters 3 and 4): the MAST, SOLVE,
-  and ORBIT columns; the Adopt, Pin and Detach buttons; Adopt All; Steps and Mirror; the
+- **Tier table and Tier tab** (Chapters 3 and 4): the Adopt, Pin,
+  Complete Orbit and Detach / Reattach items of a row's "..." menu; Adopt All; Steps and Mirror; the
   table filter; the imported-meet line; and "Exact Scale Value" in the Meets list
   (it is shown when the tier already uses it). The Optimize tab's advanced controls
   are hidden too. In History and Variants, the per-row save-as-variant icon and
@@ -98,6 +98,41 @@ where it is described):
 
 All of these only hide the control. A tier, setting or file that already uses one
 keeps working exactly as before.
+
+## Tilt Average Range
+
+The **Figures** section, directly under Appearance, holds one row, **Tilt Average
+Range**. A tilt average is the mean of a figure over the tilts of the stone from table
+up, on each of the four tilt axes. The row says how far from table up that average
+reaches. The choices are **±15°**, **±20°**, **±30°**, **±45°**, **±60°** and
+**±90° (all tilts)**. The default is **±90°**, which covers every tilt down to edge-on:
+4 axes × 181 tilt angles, 724 entries. It is the figure the app has always shown. A
+narrower choice averages fewer tilts: ±30° is 4 × 61 = 244 entries. The row is shown in
+the Simple and in the Advanced interface.
+
+The choice follows the tilt average wherever the app shows one for a design you are
+looking at:
+
+- the **Tilt Average** rows and the summary sentence of the Compare window (Chapter 14);
+- the Measure Tilt cells of the Baseline figures card in the Edit viewport (Chapter 5).
+
+Each of these prints its range in a caption, for example "Tilt average to ±90°", so a
+figure is never read under the wrong range. A change applies at once to the rows that
+are on screen, in the main window and in every open Compare window. Nothing is measured
+again: the app keeps the tilt measurements of the last run and only averages them
+differently. A measurement that is still running is averaged with the range you have
+when it ends.
+
+Some tools rate the design itself, so they never follow the choice. Optimize, Angle
+Sweep, Retarget and Tune always rate all tilts to ±90°, whatever this row says (Chapters
+8, 14 and 21). The Tilt Performance graph and the tilt video draw their own full
+curves and are not changed either. The 10° tilt behind the windowing Check (Chapter 12)
+and the RI range (Chapter 6) is a separate figure and is not offered here. The
+command-line report takes the range as a flag instead of reading the settings file
+(`metrics --tilt --tilt-range 30`; the default is all tilts to ±90°).
+
+The choice is saved with the other preferences (`tilt_average_range_deg` in
+[settings.md](../settings.md)); a missing or unknown value in the file counts as ±90°.
 
 ## Denoise Live View
 
@@ -272,7 +307,7 @@ and the other follows.
 
 ## Faceting Machine
 
-The **Faceting Machine** section describes how your machine moves the stone over the lap, which decides which way the polishing scratches of a Surface Finish point (Chapter 26). It holds the choice between **Arm Points at the Lap Centre** and **Mast to the Side**, the **Arm Offset**, the **Lap Radius**, the **Mast Position**, the **Sweep Range** (**Narrow**, **Typical**, **Wide** or **Custom** with an **Inner Radius** and an **Outer Radius**) and a **Reset to the Plain Machine** button. A small figure shows the lap from above with the swept band, the dop arm and the scratches, and a sentence states the range of scratch angles. The setting is yours: it is kept in the settings file and never saved in a design, so the same design shows each cutter's own scratches. A change redraws the render only when a tier has a surface finish.
+The **Faceting Machine** section describes how your machine moves the stone over the lap, which decides which way the polishing scratches of a Surface Finish point (Chapter 26). It holds the choice between **Arm Points at the Lap Center** and **Mast to the Side**, the **Arm Offset**, the **Lap Radius**, the **Mast Position**, the **Sweep Range** (**Narrow**, **Typical**, **Wide** or **Custom** with an **Inner Radius** and an **Outer Radius**) and a **Reset to the Plain Machine** button. A small figure shows the lap from above with the swept band, the dop arm and the scratches, and a sentence states the range of scratch angles. The setting is yours: it is kept in the settings file and never saved in a design, so the same design shows each cutter's own scratches. A change redraws the render only when a tier has a surface finish.
 
 ## Updates
 

@@ -369,6 +369,11 @@ impl BackendManager {
             .unwrap_or_else(PoisonError::into_inner);
         if !rejected.contains(&class) {
             rejected.push(class);
+            tracing::warn!(
+                target: pleochroma::diag::TRACER_TARGET,
+                class,
+                "pass class rejected: its stones use the CPU"
+            );
         }
     }
 

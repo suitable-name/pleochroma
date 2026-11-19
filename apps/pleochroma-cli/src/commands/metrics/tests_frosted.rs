@@ -113,9 +113,9 @@ fn the_zone_shares_of_a_frosted_design_repeat_and_differ_from_the_polished_stone
 }
 
 /// The three tilt averages as exact bits.
-fn tilt_bits(tilt: &ObjectiveComponents) -> [u32; 3] {
+fn tilt_bits(tilt: &TiltAverages) -> [u32; 3] {
     [
-        tilt.tilt_brilliance_pct.to_bits(),
+        tilt.brilliance_pct.to_bits(),
         tilt.windowing_pct.to_bits(),
         tilt.extinction_pct.to_bits(),
     ]

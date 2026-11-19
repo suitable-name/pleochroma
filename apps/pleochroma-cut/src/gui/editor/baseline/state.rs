@@ -11,6 +11,10 @@
 //!    Angle Sweep holds the cores;
 //! 4. it works out the strip and pushes it when it changed.
 //!
+//! "Measure Tilt" keeps the four 181-point profiles of each design; the cells average them over
+//! the Tilt Average Range in force each time the strip is worked out, so a new range shows at
+//! once and never measures again (the figures the scoring tools read stay the all-tilts mean).
+//!
 //! The strip never solves. The masts come from the solves the editor already runs
 //! (`baseline::on_solved`). When a design is not solved (auto-solve off or over its
 //! budget), the strip keeps its last figures, dimmed, with "Out of Date: Press Solve".
@@ -22,17 +26,20 @@ use super::{
 use crate::{
     EditorModel, MainWindow, SweepModel, TuneModel,
     bridge::render_thread::RenderContext,
-    gui::editor::{
-        callbacks::{baseline_clone, baseline_marker, fill_baseline_masts, install_baseline},
-        state::EditorState,
-        view::design_label,
+    gui::{
+        editor::{
+            callbacks::{baseline_clone, baseline_marker, fill_baseline_masts, install_baseline},
+            state::EditorState,
+            view::design_label,
+        },
+        preferences::{display_tilt_window_deg, register_tilt_range_sink},
     },
 };
-use pleochroma::geometry::meet_solver::SolvedTier;
+use pleochroma::{color::metrics::AxisProfile, geometry::meet_solver::SolvedTier};
 use pleochroma_cut_core::{Design, MaterialSelection};
 use pleochroma_editor::{
-    live_deltas::figure_deltas, optimize_view::default_optimize_material_ri,
-    snapshot::DesignSnapshot, sweep::RowMetrics,
+    live_deltas::figure_deltas, metric_deltas::average_axis_profiles_within,
+    optimize_view::default_optimize_material_ri, snapshot::DesignSnapshot, sweep::RowMetrics,
 };
 use slint::{ComponentHandle, Timer, TimerMode, Weak};
 use std::{
@@ -108,6 +115,8 @@ struct DesignFigures {
     key: MaterialSelection,
     /// `None`: the design gives no stone.
     metrics: Option<RowMetrics>,
+    /// The tilt profiles behind `metrics.tilt`, when "Measure Tilt" ran for this design.
+    tilt_profiles: Option<Vec<AxisProfile>>,
 }
 
 /// The Baseline's own state: which one it is, and its figures once scored.
@@ -124,6 +133,8 @@ struct BaselineFigures {
     awaiting_generation: Option<u64>,
     /// The material the figures were scored under, and the figures (`None`: no stone).
     scored: Option<(MaterialSelection, Option<RowMetrics>)>,
+    /// The tilt profiles behind the Baseline's `tilt` average, when they were measured.
+    scored_profiles: Option<Vec<AxisProfile>>,
     /// The material the Baseline was last re-scored for, once the material changed.
     rescored_for: Option<String>,
 }
@@ -142,6 +153,7 @@ impl BaselineFigures {
             since,
             awaiting_generation,
             scored: None,
+            scored_profiles: None,
             rescored_for: None,
         }
     }
@@ -167,6 +179,9 @@ pub(super) struct Hub {
     /// Calls [`tick`]; stopped (dropped) with the window.
     timer: Timer,
     fed: Option<Fed>,
+    /// The design generation a design was opened at: a solve of an older generation belongs to
+    /// the design before it and is dropped.
+    floor_generation: u64,
     next_serial: u64,
     design: Option<DesignFigures>,
     baseline: BaselineFigures,
@@ -189,6 +204,7 @@ impl Hub {
             render_ctx: None,
             timer: Timer::default(),
             fed: None,
+            floor_generation: 0,
             next_serial: 0,
             design: None,
             baseline: BaselineFigures {
@@ -205,10 +221,29 @@ impl Hub {
 
     /// A new Baseline was installed (`epoch`): its figures are not the old ones. A design that
     /// was just opened also drops everything about the design before it.
-    fn baseline_installed(&mut self, epoch: u64, origin: Origin, awaiting: Option<u64>) {
+    fn baseline_installed(
+        &mut self,
+        epoch: u64,
+        origin: Origin,
+        awaiting: Option<u64>,
+        design: &Design,
+    ) {
         let now = Instant::now();
         self.baseline = BaselineFigures::new(epoch, origin, now, awaiting);
+        // Set Baseline on the design that is open and already scored: the Baseline's figures are
+        // the design's own, so the card shows them (no change) at once and not dashes while the
+        // Baseline is scored again.
+        if origin == Origin::Set
+            && let (Some(fed), Some(figures)) = (&self.fed, &self.design)
+            && figures.serial == fed.serial
+            && figures.key == fed.design.material
+            && format!("{design:?}") == format!("{:?}", fed.design)
+        {
+            self.baseline.scored = Some((figures.key.clone(), figures.metrics));
+            self.baseline.scored_profiles = figures.tilt_profiles.clone();
+        }
         if origin == Origin::Opened {
+            self.floor_generation = awaiting.unwrap_or(0);
             self.fed = None;
             self.design = None;
             self.run = None;
@@ -223,10 +258,25 @@ impl Hub {
         if self.ui.is_none() || solved.len() != design.tiers.len() {
             return;
         }
+        if feed_is_outdated(
+            self.fed.as_ref().map(|fed| fed.generation),
+            self.floor_generation,
+            generation,
+        ) {
+            return;
+        }
         if let Some(awaiting) = self.baseline.awaiting_generation
             && self.baseline.present
         {
-            if generation == awaiting {
+            // The generation can move on between the open and its first solve without the design
+            // changing (the open's own refresh); the masts of that very design still fit.
+            let same_design = generation > awaiting
+                && baseline_clone().is_some_and(|(epoch, snapshot)| {
+                    epoch == self.baseline.epoch
+                        && snapshot.solved.is_none()
+                        && format!("{:?}", snapshot.design) == format!("{design:?}")
+                });
+            if generation == awaiting || same_design {
                 fill_baseline_masts(self.baseline.epoch, solved.to_vec());
             }
             if generation >= awaiting {
@@ -305,6 +355,13 @@ impl Hub {
         } else if self.stale_since.is_none() {
             self.stale_since = Some(now);
         }
+        // Figures that were not scored from the masts now (an Undo, an edit, a new material) are
+        // dimmed while the new ones are worked out, and not shown as current.
+        let rescoring = self.fed.as_ref().is_some_and(|fed| {
+            self.design.as_ref().is_some_and(|figures| {
+                figures.serial != fed.serial || figures.key != fed.design.material
+            })
+        });
         let stale = !solving
             && self
                 .stale_since
@@ -324,7 +381,9 @@ impl Hub {
             self.flash = None;
         }
 
-        let view = self.view(now, stale);
+        // Dimmed as soon as the figures describe another design than the one on screen (right
+        // after an Undo or an edit), not only after the grace period.
+        let view = self.view(now, stale || rescoring || (behind && self.design.is_some()));
         if self.last_view.as_ref() != Some(&view) {
             present::push(&ui, &view);
             self.last_view = Some(view);
@@ -357,6 +416,7 @@ impl Hub {
             && run.epoch == self.baseline.epoch
             && let Part::Scored(metrics) = scored.baseline
         {
+            self.baseline.scored_profiles = scored.baseline_profiles;
             let moved_material = self
                 .baseline
                 .scored
@@ -373,6 +433,7 @@ impl Hub {
                 generation: run.generation,
                 key: run.key.clone(),
                 metrics,
+                tilt_profiles: scored.design_profiles,
             });
         }
     }
@@ -503,7 +564,11 @@ impl Hub {
                     .as_ref()
                     .map(|material| format!("Baseline re-scored for {material}."))
                     .unwrap_or_default();
-                (present::cells_of(&figure_deltas(was, now)), note)
+                let window_deg = display_tilt_window_deg();
+                let was =
+                    displayed_figures(was, self.baseline.scored_profiles.as_deref(), window_deg);
+                let now = displayed_figures(now, design.tilt_profiles.as_deref(), window_deg);
+                (present::cells_of(&figure_deltas(&was, &now)), note)
             }
             (None, _) => (
                 Vec::new(),
@@ -515,6 +580,39 @@ impl Hub {
             ),
         }
     }
+}
+
+/// Whether a solve of `generation` is older than what the strip already holds: the last masts fed
+/// (`fed_generation`) or the generation the open design started at (`floor`). A late solve of a
+/// design that was edited, undone or replaced while it ran must not replace the newer masts: the
+/// figures would be scored for a design that is gone and shown as the current ones.
+pub(super) const fn feed_is_outdated(
+    fed_generation: Option<u64>,
+    floor: u64,
+    generation: u64,
+) -> bool {
+    if generation < floor {
+        return true;
+    }
+    matches!(fed_generation, Some(fed) if fed > generation)
+}
+
+/// `metrics` as the strip shows it: its tilt average is the mean of `profiles` over the tilts up
+/// to `window_deg` each way. Without profiles (or without a tilt average) it is `metrics` itself.
+/// At 90 degrees the mean is the all-tilts one, bit for bit.
+pub(super) fn displayed_figures(
+    metrics: &RowMetrics,
+    profiles: Option<&[AxisProfile]>,
+    window_deg: u8,
+) -> RowMetrics {
+    let mut shown = *metrics;
+    if let (Some(profiles), Some(_)) = (profiles, shown.tilt) {
+        shown.tilt = Some(average_axis_profiles_within(
+            profiles,
+            f32::from(window_deg),
+        ));
+    }
+    shown
 }
 
 /// Connects the window: the handles the tick reads, and the timer that calls it.
@@ -531,6 +629,17 @@ pub(super) fn attach(
         // The first tick pushes a Baseline installed before the window was wired (the design a
         // startup restore opens).
         hub.timer.start(TimerMode::Repeated, TICK, tick_now);
+    });
+    // A new Tilt Average Range shows the figures again at once (the tick would catch it within
+    // 100 ms). The sink is first called while it registers, with the hub still borrowed, which
+    // `tick_now` skips.
+    let weak = ui.as_weak();
+    register_tilt_range_sink(move |_| {
+        if weak.upgrade().is_none() {
+            return false;
+        }
+        tick_now();
+        true
     });
 }
 
@@ -624,6 +733,7 @@ pub(in crate::gui::editor) fn install_parts(
     label: &str,
 ) {
     let awaiting = if solved.is_none() { generation } else { None };
+    let held = design.clone();
     let epoch = install_baseline(DesignSnapshot {
         design,
         solved,
@@ -632,7 +742,7 @@ pub(in crate::gui::editor) fn install_parts(
     });
     HUB.with(|cell| {
         if let Ok(mut hub) = cell.try_borrow_mut() {
-            hub.baseline_installed(epoch, origin, awaiting);
+            hub.baseline_installed(epoch, origin, awaiting, &held);
         }
     });
 }

@@ -1,0 +1,92 @@
+// More > Developer > a log (`Shell.more-page` 7): the last 256 KB of one text log in a
+// monospace, scrollable view, opened at the end, with Copy all and E-mail this log.
+//
+// Rust pre-wraps the text on a phone (a hanging indent under the message, the time column
+// stays separate); on a tablet it does not wrap and the view scrolls sideways.
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { Shell } from "../models.slint";
+import { TopBar } from "../shell/top_bar.slint";
+import { PrimaryButton, TonalButton } from "../shell/buttons.slint";
+import { Developer } from "developer.slint";
+
+export component LogViewerPage inherits Rectangle {
+    // The scroll position that shows the last line.
+    property <length> end-y: min(0px, flick.height - flick.content-height);
+    changed end-y => {
+        flick.content-y = root.end-y;
+    }
+
+    VerticalLayout {
+        TopBar {
+            title: Developer.viewer-name;
+            show-back: true;
+            back-clicked => {
+                Shell.request-back();
+            }
+        }
+
+        // The file is named in the bar (cut at the end when long); this line says what is shown.
+        Rectangle {
+            vertical-stretch: 0;
+            min-height: 0px;
+            preferred-height: info.preferred-height + 2 * Theme.space-sm;
+
+            info := Text {
+                x: Theme.space-lg;
+                y: Theme.space-sm;
+                width: parent.width - 2 * Theme.space-lg;
+                text: Developer.viewer-info;
+                color: Theme.text-secondary;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 0px;
+            background: Theme.surface-low;
+            clip: true;
+
+            flick := Flickable {
+                content-width: max(self.width, body.preferred-width + 2 * Theme.space-sm);
+                content-height: max(self.height, body.preferred-height + 2 * Theme.space-sm);
+
+                body := Text {
+                    x: Theme.space-sm;
+                    y: Theme.space-sm;
+                    width: self.preferred-width;
+                    height: self.preferred-height;
+                    text: Developer.viewer-text;
+                    color: Theme.on-surface;
+                    font-family: "monospace";
+                    font-size: Theme.text-label;
+                    wrap: no-wrap;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            padding: Theme.space-md;
+            spacing: Theme.space-sm;
+            alignment: end;
+
+            TonalButton {
+                text: "Copy all";
+                icon: Icons.copy;
+                clicked => {
+                    Developer.viewer-copy();
+                }
+            }
+
+            PrimaryButton {
+                text: "E-mail this log";
+                icon: Icons.mail;
+                clicked => {
+                    Developer.viewer-email();
+                }
+            }
+        }
+    }
+}

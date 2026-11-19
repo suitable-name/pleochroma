@@ -34,6 +34,7 @@ fn proposal_diagnostics_distinguish_preservation_noops_and_replay_reuse() {
         labels_added: 3,
         labels_reused: 13,
         stalled_episodes: 2,
+        ..Default::default()
     };
     let text = proposal_figures(&point);
     assert!(text.contains("preservation 11 (in unsafe)"));

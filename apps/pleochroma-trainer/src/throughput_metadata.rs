@@ -16,11 +16,11 @@ pub(super) fn initial(args: &Args) -> Value {
         "build_provenance_note": "build-script snapshot watches trainer/AI source inputs and resolved Git HEAD/ref/index; dirty is repository-wide status at that build, not a source-content fingerprint; runtime checkout does not identify binary contents",
         "runtime_source_checkout": runtime_source_checkout(),
         "cuda_feature": cfg!(feature = "cuda"), "started_utc": crate::stats::rfc3339_utc_now(),
-        "args": args, "run_config": config(&args.config()), "validation_enabled": false,
+        "args": args, "run_config": config(&args.config()), "validation_enabled": args.validation_designs.is_some(),
         "learning_rate_horizon_iterations": 300,
         "imitation_objective_revision": pleochroma_ai::training::imitation::IMITATION_OBJECTIVE_REVISION,
         "phase_snapshots": "sampled every 2 seconds; short phases may be absent; rollout forward and update durations come from production counters",
-        "checkpoint_writes": false, "database_access": "read_only",
+        "checkpoint_writes": false, "database_access": if args.database.as_os_str().is_empty() { "unused" } else { "read_only" },
         "host": {"os": std::env::consts::OS, "arch": std::env::consts::ARCH,
             "available_parallelism": std::thread::available_parallelism().map_or(1, usize::from),
             "cpu_model": cpu_model(),
@@ -32,7 +32,7 @@ pub(super) fn initial(args: &Args) -> Value {
             "stage_timings": "host wall only; asynchronous execution and first-use compilation can spill into existing readbacks; compiler and GPU-kernel time are not isolated",
             "shape_policy": "power-of-two tier and row buckets, bounded by input layout and prepared-window budget; dummy rows have zero tier and target masks; real row order is preserved",
             "warmup_boundary": "explicit update drain before the first measured iteration",
-            "measurement_window": "measured iterations plus final update drain and intervening logging",
+            "measurement_window": "measured iterations plus final update drain and intervening logging; optional deployment validation is timed separately",
             "soft_deadline": "checked between operations; cannot interrupt initialization or projection"}
     })
 }
@@ -112,7 +112,7 @@ pub(super) fn corpus(records: &[DbDesignRecord], split: &DatasetSplit) -> Value 
     }
     json!({
         "records_fnv1a64": format!("{hash:016x}"), "record_count": records.len(),
-        "loaded_entries": split.entries.len(), "train_indices": split.train,
+        "coverage": split.coverage(), "loaded_entries": split.entries.len(), "train_indices": split.train,
         "validation_indices": split.val, "test_indices": split.test,
         "max_tiers": split.max_tiers, "split_seed": split.split_seed,
         "skipped": split.skipped.iter().map(|entry| json!({"title": entry.title, "reason": entry.reason})).collect::<Vec<_>>(),

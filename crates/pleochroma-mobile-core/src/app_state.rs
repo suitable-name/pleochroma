@@ -84,6 +84,8 @@ pub struct AppState {
     pub library: LibraryState,
     /// Cancellation and identity of immutable long-operation inputs.
     pub operations: crate::operations::OperationState,
+    /// The tracer log, the breadcrumbs, the unlock and the start-up check of this app start.
+    pub diagnostics: Arc<crate::diagnostics::Session>,
     platform: Arc<dyn Platform>,
     store: SettingsStore,
 }
@@ -95,6 +97,7 @@ impl AppState {
     #[must_use]
     pub fn new(platform: Arc<dyn Platform>) -> Self {
         let (store, settings) = SettingsStore::open(platform.app_dirs());
+        let diagnostics = crate::diagnostics::Session::new(&platform);
         Self {
             session: EditorSession::fresh(),
             destination: settings.last_destination,
@@ -111,6 +114,7 @@ impl AppState {
             hdr: HdrState::default(),
             library: LibraryState::default(),
             operations: crate::operations::OperationState::default(),
+            diagnostics,
             platform,
             store,
         }
@@ -286,6 +290,13 @@ mod tests {
         assert_eq!(state.design_title(), "Barion");
         state.session.design.meta.headers = vec!["by Jane".to_owned()];
         assert_eq!(state.design_title(), "Untitled Design");
+    }
+
+    #[test]
+    fn a_new_state_has_a_locked_diagnostics_session_with_the_tracer_off() {
+        let (state, _mock) = state();
+        assert!(!state.diagnostics.unlock().unlocked());
+        assert!(!state.diagnostics.tracer_on());
     }
 
     #[test]

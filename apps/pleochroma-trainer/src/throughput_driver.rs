@@ -92,10 +92,7 @@ pub fn run(args: &Args) -> Result<(), Failure> {
             if errors == 0 {
                 Ok(())
             } else {
-                Err(format!(
-                    "{errors} projection cases failed; all requested case reports were retained"
-                )
-                .into())
+                Err(format!("{errors} cases failed; see the saved case reports").into())
             }
         }
         Err(error) => {
@@ -120,11 +117,19 @@ fn run_inner(session: &Session<'_>) -> Result<Value, Failure> {
     session
         .heartbeat
         .phase("read-only dataset loading and feature preparation", None);
-    session
-        .journal
-        .event("dataset_start", json!({"database": session.args.database}))?;
+    session.journal.event(
+        "dataset_start",
+        json!({"database": session.args.database, "design_dir": session.args.design_dir}),
+    )?;
     let loading = Instant::now();
-    let records = dataset::load_db_designs_from(&session.args.database)?;
+    let mut records = if session.args.database.as_os_str().is_empty() {
+        Vec::new()
+    } else {
+        dataset::load_db_designs_from(&session.args.database)?
+    };
+    if let Some(directory) = &session.args.design_dir {
+        records.extend(crate::cli_dataset::load_design_directory(directory)?);
+    }
     let split = DatasetSplit::from_records(
         &records,
         dataset::DEFAULT_SPLIT_SEED,
@@ -160,6 +165,11 @@ fn select_pipeline_entries(args: &Args, split: &mut DatasetSplit) -> Result<(), 
 
 fn pipeline(session: &Session<'_>, mut split: DatasetSplit) -> Result<Value, Failure> {
     select_pipeline_entries(session.args, &mut split)?;
+    if session.args.validation_designs.is_some() && split.val.is_empty() {
+        return Err(
+            "deployment validation requested but this corpus has no validation entries".into(),
+        );
+    }
     session.journal.event("pipeline_corpus", json!({
         "representative_full_training_split": session.args.entries.is_none(),
         "train_indices": split.train,
@@ -247,7 +257,32 @@ fn pipeline(session: &Session<'_>, mut split: DatasetSplit) -> Result<Value, Fai
         .expect("positive measured iterations")
         .elapsed()
         .as_secs_f64();
+    let mut validation = Value::Null;
+    let mut validation_failures = 0;
+    if let Some(count) = session.args.validation_designs {
+        session.check()?;
+        let entries = runner.validation_entries(count);
+        session
+            .heartbeat
+            .phase("deployment validation", Some(progress.clone()));
+        session
+            .journal
+            .event("validation_start", json!({"entries": entries}))?;
+        let started = Instant::now();
+        let report = runner.evaluate(
+            &entries,
+            runner::EvalFidelity::Fast,
+            session.args.seed,
+            runner::EvalPasses::default(),
+        )?;
+        validation_failures = report.failed;
+        validation = json!({"wall_secs": started.elapsed().as_secs_f64(), "entries": entries, "report": report});
+        session
+            .journal
+            .event("validation_complete", validation.clone())?;
+    }
     Ok(json!({
+        "deployment_validation": validation, "case_error_count": validation_failures,
         "scenario": "pipeline", "backend": runner.device_label(), "initialization_wall_secs": initialization_secs,
         "warmup_sync_update_wall_secs": warmup_sync_secs, "final_sync_update_wall_secs": final_sync_secs,
         "warmup_drained_update": warmup_drained_update,

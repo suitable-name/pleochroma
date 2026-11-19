@@ -159,6 +159,7 @@ impl Default for AppSettings {
             first_run_tour_done: false,
             tutorials_completed: BTreeSet::new(),
             ui_scale_percent: 0,
+            tilt_average_range_deg: super::default_tilt_average_range_deg(),
             high_contrast: false,
             large_handles: false,
             adaptive_viewport: false,

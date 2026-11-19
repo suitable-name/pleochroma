@@ -1,5 +1,11 @@
 //! Acquisition for the small kernel. Never requests megakernel/wavefront limits.
-use crate::renderer::gpu::{GpuAcquireError, GpuContext};
+use crate::{
+    diag::{self, Engine, PrepareStep},
+    renderer::gpu::{
+        GpuAcquireError, GpuContext,
+        context::{note_call_done, request_adapter_logged, request_device_logged, start_failed},
+    },
+};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -20,28 +26,25 @@ use std::sync::{
     )
 )]
 pub(in crate::renderer::gpu) async fn acquire() -> Result<GpuContext, GpuAcquireError> {
+    let engine = Engine::RayTraced;
     // One thread at a time creates an instance, an adapter and a device (`gpu::lifecycle`).
     #[cfg(not(target_arch = "wasm32"))]
     let turn = crate::renderer::gpu::lifecycle::enter();
+    diag::set_prepare(engine, PrepareStep::StartingGpu, 0, 0);
+    let began = diag::process_ms();
     let instance = wgpu::Instance::new(crate::renderer::gpu::instance_descriptor());
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            compatible_surface: None,
-            apply_limit_buckets: false,
-        })
-        .await
-        .map_err(|error| GpuAcquireError::NoAdapter(format!("{error:?}")))?;
-    // See `GpuContext::acquire_async`: the driver identity for the RADV scheduler workaround.
-    let info = adapter.get_info();
-    crate::renderer::gpu_driver::record_adapter(&info.name, &info.driver, &info.driver_info);
+    note_call_done(engine, "Instance::new", began);
+    let adapter = request_adapter_logged(&instance, engine).await?;
     let available = adapter.limits();
     if available.max_storage_buffers_per_shader_stage < 4
         || available.max_buffers_and_acceleration_structures_per_shader_stage < 7
     {
-        return Err(GpuAcquireError::RequestDevice(
-            "Ray-Traced requires four storage and seven total buffer bindings".into(),
+        return Err(start_failed(
+            engine,
+            "limits",
+            GpuAcquireError::RequestDevice(
+                "Ray-Traced requires four storage and seven total buffer bindings".into(),
+            ),
         ));
     }
     let limits = wgpu::Limits {
@@ -49,20 +52,23 @@ pub(in crate::renderer::gpu) async fn acquire() -> Result<GpuContext, GpuAcquire
         max_buffers_and_acceleration_structures_per_shader_stage: 7,
         ..wgpu::Limits::downlevel_defaults().using_resolution(available)
     };
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
+    let (device, queue) = request_device_logged(
+        &adapter,
+        engine,
+        &wgpu::DeviceDescriptor {
             label: Some("pleochroma Ray-Traced four-storage-buffer device"),
             required_limits: limits,
             required_features: adapter.features() & wgpu::Features::PIPELINE_CACHE,
             ..Default::default()
-        })
-        .await
-        .map_err(|error| GpuAcquireError::RequestDevice(format!("{error:?}")))?;
+        },
+    )
+    .await?;
     let validation_error_seen = Arc::new(AtomicBool::new(false));
     let last_uncaptured_error = Arc::new(Mutex::new(None));
     let flag = Arc::clone(&validation_error_seen);
     let text = Arc::clone(&last_uncaptured_error);
     device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
+        tracing::error!(target: diag::TRACER_TARGET, engine = "Ray-Traced", %error, "uncaptured device error");
         flag.store(true, Ordering::Relaxed);
         *text
             .lock()
@@ -71,6 +77,7 @@ pub(in crate::renderer::gpu) async fn acquire() -> Result<GpuContext, GpuAcquire
     let flag = Arc::clone(&validation_error_seen);
     let text = Arc::clone(&last_uncaptured_error);
     device.set_device_lost_callback(move |reason, message| {
+        tracing::warn!(target: diag::TRACER_TARGET, engine = "Ray-Traced", ?reason, %message, "device lost");
         flag.store(true, Ordering::Relaxed);
         *text
             .lock()
@@ -83,6 +90,7 @@ pub(in crate::renderer::gpu) async fn acquire() -> Result<GpuContext, GpuAcquire
         drop(turn);
         crate::renderer::gpu::lifecycle::teardown_pair()
     };
+    diag::clear_prepare(engine);
     Ok(GpuContext {
         #[cfg(not(target_arch = "wasm32"))]
         _teardown_begin: teardown_begin,

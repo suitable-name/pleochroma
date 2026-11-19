@@ -184,7 +184,7 @@ jobs:
           destination.chmod(0o755)
           PY
 
-      - name: Package unsigned application
+      - name: Package and ad-hoc sign application
         if: env.MODE != 'publish'
         id: bundle
         run: |
@@ -207,14 +207,22 @@ jobs:
         id: archive
         run: python3 scripts/verify-macos-archive.py
 
+      # The very ZIP that would be uploaded is unpacked on this runner (which has the archive's
+      # architecture), its signature verified strictly and the program started with --version.
+      # A failure here skips the artifact upload and the release attach below, so a release
+      # never receives a build that macOS refuses ("damaged") or that does not start.
+      - name: Check the archive signs and starts on this Mac
+        id: smoke
+        run: python3 scripts/smoke-macos-archive.py
+
       - name: Archive executable if packaging or archive verification fails
-        if: failure() && env.MODE != 'publish' && (steps.bundle.outcome == 'failure' || steps.archive.outcome == 'failure')
+        if: failure() && env.MODE != 'publish' && (steps.bundle.outcome == 'failure' || steps.archive.outcome == 'failure' || steps.smoke.outcome == 'failure')
         run: |
           tar -czf "$RUNNER_TEMP/pleochroma-$PRODUCT-$RUST_TARGET-unpackaged.tar.gz" \
             -C "$CARGO_TARGET_DIR/$RUST_TARGET/release" "pleochroma-$PRODUCT"
 
       - name: Preserve executable if packaging or archive verification fails
-        if: failure() && env.MODE != 'publish' && (steps.bundle.outcome == 'failure' || steps.archive.outcome == 'failure')
+        if: failure() && env.MODE != 'publish' && (steps.bundle.outcome == 'failure' || steps.archive.outcome == 'failure' || steps.smoke.outcome == 'failure')
         uses: actions/upload-artifact@v7.0.2
         with:
           name: pleochroma-${{ matrix.product }}-${{ matrix.arch }}-unpackaged

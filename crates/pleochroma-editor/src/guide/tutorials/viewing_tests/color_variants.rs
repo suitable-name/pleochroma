@@ -288,7 +288,8 @@ fn the_color_variant_lessons_name_the_controls_the_window_has() {
         .collect::<Vec<_>>()
         .join(" ");
     for needle in [
-        "Color Pattern...",
+        "Color Pattern card",
+        "Edit...",
         "Watermelon",
         "From variant",
         "Rubellite",

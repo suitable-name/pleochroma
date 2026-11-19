@@ -21,6 +21,16 @@
 //! settings too. Applying a named lighting preset is the exception: it is a choice of
 //! normal lighting, so [`normal_lighting_chosen`] drops the remembered values and the pin.
 //!
+//! # A render job's view holds the same session
+//!
+//! Load Job View (`gui::render_jobs::view`) shows the lighting of a render job in the live view
+//! through this session. The first Load remembers the normal lighting (unless a design's own
+//! lighting did already) and the settings the job view changes ([`ViewPins`]), and pins both over
+//! every write to the settings file in the one [`SettingsPersister::set_disk_override`] closure
+//! ([`job_view_pin`]); a second job's view takes no new snapshot. Back to my view, and every
+//! other end of the view, puts the normal lighting and the pinned settings back in memory and
+//! drops the pin ([`release_job_view`]). Nothing the job view shows is persisted.
+//!
 //! # Nothing here waits on the library or the disk
 //!
 //! A design opens on the UI thread. The saved lighting is read with a lock that never
@@ -52,10 +62,16 @@ mod stored;
 use crate::{
     DesignLightingModel, MainWindow, SettingsModel, ViewportModel,
     bridge::render_thread::{RenderContext, load_env_map},
-    gui::{env_map_status_text, show_toast, tutorial_events::raise},
+    gui::{
+        env_map_status_text,
+        render_jobs::view::session::{EndReason, end},
+        show_toast,
+        tutorial_events::raise,
+    },
     settings::{
-        SettingsPersister,
-        model::{percent_from_surface_glare, percent_from_tray_reflection},
+        SettingsFile, SettingsPersister,
+        model::{AppSettings, percent_from_surface_glare, percent_from_tray_reflection},
+        persist::DiskOverride,
     },
 };
 use opening::{
@@ -177,8 +193,12 @@ struct Session {
     handles: Option<Handles>,
     /// The open design's UUID (lowercase); `None` when no design is open.
     design: Option<String>,
-    /// `Some` exactly while a design's own lighting is showing.
+    /// `Some` while a design's own lighting is showing, or a render job's view holds the
+    /// session ([`ViewPins`]).
     normal: Option<Normal>,
+    /// `Some` exactly while a render job's view is showing: the settings it changes, as they were
+    /// before the first Load.
+    job_pins: Option<ViewPins>,
     /// Designs whose unusable saved lighting has been reported already.
     told: HashSet<String>,
     /// The number of the latest design opening, forget or normal-lighting choice. A lookup
@@ -794,11 +814,194 @@ fn forget_lighting_for_design(ui: &MainWindow) {
         );
         return;
     }
-    restore_normal_lighting(ui, &handles);
+    if job_view_held() {
+        // The view of a render job holds the normal lighting: ending it puts that back.
+        end(ui, EndReason::LightingChosen);
+    } else {
+        restore_normal_lighting(ui, &handles);
+    }
     publish_model(ui, true, &Lookup::NoRow);
     show_toast(ui, "This design now uses your normal lighting.", "info");
     // A tutorial step may wait for the lighting to be forgotten.
     raise(ui, events::DESIGN_LIGHTING_FORGOTTEN);
+}
+
+// ---------------------------------------------------------------------------------------
+// The view of a render job.
+// ---------------------------------------------------------------------------------------
+
+/// The settings a job view changes, as they were before the first Load.
+///
+/// They are the camera, the Stone Pose, the material and its overrides, the bounce cap, the engine
+/// and its options, the quality choice and the view color. The job view pins them over every
+/// write to the settings file and puts them back in memory when it ends, so the controls the
+/// cutter moves during the view never leave a job's values in the file. It clones one whole
+/// [`AppSettings`] and copies the listed fields out of it.
+#[derive(Clone)]
+pub(in crate::gui) struct ViewPins {
+    held: Arc<AppSettings>,
+}
+
+impl ViewPins {
+    /// The pins of the settings `app` holds now.
+    pub(in crate::gui) fn of(app: &AppSettings) -> Self {
+        Self {
+            held: Arc::new(app.clone()),
+        }
+    }
+
+    /// Writes every pinned field into `app`.
+    pub(in crate::gui) fn write_into(&self, app: &mut AppSettings) {
+        let held = &*self.held;
+        app.ray_trace = held.ray_trace;
+        app.max_bounces = held.max_bounces;
+        app.quality_preset = held.quality_preset;
+        app.custom_quality = held.custom_quality;
+        app.camera_yaw = held.camera_yaw;
+        app.camera_pitch = held.camera_pitch;
+        app.camera_roll = held.camera_roll;
+        app.camera_pan = held.camera_pan;
+        app.stone_pose = held.stone_pose;
+        app.camera_distance = held.camera_distance;
+        app.selected_material.clone_from(&held.selected_material);
+        app.inclusion_sigma_s = held.inclusion_sigma_s;
+        app.c_axis_override_enabled = held.c_axis_override_enabled;
+        app.c_axis_tilt_deg = held.c_axis_tilt_deg;
+        app.c_axis_azimuth_deg = held.c_axis_azimuth_deg;
+        app.girdle_frosted = held.girdle_frosted;
+        app.edge_rounding_radius = held.edge_rounding_radius;
+        app.stone_width_mm = held.stone_width_mm;
+        app.live_view_mode = held.live_view_mode;
+        app.render_body_color_override = held.render_body_color_override;
+        app.render_body_color_bands
+            .clone_from(&held.render_body_color_bands);
+        app.render_body_color_variant
+            .clone_from(&held.render_body_color_variant);
+    }
+}
+
+/// The one rewrite that keeps the normal look in the settings file while a job's view shows.
+///
+/// It writes the normal lighting and the pinned settings over whatever the controls wrote, see
+/// [`SettingsPersister::set_disk_override`]. It owns clones: it runs on the writer's threads.
+pub(in crate::gui) fn job_view_pin(normal: &LightingValues, pins: &ViewPins) -> DiskOverride {
+    let normal = normal.clone();
+    let pins = pins.clone();
+    Arc::new(move |file: &mut SettingsFile| {
+        normal.write_into(&mut file.settings);
+        pins.write_into(&mut file.settings);
+    })
+}
+
+/// Whether a render job's view holds this session.
+pub(in crate::gui) fn job_view_held() -> bool {
+    SESSION.with(|session| session.borrow().job_pins.is_some())
+}
+
+/// Starts the hold of a render job's view, or goes on with the one a first Load made.
+///
+/// Only the first Load remembers anything, so loading a second job's view takes no new snapshot
+/// of the normal look. It remembers the normal lighting unless a design's own lighting did
+/// already, keeps the pinned settings and installs the one disk pin. Returns `false` when the
+/// window is not set up.
+pub(in crate::gui) fn hold_for_job_view(ui: &MainWindow) -> bool {
+    let Some(handles) = handles() else {
+        return false;
+    };
+    // A lookup or an HDR decode on its way for a design is void: the job's lighting comes next.
+    begin_generation();
+    if job_view_held() {
+        return true;
+    }
+    if !override_active() {
+        let normal = capture_normal(ui, &handles);
+        SESSION.with(|session| session.borrow_mut().normal = Some(normal));
+    }
+    let pins = ViewPins::of(&handles.settings_store.snapshot().settings);
+    let pin = SESSION.with(|session| {
+        let mut session = session.borrow_mut();
+        session.job_pins = Some(pins.clone());
+        session
+            .normal
+            .as_ref()
+            .map(|normal| job_view_pin(&normal.values, &pins))
+    });
+    handles.settings_store.set_disk_override(pin);
+    true
+}
+
+/// Shows `values` as the lighting of the job view, in the render context and the controls.
+///
+/// The settings are never touched. `studio` takes a loaded HDR map away (the job is lit by the
+/// studio rig); without it the map in use stays until [`show_job_env_map`] replaces it.
+pub(in crate::gui) fn show_job_lighting(ui: &MainWindow, values: &LightingValues, studio: bool) {
+    let Some(handles) = handles() else {
+        return;
+    };
+    let rig = values.rig().unwrap_or_default();
+    {
+        let mut ctx = RenderContext::lock(&handles.render_ctx);
+        push_values_to_context(&mut ctx, values, rig);
+        if studio {
+            ctx.env_map = None;
+        }
+        ctx.dirty = true;
+    }
+    push_values_to_controls(ui, values, rig);
+    if studio {
+        let settings = ui.global::<SettingsModel>();
+        settings.set_env_map_status(String::new().into());
+        settings.set_env_map_loaded(false);
+    }
+}
+
+/// Shows the decoded HDR map of the job view, in the render context and the HDR controls.
+pub(in crate::gui) fn show_job_env_map(ui: &MainWindow, map: Arc<EnvironmentMap>, path: &str) {
+    let Some(handles) = handles() else {
+        return;
+    };
+    {
+        let mut ctx = RenderContext::lock(&handles.render_ctx);
+        ctx.env_map = Some(Arc::clone(&map));
+        ctx.dirty = true;
+    }
+    let settings = ui.global::<SettingsModel>();
+    settings.set_env_map_status(env_map_status_text(&map, path).into());
+    settings.set_env_map_loaded(true);
+    settings.set_env_map_path(path.into());
+}
+
+/// Ends the hold of a render job's view and puts the normal look back.
+///
+/// The normal lighting and the pinned settings return in memory, in the render context and in the
+/// controls, and the disk pin goes. Does nothing when no job view holds the session. The settings
+/// file was never changed, so nothing is written to it that was not there.
+pub(in crate::gui) fn release_job_view(ui: &MainWindow) {
+    let Some(pins) = SESSION.with(|session| session.borrow_mut().job_pins.take()) else {
+        return;
+    };
+    // A lookup or an HDR decode on its way is void now.
+    begin_generation();
+    let normal = SESSION.with(|session| session.borrow_mut().normal.take());
+    let Some(handles) = handles() else {
+        return;
+    };
+    if let Some(normal) = normal {
+        restore_normal(ui, &handles, &normal);
+    }
+    handles
+        .settings_store
+        .update(|file| pins.write_into(&mut file.settings));
+    handles.settings_store.set_disk_override(None);
+}
+
+/// Shows the open design's saved lighting again, if it has some.
+///
+/// Called after a job view ends, so a design with its own lighting shows that lighting.
+pub(in crate::gui) fn reapply_design_lighting(ui: &MainWindow) {
+    if let Some(uuid) = open_design() {
+        design_opened(ui, &uuid, true);
+    }
 }
 
 #[cfg(test)]

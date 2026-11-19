@@ -19,7 +19,7 @@ use crate::{
     director::Film,
     pacing,
     support::WindowView,
-    targets::{self, Query, Resolved},
+    targets::{self, Query},
 };
 use pleochroma_cut::{
     CrystalAxisModel, EditorModel, GuideModel, RoughPlanModel, SettingsModel, harness_support,
@@ -113,17 +113,12 @@ fn press_stone_choice(
     film.hold(pacing::RESULT_HOLD)
 }
 
-/// The toolbar's Crystal Axis pill.
+/// The Solid view's Crystal Axis toggle: on the toolbar, or in the Show menu of a narrow view.
 fn toggle_axis(film: &mut Film<'_>) -> Result<(), String> {
     let model = film.ui.global::<CrystalAxisModel>();
     let before = model.get_show_axis();
-    let Resolved::Found(spot) = targets::resolve(&film.view(), "crystal_axis_toggle") else {
-        return Err(
-            "the Crystal Axis pill is not on the toolbar (the material needs a crystal axis)"
-                .into(),
-        );
-    };
-    film.click_and_invoke(&spot)?;
+    film.click_solid_toggle("Crystal Axis")
+        .map_err(|why| format!("{why} (the material needs a crystal axis)"))?;
     if model.get_show_axis() == before {
         return Err("clicking the Crystal Axis pill did not show or hide the line".into());
     }

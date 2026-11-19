@@ -18,7 +18,7 @@ use super::report::report_design;
 use super::{
     config::InferenceConfig,
     error::InferenceError,
-    policy::{check_network, network_from_file, network_of, run_policy},
+    policy::{check_network, network_of, run_policy},
     report::{angle_changes, report_design_with_settings},
 };
 use crate::{
@@ -117,8 +117,9 @@ impl RlRetargetModel {
     /// network does not fit the current observation layout.
     pub fn from_checkpoint(
         checkpoint: Checkpoint,
-        config: InferenceConfig,
+        mut config: InferenceConfig,
     ) -> Result<Self, InferenceError> {
+        config.probe_scale_deg = config.probe_scale_deg.or(checkpoint.probe_scale_deg);
         Ok(Self {
             network: network_of(checkpoint, TrainingMode::Retarget)?,
             config,
@@ -132,10 +133,10 @@ impl RlRetargetModel {
     /// [`InferenceError::Weights`] for an unreadable or damaged file, another schema or
     /// observation layout version, an optimizer checkpoint, or a network that does not fit.
     pub fn load(path: &Path, config: InferenceConfig) -> Result<Self, InferenceError> {
-        Ok(Self {
-            network: network_from_file(path, TrainingMode::Retarget)?,
+        Self::from_checkpoint(
+            Checkpoint::load(path, crate::env::OBS_LAYOUT_VERSION)?,
             config,
-        })
+        )
     }
 
     /// The settings of every [`Self::retarget`] call.
@@ -181,6 +182,7 @@ impl RlRetargetModel {
             RetargetEnvConfig {
                 max_steps: config.steps,
                 max_step_deg: config.max_step_deg,
+                probe_scale_deg: config.probe_scale_deg.unwrap_or(config.max_step_deg),
                 weights,
                 fidelity: config.rollout_fidelity,
                 lighting: config.lighting,
@@ -201,13 +203,31 @@ impl RlRetargetModel {
             config.stall_steps,
         )?;
 
-        let gem = &target_material.gem;
-        let end = env.current_design();
+        env.retarget_result(config.report_fidelity, run.evaluations)
+    }
+}
+
+impl RetargetEnv {
+    /// Measure the episode endpoints in the target material and certify the returned design.
+    ///
+    /// # Errors
+    /// Returns an error if an endpoint cannot be scored or the selected design fails the
+    /// original-relative preservation check.
+    pub fn retarget_result(
+        &self,
+        report_fidelity: pleochroma_cut_core::ObjectiveFidelity,
+        evaluations: usize,
+    ) -> Result<CertifiedRetargetResult, InferenceError> {
+        let design = self.base_design();
+        let config = self.config();
+        let weights = config.weights;
+        let gem = &config.target_material.gem;
+        let end = self.current_design();
         let before = report_design_with_settings(
             design,
             gem,
             &weights,
-            config.report_fidelity,
+            report_fidelity,
             config.lighting,
             config.shape_target,
         )?;
@@ -220,7 +240,7 @@ impl RlRetargetModel {
                 end,
                 gem,
                 &weights,
-                config.report_fidelity,
+                report_fidelity,
                 config.lighting,
                 config.shape_target,
             )?;
@@ -246,14 +266,14 @@ impl RlRetargetModel {
             target_material_name: gem.name.clone(),
             base_score: before.score,
             target_score,
-            steps_taken: run.steps,
-            evaluations: run.evaluations,
+            steps_taken: self.step_count(),
+            evaluations,
             proposed_angles_deg,
             solved_angles_deg: solved_angles_deg.clone(),
             solved_masts: solved_masts.clone(),
         };
         let materialized = chosen_design;
-        let preservation = env
+        let preservation = self
             .certify_design(&materialized)
             .map_err(InferenceError::Preservation)?;
         Ok(CertifiedRetargetResult {
@@ -270,7 +290,7 @@ impl RlRetargetModel {
 mod tests {
     use super::*;
     use crate::{
-        env::{ContinuousTierAction, DEFAULT_LINE_SEARCH, OBS_LAYOUT_VERSION},
+        env::{DEFAULT_LINE_SEARCH, OBS_LAYOUT_VERSION},
         model::{ModelTier, WeightError},
     };
     use pleochroma_cut_core::{
@@ -360,10 +380,6 @@ mod tests {
         network
     }
 
-    /// A 2-degree step limit: the proposal is 1.9 degrees per tier and the line search tries
-    /// 1.9, 0.95 and 0.475 degrees, so the turned-away stone (1.5 degrees off) comes back to
-    /// the fixture's angles in a step or two whichever scale the greedy gate takes. The test is
-    /// about the adoption and reporting path, not about the step size.
     fn constant_model(bias: f32) -> RlRetargetModel {
         RlRetargetModel::new(
             constant_network(bias),
@@ -375,61 +391,33 @@ mod tests {
         .expect("a constant-sensitivity network fits the layout")
     }
 
-    /// Both directions of the turn: a positive bias turns every tier by a negative delta, a
-    /// negative bias by a positive one. The size of the bias does not matter (the composed
-    /// mean is scale-free), only its sign.
-    const PROBE_BIASES: [f32; 2] = [1.0, -1.0];
-
-    /// The fixture with every free tier turned `TURN_AWAY_DEG` away from its authored angle,
-    /// re-anchored on its hinge exactly as an environment step does it. The fixture itself
-    /// sits at a local optimum of the `Fast` score in sapphire (a uniform turn in either
-    /// direction scores worse), so the adoption test starts from this
-    /// turned-away stone, for which the uniform turn back (a negative delta, a positive bias)
-    /// is an improving policy.
-    const TURN_AWAY_DEG: f64 = 1.5;
-
-    fn turned_away_fixture() -> Design {
-        use crate::env::common::{MoveSpace, apply_action};
-        let design = Design::concave_fixture();
-        let space = MoveSpace::measure(&design, true).expect("the fixture has movable tiers");
-        let action = ContinuousTierAction::new(vec![TURN_AWAY_DEG; design.tiers.len()]);
-        match apply_action(&space, &design, &action, TURN_AWAY_DEG) {
-            Ok(turned) => turned,
-            // The turn goes through the meet-preserving projection like every candidate; name
-            // the exact refusal so a gate change is visible from the failure alone.
-            Err(rejection) => panic!(
-                "the uniform {TURN_AWAY_DEG} degree turn of the fixture's free tiers under \
-                 PreservationPolicy::OPTIMIZE is refused ({rejection:?}): {}",
-                crate::env::moves::preservation_refusal(&space, &design, &action, TURN_AWAY_DEG)
-                    .unwrap_or_else(|| "refused before the meet-preserving projection".to_owned())
-            ),
-        }
-    }
-
     #[test]
     fn a_known_improving_policy_has_its_angles_adopted_and_reported_exactly() {
-        let design = turned_away_fixture();
+        let design = Design::concave_fixture();
         let target = sapphire();
         let weights = ObjectiveWeights::default();
-        let (bias, proposal) = PROBE_BIASES
-            .iter()
-            .find_map(|&bias| {
-                let proposal = constant_model(bias)
-                    .retarget(&design, &target, weights)
-                    .expect("the fixture retargets");
-                (!proposal.proposed_angles_deg.is_empty()).then_some((bias, proposal))
-            })
-            .expect("a uniform turn of the free tiers in one direction improves in sapphire");
-
-        // Replay the same policy by hand and measure its end design directly.
-        let config = constant_model(bias).config().clone();
+        // A positive angle delta on the -38° pavilion tier improves the authored stone in sapphire.
+        let network = constant_network(-1.0);
+        let mut config = InferenceConfig::retarget()
+            .with_steps(2)
+            .with_max_step_deg(0.5)
+            .with_report_fidelity(ObjectiveFidelity::Fast);
+        config.only_tiers = Some(std::collections::BTreeSet::from([2]));
+        let model =
+            RlRetargetModel::new(network.clone(), config.clone()).expect("the network fits");
+        let certified = model
+            .retarget_certified(&design, &target, weights)
+            .expect("the retarget returns a certified design");
+        let proposal = &certified.proposal;
         let mut env = RetargetEnv::new(
             design.clone(),
             RetargetEnvConfig {
                 max_steps: config.steps,
                 max_step_deg: config.max_step_deg,
+                probe_scale_deg: config.probe_scale_deg.unwrap_or(config.max_step_deg),
                 weights,
                 fidelity: config.rollout_fidelity,
+                only_tiers: config.only_tiers.clone(),
                 ..RetargetEnvConfig::new_with_target(target.clone())
             },
         )
@@ -438,7 +426,7 @@ mod tests {
         let run = run_policy(
             &mut env,
             observation,
-            &constant_network(bias),
+            &network,
             config.steps,
             config.max_step_deg,
             &config.line_search,
@@ -452,9 +440,23 @@ mod tests {
             .expect("the end is scorable");
         assert!(
             after.score < before.score,
-            "the probe found an improving policy"
+            "the pavilion turn must improve the independently measured score"
         );
 
+        assert_eq!(&certified.design, end);
+        assert_eq!(
+            certified.preservation,
+            env.certify_design(end)
+                .expect("the replay preserves the baseline")
+        );
+        let solved = end.solve().expect("the accepted design solves");
+        let expected_angles: Vec<_> = end.tiers.iter().map(|tier| tier.angle_deg).collect();
+        let expected_masts: Vec<_> = solved.iter().map(|tier| tier.mast).collect();
+        assert_eq!(proposal.solved_angles_deg, expected_angles);
+        assert_eq!(proposal.solved_masts, expected_masts);
+        assert_eq!(certified.angles_deg, expected_angles);
+        assert_eq!(certified.masts, expected_masts);
+        assert!(proposal.angle_of(2).is_some());
         assert_eq!(proposal.steps_taken, run.steps);
         assert_eq!(proposal.evaluations, run.evaluations);
         assert_eq!(proposal.base_score, before.score);
@@ -609,6 +611,20 @@ mod tests {
             0,
             tier.init_network(2),
         )
+    }
+
+    #[test]
+    fn probe_displacement_survives_in_memory_and_file_loading() {
+        let checkpoint = checkpoint_of(TrainingMode::Retarget).with_probe_scale_deg(0.03125);
+        let direct =
+            RlRetargetModel::from_checkpoint(checkpoint.clone(), InferenceConfig::retarget())
+                .unwrap();
+        let path = checkpoint_file(TrainingMode::Retarget, "probe-displacement");
+        checkpoint.save(&path).unwrap();
+        let loaded = RlRetargetModel::load(&path, InferenceConfig::retarget()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(direct.config().probe_scale_deg, Some(0.03125));
+        assert_eq!(direct.config(), loaded.config());
     }
 
     /// Writes a checkpoint of `mode` to a file of its own in the temp directory.

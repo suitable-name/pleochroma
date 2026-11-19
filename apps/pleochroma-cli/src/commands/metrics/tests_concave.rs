@@ -5,8 +5,11 @@
 
 use super::*;
 use crate::{args::MaterialArg, outcome::EXIT_OK, testing};
-use pleochroma::color::metrics::{evaluate_gem_optical_metrics, evaluate_gem_optical_metrics_geom};
-use pleochroma_cut_core::{CANONICAL_LIGHTING_PRESET, evaluate_objective_under};
+use pleochroma::color::metrics::{
+    evaluate_all_axes_profiles_geom_threaded, evaluate_gem_optical_metrics,
+    evaluate_gem_optical_metrics_geom,
+};
+use pleochroma_cut_core::CANONICAL_LIGHTING_PRESET;
 
 /// Measures `design` under refractive index 1.76 at the canonical light.
 fn measured_of(design: &Design, tilt: bool) -> Measured {
@@ -76,13 +79,16 @@ fn a_flat_design_is_measured_on_exactly_its_planes() {
         measured.table_up.aset, direct.aset,
         "Contrast and the zone shares are the planes-only figures too"
     );
-    let tilt = evaluate_objective_under(
-        &planes,
+    let axes = evaluate_all_axes_profiles_geom_threaded(
+        StoneGeometry::planes_only(&planes),
         &gem,
-        ObjectiveFidelity::Full,
-        CANONICAL_LIGHTING_PRESET,
+        environment,
+        None,
     );
+    // At the default range the tilt averages are the all-tilts mean, as the scoring tools read it.
+    let tilt = pleochroma_editor::metric_deltas::average_axis_profiles(&axes);
     assert_eq!(measured.tilt, Some(tilt));
+    assert_eq!(measured.tilt_range_deg, 90);
 
     let flat = measure_solid(&design.planes_from_solved(solved)).expect("measures");
     let width = flat.width_axis;

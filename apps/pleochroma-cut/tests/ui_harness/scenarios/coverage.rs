@@ -33,6 +33,7 @@ mod table;
 mod overlay_states;
 mod overlays;
 mod planner_axis;
+mod reach_presses;
 mod rows_axis;
 mod rows_checked;
 mod rows_color;
@@ -67,7 +68,8 @@ use table::{Invoke, Row, Setup};
 /// The pieces of this module.
 ///
 /// They are the click-through passes of the overlays and secondary states
-/// (`overlays.rs`, one piece per state or window state), then the direct-invoke chunks
+/// (`overlays.rs`, one piece per state or window state), the targeted presses of
+/// `reach_presses.rs`, then the direct-invoke chunks
 /// (`coverage_invoke:<group>:<n>`), which are `last` pieces.
 pub fn pieces() -> Vec<Piece> {
     let mut all = Vec::new();
@@ -85,6 +87,7 @@ pub fn pieces() -> Vec<Piece> {
     all.extend(windows_reach::pieces());
     all.extend(states_gaps_planner::pieces());
     all.extend(states_gaps_sweep::pieces());
+    all.extend(reach_presses::pieces());
     all.extend(invoke_pieces());
     all
 }

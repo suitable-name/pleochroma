@@ -62,7 +62,12 @@ export component StoneChip inherits Rectangle {
     in property <color> fill: Theme.bg-input;
 
     height: 24px;
-    width: chip_text.preferred-width + 20px;
+    // As wide as its text, and narrower (the text elides) when its row has less room: a row of
+    // chips never widens the panel it is in.
+    preferred-width: chip_text.preferred-width + 20px;
+    max-width: chip_text.preferred-width + 20px;
+    min-width: 36px;
+    horizontal-stretch: 0;
     border-radius: 12px;
     background: root.fill;
     border-width: 1px;
@@ -73,12 +78,14 @@ export component StoneChip inherits Rectangle {
     if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
     chip_text := Text {
         x: 10px;
+        width: parent.width - 20px;
         height: parent.height;
         text: root.text;
         font-size: 11px;
         font-weight: 600;
         color: root.ink;
         vertical-alignment: center;
+        overflow: elide;
     }
 }
 
@@ -91,7 +98,11 @@ export component StoneChipButton inherits Rectangle {
     callback clicked();
 
     height: 24px;
-    width: chip_text.preferred-width + 20px;
+    // Like `StoneChip`: its text's width, less when the row is short of room.
+    preferred-width: chip_text.preferred-width + 20px;
+    max-width: chip_text.preferred-width + 20px;
+    min-width: 36px;
+    horizontal-stretch: 0;
     border-radius: 12px;
     background: root.active || chip_touch.has-hover ? Theme.accent-cyan-surface : Theme.bg-input;
     border-width: chip_fs.has-focus ? 2px : 1px;
@@ -112,12 +123,14 @@ export component StoneChipButton inherits Rectangle {
     }
     chip_text := Text {
         x: 10px;
+        width: parent.width - 20px;
         height: parent.height;
         text: root.text;
         font-size: 11px;
         font-weight: 600;
         color: root.active || chip_touch.has-hover ? Theme.accent-cyan : Theme.text-secondary;
         vertical-alignment: center;
+        overflow: elide;
     }
     chip_touch := TouchArea {
         mouse-cursor: pointer;
@@ -194,7 +207,7 @@ export component StoneColorTile inherits Rectangle {
     // Tiles in a row share its width whatever their names are.
     preferred-width: 0px;
     min-width: 0px;
-    height: 62px;
+    height: 76px;
     opacity: root.enabled ? 1.0 : 0.5;
     accessible-role: AccessibleRole.radio-button;
     accessible-enabled: root.enabled;
@@ -255,12 +268,16 @@ export component StoneColorTile inherits Rectangle {
                 ink: Theme.text-secondary;
             }
         }
+        // Two lines: five tiles share the dock, so "Golden Yellow" and "Medium Blue" wrap under the
+        // swatch instead of eliding; a single long word still elides.
         Text {
             text: root.text;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: root.on ? 600 : 500;
             color: root.on ? Theme.text-primary : Theme.text-muted;
             horizontal-alignment: center;
+            vertical-alignment: top;
+            wrap: word-wrap;
             overflow: elide;
         }
     }

@@ -22,6 +22,9 @@ export component GesturesButton inherits KitGlass {
     in property <string> extra_line: "";
     // True while the person drags in the view: an open card closes at once.
     in property <bool> dragging: false;
+    // The room above the button inside its view. A card taller than that stops at the view's top
+    // edge and covers the button, so it never leaves the view (and the window).
+    in property <length> room_above: 100000px;
     in-out property <bool> open: false;
     callback dismissed();
 
@@ -101,7 +104,7 @@ export component GesturesButton inherits KitGlass {
 
     if root.open: Rectangle {
         x: 0px;
-        y: -self.height - 8px;
+        y: max(-self.height - 8px, -root.room_above);
         width: 236px;
         height: card_lay.preferred-height;
         background: Theme.popup-surface;

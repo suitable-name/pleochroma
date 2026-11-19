@@ -167,6 +167,8 @@ export global TrainingController {
     // ---- Validation ------------------------------------------------------------------------
     in-out property <bool> has_validation: false;
     in-out property <float> val_score: 0.0;
+    in-out property <bool> has_deployed_score: false;
+    in-out property <float> val_deployed_score: 0.0;
     in-out property <float> val_brilliance: 0.0;
     in-out property <float> val_windowing: 0.0;
     // Model drop / oracle drop on the validation designs: the figure of merit (goal > 0.8).

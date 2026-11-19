@@ -206,7 +206,7 @@ fn drag_handles() -> Guide {
     .step(
         GuideStep::new(
             "Turn the tier with the index handle",
-            "I turns the tier round the index wheel, a whole number of teeth at a time.",
+            "The index handle, marked I, turns the tier round the index wheel, a whole number of teeth at a time.",
         )
         .actions([
             "Press on I, the amber diamond, and drag it a few teeth round.",
@@ -221,15 +221,15 @@ fn drag_handles() -> Guide {
     .step(
         GuideStep::new(
             "Switch snapping off",
-            "By default an angle snaps to 0.1 degrees and a depth to 0.01. The Snap pill turns that off.",
+            "By default an angle snaps to 0.1 degrees and a depth to 0.01. Snap turns that off.",
         )
         .actions([
-            "Click the Snap pill in the toolbar.",
+            "Click Snap in the toolbar above the picture. In a narrow view it is in the Show menu under the view pills: click Show, then Snap.",
             "Hold Shift while you drag A or D to move in fine steps instead (0.01 degrees and 0.001).",
         ])
-        .check("The Snap pill is no longer lit.")
-        .why("The index handle always moves in whole teeth, whatever the pill says.")
-        .goal(event(SNAP_TOGGLED), "The Snap pill clicked")
+        .check("Snap is no longer lit.")
+        .why("The index handle always moves in whole teeth, whatever Snap says.")
+        .goal(event(SNAP_TOGGLED), "Snap clicked")
         .highlight("snap_pill")
         .allow(VIEWPORT),
     )
@@ -238,9 +238,9 @@ fn drag_handles() -> Guide {
             "Switch snapping back on",
             "Free dragging is for fine work; coarse snapping is easier for everything else.",
         )
-        .actions(["Click the Snap pill again."])
-        .check("The Snap pill is lit.")
-        .goal(event(SNAP_TOGGLED), "The Snap pill clicked")
+        .actions(["Click Snap again, in the toolbar or in the Show menu."])
+        .check("Snap is lit.")
+        .goal(event(SNAP_TOGGLED), "Snap clicked")
         .highlight("snap_pill")
         .allow(VIEWPORT),
     )
@@ -273,9 +273,9 @@ fn slice() -> Guide {
         )
         .actions([
             "Click the Edit tab above the picture, then Solid, if they are not already chosen.",
-            "Click the Slice pill in the toolbar (or press S with the stone in focus).",
+            "Click Slice in the toolbar above the picture (or press S with the stone in focus). In a narrow view it is in the Show menu under the view pills: click Show, then Slice.",
         ])
-        .check("The Slice pill is lit and the line under the toolbar says what to do.")
+        .check("Slice is lit and the line under the toolbar says what to do.")
         .why("While Slice is on, a left drag draws a line instead of turning the stone. Slice needs the 3D stone, so it is not offered in the Diagram view.")
         .goal(event(SLICE_STARTED), "Slice switched on")
         .highlight("slice_pill")
@@ -319,7 +319,7 @@ fn slice() -> Guide {
             "Drag the depth handle D, the blue square, inward.",
             "Stop when the line under the toolbar no longer says to drag the depth handle inward first.",
         ])
-        .check("The green outline now cuts into the stone.")
+        .check("The line under the toolbar no longer asks for the depth handle, and the green outline now cuts into the stone.")
         .why("Keep refuses until the facet really touches the stone. The angle and index handles work on the new tier too; none of these drags is an undo step yet.")
         .goal(event(SLICE_CUTS_STONE), "The new facet cutting the stone")
         .highlight("solid_viewport")
@@ -430,7 +430,7 @@ fn diagram() -> Guide {
             "The handles work exactly as they do on the stone.",
         )
         .actions([
-            "Press on A and drag it away from the centre of the wheel to make the facet steeper, or towards the centre to make it shallower.",
+            "Press on A and drag it away from the center of the wheel to make the facet steeper, or toward the center to make it shallower.",
             "Hold Shift for fine steps.",
         ])
         .check("The tier list shows a new angle.")
@@ -517,8 +517,8 @@ fn cut_slider() -> Guide {
             "All the way to the right is the whole design.",
         )
         .actions(["Drag the slider all the way to the right."])
-        .check("The label reads Finished and the border is no longer amber.")
-        .why("The slider's border turns amber whenever it is anywhere but Finished, so you can tell at a glance that you are looking at part of the design.")
+        .check("The label reads Finished.")
+        .why("Outside a lesson, the slider's border turns amber whenever it is anywhere but Finished, so you can tell at a glance that you are looking at part of the design. While a lesson highlights the slider, the border is cyan instead.")
         .goal(event(CUT_SLIDER_FINISHED), "The slider at Finished")
         .highlight("cut_slider")
         .allow(VIEWPORT),

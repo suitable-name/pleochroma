@@ -34,7 +34,7 @@ use std::{
 };
 
 use glam::Vec3;
-use pleochroma::renderer::tonemap::tonemap_to_rgba_with_threads;
+use pleochroma::{diag, renderer::tonemap::tonemap_to_rgba_with_threads};
 use pleochroma_web_core::{
     display::{DenoiseFrame, Denoiser},
     render::{Accumulator, ChunkAssignment, ChunkOutcome, ChunkPlanner, ChunkRange},
@@ -45,6 +45,7 @@ use super::{
     PauseReason, RenderFrame, RenderStatus,
     backend::{BackendManager, TraceBackend},
 };
+use crate::{settings::RenderBackend, viewport::render_view::PreparationTime};
 
 /// How long an idle worker sleeps before it looks for work again (a wake-up is also sent
 /// whenever work may have appeared).
@@ -282,6 +283,17 @@ impl Inner {
     }
 }
 
+/// What Render Details needs to know about the latest GPU preparation.
+#[derive(Default)]
+struct PrepTrack {
+    /// `process_ms()` when a preparing status was first seen, while one is on.
+    began_ms: Option<u64>,
+    /// The step, and its counts, seen last while preparing.
+    last_step: Option<(diag::PrepareStep, u32, u32)>,
+    /// The preparation that ended, or was abandoned.
+    last: Option<PreparationTime>,
+}
+
 /// The newest frame and what was published last, for the "never go backwards" rule.
 #[derive(Default)]
 struct FrameSlot {
@@ -304,6 +316,19 @@ pub(super) struct Shared {
     /// The pool is shutting down.
     closed: AtomicBool,
     denoiser: Mutex<Denoiser>,
+    /// The `render-aux` queue is inside a scene preparation (the GPU may be starting).
+    aux_preparing: AtomicBool,
+    /// Names the preparation in flight; an abandon changes it.
+    aux_token: AtomicU64,
+    /// The latest preparation's time, for Render Details.
+    preparation: Mutex<PrepTrack>,
+    /// Per render thread: it is inside a trace on the GPU (a kernel may be compiling).
+    worker_gpu: Vec<AtomicBool>,
+    /// Per render thread index: the generation of the thread that owns the index. A thread
+    /// whose generation was replaced (an abandoned one) leaves its loop when it comes back.
+    worker_generation: Vec<AtomicU64>,
+    /// A start was asked for while the GPU probe held renders back.
+    start_asked: AtomicBool,
     /// Test view: how many denoises started.
     #[cfg(test)]
     denoise_calls: AtomicU64,
@@ -337,9 +362,94 @@ impl Shared {
             halt: AtomicBool::new(false),
             closed: AtomicBool::new(false),
             denoiser: Mutex::new(Denoiser::single_thread()),
+            aux_preparing: AtomicBool::new(false),
+            aux_token: AtomicU64::new(0),
+            preparation: Mutex::new(PrepTrack::default()),
+            worker_gpu: (0..max_workers).map(|_| AtomicBool::new(false)).collect(),
+            worker_generation: (0..max_workers).map(|_| AtomicU64::new(0)).collect(),
+            start_asked: AtomicBool::new(false),
             #[cfg(test)]
             denoise_calls: AtomicU64::new(0),
         }
+    }
+
+    /// Notes that the `render-aux` queue entered a scene preparation. Returns the token the
+    /// matching [`Self::end_aux_prepare`] must present.
+    pub(super) fn begin_aux_prepare(&self) -> u64 {
+        let token = self.aux_token.load(Ordering::Acquire);
+        self.aux_preparing.store(true, Ordering::Release);
+        token
+    }
+
+    /// Notes that the preparation of `token` ended. An abandoned preparation that ends late
+    /// presents an old token and changes nothing.
+    pub(super) fn end_aux_prepare(&self, token: u64) {
+        if self.aux_token.load(Ordering::Acquire) == token {
+            self.aux_preparing.store(false, Ordering::Release);
+        }
+    }
+
+    /// Whether the `render-aux` queue is inside a scene preparation.
+    #[cfg(test)]
+    pub(super) fn aux_preparing(&self) -> bool {
+        self.aux_preparing.load(Ordering::Acquire)
+    }
+
+    /// Gives up the scene preparation in flight: its token is void from now on. Returns
+    /// whether there was one.
+    pub(super) fn abandon_aux_prepare(&self) -> bool {
+        let was = self.aux_preparing.swap(false, Ordering::AcqRel);
+        if was {
+            self.aux_token.fetch_add(1, Ordering::AcqRel);
+        }
+        was
+    }
+
+    /// The render thread indexes that are inside a GPU trace now.
+    pub(super) fn gpu_workers(&self) -> Vec<usize> {
+        self.worker_gpu
+            .iter()
+            .enumerate()
+            .filter(|(_, busy)| busy.load(Ordering::Acquire))
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// Marks thread `index` as inside (or out of) a GPU trace, if `generation` still owns it.
+    pub(super) fn set_worker_gpu(&self, index: usize, generation: u64, busy: bool) {
+        if self.worker_generation(index) == generation
+            && let Some(flag) = self.worker_gpu.get(index)
+        {
+            flag.store(busy, Ordering::Release);
+        }
+    }
+
+    /// The generation of the thread that owns render thread `index` (0 for the first).
+    pub(super) fn worker_generation(&self, index: usize) -> u64 {
+        self.worker_generation
+            .get(index)
+            .map_or(0, |generation| generation.load(Ordering::Acquire))
+    }
+
+    /// Gives render thread `index` to a new thread: the old one leaves its loop when its
+    /// trace ends. Returns the new generation.
+    pub(super) fn supersede_worker(&self, index: usize) -> u64 {
+        if let Some(flag) = self.worker_gpu.get(index) {
+            flag.store(false, Ordering::Release);
+        }
+        self.worker_generation.get(index).map_or(0, |generation| {
+            generation.fetch_add(1, Ordering::AcqRel) + 1
+        })
+    }
+
+    /// Remembers that a start was asked for while the probe held renders back.
+    pub(super) fn remember_start(&self) {
+        self.start_asked.store(true, Ordering::Release);
+    }
+
+    /// Whether a start was remembered; clears it.
+    pub(super) fn take_remembered_start(&self) -> bool {
+        self.start_asked.swap(false, Ordering::AcqRel)
     }
 
     /// Whether the pool was shut down.
@@ -563,7 +673,70 @@ impl Shared {
     }
 
     /// The pool's status.
+    ///
+    /// `Preparing` is returned only when the epoch is local, nothing is merged yet and the
+    /// process-wide snapshot shows a GPU step in flight (or the preview holds one on show);
+    /// every other `Tracing { samples: 0 }` stays as it was.
     pub(super) fn status(&self) -> RenderStatus {
+        let status = self.status_with(
+            &diag::prepare_progress(),
+            diag::prepare_override().is_some(),
+        );
+        self.track_preparation(&status);
+        status
+    }
+
+    /// Notes what `status` says about a preparation: when it began, and its time once it
+    /// ended. The UI's polling of the status is what drives it, so the time is as exact as
+    /// the poll interval.
+    fn track_preparation(&self, status: &RenderStatus) {
+        let now = diag::process_ms();
+        let mut track = relock(&self.preparation);
+        if let RenderStatus::Preparing {
+            step, done, total, ..
+        } = status
+        {
+            track.began_ms.get_or_insert(now);
+            track.last_step = Some((*step, *done, *total));
+        } else if let Some(began) = track.began_ms.take() {
+            track.last_step = None;
+            track.last = Some(PreparationTime {
+                seconds: u32::try_from(now.saturating_sub(began) / 1000).unwrap_or(u32::MAX),
+                stopped_in: None,
+            });
+        }
+    }
+
+    /// Records that the preparation in flight was abandoned, with the step it stopped in.
+    pub(super) fn note_preparation_abandoned(&self) {
+        let now = diag::process_ms();
+        let progress = diag::prepare_progress();
+        let mut track = relock(&self.preparation);
+        let began = track.began_ms.take().unwrap_or(progress.start_ms);
+        let stopped_in = track.last_step.take().or_else(|| {
+            (progress.step != diag::PrepareStep::Idle).then_some((
+                progress.step,
+                progress.done,
+                progress.total,
+            ))
+        });
+        track.last = Some(PreparationTime {
+            seconds: u32::try_from(now.saturating_sub(began) / 1000).unwrap_or(u32::MAX),
+            stopped_in,
+        });
+    }
+
+    /// The latest preparation that ended or was abandoned.
+    pub(super) fn last_preparation(&self) -> Option<PreparationTime> {
+        relock(&self.preparation).last.clone()
+    }
+
+    /// [`Self::status`] for a given snapshot of the GPU preparation; `held` says the preview
+    /// holds a frozen preparing state on show.
+    pub(super) fn status_with(&self, progress: &diag::PrepareProgress, held: bool) -> RenderStatus {
+        if held {
+            return preparing_status(progress);
+        }
         let inner = relock(&self.inner);
         match &inner.phase {
             Phase::Idle => RenderStatus::Idle,
@@ -571,10 +744,24 @@ impl Shared {
             Phase::Done => RenderStatus::Done {
                 samples: inner.samples,
             },
-            Phase::Active => inner.control.paused_reason().map_or(
-                RenderStatus::Tracing {
-                    samples: inner.samples,
-                    target: inner.target,
+            Phase::Active => inner.control.paused_reason().map_or_else(
+                || {
+                    // A CPU epoch starts no GPU step of its own: a step still in flight then
+                    // belongs to an abandoned thread.
+                    if inner.samples == 0
+                        && progress.step != diag::PrepareStep::Idle
+                        && !matches!(
+                            self.backend.requested(),
+                            RenderBackend::Remote | RenderBackend::DeviceCpu
+                        )
+                    {
+                        preparing_status(progress)
+                    } else {
+                        RenderStatus::Tracing {
+                            samples: inner.samples,
+                            target: inner.target,
+                        }
+                    }
                 },
                 RenderStatus::Paused,
             ),
@@ -695,15 +882,34 @@ impl Shared {
         let follow = relock(&self.inner).on_chunk(job, sums, elapsed);
         self.wake.notify_all();
         if let Some(follow) = follow {
+            // One line per GPU range (a whole-frame range of one or more samples) and one for
+            // the end of the render; never one per sample or per CPU chunk.
+            if job.backend.is_gpu() {
+                tracing::info!(
+                    target: diag::TRACER_TARGET,
+                    samples = follow.samples,
+                    target_samples = follow.target,
+                    ms_per_sample = elapsed.as_secs_f64() * 1000.0 / f64::from(job.assignment.spp.max(1)),
+                    "range done"
+                );
+            }
+            if follow.last {
+                tracing::info!(
+                    target: diag::TRACER_TARGET,
+                    samples = follow.samples,
+                    "render done"
+                );
+            }
             self.show(&follow);
         }
     }
 
-    /// Blocks until there is a chunk for thread `index`; `None` when the pool is closed.
-    fn next_job(&self, index: usize) -> Option<Job> {
+    /// Blocks until there is a chunk for thread `index`; `None` when the pool is closed or a
+    /// newer thread (`generation` is outdated) owns the index.
+    fn next_job(&self, index: usize, generation: u64) -> Option<Job> {
         let mut inner = relock(&self.inner);
         loop {
-            if self.is_closed() {
+            if self.is_closed() || self.worker_generation(index) != generation {
                 return None;
             }
             if let Some(job) = inner.take_job(index) {
@@ -717,6 +923,12 @@ impl Shared {
         }
     }
 
+    /// Test view: pretends `samples` passes are merged.
+    #[cfg(test)]
+    pub(super) fn debug_set_samples(&self, samples: u32) {
+        relock(&self.inner).samples = samples;
+    }
+
     /// The test view of the running epoch's merged sum and sample count.
     #[cfg(test)]
     pub(super) fn debug_sum(&self) -> Option<(u32, Vec<Vec3>)> {
@@ -725,6 +937,17 @@ impl Shared {
             .epoch
             .as_ref()
             .map(|epoch| (epoch.acc.sample_count(), epoch.acc.sum().to_vec()))
+    }
+}
+
+/// The status of a GPU step in flight: its step, counts and whole seconds so far.
+fn preparing_status(progress: &diag::PrepareProgress) -> RenderStatus {
+    let elapsed_ms = diag::process_ms().saturating_sub(progress.start_ms);
+    RenderStatus::Preparing {
+        step: progress.step,
+        done: progress.done,
+        total: progress.total,
+        elapsed_s: u32::try_from(elapsed_ms / 1000).unwrap_or(u32::MAX),
     }
 }
 
@@ -755,9 +978,10 @@ const fn plain_frame_without_pixels(follow: &Follow) -> RenderFrame {
     }
 }
 
-/// The body of render thread `index`: trace chunks until the pool closes.
-pub(super) fn worker_loop(shared: &Shared, index: usize) {
-    while let Some(job) = shared.next_job(index) {
+/// The body of render thread `index`: trace chunks until the pool closes, or until a newer
+/// thread took the index over (`generation` is no longer the index's own).
+pub(super) fn worker_loop(shared: &Shared, index: usize, generation: u64) {
+    while let Some(job) = shared.next_job(index, generation) {
         let assignment = job.assignment;
         let range = ChunkRange {
             first_pixel: assignment.first_pixel,
@@ -767,8 +991,11 @@ pub(super) fn worker_loop(shared: &Shared, index: usize) {
         };
         let aborted = || shared.abort_requested(job.epoch_id);
         let started = Instant::now();
+        let on_gpu = job.backend.is_gpu();
         let traced = catch_unwind(AssertUnwindSafe(|| {
             let _permit = shared.policy.acquire(&aborted)?;
+            // Only a thread that holds its permit can be stuck in a GPU compile.
+            shared.set_worker_gpu(index, generation, on_gpu);
             shared.backend.trace(
                 &job.backend,
                 &job.scene,
@@ -778,6 +1005,7 @@ pub(super) fn worker_loop(shared: &Shared, index: usize) {
                 job.epoch_id,
             )
         }));
+        shared.set_worker_gpu(index, generation, false);
         let elapsed = started.elapsed();
         // Merging and showing the chunk can panic too (a tone-map or accumulator bug); it
         // must not end this thread, or the pool would shrink with every such panic.

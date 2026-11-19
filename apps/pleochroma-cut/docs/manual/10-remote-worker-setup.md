@@ -37,7 +37,7 @@ whether beam tracing is on or not. After you update the app, update every worker
 coordinator that workers join) to the same release and restart them, then use **Test
 Connection** to check each one.
 
-Every worker must be on protocol 45 (version 0.12.0). The app sends the estimator with the scene
+Every worker must be on protocol 45 (version 0.12.1). The app sends the estimator with the scene
 (Chapter 9, "Exit Collection"), and a worker renders with the estimator the app sends, never
 with one of its own, so a picture shared between this computer and the workers is drawn with
 one estimator.

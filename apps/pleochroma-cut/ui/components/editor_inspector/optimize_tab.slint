@@ -1,5 +1,6 @@
 import { LineEdit, CheckBox, Slider, ComboBox, SpinBox } from "std-widgets.slint";
 import { Theme } from "../../theme.slint";
+import { TiltWindows } from "../../shared/tilt_windows.slint";
 import { EditorModel } from "../../models/editor.slint";
 import { CompareModel } from "../../models/compare.slint";
 import { GuideModel } from "../../models/guide.slint";
@@ -272,9 +273,10 @@ export component OptimizeTab inherits VerticalLayout {
             spacing: 4px;
             // The caption above names the three fields in order; placeholder text repeats
             // which is which right where the cutter is typing.
-            LineEdit { enabled: root.unlocked; text <=> EditorModel.optimize_weight_windowing; placeholder-text: "windowing"; accessible-label: "Windowing Weight"; changed has-focus => { EditorModel.text_focus = self.has-focus; } }
-            LineEdit { enabled: root.unlocked; text <=> EditorModel.optimize_weight_extinction; placeholder-text: "extinction"; accessible-label: "Extinction Weight"; changed has-focus => { EditorModel.text_focus = self.has-focus; } }
-            LineEdit { enabled: root.unlocked; text <=> EditorModel.optimize_weight_tilt_brilliance; placeholder-text: "tilt brilliance"; accessible-label: "Tilt Brilliance Weight"; changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+            // `min-width: 0px`: three fields of the style's 160 px minimum do not fit a narrow dock.
+            LineEdit { min-width: 0px; enabled: root.unlocked; text <=> EditorModel.optimize_weight_windowing; placeholder-text: "windowing"; accessible-label: "Windowing Weight"; changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+            LineEdit { min-width: 0px; enabled: root.unlocked; text <=> EditorModel.optimize_weight_extinction; placeholder-text: "extinction"; accessible-label: "Extinction Weight"; changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+            LineEdit { min-width: 0px; enabled: root.unlocked; text <=> EditorModel.optimize_weight_tilt_brilliance; placeholder-text: "tilt brilliance"; accessible-label: "Tilt Brilliance Weight"; changed has-focus => { EditorModel.text_focus = self.has-focus; } }
         }
         // Non-numeric/negative input is rejected Rust-side (surfaced as an error toast)
         // before it reaches the search.
@@ -762,7 +764,7 @@ export component OptimizeTab inherits VerticalLayout {
         }
         // How to read the cards above.
         WrapNote {
-            text: "Windowing (Wind.), tilt brilliance (Bril.), extinction (Ext.) and yield loss as percentages. ▲ green beats the starting stone, ▼ red is worse. Tone is the face-up lightness L* with its predicted color. Click a card to preview it.";
+            text: "Windowing (Wind.), tilt brilliance (Bril., all tilts to " + TiltWindows.scored + "), extinction (Ext.) and yield loss as percentages. ▲ green beats the starting stone, ▼ red is worse. Tone is the face-up lightness L* with its predicted color. Click a card to preview it.";
             font_size: 10px;
         }
     }

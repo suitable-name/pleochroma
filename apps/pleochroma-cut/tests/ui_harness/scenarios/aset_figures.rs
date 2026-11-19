@@ -19,7 +19,7 @@ use super::{
 };
 use crate::support::{
     Ctx, SecondaryWindow, WindowView,
-    app::{pump, wait_until},
+    app::{DEFAULT_SIZE, pump, settle, wait_until},
 };
 use pleochroma_cut::{
     BaselineCell, BaselineModel, CompareMetricRow, CompareModel, EditorModel, MainWindow,
@@ -52,6 +52,10 @@ const LEGEND: [&str; 4] = ["Red 44 %", "Green 19 %", "Blue 16 %", "Dark 21 %"];
 const ZONES_NOTE: &str = "% of the face";
 /// The popover's footer link.
 const MANUAL_LINK: &str = "Open in the Manual";
+/// The fold button of a folded figures card.
+const UNFOLD_LABEL: &str = "Show Figures";
+/// A window height at which the popover shows all of its text without scrolling.
+const TALL_HEIGHT: u32 = 1800;
 
 /// The scenarios of this file.
 pub fn scenarios() -> Vec<Scenario> {
@@ -71,7 +75,7 @@ pub fn scenarios() -> Vec<Scenario> {
 
 /// Writes the figures the render thread pushes: Contrast and the zone shares, or "not measured"
 /// (`None`).
-fn feed(ui: &MainWindow, figures: Option<(f32, &[f32], &str)>) {
+fn write_figures(ui: &MainWindow, figures: Option<(f32, &[f32], &str)>) {
     let viewport = ui.global::<ViewportModel>();
     viewport.set_brilliance_pct(62.0);
     viewport.set_fire_index(0.42);
@@ -90,7 +94,68 @@ fn feed(ui: &MainWindow, figures: Option<(f32, &[f32], &str)>) {
             viewport.set_aset_split_text("".into());
         }
     }
-    pump(250);
+}
+
+/// Whether the card still shows what [`write_figures`] wrote for `figures`.
+fn figures_hold(ui: &MainWindow, figures: Option<(f32, &[f32], &str)>) -> bool {
+    let viewport = ui.global::<ViewportModel>();
+    let shares = viewport.get_aset_shares();
+    match figures {
+        Some((contrast, wanted, split)) => {
+            viewport.get_contrast().to_bits() == contrast.to_bits()
+                && viewport.get_aset_split_text().as_str() == split
+                && shares.row_count() == wanted.len()
+                && wanted.iter().enumerate().all(|(index, share)| {
+                    shares
+                        .row_data(index)
+                        .is_some_and(|shown| shown.to_bits() == share.to_bits())
+                })
+        }
+        None => viewport.get_contrast() < 0.0 && shares.row_count() == 0,
+    }
+}
+
+/// Shows `figures` on the card: writes them and makes sure they stay.
+///
+/// The app measures the open design on a worker thread and pushes the real figures when it is
+/// done, also in a harness run (`harness_support::disable_viewport_rendering` stops the tracing,
+/// not the figures). [`pump`] advances mock time only, so such a push can land right after the
+/// write and replace it (run of 2026-11-18: the card showed the design's own shares, not the fed
+/// ones). The figures are written again until they have stayed for 300 ms of real time.
+fn feed(ui: &MainWindow, figures: Option<(f32, &[f32], &str)>) {
+    for _ in 0..10 {
+        write_figures(ui, figures);
+        pump(250);
+        settle(300);
+        if figures_hold(ui, figures) {
+            return;
+        }
+    }
+}
+
+/// Waits until the app has pushed its own figures for the open design and they have stopped
+/// changing for a second of real time, so that no measurement is still on its way when the
+/// scenario writes figures of its own (see [`feed`]). Best effort: a design that is never
+/// measured leaves the first wait to time out.
+fn wait_for_measured_figures(ui: &MainWindow) {
+    let viewport = ui.global::<ViewportModel>();
+    let shown = || {
+        (
+            viewport.get_brilliance_pct().to_bits(),
+            viewport.get_contrast().to_bits(),
+            viewport.get_aset_split_text().to_string(),
+        )
+    };
+    let _ = wait_until(Duration::from_secs(15), || {
+        viewport.get_brilliance_pct() > 0.0 || viewport.get_contrast() >= 0.0
+    });
+    for _ in 0..10 {
+        let before = shown();
+        settle(1000);
+        if shown() == before {
+            return;
+        }
+    }
 }
 
 /// Whether some accessible label of the main window contains `part`.
@@ -147,6 +212,7 @@ fn open_live_card(ctx: &mut Ctx<'_>) -> bool {
     select_render_view(ctx.app, 0);
     ui.global::<ViewportModel>().set_live_view_mode(1);
     pump(400);
+    wait_for_measured_figures(&ui);
     true
 }
 
@@ -234,11 +300,18 @@ fn live_card(ctx: &mut Ctx<'_>) {
         "aset-popover-title",
         format!("the popover shows no {POPOVER_TITLE:?} title"),
     );
+    // The attribution line is the last paragraph of the popover's scroll area, and a view lists
+    // only what is on screen: it is read in a window tall enough to show the whole popover.
+    ctx.app.set_size(DEFAULT_SIZE.0, TALL_HEIGHT);
+    pump(200);
+    let tall_view = ctx.app.main_view();
     ctx.expect(
-        any_label_contains(&view, ATTRIBUTION),
+        any_label_contains(&tall_view, ATTRIBUTION),
         "aset-popover-attribution",
         format!("the popover carries no attribution line (no label contains {ATTRIBUTION:?})"),
     );
+    ctx.app.set_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1);
+    pump(200);
     ctx.expect(
         view.has(MANUAL_LINK),
         "aset-popover-manual",
@@ -398,6 +471,11 @@ fn edit_and_compare(ctx: &mut Ctx<'_>) {
     select_top_tab_model(ctx.app, 0);
     select_render_view(ctx.app, 1);
     show_baseline_cells(&ui, baseline_cells());
+    // Beside the tier table the Edit viewport is narrow, and a narrow card starts folded to one
+    // line (three figures, no ? button): it is opened with its own fold button first.
+    if click(ctx.app, UNFOLD_LABEL) {
+        pump(200);
+    }
     let view = ctx.app.main_view();
     ctx.expect(
         view.has("Contrast"),

@@ -65,14 +65,16 @@ it must be run by the owner. Device performance and GPU comparisons require vali
   stone's color genuinely depends on the electric-field direction relative to the
   crystal's optical axes, not just on wavelength.
 
-34 built-in materials ship with cited dispersion and absorption data
+40 built-in materials ship with cited dispersion and absorption data
 (`GemMaterial::all_materials()` in `src/optics/materials/mod.rs`,
 `GemMaterial::by_name(...)`): Diamond, Sapphire, Ruby, Emerald, Zircon, Alexandrite,
 Topaz, Spinel, Quartz, Tourmaline, Tanzanite, Synthetic Moissanite, Cubic Zirconia,
 Aquamarine, Morganite, Chrysoberyl (Yellow), Amethyst, Citrine, Pyrope Garnet,
 Almandine Garnet, Spessartine Garnet, Color-Change Garnet (Pyrope-Spessartine), Grossular Garnet (Tsavorite), Andradite Garnet
 (Demantoid), Peridot, YAG, GGG, Benitoite, Andalusite, Opal, Glass (N-BK7), Glass (F2),
-Rutile and Ametrine (the one zoned built-in: an amethyst base with a citrine half space).
+Rutile, Precious Opal (White), Precious Opal (Black), Labradorite, Moonstone, Titanite (Sphene),
+Nanosital (a glass-ceramic) and Ametrine (the one zoned built-in: an amethyst base with a citrine
+half space).
 
 ## Documentation map
 

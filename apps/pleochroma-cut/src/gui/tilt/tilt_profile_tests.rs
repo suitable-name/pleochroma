@@ -1,6 +1,6 @@
 use super::{
-    AxesCacheKey, AxesStep, HdrIdentity, axes_step, cached_curve_material_is_stale,
-    should_recompute_axes, tilt_sweep_material,
+    AxesCacheKey, AxesStep, axes_step, cached_curve_material_is_stale, should_recompute_axes,
+    tilt_sweep_material,
 };
 
 /// The tilt sweep traces the material the render builds for a sized stone
@@ -44,7 +44,7 @@ fn the_tilt_sweep_material_is_the_sized_render_material() {
     assert!(tilt_sweep_material(&[], None, "No Such Stone", 10.87, &planes).is_none());
 }
 use crate::gui::editor::Withheld;
-use pleochroma::optics::{materials::GemMaterial, raytracer::LightingPreset};
+use pleochroma::optics::materials::GemMaterial;
 use pleochroma_solid::preview::StoneGeometryBuf;
 
 /// A finished stone that was solved for a design the editor has since left must not
@@ -91,14 +91,8 @@ fn differing_material_is_stale() {
 
 fn sample_key(material: GemMaterial) -> AxesCacheKey {
     AxesCacheKey {
-        lighting_preset: LightingPreset::RingLights,
-        light_yaw: 48.0,
-        light_pitch: 54.0,
         material,
         planes_hash: 42,
-        head_shadow_bits: 16.0f32.to_bits(),
-        hdr_identity: HdrIdentity(None),
-        hdr_orientation_bits: [0, 0],
     }
 }
 
@@ -114,111 +108,15 @@ fn should_recompute_axes_is_false_once_the_exact_key_was_already_launched() {
     assert!(!should_recompute_axes(Some(&key), &key));
 }
 
+/// The curves are scored under the fixed tilt standard, so only the stone and its material key
+/// the sweep: another geometry re-launches it. (No lighting, light pose, head shadow or HDR map
+/// is part of the key at all, so changing the view never does.)
 #[test]
-fn should_recompute_axes_is_true_when_light_or_geometry_differ() {
-    let material = GemMaterial::all_materials()[0].clone();
-    let current = sample_key(material);
-    let mut moved_light = current.clone();
-    moved_light.light_yaw += 1.0;
-    assert!(should_recompute_axes(Some(&current), &moved_light));
+fn should_recompute_axes_is_true_when_the_geometry_differs() {
+    let current = sample_key(GemMaterial::all_materials()[0].clone());
     let mut moved_geometry = current.clone();
     moved_geometry.planes_hash = 43;
     assert!(should_recompute_axes(Some(&current), &moved_geometry));
-}
-
-/// The curves are scored under the selected preset, so switching preset alone must
-/// re-launch the sweep.
-#[test]
-fn should_recompute_axes_is_true_when_only_the_lighting_preset_differs() {
-    let current = sample_key(GemMaterial::all_materials()[0].clone());
-    let mut other_preset = current.clone();
-    other_preset.lighting_preset = LightingPreset::LightTent;
-    assert!(should_recompute_axes(Some(&current), &other_preset));
-}
-
-/// The curves are scored under the head shadow and the HDR map in force, so changing either
-/// must re-launch the sweep. An HDR map is compared by identity: the same `Arc` is the same
-/// map, another `Arc` (even of equal content) is a new one.
-#[test]
-fn head_shadow_and_hdr_identity_force_a_resweep() {
-    use pleochroma::renderer::env_map::EnvironmentMap;
-    use std::sync::Arc;
-    let current = sample_key(GemMaterial::all_materials()[0].clone());
-
-    let mut other_head_shadow = current.clone();
-    other_head_shadow.head_shadow_bits = 30.0f32.to_bits();
-    assert!(should_recompute_axes(Some(&current), &other_head_shadow));
-
-    let map = Arc::new(EnvironmentMap::uniform(4, 2, [1.0; 3]));
-    let mut with_map = current.clone();
-    with_map.hdr_identity = HdrIdentity(Some(Arc::clone(&map)));
-    assert!(should_recompute_axes(Some(&current), &with_map));
-    assert!(should_recompute_axes(Some(&with_map), &current));
-
-    let mut same_map = current.clone();
-    same_map.hdr_identity = HdrIdentity(Some(Arc::clone(&map)));
-    assert!(
-        !should_recompute_axes(Some(&with_map), &same_map),
-        "the same Arc is the same map"
-    );
-
-    let mut equal_content = current;
-    equal_content.hdr_identity =
-        HdrIdentity(Some(Arc::new(EnvironmentMap::uniform(4, 2, [1.0; 3]))));
-    assert!(
-        should_recompute_axes(Some(&with_map), &equal_content),
-        "another Arc is another map"
-    );
-}
-
-/// The curves are scored under the HDR map's orientation, with each axis at its own camera yaw.
-/// So a turned map, or flipping its camera switch, must re-launch the sweep, and the same
-/// orientation must not. An orbit (a scene yaw change) is not part of the key at all: it never
-/// forces a resweep, whether or not the map follows the camera.
-#[test]
-fn a_turned_hdr_map_forces_a_resweep_and_an_orbit_does_not() {
-    use pleochroma::renderer::env_map::HdrOrientation;
-    let current = sample_key(GemMaterial::all_materials()[0].clone());
-    let bits = |orientation: HdrOrientation| {
-        [
-            orientation.yaw.to_bits(),
-            u32::from(orientation.follows_camera),
-        ]
-    };
-    let with = |orientation: HdrOrientation| {
-        let mut key = current.clone();
-        key.hdr_orientation_bits = bits(orientation);
-        key
-    };
-    let follows = HdrOrientation {
-        yaw: 0.5,
-        follows_camera: true,
-    };
-    assert_eq!(
-        current.hdr_orientation_bits,
-        [0, 0],
-        "an unturned studio scene keys zero"
-    );
-    assert!(should_recompute_axes(Some(&current), &with(follows)));
-    // The key is built from the orientation alone, so the viewport's yaw (an orbit) leaves it
-    // untouched, and the sweep that is already on screen stays valid.
-    assert!(!should_recompute_axes(Some(&with(follows)), &with(follows)));
-    let turned_further = HdrOrientation {
-        yaw: 0.9,
-        ..follows
-    };
-    assert!(
-        should_recompute_axes(Some(&with(follows)), &with(turned_further)),
-        "turning the map re-scores the curves"
-    );
-    let fixed = HdrOrientation {
-        follows_camera: false,
-        ..follows
-    };
-    assert!(
-        should_recompute_axes(Some(&with(follows)), &with(fixed)),
-        "the camera switch re-scores the curves"
-    );
 }
 
 /// A custom material can be edited (RI, birefringence, dispersion, ...) while a

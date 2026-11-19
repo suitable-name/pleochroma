@@ -15,6 +15,7 @@ pub struct TeacherLabelWork {
     actions: Vec<Winner>,
     probes: Vec<TierProbe>,
     h_deg: f64,
+    execution_scale: f64,
     index: usize,
     pending: Vec<CandidateWork>,
     rescue: bool,
@@ -48,7 +49,7 @@ impl EnvCore {
         scales: &[f64],
         parallel: &(dyn Fn() -> bool + Sync),
     ) -> TeacherLabelWork {
-        let (label, best, gradient, search_enabled) =
+        let (label, best, gradient, execution_scale) =
             self.teacher_search_seed(h_deg, probes, scales);
         let mut work = TeacherLabelWork {
             label,
@@ -57,11 +58,12 @@ impl EnvCore {
             gradient,
             probes: probes.to_vec(),
             h_deg,
+            execution_scale: execution_scale.unwrap_or(1.0),
             index: 0,
             pending: Vec::new(),
             rescue: false,
-            search_enabled,
-            done: !search_enabled,
+            search_enabled: execution_scale.is_some(),
+            done: execution_scale.is_none(),
         };
         self.prepare_teacher_phase(&mut work, parallel);
         work
@@ -134,7 +136,7 @@ impl EnvCore {
         let prepare = |action: &Winner| {
             self.prepare_candidate(
                 &action_from_direction(&action.raw, self.settings.max_step_deg),
-                1.0,
+                work.execution_scale,
             )
         };
         work.pending = if remaining.len() > 1 && (on_pool_worker() || parallel()) {
@@ -147,7 +149,6 @@ impl EnvCore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::env::{DEFAULT_LINE_SEARCH, test_fixtures::fixture_env};
 
     #[test]
@@ -159,7 +160,7 @@ mod tests {
         let env = fixture_env();
         let count = env.current_design().tiers.len();
         let probes: Vec<_> = (0..count).map(|tier| env.probe_tier(tier, 0.25)).collect();
-        for scales in [&DEFAULT_LINE_SEARCH[..], &[][..]] {
+        for scales in [&DEFAULT_LINE_SEARCH[..], &[0.5][..], &[][..]] {
             let expected = env.teacher_label_from_probes(0.25, &probes, scales);
             // Spare capacity is never reported; pool workers fan out regardless.
             let actual = pool.install(|| {

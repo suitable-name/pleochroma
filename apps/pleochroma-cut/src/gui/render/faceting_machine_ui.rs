@@ -263,7 +263,9 @@ pub fn setup_faceting_machine_callbacks(
 
     let model = ui.global::<FacetingMachineModel>();
 
-    // A number changed by hand. While the sweep is a named preset it follows the lap radius.
+    // A number changed by hand. While the sweep is a named preset it follows the lap radius. A
+    // picked Custom stays Custom: another slider (Mast Position, Lap Radius) moved while the radii
+    // still match a preset must not fold the Inner and Outer Radius sliders away.
     let (weak, ctx, store) = (
         ui.as_weak(),
         Arc::clone(render_ctx),
@@ -281,6 +283,10 @@ pub fn setup_faceting_machine_callbacks(
             put_setting(&ui, &setting);
         }
         apply(&ui, &setting, &ctx, &store);
+        if preset == CUSTOM_PRESET {
+            ui.global::<FacetingMachineModel>()
+                .set_sweep_preset(CUSTOM_PRESET);
+        }
     });
 
     // A sweep name was picked: Narrow, Typical and Wide set the radii, Custom keeps them.

@@ -131,7 +131,7 @@ fn linked_series() -> Guide {
             "Tick Keep Linked.",
             "Click Generate.",
         ])
-        .check("Step2 and Step3 show a link icon in the ANGLE column.")
+        .check("Step2 and Step3 show a link icon beside their angles.")
         .why("Step2 becomes Step1 + 4 and Step3 becomes Step1 + 8.")
         .goal(
             Goal::All(vec![
@@ -217,7 +217,7 @@ fn mirror_to_other_block() -> Guide {
             "Leave the name suffix as it is.",
             "Click Mirror.",
         ])
-        .check("a new last row with 40.00 in the ANGLE column and the same indices.")
+        .check("a new last row with the angle 40.00 and the same indices.")
         .why("The copy goes to the opposite block (a pavilion tier becomes a crown tier) with the same angle size, and everything else is kept. The copy's name gets the suffix, so it never clashes with the original.")
         .goal(
             check("a tier at 40 degrees on the main ring", |ctx| {
@@ -238,7 +238,7 @@ fn mirror_to_other_block() -> Guide {
             "Change the name suffix to b.",
             "Click Mirror.",
         ])
-        .check("a new last row with 34.50 in the ANGLE column and a P code in the CODE column.")
+        .check("a new last row with the angle 34.50 and a P code.")
         .why("A tier with several names, such as P1/P2, gets the suffix on each of them.")
         .goal(
             check("a pavilion tier at 34.5 degrees on the main ring", |ctx| {
@@ -293,7 +293,7 @@ fn tier_relations() -> Guide {
             "Click the Pavilion Main row.",
             "In the Tier tab, set Angle (deg) to =[Crown Main]+6.5 and press Enter.",
         ])
-        .check("Pavilion Main shows a link icon in the ANGLE column and reads 41.00.")
+        .check("Pavilion Main shows a link icon beside its angle and reads 41.00.")
         .why("34.5 plus 6.5 is 41, and the tier keeps its pavilion side.")
         .goal(
             Goal::All(vec![
@@ -397,7 +397,7 @@ fn arithmetic_in_fields() -> Guide {
             "Click the Table row.",
             "Meets: Exact Scale Value (Scale segment), Scale Value: 0.5-0.15, then press Enter.",
         ])
-        .check("the Table row's Meets column reads 0.35.")
+        .check("the Table row's detail line reads scale 0.35.")
         .why("A sum that cannot be worked out, such as 1/0, is refused with the reason under the field.")
         .goal(
             check("Table is pinned to 0.35", |ctx| {
@@ -445,7 +445,7 @@ fn arithmetic_in_fields() -> Guide {
         )
         .actions([
             "The Angle field of the Tier tab and of the table's own angle cell.",
-            "The Scale Value and the millimetre values of Meets.",
+            "The Scale Value and the millimeter values of Meets.",
             "The position box, the Rotate teeth box, the Offset box and the cheater offset.",
             "The concave tier form's number fields.",
         ])

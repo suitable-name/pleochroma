@@ -9,11 +9,46 @@
 #[cfg(feature = "beam")]
 use pleochroma::renderer::accel_beam::BeamPhase;
 use pleochroma_render_jobs::{
+    ComputeChoice,
+    edit::edit_rule,
     run::{JobProgress, format_eta},
     state::{JobState, row_actions},
 };
 use pleochroma_vault::model::render_job::RenderJobMeta;
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
+
+/// The two facts of a job that its row needs and the database row does not hold: where it
+/// computes and whether it is Ray-Traced. The controller reads them once per job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobFacts {
+    /// Which computers render the job.
+    pub compute: ComputeChoice,
+    /// Whether the job is Ray-Traced.
+    pub is_ray: bool,
+}
+
+/// The facts of the listed jobs, by job id.
+pub type FactsMap = BTreeMap<i64, JobFacts>;
+
+/// The badge words of a compute choice.
+#[must_use]
+pub const fn compute_words(choice: ComputeChoice) -> &'static str {
+    match choice {
+        ComputeChoice::Local => "Local Only",
+        ComputeChoice::Remote => "Remote Only",
+        ComputeChoice::Both => "Local + Remote",
+    }
+}
+
+/// The word of a job kind for its row: a Ray-Traced job says so.
+const fn kind_words(still: bool, is_ray: bool) -> &'static str {
+    match (still, is_ray) {
+        (true, false) => "Still Image",
+        (false, false) => "Tilt Video",
+        (true, true) => "Still Image \u{b7} Ray-Traced",
+        (false, true) => "Tilt Video \u{b7} Ray-Traced",
+    }
+}
 
 /// One job row, as the Jobs window shows it.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +77,25 @@ pub struct RowView {
     pub can_move_up: bool,
     pub can_move_down: bool,
     pub can_show: bool,
+    /// Edit... is offered (every known state but running).
+    pub can_edit: bool,
+    /// The row's "..." menu has at least one item.
+    pub has_menu: bool,
+    /// A still picture, not a tilt video.
+    pub is_still: bool,
+    /// "Local Only", "Remote Only" or "Local + Remote"; empty when unknown.
+    pub compute_label: String,
+    /// The row's one big button: 0 none, 1 Pause, 2 Resume, 3 Show, 4 Restart.
+    pub primary_action: i32,
+    /// Cancel shows as a button of its own (a running job).
+    pub show_cancel: bool,
+    pub can_duplicate: bool,
+    pub can_copy: bool,
+    pub can_load_view: bool,
+    /// The whole label, for the tooltip of its elided form.
+    pub label_tooltip: String,
+    /// The state word is one this version does not know.
+    pub unknown_state: bool,
 }
 
 /// The progress of the job that is rendering now.
@@ -65,26 +119,27 @@ pub struct QueueView {
     pub chip_text: String,
     /// `0.0..=1.0` while a job runs, else `-1.0`.
     pub chip_progress: f32,
+    /// At least one job exists.
+    pub has_jobs: bool,
 }
 
 /// The text of `row` for the database row `meta`, which is `index` of `count` in the list.
-/// `live` is the running job's progress, used only when the row is running.
+/// `live` is the running job's progress, used only when the row is running. `facts` are the
+/// job's compute and engine, when the controller has read them.
 pub fn row_view(
     meta: &RenderJobMeta,
     index: usize,
     count: usize,
     live: Option<&JobProgress>,
+    facts: Option<JobFacts>,
 ) -> RowView {
+    let is_still = meta.kind == "still";
+    let is_ray = facts.is_some_and(|f| f.is_ray);
     let mut view = RowView {
         id: i32::try_from(meta.job_id).unwrap_or(i32::MAX),
         number_text: (index + 1).to_string(),
         label: meta.label.clone(),
-        kind_text: if meta.kind == "still" {
-            "Still Image"
-        } else {
-            "Tilt Video"
-        }
-        .to_string(),
+        kind_text: kind_words(is_still, is_ray).to_string(),
         state_word: String::new(),
         state_text: String::new(),
         summary: meta.summary.clone(),
@@ -100,6 +155,17 @@ pub fn row_view(
         can_move_up: false,
         can_move_down: false,
         can_show: false,
+        can_edit: false,
+        has_menu: true,
+        is_still,
+        compute_label: String::new(),
+        primary_action: 0,
+        show_cancel: false,
+        can_duplicate: false,
+        can_copy: false,
+        can_load_view: false,
+        label_tooltip: meta.label.clone(),
+        unknown_state: false,
     };
     let Some(state) = JobState::parse(&meta.state) else {
         // A state word this version does not know (a newer version wrote it): a neutral row
@@ -107,6 +173,8 @@ pub fn row_view(
         "unknown".clone_into(&mut view.state_word);
         "Unknown".clone_into(&mut view.state_text);
         view.can_delete = true;
+        // Only Delete is in the menu, and no compute badge shows.
+        view.unknown_state = true;
         return view;
     };
     view.state_word = state.as_str().to_string();
@@ -122,6 +190,13 @@ pub fn row_view(
     view.can_move_up = actions.move_up;
     view.can_move_down = actions.move_down;
     view.can_show = state == JobState::Done && meta.result_path.is_some();
+    view.can_edit = edit_rule(state).is_ok();
+    view.compute_label = facts.map_or_else(String::new, |f| compute_words(f.compute).to_string());
+    view.primary_action = primary_action_of(state, view.can_show);
+    view.show_cancel = state == JobState::Running;
+    view.can_duplicate = true;
+    view.can_copy = true;
+    view.can_load_view = true;
 
     let (progress, text) = progress_of(meta, state, live);
     view.progress = progress;
@@ -134,6 +209,30 @@ pub fn row_view(
             .unwrap_or_else(|| "The job failed.".to_string());
     }
     view
+}
+
+/// The row's one big button: Pause while waiting or running, Resume when paused or failed,
+/// Show when done (with a result), Restart when cancelled; 0 for none.
+const fn primary_action_of(state: JobState, can_show: bool) -> i32 {
+    match state {
+        JobState::Queued | JobState::Running => 1,
+        JobState::Paused | JobState::Failed => 2,
+        JobState::Done => {
+            if can_show {
+                3
+            } else {
+                0
+            }
+        }
+        JobState::Cancelled => 4,
+    }
+}
+
+/// Whether Load Job View's pick mode goes on after the rows were shown: it ends when no
+/// job is left to pick, and when the window is closed.
+#[must_use]
+pub const fn pick_mode_after_publish(pick_mode: bool, has_jobs: bool, panel_open: bool) -> bool {
+    pick_mode && has_jobs && panel_open
 }
 
 /// The progress bar fraction (`-1.0` for none) and the progress words of a row.
@@ -264,11 +363,13 @@ fn join(head: String, tail: Option<String>) -> String {
 }
 
 /// The whole window for the database rows `metas` (in queue order). `live` belongs to the
-/// running job and is ignored for any other row.
+/// running job and is ignored for any other row. `facts` holds what the controller has read
+/// of each job's compute and engine.
 pub fn queue_view(
     metas: &[RenderJobMeta],
     queue_running: bool,
     live: Option<&LiveProgress>,
+    facts: &FactsMap,
 ) -> QueueView {
     let count = metas.len();
     let states: Vec<Option<JobState>> = metas.iter().map(|m| JobState::parse(&m.state)).collect();
@@ -279,7 +380,13 @@ pub fn queue_view(
             let own_live = live
                 .filter(|l| l.job_id == meta.job_id)
                 .map(|l| &l.progress);
-            row_view(meta, index, count, own_live)
+            row_view(
+                meta,
+                index,
+                count,
+                own_live,
+                facts.get(&meta.job_id).copied(),
+            )
         })
         .collect();
 
@@ -344,5 +451,6 @@ pub fn queue_view(
         chip_visible: running > 0 || waiting > 0 || paused > 0 || queue_running,
         chip_text,
         chip_progress,
+        has_jobs: count > 0,
     }
 }

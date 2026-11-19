@@ -8,7 +8,7 @@ import { CuttingTableModel } from "../models/cutting_table.slint";
 import { CuttingModeModel } from "../models/cutting_mode.slint";
 import { HelpTopics } from "../models/help.slint";
 import { HelpButton } from "help_button.slint";
-import { KitBadge, KitButton, KitIcons, KitSegment, KitSegmentBar } from "kit/kit.slint";
+import { KitBadge, KitButton, KitIconButton, KitIcons, KitSegment, KitSegmentBar } from "kit/kit.slint";
 
 // One index as a small chip.
 component CtChip inherits Rectangle {
@@ -136,8 +136,26 @@ export component CuttingTableView inherits Rectangle {
 
     // The step panel shows only where there is room for it beside the list.
     property <bool> side_panel: root.width >= 1000px;
+    // The filter segments and the buttons no longer fit one row: the buttons go on a second row.
+    property <bool> two_rows: root.width < 820px;
+    // Narrower still (a small window with the library open), Copy as Text and Print / PDF are
+    // icon buttons; their accessible names stay.
+    property <bool> icon_buttons: root.width < 520px;
+    // The three filter segments and the "?" must fit one row. Under 400px (the 720px minimum
+    // window with the library open) "All Steps" is drawn as "All"; under 300px the counts go too.
+    // Only the drawn text gets shorter: the accessible names stay "All Steps (5)" and so on.
+    property <bool> short_filters: root.width < 400px;
+    property <bool> bare_filters: root.width < 300px;
+    property <string> all_name: "All Steps (" + CuttingTableModel.count_rows(root.angles, 0) + ")";
+    property <string> pavilion_name: "Pavilion (" + CuttingTableModel.count_rows(root.angles, 1) + ")";
+    property <string> crown_name: "Crown (" + CuttingTableModel.count_rows(root.angles, 2) + ")";
     property <bool> can_print: EditorModel.enabled && EditorModel.has_design && GuideModel.allows_file_ops();
     property <string> cut_reason: CuttingModeModel.unavailable_reason();
+    property <string> print_hint: root.can_print
+        ? "Write the standard one-page cutting sheet of the design open in Edit as a PDF, ready to print."
+        : "Open the design in Edit first.";
+    property <bool> can_cut: root.cut_reason == "" && GuideModel.allows_advanced() && !CuttingModeModel.open;
+    property <string> cut_hint: root.cut_reason != "" ? root.cut_reason : "Go through the steps one page at a time, with the stone and the index wheel.";
     // The step the cursor is on (the panel beside the list shows it); the rows are in order.
     property <AngleItem> sel: root.angles[Math.max(0, root.cursor)];
 
@@ -170,6 +188,7 @@ export component CuttingTableView inherits Rectangle {
 
             // Action header
             HorizontalLayout {
+                height: 32px;
                 spacing: 10px;
 
                 VerticalLayout {
@@ -183,19 +202,23 @@ export component CuttingTableView inherits Rectangle {
                             padding: 2px;
                             spacing: 2px;
                             KitSegment {
-                                text: "All Steps (" + CuttingTableModel.count_rows(root.angles, 0) + ")";
+                                text: root.bare_filters ? "All"
+                                    : (root.short_filters ? "All (" + CuttingTableModel.count_rows(root.angles, 0) + ")" : root.all_name);
+                                label: root.all_name;
                                 hint: "Show every step of the cutting instructions.";
                                 on: root.filter_mode == 0;
                                 picked => { root.filter_mode = 0; }
                             }
                             KitSegment {
-                                text: "Pavilion (" + CuttingTableModel.count_rows(root.angles, 1) + ")";
+                                text: root.bare_filters ? "Pavilion" : root.pavilion_name;
+                                label: root.pavilion_name;
                                 hint: "Show only the pavilion steps, the ones below the girdle.";
                                 on: root.filter_mode == 1;
                                 picked => { root.filter_mode = 1; }
                             }
                             KitSegment {
-                                text: "Crown (" + CuttingTableModel.count_rows(root.angles, 2) + ")";
+                                text: root.bare_filters ? "Crown" : root.crown_name;
+                                label: root.crown_name;
                                 hint: "Show only the crown steps, the ones above the girdle.";
                                 on: root.filter_mode == 2;
                                 picked => { root.filter_mode = 2; }
@@ -212,27 +235,25 @@ export component CuttingTableView inherits Rectangle {
                     }
                 }
                 Rectangle { horizontal-stretch: 1; min-width: 0px; }
-                KitButton {
+                if !root.two_rows: KitButton {
                     text: "Copy as Text";
                     icon: KitIcons.copy;
                     hint: "Copy the whole cutting table to the clipboard, so you can paste it into a document.";
                     clicked => { root.copy_table(); }
                 }
-                KitButton {
+                if !root.two_rows: KitButton {
                     text: "Print / PDF…";
                     icon: KitIcons.export;
                     enabled: root.can_print;
-                    hint: root.can_print
-                        ? "Write the standard one-page cutting sheet of the design open in Edit as a PDF, ready to print."
-                        : "Open the design in Edit first.";
+                    hint: root.print_hint;
                     clicked => { EditorModel.export_cutting_sheet_pdf(); }
                 }
-                KitButton {
+                if !root.two_rows: KitButton {
                     text: "Start Cut Mode";
                     icon: KitIcons.play;
                     kind: 1;
-                    enabled: root.cut_reason == "" && GuideModel.allows_advanced() && !CuttingModeModel.open;
-                    hint: root.cut_reason != "" ? root.cut_reason : "Go through the steps one page at a time, with the stone and the index wheel.";
+                    enabled: root.can_cut;
+                    hint: root.cut_hint;
                     clicked => { CuttingModeModel.open_cutting_mode(); }
                 }
                 VerticalLayout {
@@ -241,6 +262,45 @@ export component CuttingTableView inherits Rectangle {
                         topic: HelpTopics.cutting-table;
                         hint: "Open the manual page on the cutting instructions";
                     }
+                }
+            }
+            // The same three buttons on a row of their own (`two_rows`).
+            if root.two_rows: HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                if !root.icon_buttons: KitButton {
+                    text: "Copy as Text";
+                    icon: KitIcons.copy;
+                    hint: "Copy the whole cutting table to the clipboard, so you can paste it into a document.";
+                    clicked => { root.copy_table(); }
+                }
+                if root.icon_buttons: KitIconButton {
+                    d: KitIcons.copy;
+                    label: "Copy as Text";
+                    hint: "Copy the whole cutting table to the clipboard, so you can paste it into a document.";
+                    clicked => { root.copy_table(); }
+                }
+                if !root.icon_buttons: KitButton {
+                    text: "Print / PDF…";
+                    icon: KitIcons.export;
+                    enabled: root.can_print;
+                    hint: root.print_hint;
+                    clicked => { EditorModel.export_cutting_sheet_pdf(); }
+                }
+                if root.icon_buttons: KitIconButton {
+                    d: KitIcons.export;
+                    label: "Print / PDF…";
+                    enabled: root.can_print;
+                    hint: root.print_hint;
+                    clicked => { EditorModel.export_cutting_sheet_pdf(); }
+                }
+                KitButton {
+                    text: "Start Cut Mode";
+                    icon: KitIcons.play;
+                    kind: 1;
+                    enabled: root.can_cut;
+                    hint: root.cut_hint;
+                    clicked => { CuttingModeModel.open_cutting_mode(); }
                 }
             }
 

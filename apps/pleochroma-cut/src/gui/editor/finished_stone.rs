@@ -117,8 +117,8 @@ fn is_stale(job_generation: u64, live: Option<u64>) -> bool {
 
 /// Whether the editor's live viewport (Live Render) shows the editor's own design when `owner`
 /// holds the render context's plane slot -- the only case in which the Cut slider's cut is what
-/// the picture shows. A Library row on the viewport, or the built-in placeholder cut, is
-/// drawn whole whatever the slider says.
+/// the picture shows. A Library row or a job view on the viewport, or the built-in placeholder
+/// cut, is drawn whole whatever the slider says.
 #[must_use]
 pub(in crate::gui) const fn shows_editor_design(owner: PlanesOwner) -> bool {
     matches!(owner, PlanesOwner::Editor { .. })

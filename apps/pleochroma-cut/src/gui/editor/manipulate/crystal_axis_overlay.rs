@@ -444,6 +444,8 @@ fn finish(ui: &MainWindow, ctx: &Shared, keep: bool) {
     let axis_model = ui.global::<CrystalAxisModel>();
     axis_model.set_dragging(false);
     axis_model.set_hovered(-1);
+    // The handle's hover hint ends with the gesture; the next hover over a handle sets it again.
+    set_hint(ui, "");
     if keep {
         // A tutorial step may wait for a turn that was kept.
         raise(ui, CRYSTAL_AXIS_DRAGGED);
