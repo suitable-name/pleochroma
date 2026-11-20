@@ -88,7 +88,8 @@ jobs:
     name: ${{ matrix.product }} macOS ${{ matrix.arch }}
     needs: prepare
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 300
+    # GitHub stops a hosted job after 360 minutes; this leaves time to preserve the executable.
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -148,7 +149,21 @@ jobs:
           unset CARGO_ENCODED_RUSTFLAGS
           # Match the Linux pgo-bolt-build.sh GPU production feature set.
           # UI harnesses, benchmarks and experimental color UI are not release features.
-          cargo build --locked --release --jobs 1 \
+          #
+          # The desktop app's own crate is mostly Slint-generated UI code. As one codegen unit at
+          # opt-level 3 its compile alone runs for hours on these runners and its compiler
+          # outgrows the arm64 runner's 7 GB (rustc killed with signal 9). The crate is
+          # optimised for size instead, as the browser app's page crate is
+          # ([profile.pleochroma-web-release] in Cargo.toml). The tracer, the solver and Slint's
+          # renderer are dependency crates and keep opt-level 3. The worker has no such crate.
+          profile_config=()
+          if [ "$PRODUCT" = cut ]; then
+            profile_config=(--config 'profile.release.package.pleochroma-cut.opt-level="s"')
+          fi
+          # /usr/bin/time -l prints the build's wall time and the peak memory of its largest
+          # compiler process, so each run's log shows how far the build is from the runner's limits.
+          /usr/bin/time -l cargo build --locked --release --jobs 1 \
+            ${profile_config[@]+"${profile_config[@]}"} \
             -p "pleochroma-$PRODUCT" --bin "pleochroma-$PRODUCT" \
             --features "$BUILD_FEATURES" --target "$RUST_TARGET"
 

@@ -20,7 +20,7 @@ name: Build Worker
 # Runs when a release is published, from the release's tag, and by hand for an existing release.
 # A run by hand builds the release's source with the build scripts (scripts/) of the branch it
 # was started on, so a script fix can rebuild an existing release without moving its tag.
-# The tag must match the workspace version (v0.12.1 for 0.12.1). One PGO build takes about
+# The tag must match the workspace version (v0.12.2 for 0.12.2). One PGO build takes about
 # 1.5 to 3 hours; the eight run in parallel.
 
 on:
